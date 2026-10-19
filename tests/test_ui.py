@@ -114,3 +114,45 @@ class WorkbenchTests(unittest.TestCase):
         app.terminals['PC2'].send('ip dhcp')
         self.root.update()
         self.assertTrue(app.lab.ping('PC1',app.lab.nodes['PC2'].address.split('/')[0])[0])
+
+    def test_prompt_stays_visible_on_laptop_sizes_and_repeated_config(self):
+        app=self.app; terminal=app.terminals['SW1']
+        for width,height in ((1300,668),(1024,600),(900,500),(1280,700)):
+            self.root.geometry(f'{width}x{height}')
+            self.root.update(); app.apply_layout(); self.root.update()
+            for _ in range(4):
+                terminal.send('enable' if terminal.session.mode=='user' else 'show running-config')
+                terminal.send('configure terminal\ninterface gi0/1\ndescription test\nend')
+                self.root.update()
+                info=terminal.text.dlineinfo('end-1c')
+                self.assertIsNotNone(info,(width,height,'prompt hidden'))
+                self.assertGreaterEqual(info[1],0)
+                self.assertLessEqual(info[1]+info[3],terminal.text.winfo_height(),(width,height,info))
+            root_bottom=self.root.winfo_rooty()+self.root.winfo_height()
+            self.assertLessEqual(terminal.text.winfo_rooty()+terminal.text.winfo_height(),root_bottom)
+        app.toggle_console_focus(); self.root.update()
+        self.assertEqual(len(app.middle.panes()),1)
+        self.assertIsNotNone(terminal.text.dlineinfo('end-1c'))
+        app.toggle_console_focus(); self.root.update()
+        self.assertEqual(len(app.middle.panes()),2)
+
+    def test_focus_modes_and_simulation_tab(self):
+        app=self.app
+        app.toggle_topology_focus(); self.root.update()
+        self.assertTrue(app.topology_focus)
+        self.assertEqual(len(app.middle.panes()),1)
+        app.open_cli('PC1'); self.root.update()
+        self.assertFalse(app.topology_focus)
+        self.assertEqual(len(app.middle.panes()),2)
+        app.show_test_panel(); self.root.update()
+        self.assertEqual(app.inspector_book.select(),str(app.test_panel))
+        app.toggle_console_focus(); app.set_place('PC'); self.root.update()
+        self.assertFalse(app.console_focus)
+
+    def test_integrated_mst_vtp_labs(self):
+        app=self.app
+        app.replace_lab(app.mst_demo); self.root.update()
+        self.assertEqual(app.lab.stp(10)['SW2']['root'],'SW1')
+        self.assertEqual(app.lab.stp(20)['SW2']['root'],'SW3')
+        app.replace_lab(app.vtp_demo); self.root.update()
+        self.assertEqual(app.lab.nodes['SW2'].vlans['30'],'USERS')

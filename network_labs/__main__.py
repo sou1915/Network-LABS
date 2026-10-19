@@ -7,6 +7,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from pathlib import Path
 from .engine import Lab, Node, demo, switching_demo, vlan_list
 from .cli import Session, FEATURES
+from .layout import ScrollPanel, initial_geometry, fit_dialog
 
 BG='#0a101c'; PANEL='#111d2e'; CARD='#17263a'; LINE='#2b405a'
 TEXT='#e3edf9'; MUTED='#91a5c0'; TEAL='#40dfba'; BLUE='#67aafa'; GOLD='#f6c566'; RED='#fb818d'
@@ -29,13 +30,14 @@ class Terminal:
     def __init__(self,app,node):
         self.app=app; self.session=Session(app.lab,node)
         self.history=[]; self.cursor=0
+        self.tail_job=None; self.follow_tail=True
         self.frame=tk.Frame(app.dock,bg='#000000')
         bar=tk.Frame(self.frame,bg='#1c2026',padx=9,pady=4); bar.pack(fill='x')
         tk.Label(bar,text=f'{node} — Console 0  |  Local simulation',bg='#1c2026',fg='#a8afb8',font=('DejaVu Sans',9)).pack(side='left')
         for title,callback in [('?',lambda:self.send('?')),('Coller un bloc',self.block),('Effacer',self.clear)]:
             ttk.Button(bar,text=title,command=callback,style='Small.TButton').pack(side='right',padx=3)
         content=tk.Frame(self.frame,bg='black'); content.pack(fill='both',expand=True)
-        self.text=tk.Text(content,bg='#000000',fg='#d5d5d5',font=('DejaVu Sans Mono',11),relief='flat',wrap='char',padx=12,pady=12,height=11,insertbackground='#e0e0e0',insertwidth=9,insertofftime=450,insertontime=650,selectbackground='#38485d',selectforeground='white',undo=False)
+        self.text=tk.Text(content,bg='#000000',fg='#d5d5d5',font=('DejaVu Sans Mono',11),relief='flat',wrap='char',padx=12,pady=12,height=7,insertbackground='#e0e0e0',insertwidth=9,insertofftime=450,insertontime=650,selectbackground='#38485d',selectforeground='white',undo=False)
         scroll=ttk.Scrollbar(content,command=self.text.yview); self.text.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y'); self.text.pack(fill='both',expand=True)
         self.entry=self.text  # Kept as the focus target for the workbench.
@@ -43,6 +45,9 @@ class Terminal:
         self.text.tag_configure('hint',foreground='#9b9b9b')
         self.text.tag_configure('error',foreground='#d5d5d5')
         self.text.tag_configure('prompt',foreground='#d5d5d5')
+        self.text.bind('<Configure>',lambda e:self.schedule_tail())
+        self.text.bind('<Map>',lambda e:self.schedule_tail())
+        self.text.bind('<Destroy>',self.destroyed)
         self.text.bind('<KeyPress>',self.key)
         self.text.bind('<Return>',lambda e:self.enter())
         self.text.bind('<Up>',lambda e:self.recall(-1))
@@ -57,6 +62,10 @@ class Terminal:
         self.text.bind('<<Paste>>',self.paste)
         self.text.bind('<<Cut>>',self.cut)
         self.text.bind('<Control-k>',self.kill_line)
+        self.text.bind('<Control-h>',self.backspace)
+        self.text.bind('<Control-w>',self.delete_word)
+        self.text.bind('<Control-BackSpace>',self.delete_word)
+        self.text.bind('<Control-u>',self.clear_input)
         self.write('Network LABS virtual console\nEducational simulation — no vendor operating system loaded.\n\n')
         if self.session.n.kind=='PC':
             self.write('Network workstation. Type help for network commands.\n\n')
@@ -66,14 +75,29 @@ class Terminal:
 
     def write(self,text,tag=None):
         self.text.insert('end-1c',text,tag or ())
-        self.text.see('end')
+        self.schedule_tail()
+
+    def destroyed(self,event):
+        if event.widget==self.text and self.tail_job is not None:
+            self.app.root.after_cancel(self.tail_job); self.tail_job=None
+
+    def schedule_tail(self):
+        if self.tail_job is not None:
+            self.app.root.after_cancel(self.tail_job)
+        self.tail_job=self.app.root.after_idle(self.ensure_prompt_visible)
+
+    def ensure_prompt_visible(self):
+        self.tail_job=None
+        if self.text.winfo_exists() and self.text.winfo_ismapped():
+            self.text.yview_moveto(1.0)
+            self.text.see('end-1c')
 
     def new_prompt(self,value=''):
         self.prompt.set(self.session.prompt)
         self.text.mark_set('prompt_start','end-1c'); self.text.mark_gravity('prompt_start','left')
         self.write(self.session.prompt+' ')
         self.text.mark_set('input_start','end-1c'); self.text.mark_gravity('input_start','left')
-        self.write(value); self.text.mark_set('insert','end-1c'); self.text.see('end')
+        self.write(value); self.text.mark_set('insert','end-1c'); self.schedule_tail()
 
     def pending(self):
         return self.text.get('input_start','end-1c')
@@ -90,7 +114,7 @@ class Terminal:
             return 'break'
         if event.char=='?':
             value=self.pending()
-            self.write('?\n'+self.session.help()+'\n'); self.new_prompt(value); return 'break'
+            self.write('?\n'+self.session.help(value)+'\n'); self.new_prompt(value); return 'break'
         if event.keysym in ('Return','Up','Down','Tab','Home') or event.state & 4:
             return None
         if event.keysym in ('BackSpace','Left') and self.text.compare('insert','<=','input_start'):
@@ -105,6 +129,29 @@ class Terminal:
         if event.keysym=='Delete' and self.text.compare('insert','<','input_start'):
             return 'break'
         return None
+
+    def backspace(self,event=None):
+        if self.protected_selection():
+            return 'break'
+        selected=self.text.tag_ranges('sel')
+        if selected:
+            self.text.delete(*selected)
+        elif self.text.compare('insert','>','input_start'):
+            self.text.delete('insert-1c','insert')
+        return 'break'
+
+    def delete_word(self,event=None):
+        if self.text.compare('insert','>','input_start'):
+            start=self.text.index('insert-1c wordstart')
+            if self.text.compare(start,'<','input_start'):
+                start='input_start'
+            self.text.delete(start,'insert')
+        return 'break'
+
+    def clear_input(self,event=None):
+        if self.text.compare('insert','>','input_start'):
+            self.text.delete('input_start','insert')
+        return 'break'
 
     def home(self,event=None):
         self.text.mark_set('insert','input_start'); return 'break'
@@ -145,8 +192,7 @@ class Terminal:
         return 'break'
 
     def complete(self,event=None):
-        candidates=['enable','configure terminal','interface ','interface range ','show vlan brief','show interfaces status','show interfaces trunk','show spanning-tree','show etherchannel summary','show mac address-table','show port-security','show running-config','show ip route','show ip dhcp binding','show ip dhcp snooping binding','show ip arp inspection','show dtp interface ','show capabilities','switchport mode access','switchport mode trunk','switchport mode dynamic auto','switchport mode dynamic desirable','switchport access vlan ','switchport trunk allowed vlan ','ip dhcp','ipconfig','ping ','end','exit','no shutdown','shutdown']
-        value=self.pending(); matches=[c for c in candidates if c.startswith(value.lower())]
+        value=self.pending(); matches=self.session.completion_candidates(value)
         if len(matches)==1:
             self.replace_input(matches[0])
         elif matches:
@@ -205,13 +251,13 @@ class Terminal:
 
     def open_block(self,initial):
         win=tk.Toplevel(self.app.root); win.title('Configuration / '+self.session.node)
-        win.geometry('700x460'); win.configure(bg=PANEL); win.transient(self.app.root)
+        fit_dialog(win,700,460); win.configure(bg=PANEL); win.transient(self.app.root)
         label(win,'Une commande par ligne • arrêt à la première erreur',MUTED).pack(padx=15,pady=12)
         editor=tk.Text(win,bg='black',fg='#d5d5d5',insertbackground='white',font=MONO,padx=12,pady=12)
         editor.pack(fill='both',expand=True,padx=12); editor.insert('1.0',initial)
         def run():
             value=editor.get('1.0','end-1c'); win.destroy(); self.send(value); self.text.focus_set()
-        button(win,'Exécuter le bloc',run,True).pack(anchor='e',padx=12,pady=12); editor.focus_set()
+        button(win,'Exécuter le bloc',run,True).pack(side='bottom',before=editor,anchor='e',padx=12,pady=12); editor.focus_set()
 
 class App:
     def __init__(self,root):
@@ -221,24 +267,29 @@ class App:
         self.timer=None; self.running=False; self.hops=[]; self.index=0; self.progress=0.; self.result=None
         self.terminals={}; self.dirty=False; self.path=None
         root.title('Network LABS  /  Switching Studio')
-        root.geometry('1530x1010'); root.minsize(1180,800); root.configure(bg=BG)
+        width,height,x,y=initial_geometry(root.winfo_screenwidth(),root.winfo_screenheight())
+        root.geometry(f'{width}x{height}+{x}+{y}')
+        root.minsize(min(900,width),min(500,height)); root.configure(bg=BG)
+        self.layout_job=None; self.last_size=None; self.dock_ratio=.57; self.console_focus=False; self.topology_focus=False
+        self.panel_preference={'library':None,'inspector':None}
         self.style()
         self.header()
-        workspace=ttk.Panedwindow(root,orient='horizontal')
+        workspace=self.workspace=ttk.Panedwindow(root,orient='horizontal')
         workspace.pack(fill='both',expand=True,padx=10,pady=(8,0))
-        self.sidebar=tk.Frame(workspace,bg=PANEL,width=175)
+        self.sidebar=ScrollPanel(workspace,PANEL)
+        self.sidebar.configure(width=195)
         self.sidebar.pack_propagate(False)
         workspace.add(self.sidebar,weight=0)
-        middle=ttk.Panedwindow(workspace,orient='vertical')
+        middle=self.middle=ttk.Panedwindow(workspace,orient='vertical')
         workspace.add(middle,weight=1)
         self.right=tk.Frame(workspace,bg=PANEL,width=330)
         self.right.pack_propagate(False)
         workspace.add(self.right,weight=0)
         self.build_sidebar()
-        topology=tk.Frame(middle,bg=BG)
+        topology=self.topology=tk.Frame(middle,bg=BG)
         middle.add(topology,weight=3)
         self.canvas_toolbar(topology)
-        self.canvas=tk.Canvas(topology,bg=BG,highlightthickness=0,height=470)
+        self.canvas=tk.Canvas(topology,bg=BG,highlightthickness=0,height=200)
         self.canvas.pack(fill='both',expand=True)
         self.canvas.bind('<Button-1>',self.select)
         self.canvas.bind('<B1-Motion>',self.drag)
@@ -258,15 +309,17 @@ class App:
         label(legend,'● STP bloqué',GOLD,9).pack(side='left',padx=6)
         label(legend,'● Down',RED,9).pack(side='left',padx=6)
         label(legend,'● Hors VLAN',MUTED,9).pack(side='left',padx=6)
-        label(legend,'Double-clic : CLI  ·  Molette : zoom  ·  Clic milieu : déplacer la vue',MUTED,9).pack(side='right')
-        self.dock=ttk.Notebook(middle)
+        label(legend,'Double-clic : CLI  ·  F10/F11 : agrandir',MUTED,9).pack(side='right')
+        self.dock=ttk.Notebook(middle,height=180)
         middle.add(self.dock,weight=2)
         self.build_events()
         self.build_right()
+        self.dock.bind('<<NotebookTabChanged>>',self.console_tab_changed)
+        self.middle.bind('<ButtonRelease-1>',self.remember_split)
         self.status=tk.StringVar(value='Prêt • Sélectionner un équipement ou ouvrir sa console')
         statusbar=tk.Frame(root,bg=PANEL,padx=14,pady=7)
         statusbar.pack(fill='x',pady=(6,0))
-        tk.Label(statusbar,textvariable=self.status,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9)).pack(side='left')
+        tk.Label(statusbar,textvariable=self.status,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9),width=1,anchor='w').pack(side='left',fill='x',expand=True)
         self.counts=tk.StringVar()
         tk.Label(statusbar,textvariable=self.counts,bg=PANEL,fg=TEAL,font=('DejaVu Sans',9)).pack(side='right')
         root.protocol('WM_DELETE_WINDOW',self.close)
@@ -274,6 +327,83 @@ class App:
         self.refresh(); self.open_cli('SW1')
         root.update_idletasks()
         self.fit()
+        root.bind('<Configure>',self.window_resized,add='+')
+        root.bind('<Destroy>',self.cleanup,add='+')
+        self.apply_layout()
+
+    def cleanup(self,event):
+        if event.widget==self.root:
+            self.pause()
+            if self.layout_job is not None:
+                self.root.after_cancel(self.layout_job); self.layout_job=None
+
+    def window_resized(self,event):
+        if event.widget!=self.root:
+            return
+        size=(event.width,event.height)
+        if size==self.last_size:
+            return
+        self.last_size=size
+        if self.layout_job is not None:
+            self.root.after_cancel(self.layout_job)
+        self.layout_job=self.root.after(60,self.apply_layout)
+
+    def remember_split(self,event=None):
+        if not self.console_focus and len(self.middle.panes())>1:
+            self.dock_ratio=self.middle.sashpos(0)/max(1,self.middle.winfo_height())
+
+    def apply_layout(self):
+        self.layout_job=None
+        width=self.root.winfo_width()
+        for key,frame,index,automatic in [('library',self.sidebar,0,width>=1180),('inspector',self.right,'end',width>=1100)]:
+            show=self.panel_preference[key] if self.panel_preference[key] is not None else automatic
+            managed=str(frame) in self.workspace.panes()
+            if show and not managed:
+                self.workspace.insert(index,frame,weight=0)
+            elif not show and managed:
+                self.workspace.forget(frame)
+        if not self.console_focus and len(self.middle.panes())>1:
+            height=max(1,self.middle.winfo_height())
+            dock_min=min(210,max(120,height//2))
+            self.middle.sashpos(0,max(min(120,height//3),min(int(height*self.dock_ratio),height-dock_min)))
+        for terminal in self.terminals.values():
+            terminal.schedule_tail()
+
+    def toggle_panel(self,key):
+        frame=self.sidebar if key=='library' else self.right
+        self.panel_preference[key]=str(frame) not in self.workspace.panes()
+        self.apply_layout()
+
+    def toggle_topology_focus(self):
+        if self.console_focus:
+            self.toggle_console_focus()
+        self.topology_focus=not self.topology_focus
+        if self.topology_focus:
+            self.middle.forget(self.dock)
+        else:
+            self.middle.insert('end',self.dock,weight=2)
+        self.root.update_idletasks(); self.apply_layout(); self.fit()
+
+    def show_test_panel(self):
+        self.panel_preference['inspector']=True; self.apply_layout()
+        self.inspector_book.select(self.test_panel)
+
+    def toggle_console_focus(self):
+        if self.topology_focus:
+            self.topology_focus=False
+            self.middle.insert('end',self.dock,weight=2)
+        self.console_focus=not self.console_focus
+        if self.console_focus:
+            self.middle.forget(self.topology)
+        else:
+            self.middle.insert(0,self.topology,weight=3)
+        self.apply_layout()
+
+    def console_tab_changed(self,event=None):
+        current=self.dock.select()
+        for terminal in self.terminals.values():
+            if str(terminal.frame)==current:
+                terminal.schedule_tail()
 
     def style(self):
         s=ttk.Style(self.root); s.theme_use('clam')
@@ -306,12 +436,21 @@ class App:
                 logo.create_line(x,y,xx,yy,fill='#2f887e',width=2)
             logo.create_oval(x-4,y-4,x+4,y+4,fill=TEAL,outline='')
         label(top,'NETWORK LABS',TEAL,16,True).pack(side='left')
-        label(top,'  /  SWITCHING STUDIO',MUTED,10).pack(side='left',padx=12)
+        view=tk.Menubutton(top,text='Vue ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=10,pady=6)
+        menu=tk.Menu(view,tearoff=False,bg=PANEL,fg=TEXT)
+        menu.add_command(label='Bibliothèque',command=lambda:self.toggle_panel('library'))
+        menu.add_command(label='Inspecteur',command=lambda:self.toggle_panel('inspector'))
+        menu.add_command(label='Simulation / Ping',command=self.show_test_panel)
+        menu.add_command(label='Agrandir / restaurer la topologie (F10)',command=self.toggle_topology_focus)
+        menu.add_command(label='Agrandir / restaurer la console (F11)',command=self.toggle_console_focus)
+        view.configure(menu=menu); view.pack(side='left',padx=12)
+        self.root.bind('<F11>',lambda e:self.toggle_console_focus())
+        self.root.bind('<F10>',lambda e:self.toggle_topology_focus())
         for title,callback in [('Sauvegarder',self.save),('Ouvrir',self.load),('Nouveau',self.new)]:
             button(top,title,callback,title=='Sauvegarder').pack(side='right',padx=4)
 
     def build_sidebar(self):
-        parent=self.sidebar
+        parent=self.sidebar.inner
         label(parent,'BIBLIOTHÈQUE',MUTED,9,True).pack(fill='x',padx=14,pady=(17,10))
         for kind,title,subtitle in [('PC','Poste client','IPv4 · ping · CLI'),('Switch','Switch L2','24 ports · VLAN · STP'),('Routeur','Routeur','802.1Q · inter-VLAN')]:
             card=tk.Frame(parent,bg=CARD,padx=10,pady=10,cursor='hand2'); card.pack(fill='x',padx=10,pady=5)
@@ -323,7 +462,7 @@ class App:
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
         label(parent,'LABS INTÉGRÉS',MUTED,9,True).pack(fill='x',padx=14,pady=(22,8))
-        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo)]:
+        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo),('05  VTP v2',self.vtp_demo),('06  MST instances',self.mst_demo)]:
             button(parent,title,lambda f=factory:self.replace_lab(f)).pack(fill='x',padx=10,pady=3)
         label(parent,'CLI inspirée IOS\nSimulation pédagogique\nSans VM / sans IOS',MUTED,8).pack(fill='x',padx=14,pady=20)
 
@@ -351,6 +490,33 @@ class App:
             lab.nodes[name].address=''; lab.nodes[name].gateway=''
         return lab
 
+    @staticmethod
+    def mst_demo():
+        lab=switching_demo()
+        for node in ('SW1','SW2','SW3'):
+            session=Session(lab,node)
+            for command in ['enable','configure terminal','spanning-tree mst configuration','name CAMPUS','revision 1','instance 1 vlan 10','instance 2 vlan 20','exit','spanning-tree mode mst','end']:
+                result=session.execute(command)
+                if result.startswith('%'):
+                    raise ValueError(result)
+        lab.nodes['SW1'].priorities['mst:1']=0
+        lab.nodes['SW3'].priorities['mst:2']=0
+        return lab
+
+    @staticmethod
+    def vtp_demo():
+        lab=switching_demo()
+        for node,mode in [('SW1','server'),('SW2','client'),('SW3','transparent')]:
+            session=Session(lab,node)
+            for command in ['enable','configure terminal','vtp domain LAB','vtp mode '+mode,'end']:
+                result=session.execute(command)
+                if result.startswith('%'):
+                    raise ValueError(result)
+        session=Session(lab,'SW1')
+        for command in ['enable','configure terminal','vlan 30','name USERS','end']:
+            session.execute(command)
+        return lab
+
     def canvas_toolbar(self,parent):
         bar=tk.Frame(parent,bg=PANEL,padx=10,pady=8); bar.pack(fill='x')
         label(bar,'TOPOLOGIE',TEXT,10,True).pack(side='left',padx=(0,15))
@@ -360,7 +526,7 @@ class App:
         self.vlan_box.pack(side='left')
         self.vlan_box.bind('<<ComboboxSelected>>',lambda e:self.draw())
         for title,callback in [('+',lambda:self.change_zoom(1.15)),('-',lambda:self.change_zoom(1/1.15)),('Centrer',self.fit)]:
-            button(bar,title,callback).pack(side='right',padx=3)
+            ttk.Button(bar,text=title,command=callback,style='Small.TButton').pack(side='right',padx=3)
         self.zoom_label=tk.StringVar(value='100 %')
         tk.Label(bar,textvariable=self.zoom_label,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9)).pack(side='right',padx=7)
 
@@ -379,15 +545,18 @@ class App:
     def build_right(self):
         self.inspector_book=ttk.Notebook(self.right)
         self.inspector_book.pack(fill='both',expand=True)
-        self.inspector=tk.Frame(self.inspector_book,bg=PANEL,padx=12,pady=10)
+        self.inspector_scroll=ScrollPanel(self.inspector_book,PANEL)
+        self.inspector=self.inspector_scroll.inner
+        self.inspector.configure(padx=10,pady=10)
         self.reference=tk.Frame(self.inspector_book,bg=PANEL,padx=12,pady=10)
-        self.inspector_book.add(self.inspector,text='Inspecteur')
+        self.inspector_book.add(self.inspector_scroll,text='Inspecteur')
         self.inspector_book.add(self.reference,text='Commandes')
         ref=tk.Text(self.reference,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9),wrap='word',relief='flat',width=28,height=15)
         ref.pack(fill='both',expand=True)
         ref.insert('1.0',FEATURES+'\n\nEXEMPLE SWITCH\nenable\nconfigure terminal\nvlan 10\nname USERS\nexit\ninterface gi0/1\nswitchport mode access\nswitchport access vlan 10\nno shutdown\nend\nshow vlan brief\n\nEXEMPLE TRUNK\nenable\nconfigure terminal\ninterface gi0/3\nswitchport mode trunk\nswitchport trunk allowed vlan 10,20\nend\nshow interfaces trunk')
         ref.configure(state='disabled')
-        test=tk.Frame(self.right,bg=CARD,padx=12,pady=12); test.pack(fill='x',side='bottom')
+        test=self.test_panel=tk.Frame(self.inspector_book,bg=CARD,padx=12,pady=12)
+        self.inspector_book.add(test,text='Simulation')
         label(test,'TEST / VISUALISATION',TEAL,9,True).pack(fill='x',pady=(0,8))
         self.source=tk.StringVar(value='PC1'); self.destination=tk.StringVar(value='192.168.20.10')
         self.source_box=ttk.Combobox(test,textvariable=self.source,state='readonly',width=24)
@@ -444,7 +613,7 @@ class App:
                 label(panel,'PORTS PHYSIQUES',MUTED,9,True).pack(fill='x',pady=(14,7))
                 port_frame=tk.Frame(panel,bg=PANEL)
                 port_frame.pack(fill='both',expand=True)
-                ports=ttk.Treeview(port_frame,columns=('port','state','vlan'),show='headings',height=9)
+                ports=ttk.Treeview(port_frame,columns=('port','state','vlan'),show='headings',height=12)
                 for col,title,width in [('port','Port',65),('state','État',80),('vlan','VLAN',65)]:
                     ports.heading(col,text=title); ports.column(col,width=width,stretch=True)
                 stp=self.lab.stp(int(self.view_vlan.get())).get(n.name,{}).get('ports',{})
@@ -452,8 +621,9 @@ class App:
                     if '.' in name or name.startswith('po'):
                         continue
                     link=self.lab.link_for(n.name,name)
-                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown else stp.get(name,('','UP'))[1] if link else 'libre'
-                    ports.insert('', 'end',iid=name,values=(name,state,'trunk' if p.mode=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK') else ())
+                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or (link and not link.enabled) else 'BOUND' if link and self.lab.boundary_reason(link) else 'SUSP' if link and not self.lab.channel_state(link)[0] else stp.get(name,('','UP'))[1] if link else 'libre'
+                    operational=self.lab.operational_mode(link,n.name) if link else p.mode
+                    ports.insert('', 'end',iid=name,values=(name,state,'trunk' if operational=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK','BOUND','SUSP') else ())
                 ports.tag_configure('bad',foreground=GOLD)
                 scroll=ttk.Scrollbar(port_frame,command=ports.yview)
                 ports.configure(yscrollcommand=scroll.set)
@@ -477,6 +647,9 @@ class App:
                 l.enabled=not l.enabled; self.changed('État du câble modifié')
             button(panel,'Couper le câble' if l.enabled else 'Rétablir le câble',toggle).pack(fill='x',pady=18)
             ok,reason=self.lab.channel_state(l)
+            boundary=self.lab.boundary_reason(l)
+            if boundary:
+                tk.Label(panel,text=boundary,bg=PANEL,fg=RED,wraplength=260,justify='left').pack(fill='x',pady=8)
             if not ok:
                 label(panel,reason,RED,9).pack(fill='x',pady=8)
         else:
@@ -486,9 +659,10 @@ class App:
     def edit_port(self,node,name):
         n=self.lab.nodes[node]; p=n.ports[name]
         win=tk.Toplevel(self.root); win.title(f'Interface / {node} / {name}')
-        win.configure(bg=PANEL); win.transient(self.root); win.geometry('480x620')
+        win.configure(bg=PANEL); win.transient(self.root); fit_dialog(win,480,620)
         label(win,f'{node} / {name}',TEAL,15,True).pack(fill='x',padx=22,pady=18)
-        body=tk.Frame(win,bg=PANEL,padx=22); body.pack(fill='both',expand=True)
+        scroller=ScrollPanel(win,PANEL); scroller.pack(fill='both',expand=True)
+        body=scroller.inner; body.configure(padx=22)
         fields={}
         for title,value in [('Description',p.description),('Mode',p.mode),('VLAN access',str(p.access_vlan)),('VLAN natif',str(p.native_vlan)),('VLAN autorisés',Session.compact(p.allowed)),('Coût STP',str(p.cost))]:
             label(body,title,MUTED,9).pack(fill='x',pady=(8,3))
@@ -511,15 +685,19 @@ class App:
                     raise ValueError('Désactiver port-security avant le mode trunk.')
                 if mode.startswith('dynamic') and p.nonegotiate:
                     raise ValueError('Désactiver nonegotiate dans la CLI avant le mode dynamique.')
+                if n.kind=='Switch' and n.vtp_mode=='client' and str(access[0]) not in n.vlans:
+                    raise ValueError('VLAN absent du client VTP.')
                 p.description=fields['Description'].get(); p.mode=mode; p.access_vlan=access[0]; p.native_vlan=native[0]; p.allowed=allowed; p.cost=cost; p.shutdown=not admin.get()
                 if admin.get():
                     p.errdisabled=False
-                if n.kind=='Switch':
-                    n.vlans.setdefault(str(access[0]),f'VLAN{access[0]:04}')
+                if n.kind=='Switch' and str(access[0]) not in n.vlans:
+                    n.vlans[str(access[0])]=f'VLAN{access[0]:04}'
+                    self.lab.vlan_changed(n.name)
+                self.lab.sync_vtp()
                 win.destroy(); self.changed('Port configuré : '+node+'/'+name)
             except ValueError as e:
                 messagebox.showerror('Configuration',str(e),parent=win)
-        button(win,'Appliquer la configuration',apply,True).pack(fill='x',padx=22,pady=15)
+        button(win,'Appliquer la configuration',apply,True).pack(side='bottom',before=scroller,fill='x',padx=22,pady=15)
 
     def xy(self,n):
         return n.x*self.zoom+self.panx,n.y*self.zoom+self.pany
@@ -552,7 +730,7 @@ class App:
             pa,pb=self.lab.ends(l)
             eligible=self.lab.eligible(l,vlan)
             blocked=any(states.get(n,{}).get('ports',{}).get(p,('',''))[1]=='BLK' for n,p in ((l.a,l.a_port),(l.b,l.b_port)))
-            physically_down=not l.enabled or pa.shutdown or pb.shutdown or pa.errdisabled or pb.errdisabled or not self.lab.channel_state(l)[0]
+            physically_down=bool(self.lab.boundary_reason(l)) or not l.enabled or pa.shutdown or pb.shutdown or pa.errdisabled or pb.errdisabled or not self.lab.channel_state(l)[0]
             color=RED if physically_down else GOLD if blocked else TEAL if eligible else '#4b5d77'
             if self.selected_link==i:
                 color=BLUE
@@ -562,7 +740,7 @@ class App:
             caption='Po'+str(pa.channel) if pa.channel else 'DTP' if pa.mode.startswith('dynamic') or pb.mode.startswith('dynamic') else '802.1Q' if pa.mode=='trunk' or pb.mode=='trunk' else f'VLAN {pa.access_vlan if self.lab.nodes[l.a].kind=="Switch" else pb.access_vlan}'
             roundrect(c,x-35,y-10,x+35,y+10,r=5,fill=PANEL,outline=LINE,tags=tags)
             c.create_text(x,y,text=caption,fill=color,font=('DejaVu Sans',8),tags=tags)
-            for t,name in ((.33,l.a_port),(.67,l.b_port)):
+            for t,name in (((.33,l.a_port),(.67,l.b_port)) if self.zoom>=.7 else ()):
                 xx,yy=self.point(i,t)
                 c.create_text(xx,yy-13,text=name,fill=MUTED,font=('DejaVu Sans',8),tags=tags)
         for n in self.lab.nodes.values():
@@ -573,10 +751,11 @@ class App:
             color=BLUE if n.kind=='PC' else TEAL if n.kind=='Switch' else '#bb9aff'
             self.icon(n.kind,x,y-8*z,z,color,tags)
             c.create_text(x,y+31*z,text=n.hostname or n.name,fill=TEXT,font=('DejaVu Sans',max(8,int(10*z)),'bold'),tags=tags)
-            c.create_text(x,y+63*z,text=n.address if n.kind=='PC' else 'L2 • 24 ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
+            if z>=.7:
+                c.create_text(x,y+63*z,text=n.address if n.kind=='PC' else 'L2 • 24 ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
             c.create_oval(x+width/2-14*z,y-height/2+9*z,x+width/2-8*z,y-height/2+15*z,fill=color,outline='',tags=tags)
             if n.kind=='Switch' and states.get(n.name,{}).get('root')==n.name:
-                c.create_text(x,y-height/2-13*z,text='ROOT / VLAN '+str(vlan),fill=GOLD,font=('DejaVu Sans',max(7,int(8*z)),'bold'),tags=tags)
+                c.create_text(x,y-height/2-13*z,text=('ROOT / MST '+str(n.mst_map.get(str(vlan),0))) if n.stp_mode=='mst' else 'ROOT / VLAN '+str(vlan),fill=GOLD,font=('DejaVu Sans',max(7,int(8*z)),'bold'),tags=tags)
         if self.hops and self.index<len(self.hops):
             i,a,b,v,phase=self.hops[self.index]
             link=self.lab.links[i]
@@ -619,6 +798,8 @@ class App:
         self.draw()
 
     def set_place(self,kind):
+        if self.console_focus:
+            self.toggle_console_focus()
         self.set_mode('select'); self.place_kind=kind; self.canvas.configure(cursor='crosshair'); self.draw()
 
     def hit(self):
@@ -704,13 +885,15 @@ class App:
         button(body,'Créer la liaison',create,True).pack(fill='x',pady=10)
 
     def open_cli(self,node):
+        if self.topology_focus:
+            self.toggle_topology_focus()
         if node not in self.lab.nodes:
             return
         if node not in self.terminals:
             terminal=Terminal(self,node); self.terminals[node]=terminal
             self.dock.add(terminal.frame,text='⌨ '+node)
         terminal=self.terminals[node]
-        self.dock.select(terminal.frame); terminal.entry.focus_set()
+        self.dock.select(terminal.frame); terminal.entry.focus_set(); terminal.schedule_tail()
 
     def pan_begin(self,event):
         self.pan_start=(event.x,event.y,self.panx,self.pany)
@@ -863,7 +1046,10 @@ class App:
 
     def close(self):
         if self.discard():
-            self.pause(); self.root.destroy()
+            self.pause()
+            if self.layout_job is not None:
+                self.root.after_cancel(self.layout_job)
+            self.root.destroy()
 
 if __name__=='__main__':
     root=tk.Tk(); App(root); root.mainloop()

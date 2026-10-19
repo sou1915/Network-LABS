@@ -3,6 +3,8 @@ from ipaddress import IPv4Interface, IPv4Address, IPv4Network
 import copy
 import re
 from .engine import Port, port_name, vlan_list
+from .layer2_cli import Layer2Commands
+from .cli_editing import CLIEditing
 
 FEATURES = '''NETWORK LABS / CLI pédagogique (inspirée IOS, pas un IOS réel)
 Modes : enable, configure terminal, vlan, interface, interface range, end, exit
@@ -16,20 +18,22 @@ Routeur : sous-interfaces 802.1Q et IPv4, routes connectées uniquement
 PC : ip address CIDR, ip gateway IPv4, ipconfig, ping IPv4
 Nouveau : DTP auto/desirable/nonegotiate, serveur/client DHCP (sans relais),
           DHCP snooping, DAI et IP Source Guard (contrôle d’identité simplifié).
-Non implémentés : VTP, MSTP, voix, QoS, IGMP snooping, 802.1X,
+Nouveau : VTP v2 (server/client/transparent/off), MST mono-région (état convergé).
+Non implémentés : VTP v1/v3, MST multi-région, voix, QoS, IGMP snooping, 802.1X,
                  LLDP/CDP réels, ACL/NAT, OSPF/BGP.
 Les voisins sont déduits des câbles ; STP/LACP sont calculés sans temporisation.
 Aucune commande non prise en charge n'est enregistrée comme fonctionnelle.'''
 
 ALIASES={'en':'enable','conf':'configure','t':'terminal','int':'interface','sh':'show','run':'running-config','desc':'description','wr':'write'}
 
-class Session:
+class Session(Layer2Commands,CLIEditing):
     def __init__(self,lab,node):
         self.lab,self.node=lab,node
         self.mode='user'
         self.selection=[]
         self.vlan_id=None
         self.pool_name=None
+        self.mst_pending=None
         self.changed=False
         self.history=[]
 
@@ -41,15 +45,11 @@ class Session:
     def prompt(self):
         if self.n.kind=='PC':
             return f'user@{self.n.hostname or self.n.name}:~$'
-        suffix={'dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
+        suffix={'mst':'(config-mst)#','dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
         return (self.n.hostname or self.n.name)+suffix
 
-    def help(self):
-        if self.n.kind=='PC':
-            return 'help | ipconfig | ip address <CIDR> | ip gateway <IPv4> | ip dhcp | ip release | ping <IPv4> | show capabilities'
-        if self.mode in ('if','range'):
-            return 'description | shutdown | no shutdown | switchport ... | spanning-tree ... | channel-group ... | exit | end\n'+FEATURES
-        return FEATURES
+    def help(self,prefix=''):
+        return self.context_help(prefix)
 
     def execute(self,line):
         self.changed=False
@@ -60,13 +60,37 @@ class Session:
         if line=='show capabilities':
             return FEATURES
         if line=='?' or line.endswith(' ?') or line=='help':
-            return self.help()
+            return self.help(line[:-2] if line.endswith(' ?') else '')
+        try:
+            line=self.normalize_command(line)
+        except ValueError as e:
+            return '% '+str(e)
         raw=line
-        words=line.split()
-        words=[ALIASES.get(w.lower(),w) if i<2 else w for i,w in enumerate(words)]
-        line=' '.join(words)
+        line=' '.join(line.split())
+        if line.lower().startswith('show interface '):
+            line='show interfaces '+line.split(' ',2)[2]
         low=line.lower()
         try:
+            if low in ('show','configure','interface','switchport','switchport mode','spanning-tree','channel-group','vtp','ip','hostname','vlan','no','do'):
+                raise ValueError('Incomplete command.')
+            if '|' in line and (low.startswith('show ') or low.startswith('do show ')):
+                base,filter_text=line.split('|',1)
+                if base.lower().startswith('do '):
+                    base=base[3:]
+                elif self.mode not in ('user','priv'):
+                    raise ValueError('Use do show in configuration mode.')
+                operation,pattern=filter_text.strip().split(maxsplit=1)
+                if operation not in ('include','exclude','begin'):
+                    raise ValueError('Supported filters: include, exclude, begin.')
+                try:
+                    regex=re.compile(pattern)
+                except re.error:
+                    raise ValueError('Invalid filter expression.')
+                lines=self.show(self.normalize_command(base.strip()).lower()).splitlines()
+                if operation=='begin':
+                    start=next((i for i,text in enumerate(lines) if regex.search(text)),len(lines))
+                    return '\n'.join(lines[start:])
+                return '\n'.join(text for text in lines if bool(regex.search(text))==(operation=='include'))
             if self.n.kind=='PC':
                 return self.pc(low,line)
             if low=='enable' and self.mode=='user':
@@ -76,11 +100,19 @@ class Session:
                 self.mode='user'
                 return ''
             if low=='exit':
-                self.mode='config' if self.mode in ('if','range','vlan','dhcp') else 'priv' if self.mode=='config' else 'user'
+                if self.mode=='mst':
+                    self.commit_mst()
+                self.mode='config' if self.mode in ('if','range','vlan','dhcp','mst') else 'priv' if self.mode=='config' else 'user'
                 return ''
             if low=='end':
+                if self.mode=='user':
+                    raise ValueError('Invalid input detected at user EXEC mode.')
+                if self.mode=='mst':
+                    self.commit_mst()
                 self.mode='priv'
                 return ''
+            if low=='show pending' and self.mode=='mst':
+                return self.layer2_show(low)
             if low.startswith('do show ') and self.mode not in ('user','priv'):
                 return self.show(low[3:])
             if low.startswith('show '):
@@ -103,7 +135,10 @@ class Session:
                 return 'Table MAC vidée.'
             if low.startswith('ping '):
                 raise ValueError('Ping source : disponible sur les PC dans ce prototype.')
-            if self.mode in ('config','if','range','vlan','dhcp'):
+            if self.mode in ('config','if','range','vlan','dhcp','mst'):
+                layer2=self.layer2_command(low,line)
+                if layer2 is not None:
+                    return layer2
                 services=self.service_command(low,line)
                 if services is not None:
                     return services
@@ -126,24 +161,33 @@ class Session:
                     self.mode='if'
                     return ''
                 if low.startswith('vlan ') and self.n.kind=='Switch':
+                    if self.n.vtp_mode=='client':
+                        raise ValueError('VTP client mode: VLAN changes are not allowed.')
                     ids=vlan_list(low[5:])
                     for v in ids:
                         self.n.vlans.setdefault(str(v),f'VLAN{v:04}')
+                    self.lab.vlan_changed(self.node)
                     self.vlan_id=ids
                     self.mode='vlan'
                     self.changed=True
                     return ''
                 if low.startswith('no vlan ') and self.n.kind=='Switch':
+                    if self.n.vtp_mode=='client':
+                        raise ValueError('VTP client mode: VLAN changes are not allowed.')
                     ids=vlan_list(low[8:])
                     if 1 in ids:
                         raise ValueError('VLAN 1 ne peut pas être supprimé.')
                     for v in ids:
                         self.n.vlans.pop(str(v),None)
+                    self.lab.vlan_changed(self.node)
                     self.changed=True
                     return ''
                 if self.mode=='vlan' and low.startswith('name '):
+                    if self.n.vtp_mode=='client':
+                        raise ValueError('VTP client mode: VLAN changes are not allowed.')
                     for v in self.vlan_id:
                         self.n.vlans[str(v)]=line[5:]
+                    self.lab.vlan_changed(self.node)
                     self.changed=True
                     return ''
                 if low.startswith('spanning-tree ') and self.mode not in ('if','range'):
@@ -159,6 +203,7 @@ class Session:
                         self.n.ports=saved
                         self.n.interfaces=interfaces
                         raise
+                    self.lab.sync_vtp()
                     self.changed=True
                     return ''
             raise ValueError('Commande non prise en charge ici. Utiliser ? ou show capabilities.')
@@ -298,8 +343,12 @@ class Session:
             ids=vlan_list(low.split()[-1])
             if len(ids)!=1:
                 raise ValueError('Un VLAN access attendu.')
+            if self.n.vtp_mode=='client' and str(ids[0]) not in self.n.vlans:
+                raise ValueError('VLAN absent from VTP client database.')
             p.access_vlan=ids[0]
-            self.n.vlans.setdefault(str(ids[0]),f'VLAN{ids[0]:04}')
+            if str(ids[0]) not in self.n.vlans:
+                self.n.vlans[str(ids[0])]=f'VLAN{ids[0]:04}'
+                self.lab.vlan_changed(self.node)
         elif low.startswith('switchport trunk native vlan '):
             ids=vlan_list(low.split()[-1])
             if len(ids)!=1:
@@ -484,6 +533,9 @@ class Session:
         raise ValueError('Commande PC non implémentée. Utiliser ?. Aucune commande shell réelle n’est exécutée.')
 
     def show(self,low):
+        layer2=self.layer2_show(low)
+        if layer2 is not None:
+            return layer2
         service=self.service_show(low)
         if service is not None:
             return service
@@ -589,11 +641,24 @@ class Session:
                 lines.append('ip dhcp snooping vlan '+self.compact(self.n.snooping_vlans))
             if self.n.dai_vlans:
                 lines.append('ip arp inspection vlan '+self.compact(self.n.dai_vlans))
+            lines.extend(['vtp version 2','vtp mode '+self.n.vtp_mode])
+            if self.n.vtp_domain:
+                lines.append('vtp domain '+self.n.vtp_domain)
+            if self.n.vtp_password:
+                lines.append('vtp password '+self.n.vtp_password)
             lines.append('spanning-tree mode '+self.n.stp_mode)
+            if self.n.stp_mode=='mst':
+                lines.append('spanning-tree mst configuration')
+                if self.n.mst_name:
+                    lines.append(' name '+self.n.mst_name)
+                lines.append(' revision '+str(self.n.mst_revision))
+                for instance in sorted(set(self.n.mst_map.values())):
+                    lines.append(' instance '+str(instance)+' vlan '+','.join(v for v,i in self.n.mst_map.items() if i==instance))
+                lines.append(' exit')
             for v,name in sorted(self.n.vlans.items(),key=lambda x:int(x[0])):
                 lines.extend([f'vlan {v}',f' name {name}'])
             for v,priority in self.n.priorities.items():
-                lines.append(f'spanning-tree vlan {v} priority {priority}')
+                lines.append(f'spanning-tree mst {v[4:]} priority {priority}' if v.startswith('mst:') else f'spanning-tree vlan {v} priority {priority}')
         for name,p in self.n.ports.items():
             lines.append('interface '+name)
             if p.description and not p.description.startswith('__logical__'):

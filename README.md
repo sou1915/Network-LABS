@@ -27,6 +27,13 @@ Python 3.10+ et Tkinter suffisent : aucune dépendance pip pour l'application.
 
 ## Espace de travail
 
+La fenêtre se dimensionne selon l'écran (notamment 1366×768). Les panneaux latéraux
+sont défilants et se masquent automatiquement aux petites largeurs. Le menu **Vue**
+permet de les réafficher. **F10** agrandit/restaure la topologie, **F11** la console.
+Le prompt est remis en vue après commandes, redimensionnements et changements d'onglet,
+sans modifier la séparation des panneaux à chaque configuration. Les dialogues de port
+et de configuration s'adaptent aussi à la taille d'écran.
+
 - Cliquer sur un équipement de la bibliothèque puis dans la topologie pour le placer.
 - Glisser les équipements ; molette pour zoomer ; clic milieu pour déplacer la vue.
 - Choisir **Câbler**, cliquer sur deux équipements, choisir les ports physiques et le mode initial.
@@ -38,12 +45,12 @@ Python 3.10+ et Tkinter suffisent : aucune dépendance pip pour l'application.
 - Cliquer sur un switch : liste de ses 24 ports. Double-cliquer sur un port pour le configurer.
 - Cliquer sur un câble pour inspecter et configurer chaque extrémité indépendamment ou le couper.
 - Choisir le VLAN observé : root STP, liens bloqués, liens down et liens hors VLAN sont distingués.
-- Lancer le ping depuis un PC, puis utiliser Lecture, Pause, Étape, Rejouer et le curseur de vitesse.
+- Dans l’onglet **Simulation** à droite, lancer le ping depuis un PC, puis utiliser Lecture, Pause, Étape, Rejouer et le curseur de vitesse.
 - Le journal donne le VLAN et les ports de chaque saut. Les consoles ont aide `?`, historique,
   suggestions avec Tab et éditeur de blocs multi-lignes, avec arrêt à la première erreur.
 - Sauvegarder le projet en JSON (`Ctrl+S`). Les projets de l'ancien prototype sont migrés à l'ouverture.
 
-Quatre labs intégrés : **Inter-VLAN**, **Boucle STP**, **EtherChannel**, **DHCP / Sécurité**.
+Six labs intégrés : **Inter-VLAN**, **Boucle STP**, **EtherChannel**, **DHCP / Sécurité**, **VTP v2**, **MST instances**.
 
 ## Ce que le moteur prend en charge
 
@@ -56,6 +63,8 @@ Quatre labs intégrés : **Inter-VLAN**, **Boucle STP**, **EtherChannel**, **DHC
 | DHCP | Pools sur routeur, exclusions, passerelle, DNS, durée de bail ; client PC, renouvellement/libération |
 | DHCP snooping | Réponses serveur rejetées sur ports non trusted ; bindings IP/MAC/VLAN/port |
 | DAI / IP Source Guard | Vérification d’identité à l’entrée des ports ; rejet si binding absent, erroné ou expiré |
+| VTP v2 | Modes server/client/transparent/off, domaine, mot de passe, révision et propagation des VLANs standard sur trunks |
+| MST | Région, révision, mapping VLAN/instance, élection et priorités par instance ; modèle mono-région |
 | STP | Calcul convergé par VLAN, élection root, coûts, priorités de bridge/port, ports ROOT/DESG/ALTN |
 | EtherChannel | Plusieurs câbles entre switches ; LACP active/passive, PAgP desirable/auto et mode on ; validation des membres ; redondance |
 | Protection L2 | Port-security maximum, MAC, sticky, violation shutdown/restrict/protect ; BPDU Guard |
@@ -63,6 +72,10 @@ Quatre labs intégrés : **Inter-VLAN**, **Boucle STP**, **EtherChannel**, **DHC
 | Routeur | Sous-interfaces dot1Q, adresses IPv4, shutdown, routes connectées |
 | PC | IPv4/passerelle par GUI ou CLI, ipconfig, ping PC et passerelle locale |
 | Inspection | Running/startup config, VLAN, interfaces, trunks, STP, EtherChannel, port-security, voisins physiques |
+
+La CLI reste un sous-ensemble, pas une copie complète d’IOS : abréviations courantes,
+aide contextuelle, Tab et filtres `show ... | include/exclude/begin` sont pris en charge.
+Pas de pagination IOS, de grammaire exhaustive ni de profils exacts multi-vendeur.
 
 Exemples complets et commandes : [docs/SWITCHING.md](docs/SWITCHING.md).
 
@@ -86,10 +99,18 @@ de bande passante. Les voisins `show cdp/lldp neighbors` sont déduits des câbl
 
 Le simulateur bloque conservativement un trunk dont les deux VLAN natifs diffèrent ;
 il ne reproduit pas la traduction potentielle du trafic non tagué par des équipements réels.
-Pas de VLAN voix, VTP, MSTP, QoS, IGMP snooping, 802.1X,
+Pas de VLAN voix, VTP v1/v3, interconnexion MST multi-région/PVST, QoS, IGMP snooping, 802.1X,
 ACL/NAT, OSPF/BGP ou profils constructeur exacts pour l'instant.
 
-DTP calcule le résultat de négociation sans trames, timers ou domaines VTP.
+DTP calcule le résultat de négociation et compare les noms de domaine, sans trames ni timers.
+VTP v2 transmet instantanément les VLANs 1..1005 entre domaines/mots de passe compatibles ;
+les VLANs étendus restent locaux. Pas de messages, digest, retransmission ou gestion complète
+des révisions constructeurs. Les trunks restent configurables manuellement entre domaines différents.
+MST utilise un arbre convergé commun aux VLANs de chaque instance dans une seule région
+cohérente. Les liens inter-switch MST doivent être trunk. Les frontières de régions et
+MST/PVST sont bloquées conservativement et signalées comme non modélisées, pas comme
+le comportement d’un vrai équipement. Les timers/BPDUs MST et l’interconnexion CIST
+ne sont pas implémentés.
 DHCP modélise les étapes Discover/Offer/Request/ACK et l’allocation, sans transport
 de paquets, relais, Option 82 ou retransmissions. La recherche d’adresse est limitée
 aux 65536 premiers hôtes du pool. Les baux et bindings sont des états d’exécution non
@@ -116,3 +137,7 @@ xvfb-run -a python3 -m unittest discover -s tests -v
 
 Ils couvrent la configuration via console, l'effet sur le ping, le contrôle d'animation,
 les onglets CLI, les dialogues de configuration, la sauvegarde et les labs intégrés.
+Les tests de régression vérifient le prompt après commandes répétées à 1300×668,
+1024×600 et 900×500, ainsi que les modes de focus F10/F11.
+
+[Aperçu sur écran 1366×768](docs/laptop.png).

@@ -4,6 +4,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from hashlib import sha256
 from heapq import heappush, heappop
 from .services import Services
+from .layer2 import Layer2
 import json
 import re
 
@@ -27,6 +28,8 @@ def vlan_list(text):
 
 def port_name(name):
     name = name.lower().replace('gigabitethernet', 'gi').replace('fastethernet', 'fa')
+    name = re.sub(r'^g(?=\d)', 'gi', name)
+    name = re.sub(r'^f(?=\d)', 'fa', name)
     name = name.replace('port-channel', 'po').replace('ethernet', 'eth').replace(' ', '')
     if not re.fullmatch(r'(?:gi|fa)\d+/\d+(?:\.\d+)?|eth\d+|po\d+', name):
         raise ValueError('Interface inconnue. Exemple : gi0/1, gi0/0.10, po1.')
@@ -91,6 +94,14 @@ class Node:
     snooping_vlans: list = field(default_factory=list)
     dai_vlans: list = field(default_factory=list)
     dns: list = field(default_factory=list)
+    mst_name: str = ''
+    mst_revision: int = 0
+    mst_map: dict = field(default_factory=dict)
+    vtp_mode: str = 'transparent'
+    vtp_domain: str = ''
+    vtp_password: str = ''
+    vtp_version: int = 2
+    vtp_revision: int = 0
 
     def __post_init__(self):
         self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
@@ -103,7 +114,8 @@ class Node:
         return mac_for(self.name)
 
     def bridge_id(self, vlan):
-        return (int(self.priorities.get(str(vlan), 32768)), self.mac)
+        key='mst:'+str(self.mst_map.get(str(vlan),0)) if self.stp_mode=='mst' else str(vlan)
+        return (int(self.priorities.get(key,32768)), self.mac)
 
 @dataclass
 class Link:
@@ -115,7 +127,7 @@ class Link:
     b_port: str = ''
     enabled: bool = True
 
-class Lab(Services):
+class Lab(Services,Layer2):
     def __init__(self):
         self.nodes, self.links = {}, []
         self.last_paths, self.last_hops, self.events = [], [], []
@@ -159,6 +171,7 @@ class Lab(Services):
         self.links.append(link)
         if configure:
             self.configure_link(link, mode, vlans)
+            self.sync_vtp()
         return link
 
     def configure_link(self, link, mode, vlans):
@@ -167,7 +180,7 @@ class Lab(Services):
         for node,p in ((link.a,link.a_port),(link.b,link.b_port)):
             port = self.nodes[node].ports[p]
             port.mode, port.access_vlan, port.allowed = mode, vlans[0], list(vlans)
-            if self.nodes[node].kind == 'Switch':
+            if self.nodes[node].kind == 'Switch' and self.nodes[node].vtp_mode!='client':
                 for vlan in vlans:
                     self.nodes[node].vlans.setdefault(str(vlan), f'VLAN{vlan:04}')
         link.mode,link.vlans = mode,list(vlans)
@@ -211,13 +224,13 @@ class Lab(Services):
             return p.mode
         other=link.b if name==link.a else link.a
         peer=self.nodes[other].ports[link.b_port if name==link.a else link.a_port]
-        if self.nodes[name].kind!='Switch' or self.nodes[other].kind!='Switch' or p.nonegotiate or peer.nonegotiate:
+        if self.nodes[name].kind!='Switch' or self.nodes[other].kind!='Switch' or p.nonegotiate or peer.nonegotiate or self.nodes[name].vtp_domain!=self.nodes[other].vtp_domain:
             return 'access'
         forms=peer.mode=='trunk' or peer.mode=='dynamic desirable' or (p.mode=='dynamic desirable' and peer.mode=='dynamic auto')
         return 'trunk' if forms else 'access'
 
     def eligible(self, link, vlan):
-        if not link.enabled:
+        if not link.enabled or self.boundary_reason(link):
             return False
         pa,pb=self.ends(link)
         for name,p,other in ((link.a,pa,link.b),(link.b,pb,link.a)):
@@ -243,10 +256,10 @@ class Lab(Services):
 
     def stp(self, vlan):
         """Converged per-VLAN STP; no BPDU timers. EtherChannels are logical edges."""
-        switches={n.name:n for n in self.nodes.values() if n.kind=='Switch' and str(vlan) in n.vlans}
+        switches={n.name:n for n in self.nodes.values() if n.kind=='Switch' and (n.stp_mode=='mst' or str(vlan) in n.vlans)}
         logical={}
         for i,l in enumerate(self.links):
-            if l.a not in switches or l.b not in switches or not self.eligible(l,vlan):
+            if l.a not in switches or l.b not in switches or not self.tree_link_eligible(l,vlan):
                 continue
             pa,pb=self.ends(l)
             key=tuple(sorted(((l.a,pa.channel),(l.b,pb.channel)))) if pa.channel and pb.channel else ('link',i)

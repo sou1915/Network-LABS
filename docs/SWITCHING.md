@@ -344,6 +344,101 @@ Les étapes DHCP, la négociation DTP et les contrôles DAI/IPSG sont simplifié
 véritables trames/paquets ni timers automatiques. Les baux/bindings ne sont pas sauvegardés ;
 renouveler les adresses après réouverture. Voir les limites dans le README.
 
+## 9. VTP version 2
+
+Charger **VTP v2**. SW1 est serveur, SW2 client, SW3 transparent. Le VLAN 30 nommé
+USERS est propagé à SW2, tandis que SW3 conserve sa base locale et relaie les annonces.
+
+Sur le serveur :
+
+```text
+enable
+configure terminal
+vtp version 2
+vtp domain LAB
+vtp mode server
+vlan 40
+name GUESTS
+end
+show vtp status
+```
+
+Sur le client :
+
+```text
+enable
+configure terminal
+vtp version 2
+vtp domain LAB
+vtp mode client
+end
+show vlan brief
+show vtp status
+```
+
+`vtp password <valeur>` doit correspondre sur les participants pour recevoir les VLANs.
+Les changements sur un client sont refusés. Les annonces traversent les trunks actifs ;
+un port shutdown ou `vtp mode off` interrompt ce parcours. Le mode transparent relaie
+sans modifier sa base locale. La révision du serveur augmente lors des modifications.
+Les VLANs 1..1005 sont propagés ; les VLANs étendus restent locaux dans ce modèle.
+Pas de trames VTP, digest, timers ni reproduction complète des conflits de révision.
+
+## 10. MST : groupes de VLANs et arbres par instance
+
+Charger **MST instances**. Tous les switches partagent cette configuration :
+
+```text
+enable
+configure terminal
+spanning-tree mst configuration
+name CAMPUS
+revision 1
+instance 1 vlan 10
+instance 2 vlan 20
+show pending
+exit
+spanning-tree mode mst
+end
+show spanning-tree mst configuration
+show spanning-tree mst 1
+```
+
+Les changements de région sont en attente jusqu'à `exit`/`end`. Le nom, la révision et
+le mapping doivent correspondre entre les switches. Chaque VLAN non mappé utilise
+l'instance 0. `no instance 1` dans la configuration MST supprime le mapping de cette
+instance ; `no instance 1 vlan 10` remet seulement le VLAN 10 dans l'instance 0.
+
+Pour choisir un root différent selon l'instance :
+
+```text
+! Sur SW1, en configuration globale
+spanning-tree mst 1 priority 0
+! Sur SW3, en configuration globale
+spanning-tree mst 2 priority 0
+```
+
+Sélectionner VLAN 10 puis VLAN 20 dans la topologie pour voir les arbres correspondants.
+Plusieurs VLANs mappés à la même instance partagent le même arbre. Les changements de
+priorité/coût affectent les rôles de ports et les chemins autorisés.
+
+**Limite majeure** : modèle mono-région à état convergé, avec liens inter-switch trunk.
+Les frontières de régions, MST/PVST et liens access inter-switch MST ne sont pas
+modélisés et sont bloqués conservativement avec un diagnostic. Ce blocage ne décrit
+pas un équipement réel. Pas de BPDUs, timers de convergence ou interconnexion CIST.
+
+## 11. Utilisation plus proche d'une console
+
+- `sh int status`, `int g0/1`, `sw mo tr`, `sw acc vl 10`, `no shut` : abréviations courantes.
+- `switchport trunk ?` : aide selon le contexte ; Tab suggère/complète les commandes.
+- `show run | include ^hostname`, `show run | exclude description`,
+  `show run | begin interface gi0/3` : filtres d'affichage.
+- `Ctrl+A/E` : début/fin ; `Ctrl+H` : retour arrière ; `Ctrl+W` : effacer le mot précédent ;
+  `Ctrl+U/K` : effacer avant/après le curseur ; `Ctrl+Z` : retour au mode privilégié.
+- `F11` : agrandir la console ; `F10` : agrandir la topologie ; `Vue` : panneaux latéraux.
+
+Les abréviations ambiguës et commandes incomplètes sont signalées. Cette grammaire
+reste partielle : toutes les commandes IOS et leurs variantes ne sont pas reproduites.
+
 ## Références de conception
 
 Le comportement de vrais équipements est plus riche que ce modèle pédagogique :
@@ -351,3 +446,5 @@ Le comportement de vrais équipements est plus riche que ce modèle pédagogique
 - [Cisco — rôles et élection STP](https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/lan-wan/b-lan-wan/m_lsw-span-tree-prot.html)
 - [Cisco — EtherChannel / modes LACP](https://www.cisco.com/c/en/us/td/docs/switches/lan/c9000/lyr2-fwd/etherchannel/etherchannel-configuration-guide/m_ethernetchannel.html)
 - [Cisco — trunks et VLAN autorisés](https://www.cisco.com/c/en/us/td/docs/switches/lan/c9000/lyr2-fwd/vlan/vlan-configuration-guide/configure-vlan-trunks.html)
+
+- [Cisco — région MST et mapping](https://www.cisco.com/c/en/us/support/docs/lan-switching/stp/218351-troubleshoot-mst-on-catalyst-9000-switch.html)
