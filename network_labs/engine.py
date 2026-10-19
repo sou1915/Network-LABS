@@ -25,6 +25,7 @@ class Lab:
     def __init__(self):
         self.nodes = {}
         self.links = []
+        self.last_paths = []
 
     def add(self, node):
         if not node.name or node.name in self.nodes:
@@ -76,6 +77,7 @@ class Lab:
 
     def ping(self, source, destination):
         """Check request AND reply using connected routes only."""
+        self.last_paths = []
         try:
             src = self.nodes[source]
             if src.kind != 'PC':
@@ -94,6 +96,7 @@ class Lab:
                     path = self.path(a.name, b.name, av) if av == bv else None
                     if not path:
                         raise ValueError(f'{a.name} : destination locale inaccessible en VLAN {av}.')
+                    self.last_paths.append(path)
                     trace.append('Connectivité L2 : ' + ' → '.join(path))
                     continue
                 gateway = IPv4Address(a.gateway)
@@ -112,6 +115,7 @@ class Lab:
                         continue
                     p1, p2 = self.path(a.name, router.name, av), self.path(router.name, b.name, bv)
                     if p1 and p2:
+                        self.last_paths.append(p1 + p2[1:])
                         trace.append(f'Route connectée VLAN {av} → {bv} : ' + ' → '.join(p1 + p2[1:]))
                         found = True
                         break

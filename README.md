@@ -20,10 +20,13 @@ Si le prototype est encore dans une pull request, sélectionner d'abord la branc
 Une topologie PC1 / PC2 / SW1 / R1 apparaît au démarrage.
 Sélectionner PC1, cliquer sur **Ping**, puis saisir `192.168.20.10`.
 Le moteur vérifie les chemins aller et retour via les VLAN 10 et 20.
-Double-cliquer sur un PC pour changer son IP ou sa passerelle ; double-cliquer
-sur le routeur pour modifier ses sous-interfaces. Glisser les équipements pour
-réorganiser le schéma. Le bouton Relier accepte par exemple
-`PC3 SW1 access 10` ou `SW2 SW1 trunk 10,20`.
+Cliquer sur un PC ou routeur : le panneau Inspecteur permet de modifier sa
+configuration. Cliquer sur un câble pour modifier son mode et ses VLAN.
+Choisir Câbler, puis cliquer sur deux équipements pour les relier.
+Glisser les équipements pour réorganiser le schéma ; Supprimer retire la sélection.
+Le ping affiche un marqueur animé sur le chemin calculé : jaune à l’aller,
+vert au retour. Lecture, Pause, Étape et Rejouer contrôlent la visualisation ;
+le curseur règle sa vitesse. Le tableau affiche les chemins et les diagnostics.
 Les projets se sauvegardent et se rouvrent au format JSON.
 
 ## Périmètre exact
@@ -35,7 +38,8 @@ charge. Les VLAN autorisés sont modélisés sur les liens, pas encore sur deux
 ports configurables séparément. Le trunk est simplifié : pas de VLAN natif.
 
 Le résultat « ping » est une vérification de connectivité, pas encore une
-simulation événementielle ICMP/ARP. Les tables MAC, l'apprentissage ARP,
+simulation événementielle ICMP/ARP. Le marqueur animé représente le parcours
+calculé ; il ne simule pas encore les échanges de paquets ni leur timing réel. Les tables MAC, l'apprentissage ARP,
 les délais, les pertes, STP et les boucles Ethernet ne sont pas simulés.
 La visite des chemins évite les boucles du graphe pour le calcul seulement.
 Les passerelles elles-mêmes ne sont pas encore des cibles de ping.

@@ -30,6 +30,15 @@ class ReachabilityTests(unittest.TestCase):
         lab = Lab.loads(demo().dumps())
         self.assertTrue(lab.ping('PC1', '192.168.20.10')[0])
 
+    def test_playback_paths_and_reset(self):
+        lab = demo()
+        lab.ping('PC1', '192.168.20.10')
+        self.assertEqual(lab.last_paths, [
+            ['PC1', 'SW1', 'R1', 'SW1', 'PC2'],
+            ['PC2', 'SW1', 'R1', 'SW1', 'PC1']])
+        lab.ping('PC1', 'invalid')
+        self.assertEqual(lab.last_paths, [])
+
     def test_invalid_vlan(self):
         lab = Lab.loads(demo().dumps())
         with self.assertRaises(ValueError):
