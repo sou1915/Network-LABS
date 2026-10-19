@@ -7,7 +7,7 @@ class ReachabilityTests(unittest.TestCase):
 
     def test_missing_trunk_vlan(self):
         lab = demo()
-        lab.links[-1].vlans = [10]
+        lab.configure_link(lab.links[-1], 'trunk', [10])
         self.assertFalse(lab.ping('PC1', '192.168.20.10')[0])
 
     def test_return_gateway_required(self):
@@ -22,7 +22,7 @@ class ReachabilityTests(unittest.TestCase):
 
     def test_same_vlan_direct(self):
         lab = demo()
-        lab.links[1].vlans = [10]
+        lab.configure_link(lab.links[1], 'access', [10])
         lab.nodes['PC2'].address = '192.168.10.20/24'
         self.assertTrue(lab.ping('PC1', '192.168.10.20')[0])
 

@@ -1,0 +1,13 @@
+name: Network LABS checks
+on: [push, pull_request]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native desktop test dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+      - name: Engine, CLI and desktop integration tests
+        run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Python syntax
+        run: /usr/bin/python3 -m compileall -q network_labs

@@ -1,339 +1,782 @@
-"""Interactive desktop topology editor and simplified reachability playback."""
+"""Network LABS desktop workbench. Pure Tk; simulation never executes shell commands."""
+import json
+import math
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from ipaddress import IPv4Interface, IPv4Address
-from .basic_ui import App as BasicApp
-from .engine import Node
+from pathlib import Path
+from .engine import Lab, Node, demo, switching_demo, vlan_list
+from .cli import Session, FEATURES
 
-BG, PANEL, INK, MUTED = '#0b1220', '#131f32', '#e2ecfb', '#8199b8'
-ACCENT = '#38d9bc'
+BG='#0a101c'; PANEL='#111d2e'; CARD='#17263a'; LINE='#2b405a'
+TEXT='#e3edf9'; MUTED='#91a5c0'; TEAL='#40dfba'; BLUE='#67aafa'; GOLD='#f6c566'; RED='#fb818d'
+FONT=('DejaVu Sans',10); MONO=('DejaVu Sans Mono',10)
 
-class App(BasicApp):
-    def __init__(self, root):
-        from .engine import demo
-        self.root, self.lab = root, demo()
-        self.selected = self.link_selected = None
-        self.mode, self.anchor = 'select', None
-        self.timer = None
-        self.hops, self.index, self.progress = [], 0, 0
-        self.running, self.result = False, None
-        root.title('Network LABS • Studio réseau')
-        root.geometry('1320x880')
-        root.minsize(1100, 760)
-        root.configure(bg=BG)
-        style = ttk.Style(root)
-        style.theme_use('clam')
-        style.configure('.', background=PANEL, foreground=INK, font=('DejaVu Sans', 10))
-        style.configure('TButton', padding=(12, 9), background='#223650', borderwidth=0)
-        style.map('TButton', background=[('active', '#305375')])
-        style.configure('TEntry', fieldbackground='#0d1727', foreground=INK, insertcolor=INK)
-        style.configure('TCombobox', fieldbackground='#0d1727', foreground=INK)
-        style.configure('TScale', background=PANEL, troughcolor=BG)
-        header = tk.Frame(root, bg=PANEL, padx=20, pady=12)
-        header.pack(fill='x')
-        tk.Label(header, text='◈  NETWORK LABS', bg=PANEL, fg=ACCENT, font=('DejaVu Sans', 17, 'bold')).pack(side='left')
-        tk.Label(header, text='  /  Studio de simulation', bg=PANEL, fg=MUTED).pack(side='left')
-        for title, callback in [('Sauvegarder', self.save), ('Ouvrir', self.load), ('Démo', self.reset)]:
-            ttk.Button(header, text=title, command=lambda c=callback: self.mutate(c)).pack(side='right', padx=4)
-        body = tk.Frame(root, bg=BG)
-        body.pack(fill='both', expand=True, padx=12, pady=12)
-        sidebar = tk.Frame(body, bg=PANEL, width=160, padx=12, pady=16)
-        sidebar.pack(side='left', fill='y', padx=(0, 10))
-        self.label(sidebar, 'ÉQUIPEMENTS', MUTED)
-        for kind, symbol in [('PC', '▣'), ('Switch', '▤'), ('Routeur', '◉')]:
-            ttk.Button(sidebar, text=f'{symbol}  {kind}', command=lambda k=kind: self.add(k)).pack(fill='x', pady=6)
-        self.label(sidebar, 'OUTILS', MUTED, pady=18)
-        ttk.Button(sidebar, text='↖  Sélection', command=lambda: self.set_mode('select')).pack(fill='x', pady=5)
-        ttk.Button(sidebar, text='⌁  Câbler', command=lambda: self.set_mode('cable')).pack(fill='x', pady=5)
-        ttk.Button(sidebar, text='Supprimer', command=self.delete).pack(fill='x', pady=5)
-        self.label(sidebar, 'Câble : cliquer sur\ndeux équipements.\n\nLien : cliquer pour\nmodifier ses VLAN.\n\nÉquipement : glisser\npour déplacer.', MUTED, pady=20)
-        right = tk.Frame(body, bg=PANEL, width=275, padx=16, pady=12)
-        right.pack(side='right', fill='y', padx=(10, 0))
-        self.label(right, 'INSPECTEUR', MUTED)
-        self.inspector = tk.Frame(right, bg=PANEL)
-        self.inspector.pack(fill='x', pady=12)
-        self.label(right, 'TEST DE CONNECTIVITÉ', MUTED, pady=12)
-        self.source = tk.StringVar(value='PC1')
-        self.destination = tk.StringVar(value='192.168.20.10')
-        self.label(right, 'PC source')
-        self.source_box = ttk.Combobox(right, textvariable=self.source, state='readonly', width=25)
-        self.source_box.pack(fill='x', pady=4)
-        self.label(right, 'Adresse IPv4 destination')
-        ttk.Entry(right, textvariable=self.destination).pack(fill='x', pady=4)
-        ttk.Button(right, text='▶  Lancer le ping simulé', command=self.ping).pack(fill='x', pady=10)
-        self.status = tk.StringVar(value='Prêt • Démo inter-VLAN')
-        tk.Label(right, textvariable=self.status, bg=PANEL, fg=ACCENT, wraplength=240, justify='left').pack(fill='x', pady=12)
-        self.label(right, 'Lecture du chemin calculé.\nARP et trames non simulés.', MUTED, pady=8)
-        center = tk.Frame(body, bg=BG)
-        center.pack(fill='both', expand=True)
-        self.canvas = tk.Canvas(center, bg=BG, highlightthickness=0)
-        self.canvas.pack(fill='both', expand=True)
-        self.canvas.bind('<Button-1>', self.select)
-        self.canvas.bind('<B1-Motion>', self.drag)
-        self.canvas.bind('<Configure>', lambda e: self.draw())
-        controls = tk.Frame(center, bg=PANEL, padx=8, pady=8)
-        controls.pack(fill='x', pady=(8, 0))
-        for title, callback in [('▶ Lecture', self.play), ('Ⅱ Pause', self.pause), ('⏭ Étape', self.step), ('↺ Rejouer', self.replay)]:
-            ttk.Button(controls, text=title, command=callback).pack(side='left', padx=3)
-        self.speed = tk.DoubleVar(value=1)
-        ttk.Scale(controls, from_=0.3, to=3, variable=self.speed, length=95).pack(side='right')
-        tk.Label(controls, text='Vitesse', bg=PANEL, fg=MUTED).pack(side='right', padx=6)
-        self.events = ttk.Treeview(center, columns=('phase','chemin'), show='headings', height=4)
-        self.events.heading('phase', text='Phase')
-        self.events.heading('chemin', text='Chemin / diagnostic')
-        self.events.column('phase', width=85, stretch=False)
-        self.events.column('chemin', width=400)
-        self.events.pack(fill='x', pady=(8, 0))
-        self.output = tk.Text(root, height=3, bg=PANEL, fg=MUTED, relief='flat', padx=16, pady=8)
-        self.output.pack(fill='x')
-        self.log('Glisser les équipements. Cliquer sur un lien pour changer les VLAN. Lancer un ping pour visualiser l’aller et le retour.')
-        self.inspect()
-        self.draw()
 
-    def label(self, parent, text, color=INK, pady=3):
-        widget = tk.Label(parent, text=text, bg=PANEL, fg=color, justify='left', anchor='w')
-        widget.pack(fill='x', pady=pady)
-        return widget
+def label(parent,text,color=TEXT,size=10,bold=False):
+    return tk.Label(parent,text=text,bg=parent['bg'],fg=color,font=('DejaVu Sans',size,'bold' if bold else 'normal'),anchor='w',justify='left')
 
-    def set_mode(self, mode):
-        self.mode, self.anchor = mode, None
-        self.status.set('Câbler : choisir deux équipements' if mode == 'cable' else 'Sélection / déplacement')
 
-    def mutate(self, callback):
-        self.clear_simulation()
-        callback()
-        self.link_selected = None
-        self.inspect()
-        self.draw()
+def button(parent,text,command,accent=False):
+    return ttk.Button(parent,text=text,command=command,style='Accent.TButton' if accent else 'TButton')
 
-    def clear_simulation(self):
-        self.pause()
-        self.hops, self.index, self.progress, self.result = [], 0, 0, None
-        if hasattr(self, 'events'):
-            self.events.delete(*self.events.get_children())
-        self.status.set('Topologie modifiée • relancer le test')
 
-    def draw(self):
-        c = self.canvas
-        c.delete('all')
-        for x in range(20, c.winfo_width(), 28):
-            for y in range(20, c.winfo_height(), 28):
-                c.create_oval(x,y,x+1,y+1, fill='#24334a', outline='')
-        for i,l in enumerate(self.lab.links):
-            a,b = self.lab.nodes[l.a],self.lab.nodes[l.b]
-            active = bool(self.hops and self.index < len(self.hops) and {l.a,l.b} == set(self.hops[self.index][:2]))
-            color = ACCENT if active else '#ffce66' if self.link_selected == i else '#42617d'
-            tags = ('link', str(i))
-            c.create_line(a.x,a.y,b.x,b.y,fill=color,width=4,tags=tags)
-            c.create_text((a.x+b.x)/2,(a.y+b.y)/2-17,text=f'{l.mode.upper()} · ' + ','.join(map(str,l.vlans)), fill='#a5bbd4',font=('DejaVu Sans',9),tags=tags)
-        for n in self.lab.nodes.values():
-            color = {'PC':'#225780','Switch':'#126d66','Routeur':'#644b98'}[n.kind]
-            tags = ('node',n.name)
-            c.create_rectangle(n.x-54,n.y-35,n.x+54,n.y+35,fill=color,outline=ACCENT if n.name==self.selected else '#527497',width=2,tags=tags)
-            c.create_text(n.x,n.y-8,text={'PC':'▣','Switch':'▤','Routeur':'◉'}[n.kind],fill='white',font=('DejaVu Sans',23),tags=tags)
-            c.create_text(n.x,n.y+21,text=n.name,fill='white',font=('DejaVu Sans',10,'bold'),tags=tags)
-            c.create_text(n.x,n.y+50,text=n.address or n.kind,fill=MUTED,tags=tags)
-        if self.hops and self.index < len(self.hops):
-            a,b,phase = self.hops[self.index]
-            a,b = self.lab.nodes[a],self.lab.nodes[b]
-            x,y = a.x+(b.x-a.x)*self.progress,a.y+(b.y-a.y)*self.progress
-            color = '#f9cf65' if phase=='Aller' else ACCENT
-            c.create_rectangle(x-10,y-7,x+10,y+7,fill=color,outline='white',width=2)
-            c.create_text(x,y-23,text=phase,fill=color)
+def roundrect(c,x1,y1,x2,y2,r=12,**kw):
+    return c.create_polygon(x1+r,y1,x2-r,y1,x2,y1,x2,y1+r,x2,y2-r,x2,y2,x2-r,y2,x1+r,y2,x1,y2,x1,y2-r,x1,y1+r,x1,y1,smooth=True,**kw)
 
-    def select(self,event):
-        items=self.canvas.find_withtag('current')
-        tags=self.canvas.gettags(items[0]) if items else ()
-        if tags and tags[0]=='node':
-            name=tags[1]
-            if self.mode=='cable':
-                if self.anchor is None:
-                    self.anchor=name
-                    self.status.set(f'{name} → choisir la destination')
-                else:
-                    a,self.anchor=self.anchor,None
-                    mode=self.ask('Câble','Mode : access ou trunk','access')
-                    if mode:
-                        vlans=self.ask('VLAN','VLAN autorisés, séparés par virgule','10')
-                        if vlans:
-                            try:
-                                self.lab.connect(a,name,mode,[int(v) for v in vlans.split(',')])
-                                self.clear_simulation()
-                            except ValueError as e:
-                                messagebox.showerror('Câble',str(e))
-                self.draw()
-                return
-            self.selected,self.link_selected=name,None
-            if self.lab.nodes[name].kind=='PC':
-                self.source.set(name)
-        elif tags and tags[0]=='link':
-            self.selected,self.link_selected=None,int(tags[1])
-        else:
-            self.selected,self.link_selected=None,None
-        self.inspect()
-        self.draw()
+class Terminal:
+    def __init__(self,app,node):
+        self.app=app
+        self.session=Session(app.lab,node)
+        self.history=[]; self.cursor=0
+        self.frame=tk.Frame(app.dock,bg=BG)
+        bar=tk.Frame(self.frame,bg=PANEL,padx=10,pady=5)
+        bar.pack(fill='x')
+        label(bar,f'CONSOLE  /  {node}',TEAL,9,True).pack(side='left')
+        button(bar,'Aide ?',lambda:self.send('?')).pack(side='right',padx=3)
+        button(bar,'Coller un bloc',self.block).pack(side='right',padx=3)
+        button(bar,'Effacer',self.clear).pack(side='right',padx=3)
+        content=tk.Frame(self.frame,bg=BG)
+        content.pack(fill='both',expand=True)
+        self.text=tk.Text(content,bg=BG,fg='#c1d4ec',font=MONO,relief='flat',wrap='none',padx=14,pady=10,state='disabled',height=9,insertbackground=TEAL,selectbackground='#245274')
+        scroll=ttk.Scrollbar(content,command=self.text.yview)
+        self.text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right',fill='y'); self.text.pack(fill='both',expand=True)
+        self.text.tag_configure('prompt',foreground=TEAL)
+        self.text.tag_configure('error',foreground=RED)
+        self.text.tag_configure('hint',foreground=MUTED)
+        row=tk.Frame(self.frame,bg='#15283b',padx=12,pady=8)
+        row.pack(fill='x')
+        self.prompt=tk.StringVar(value=self.session.prompt)
+        tk.Label(row,textvariable=self.prompt,bg=row['bg'],fg=TEAL,font=MONO).pack(side='left',padx=(0,8))
+        self.command=tk.StringVar()
+        self.entry=tk.Entry(row,textvariable=self.command,bg=row['bg'],fg=TEXT,insertbackground=TEAL,font=MONO,relief='flat')
+        self.entry.pack(side='left',fill='x',expand=True)
+        button(row,'Exécuter ↵',self.enter,True).pack(side='right')
+        self.entry.bind('<Return>',lambda e:self.enter())
+        self.entry.bind('<Up>',lambda e:self.recall(-1))
+        self.entry.bind('<Down>',lambda e:self.recall(1))
+        self.entry.bind('<Tab>',self.complete)
+        self.entry.bind('<Control-l>',lambda e:self.clear())
+        self.entry.bind('<<Paste>>',self.paste)
+        self.write('Network LABS • Console locale simulée\n? : aide  |  ↑/↓ : historique  |  Tab : suggestions  |  Coller un bloc : configuration multi-ligne\n', 'hint')
+        if app.lab.nodes[node].kind!='PC':
+            self.write('Commencer : enable → configure terminal. Les commandes non implémentées sont rejetées.\n','hint')
 
-    def drag(self,event):
-        if self.mode=='select' and self.selected:
-            n=self.lab.nodes[self.selected]
-            n.x,n.y=max(60,min(self.canvas.winfo_width()-60,event.x)),max(40,min(self.canvas.winfo_height()-65,event.y))
-            self.draw()
+    def write(self,text,tag=None):
+        self.text.configure(state='normal')
+        self.text.insert('end',text,tag or ())
+        self.text.configure(state='disabled')
+        self.text.see('end')
 
-    def add(self,kind):
-        self.clear_simulation()
-        i=1
-        while f'{kind}{i}' in self.lab.nodes:
-            i+=1
-        name=f'{kind}{i}'
-        self.lab.add(Node(name,kind,150+20*(i%5),100+90*(i%4)))
-        self.selected,self.link_selected=name,None
-        self.inspect()
-        self.draw()
+    def clear(self):
+        self.text.configure(state='normal'); self.text.delete('1.0','end'); self.text.configure(state='disabled')
+        return 'break'
+
+    def recall(self,direction):
+        if self.history:
+            self.cursor=max(0,min(len(self.history),self.cursor+direction))
+            self.command.set(self.history[self.cursor] if self.cursor<len(self.history) else '')
+            self.entry.icursor('end')
+        return 'break'
+
+    def complete(self,event=None):
+        candidates=['enable','configure terminal','interface ','interface range ','show vlan brief','show interfaces status','show interfaces trunk','show spanning-tree','show spanning-tree vlan ','show etherchannel summary','show mac address-table','show port-security','show running-config','show ip route','show capabilities','switchport mode access','switchport mode trunk','switchport access vlan ','switchport trunk allowed vlan ','switchport trunk native vlan ','spanning-tree portfast','spanning-tree bpduguard enable','channel-group ','ipconfig','ping ','end','exit','no shutdown','shutdown']
+        matches=[c for c in candidates if c.startswith(self.command.get().lower())]
+        if len(matches)==1:
+            self.command.set(matches[0]); self.entry.icursor('end')
+        elif matches:
+            self.write('\n'+'    '.join(matches)+'\n','hint')
+        return 'break'
+
+    def enter(self):
+        line=self.command.get()
+        self.command.set('')
+        self.send(line)
+        self.entry.focus_set()
+
+    def send(self,line):
+        if self.session.node not in self.app.lab.nodes:
+            return
+        for command in line.splitlines():
+            if not command.strip() or command.strip().startswith('!'):
+                continue
+            self.history.append(command); self.cursor=len(self.history)
+            self.write(self.session.prompt+' '+command+'\n','prompt')
+            result=self.session.execute(command)
+            if result:
+                self.write(result+'\n','error' if result.startswith('%') else None)
+            self.prompt.set(self.session.prompt)
+            if self.session.changed:
+                self.app.dirty=True
+                self.app.invalidate()
+                self.app.refresh()
+            elif command.lower().strip().startswith('ping '):
+                self.app.animate_result(not result.startswith(('FAILED','%')))
+                self.app.draw()
+            if result.startswith('%'):
+                break
+
+    def paste(self,event):
+        try:
+            content=self.frame.clipboard_get()
+        except tk.TclError:
+            return 'break'
+        if '\n' in content:
+            self.open_block(content)
+            return 'break'
+        return None
+
+    def block(self):
+        self.open_block('')
+
+    def open_block(self,initial):
+        win=tk.Toplevel(self.app.root)
+        win.title('Bloc de commandes / '+self.session.node)
+        win.geometry('690x460'); win.configure(bg=PANEL); win.transient(self.app.root)
+        label(win,'Une commande par ligne • arrêt à la première erreur',MUTED).pack(padx=15,pady=12)
+        editor=tk.Text(win,bg=BG,fg=TEXT,insertbackground=TEAL,font=MONO,padx=12,pady=12)
+        editor.pack(fill='both',expand=True,padx=12)
+        editor.insert('1.0',initial)
+        def run():
+            text=editor.get('1.0','end-1c'); win.destroy(); self.send(text); self.entry.focus_set()
+        button(win,'Exécuter le bloc',run,True).pack(anchor='e',padx=12,pady=12)
+        editor.focus_set()
+
+class App:
+    def __init__(self,root):
+        self.root=root; self.lab=demo(); self.selected='SW1'; self.selected_link=None
+        self.mode='select'; self.anchor=None; self.place_kind=None
+        self.zoom=1.; self.panx=15.; self.pany=10.; self.pan_start=None
+        self.timer=None; self.running=False; self.hops=[]; self.index=0; self.progress=0.; self.result=None
+        self.terminals={}; self.dirty=False; self.path=None
+        root.title('Network LABS  /  Switching Studio')
+        root.geometry('1530x1010'); root.minsize(1180,800); root.configure(bg=BG)
+        self.style()
+        self.header()
+        workspace=ttk.Panedwindow(root,orient='horizontal')
+        workspace.pack(fill='both',expand=True,padx=10,pady=(8,0))
+        self.sidebar=tk.Frame(workspace,bg=PANEL,width=175)
+        self.sidebar.pack_propagate(False)
+        workspace.add(self.sidebar,weight=0)
+        middle=ttk.Panedwindow(workspace,orient='vertical')
+        workspace.add(middle,weight=1)
+        self.right=tk.Frame(workspace,bg=PANEL,width=330)
+        self.right.pack_propagate(False)
+        workspace.add(self.right,weight=0)
+        self.build_sidebar()
+        topology=tk.Frame(middle,bg=BG)
+        middle.add(topology,weight=3)
+        self.canvas_toolbar(topology)
+        self.canvas=tk.Canvas(topology,bg=BG,highlightthickness=0,height=470)
+        self.canvas.pack(fill='both',expand=True)
+        self.canvas.bind('<Button-1>',self.select)
+        self.canvas.bind('<B1-Motion>',self.drag)
+        self.canvas.bind('<Double-Button-1>',self.double_click)
+        self.canvas.bind('<Button-3>',self.context)
+        self.canvas.bind('<Button-2>',self.pan_begin)
+        self.canvas.bind('<B2-Motion>',self.pan_move)
+        self.canvas.bind('<MouseWheel>',lambda e:self.change_zoom(1.1 if e.delta>0 else 1/1.1))
+        self.canvas.bind('<Button-4>',lambda e:self.change_zoom(1.1))
+        self.canvas.bind('<Button-5>',lambda e:self.change_zoom(1/1.1))
+        self.canvas.bind('<Configure>',lambda e:self.draw())
+        self.canvas.bind('<Delete>',lambda e:self.delete())
+        self.canvas.bind('<Escape>',lambda e:self.set_mode('select'))
+        legend=tk.Frame(topology,bg=PANEL,padx=12,pady=7)
+        legend.pack(fill='x')
+        label(legend,'● Forwarding',TEAL,9).pack(side='left',padx=6)
+        label(legend,'● STP bloqué',GOLD,9).pack(side='left',padx=6)
+        label(legend,'● Down',RED,9).pack(side='left',padx=6)
+        label(legend,'● Hors VLAN',MUTED,9).pack(side='left',padx=6)
+        label(legend,'Double-clic : CLI  ·  Molette : zoom  ·  Clic milieu : déplacer la vue',MUTED,9).pack(side='right')
+        self.dock=ttk.Notebook(middle)
+        middle.add(self.dock,weight=2)
+        self.build_events()
+        self.build_right()
+        self.status=tk.StringVar(value='Prêt • Sélectionner un équipement ou ouvrir sa console')
+        statusbar=tk.Frame(root,bg=PANEL,padx=14,pady=7)
+        statusbar.pack(fill='x',pady=(6,0))
+        tk.Label(statusbar,textvariable=self.status,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9)).pack(side='left')
+        self.counts=tk.StringVar()
+        tk.Label(statusbar,textvariable=self.counts,bg=PANEL,fg=TEAL,font=('DejaVu Sans',9)).pack(side='right')
+        root.protocol('WM_DELETE_WINDOW',self.close)
+        root.bind('<Control-s>',lambda e:self.save())
+        self.refresh(); self.open_cli('SW1')
+        root.update_idletasks()
+        self.fit()
+
+    def style(self):
+        s=ttk.Style(self.root); s.theme_use('clam')
+        s.configure('.',background=PANEL,foreground=TEXT,font=FONT)
+        s.configure('TButton',background='#21334a',foreground=TEXT,padding=(10,8),borderwidth=0)
+        s.map('TButton',background=[('active','#304e6c')],foreground=[('disabled',MUTED)])
+        s.configure('Small.TButton',padding=(7,7),width=0)
+        s.configure('Accent.TButton',background='#147d70',foreground='white')
+        s.map('Accent.TButton',background=[('active','#219d88')])
+        s.configure('TEntry',fieldbackground=BG,foreground=TEXT,insertcolor=TEAL,padding=6,bordercolor=LINE)
+        s.configure('TCombobox',fieldbackground=BG,foreground=TEXT,padding=5,arrowcolor=TEAL)
+        s.map('TCombobox',fieldbackground=[('readonly',BG)],foreground=[('readonly',TEXT)])
+        self.root.option_add('*TCombobox*Listbox.background',PANEL)
+        self.root.option_add('*TCombobox*Listbox.foreground',TEXT)
+        s.configure('TNotebook',background=BG,borderwidth=0)
+        s.configure('TNotebook.Tab',background=PANEL,padding=(15,9),foreground=MUTED)
+        s.map('TNotebook.Tab',background=[('selected',CARD)],foreground=[('selected',TEAL)])
+        s.configure('Treeview',background=PANEL,fieldbackground=PANEL,foreground=TEXT,rowheight=26,borderwidth=0)
+        s.configure('Treeview.Heading',background=CARD,foreground=MUTED,font=('DejaVu Sans',9,'bold'),padding=7,relief='flat')
+        s.map('Treeview',background=[('selected','#254a64')])
+        s.configure('TPanedwindow',background=BG)
+        s.configure('TScale',background=PANEL,troughcolor=BG)
+
+    def header(self):
+        top=tk.Frame(self.root,bg=PANEL,padx=18,pady=12); top.pack(fill='x')
+        logo=tk.Canvas(top,width=35,height=35,bg=PANEL,highlightthickness=0)
+        logo.pack(side='left',padx=(0,10))
+        for x,y in [(7,7),(27,7),(17,28)]:
+            for xx,yy in [(7,7),(27,7),(17,28)]:
+                logo.create_line(x,y,xx,yy,fill='#2f887e',width=2)
+            logo.create_oval(x-4,y-4,x+4,y+4,fill=TEAL,outline='')
+        label(top,'NETWORK LABS',TEAL,16,True).pack(side='left')
+        label(top,'  /  SWITCHING STUDIO',MUTED,10).pack(side='left',padx=12)
+        for title,callback in [('Sauvegarder',self.save),('Ouvrir',self.load),('Nouveau',self.new)]:
+            button(top,title,callback,title=='Sauvegarder').pack(side='right',padx=4)
+
+    def build_sidebar(self):
+        parent=self.sidebar
+        label(parent,'BIBLIOTHÈQUE',MUTED,9,True).pack(fill='x',padx=14,pady=(17,10))
+        for kind,title,subtitle in [('PC','Poste client','IPv4 · ping · CLI'),('Switch','Switch L2','24 ports · VLAN · STP'),('Routeur','Routeur','802.1Q · inter-VLAN')]:
+            card=tk.Frame(parent,bg=CARD,padx=10,pady=10,cursor='hand2'); card.pack(fill='x',padx=10,pady=5)
+            name=tk.Label(card,text=title,bg=CARD,fg=TEXT,font=('DejaVu Sans',11,'bold'),anchor='w'); name.pack(fill='x')
+            sub=tk.Label(card,text=subtitle,bg=CARD,fg=MUTED,font=('DejaVu Sans',8),anchor='w'); sub.pack(fill='x',pady=(4,0))
+            for w in (card,name,sub):
+                w.bind('<Button-1>',lambda e,k=kind:self.set_place(k))
+        label(parent,'OUTILS',MUTED,9,True).pack(fill='x',padx=14,pady=(20,8))
+        for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
+            button(parent,title,callback).pack(fill='x',padx=10,pady=3)
+        label(parent,'LABS INTÉGRÉS',MUTED,9,True).pack(fill='x',padx=14,pady=(22,8))
+        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo)]:
+            button(parent,title,lambda f=factory:self.replace_lab(f)).pack(fill='x',padx=10,pady=3)
+        label(parent,'CLI inspirée IOS\nSimulation pédagogique\nSans VM / sans IOS',MUTED,8).pack(fill='x',padx=14,pady=20)
+
+    @staticmethod
+    def channel_demo():
+        lab=demo(); lab.add(Node('SW2','Switch',710,490))
+        for _ in range(2):
+            link=lab.connect('SW1','SW2','trunk',[10,20])
+            for node,port in ((link.a,link.a_port),(link.b,link.b_port)):
+                p=lab.nodes[node].ports[port]; p.channel=1; p.channel_mode='active'
+        return lab
+
+    def canvas_toolbar(self,parent):
+        bar=tk.Frame(parent,bg=PANEL,padx=10,pady=8); bar.pack(fill='x')
+        label(bar,'TOPOLOGIE',TEXT,10,True).pack(side='left',padx=(0,15))
+        label(bar,'VLAN observé',MUTED,9).pack(side='left',padx=5)
+        self.view_vlan=tk.StringVar(value='10')
+        self.vlan_box=ttk.Combobox(bar,textvariable=self.view_vlan,values=['1','10','20'],state='readonly',width=6)
+        self.vlan_box.pack(side='left')
+        self.vlan_box.bind('<<ComboboxSelected>>',lambda e:self.draw())
+        for title,callback in [('+',lambda:self.change_zoom(1.15)),('-',lambda:self.change_zoom(1/1.15)),('Centrer',self.fit)]:
+            button(bar,title,callback).pack(side='right',padx=3)
+        self.zoom_label=tk.StringVar(value='100 %')
+        tk.Label(bar,textvariable=self.zoom_label,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9)).pack(side='right',padx=7)
+
+    def build_events(self):
+        frame=tk.Frame(self.dock,bg=PANEL)
+        self.dock.add(frame,text='Journal des parcours')
+        columns=('phase','vlan','source','target','details')
+        self.events=ttk.Treeview(frame,columns=columns,show='headings',height=8)
+        for col,title,width in zip(columns,['Phase','VLAN','Source','Destination','Détails'],[80,60,120,120,300]):
+            self.events.heading(col,text=title); self.events.column(col,width=width,stretch=col=='details')
+        scroll=ttk.Scrollbar(frame,command=self.events.yview); self.events.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right',fill='y'); self.events.pack(fill='both',expand=True)
+        self.events.tag_configure('error',foreground=RED)
+        self.events.bind('<<TreeviewSelect>>',self.inspect_event)
+
+    def build_right(self):
+        self.inspector_book=ttk.Notebook(self.right)
+        self.inspector_book.pack(fill='both',expand=True)
+        self.inspector=tk.Frame(self.inspector_book,bg=PANEL,padx=12,pady=10)
+        self.reference=tk.Frame(self.inspector_book,bg=PANEL,padx=12,pady=10)
+        self.inspector_book.add(self.inspector,text='Inspecteur')
+        self.inspector_book.add(self.reference,text='Commandes')
+        ref=tk.Text(self.reference,bg=PANEL,fg=MUTED,font=('DejaVu Sans',9),wrap='word',relief='flat',width=28,height=15)
+        ref.pack(fill='both',expand=True)
+        ref.insert('1.0',FEATURES+'\n\nEXEMPLE SWITCH\nenable\nconfigure terminal\nvlan 10\nname USERS\nexit\ninterface gi0/1\nswitchport mode access\nswitchport access vlan 10\nno shutdown\nend\nshow vlan brief\n\nEXEMPLE TRUNK\nenable\nconfigure terminal\ninterface gi0/3\nswitchport mode trunk\nswitchport trunk allowed vlan 10,20\nend\nshow interfaces trunk')
+        ref.configure(state='disabled')
+        test=tk.Frame(self.right,bg=CARD,padx=12,pady=12); test.pack(fill='x',side='bottom')
+        label(test,'TEST / VISUALISATION',TEAL,9,True).pack(fill='x',pady=(0,8))
+        self.source=tk.StringVar(value='PC1'); self.destination=tk.StringVar(value='192.168.20.10')
+        self.source_box=ttk.Combobox(test,textvariable=self.source,state='readonly',width=24)
+        self.source_box.pack(fill='x',pady=3)
+        ttk.Entry(test,textvariable=self.destination).pack(fill='x',pady=3)
+        button(test,'Lancer le ping simulé',self.ping,True).pack(fill='x',pady=(7,5))
+        controls=tk.Frame(test,bg=CARD); controls.pack(fill='x')
+        for title,command in [('Lire',self.play),('Pause',self.pause),('Étape',self.step),('Rejouer',self.replay)]:
+            ttk.Button(controls,text=title,command=command,style='Small.TButton').pack(side='left',padx=2,expand=True,fill='x')
+        self.speed=tk.DoubleVar(value=1.)
+        label(test,'Vitesse de lecture',MUTED,8).pack(fill='x',pady=(8,1))
+        ttk.Scale(test,from_=0.3,to=3,variable=self.speed).pack(fill='x')
+        label(test,'Parcours calculé • pas de timing réel ARP/ICMP',MUTED,8).pack(fill='x',pady=(7,0))
+
+    def refresh(self):
+        values=[n.name for n in self.lab.nodes.values() if n.kind=='PC']
+        self.source_box['values']=values
+        if self.source.get() not in values:
+            self.source.set(values[0] if values else '')
+        vlans=sorted({int(v) for n in self.lab.nodes.values() if n.kind=='Switch' for v in n.vlans} or {1})
+        self.vlan_box['values']=[str(v) for v in vlans]
+        if self.view_vlan.get() not in self.vlan_box['values']:
+            self.view_vlan.set(str(vlans[0]))
+        self.counts.set(f'{len(self.lab.nodes)} équipements  /  {len(self.lab.links)} liens  /  {len(vlans)} VLAN')
+        self.inspect(); self.draw()
 
     def inspect(self):
-        self.source_box['values']=[n.name for n in self.lab.nodes.values() if n.kind=='PC']
-        if self.source.get() not in self.source_box['values']:
-            self.source.set('')
-        for child in self.inspector.winfo_children():
-            child.destroy()
-        self.fields={}
-        if self.selected not in self.lab.nodes and self.link_selected is None:
-            self.label(self.inspector,'Sélectionner un équipement\nou un lien.',MUTED)
-            return
-        if self.link_selected is not None:
-            l=self.lab.links[self.link_selected]
-            self.label(self.inspector,f'{l.a} ↔ {l.b}',ACCENT)
-            values=[('Mode',l.mode),('VLAN',','.join(map(str,l.vlans)))]
-        else:
+        for w in self.inspector.winfo_children():
+            w.destroy()
+        panel=self.inspector
+        if self.selected in self.lab.nodes:
             n=self.lab.nodes[self.selected]
-            self.label(self.inspector,f'{n.name} / {n.kind}',ACCENT)
-            values=([('IPv4/CIDR',n.address),('Passerelle',n.gateway)] if n.kind=='PC' else [('Sous-interfaces',','.join(f'{v}={ip}' for v,ip in n.interfaces.items()))] if n.kind=='Routeur' else [])
-        for title,value in values:
-            self.label(self.inspector,title)
-            var=tk.StringVar(value=value)
-            ttk.Entry(self.inspector,textvariable=var,width=25).pack(fill='x',pady=4)
-            self.fields[title]=var
-        if values:
-            ttk.Button(self.inspector,text='Appliquer',command=self.apply).pack(fill='x',pady=10)
-        else:
-            self.label(self.inspector,'Cliquer sur un câble pour\nconfigurer son mode / VLAN.',MUTED)
-
-    def apply(self):
-        try:
-            f={k:v.get().strip() for k,v in self.fields.items()}
-            if self.link_selected is not None:
-                i=self.link_selected
-                l=self.lab.links[i]
-                # Validate on a separate lab to keep changes atomic.
-                from .engine import Lab
-                copy=Lab.loads(self.lab.dumps())
-                copy.links.pop(i)
-                copy.connect(l.a,l.b,f['Mode'],[int(v) for v in f['VLAN'].split(',')])
-                updated=copy.links[-1]
-                self.lab.links[i]=updated
+            label(panel,n.hostname or n.name,TEAL,16,True).pack(fill='x',pady=(3,5))
+            label(panel,n.kind+'  /  '+n.mac,MUTED,8).pack(fill='x',pady=(0,10))
+            button(panel,'Ouvrir la console CLI',lambda:self.open_cli(n.name),True).pack(fill='x',pady=5)
+            if n.kind=='PC':
+                self.fields={}
+                for title,value in [('IPv4 / CIDR',n.address),('Passerelle',n.gateway)]:
+                    label(panel,title,MUTED,9).pack(fill='x',pady=(12,4))
+                    var=tk.StringVar(value=value); self.fields[title]=var
+                    ttk.Entry(panel,textvariable=var).pack(fill='x')
+                def apply():
+                    try:
+                        address=str(IPv4Interface(self.fields['IPv4 / CIDR'].get()))
+                        gateway=self.fields['Passerelle'].get().strip()
+                        if gateway:
+                            IPv4Address(gateway)
+                        n.address,n.gateway=address,gateway
+                        self.changed('Configuration IPv4 appliquée')
+                    except ValueError as e:
+                        messagebox.showerror('IPv4',str(e),parent=self.root)
+                button(panel,'Appliquer IPv4',apply).pack(fill='x',pady=12)
+            elif n.kind=='Switch':
+                label(panel,'PORTS PHYSIQUES',MUTED,9,True).pack(fill='x',pady=(14,7))
+                port_frame=tk.Frame(panel,bg=PANEL)
+                port_frame.pack(fill='both',expand=True)
+                ports=ttk.Treeview(port_frame,columns=('port','state','vlan'),show='headings',height=9)
+                for col,title,width in [('port','Port',65),('state','État',80),('vlan','VLAN',65)]:
+                    ports.heading(col,text=title); ports.column(col,width=width,stretch=True)
+                stp=self.lab.stp(int(self.view_vlan.get())).get(n.name,{}).get('ports',{})
+                for name,p in n.ports.items():
+                    if '.' in name or name.startswith('po'):
+                        continue
+                    link=self.lab.link_for(n.name,name)
+                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown else stp.get(name,('','UP'))[1] if link else 'libre'
+                    ports.insert('', 'end',iid=name,values=(name,state,'trunk' if p.mode=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK') else ())
+                ports.tag_configure('bad',foreground=GOLD)
+                scroll=ttk.Scrollbar(port_frame,command=ports.yview)
+                ports.configure(yscrollcommand=scroll.set)
+                scroll.pack(side='right',fill='y'); ports.pack(fill='both',expand=True)
+                ports.bind('<Double-Button-1>',lambda e:self.edit_port(n.name,ports.selection()[0]) if ports.selection() else None)
+                label(panel,'Double-clic sur un port : configuration',MUTED,8).pack(fill='x',pady=7)
             else:
-                n=self.lab.nodes[self.selected]
-                if n.kind=='PC':
-                    IPv4Interface(f['IPv4/CIDR'])
-                    if f['Passerelle']:
-                        IPv4Address(f['Passerelle'])
-                    n.address,n.gateway=f['IPv4/CIDR'],f['Passerelle']
-                else:
-                    interfaces={}
-                    for entry in f['Sous-interfaces'].split(',') if f['Sous-interfaces'] else []:
-                        v,ip=entry.strip().split('=')
-                        if not 1<=int(v)<=4094:
-                            raise ValueError('VLAN invalide')
-                        IPv4Interface(ip)
-                        interfaces[str(int(v))]=ip
-                    n.interfaces=interfaces
-            self.clear_simulation()
-            self.draw()
-            self.status.set('Configuration appliquée')
-        except (ValueError,KeyError) as e:
-            messagebox.showerror('Configuration invalide',str(e))
+                label(panel,'SOUS-INTERFACES 802.1Q',MUTED,9,True).pack(fill='x',pady=(16,8))
+                for v,ip in n.interfaces.items():
+                    label(panel,f'VLAN {v}  /  {ip}',TEXT,9).pack(fill='x',pady=4)
+                label(panel,'Configurer dans la console :\ninterface gi0/0.10\nencapsulation dot1Q 10\nip address 192.168.10.1/24',MUTED,9).pack(fill='x',pady=15)
+        elif self.selected_link is not None and self.selected_link<len(self.lab.links):
+            l=self.lab.links[self.selected_link]
+            label(panel,'LIAISON PHYSIQUE',TEAL,12,True).pack(fill='x',pady=(5,12))
+            for name,port in ((l.a,l.a_port),(l.b,l.b_port)):
+                p=self.lab.nodes[name].ports[port]
+                label(panel,f'{name} / {port}',TEXT,11,True).pack(fill='x',pady=(15,5))
+                label(panel,f'{p.mode}  ·  access {p.access_vlan}\nNative {p.native_vlan}\nAllowed : {Session.compact(p.allowed)[:55]}',MUTED,9).pack(fill='x')
+                button(panel,'Configurer ce port',lambda n=name,p=port:self.edit_port(n,p)).pack(fill='x',pady=6)
+            def toggle():
+                l.enabled=not l.enabled; self.changed('État du câble modifié')
+            button(panel,'Couper le câble' if l.enabled else 'Rétablir le câble',toggle).pack(fill='x',pady=18)
+            ok,reason=self.lab.channel_state(l)
+            if not ok:
+                label(panel,reason,RED,9).pack(fill='x',pady=8)
+        else:
+            label(panel,'Votre espace réseau',TEAL,13,True).pack(fill='x',pady=(10,12))
+            label(panel,'Choisir un équipement dans\nla bibliothèque puis cliquer\ndans la topologie.\n\nDouble-clic sur un équipement\npour ouvrir sa console.\n\nCâbler : cliquer sur les deux\néquipements à connecter.',MUTED,10).pack(fill='x')
 
-    def delete(self):
-        if self.selected is None and self.link_selected is None:
-            return
-        self.clear_simulation()
-        if self.link_selected is not None:
-            self.lab.links.pop(self.link_selected)
-        elif self.selected:
-            self.lab.links=[l for l in self.lab.links if self.selected not in (l.a,l.b)]
-            del self.lab.nodes[self.selected]
-        self.selected=self.link_selected=None
-        self.inspect()
+    def edit_port(self,node,name):
+        n=self.lab.nodes[node]; p=n.ports[name]
+        win=tk.Toplevel(self.root); win.title(f'Interface / {node} / {name}')
+        win.configure(bg=PANEL); win.transient(self.root); win.geometry('480x620')
+        label(win,f'{node} / {name}',TEAL,15,True).pack(fill='x',padx=22,pady=18)
+        body=tk.Frame(win,bg=PANEL,padx=22); body.pack(fill='both',expand=True)
+        fields={}
+        for title,value in [('Description',p.description),('Mode',p.mode),('VLAN access',str(p.access_vlan)),('VLAN natif',str(p.native_vlan)),('VLAN autorisés',Session.compact(p.allowed)),('Coût STP',str(p.cost))]:
+            label(body,title,MUTED,9).pack(fill='x',pady=(8,3))
+            var=tk.StringVar(value=value); fields[title]=var
+            if title=='Mode':
+                ttk.Combobox(body,textvariable=var,values=['access','trunk'],state='readonly').pack(fill='x')
+            else:
+                ttk.Entry(body,textvariable=var).pack(fill='x')
+        admin=tk.BooleanVar(value=not p.shutdown)
+        ttk.Checkbutton(body,text='Port administrativement actif',variable=admin).pack(anchor='w',pady=14)
+        label(body,'STP / EtherChannel / sécurité : commandes CLI',MUTED,9).pack(fill='x')
+        def apply():
+            try:
+                access=vlan_list(fields['VLAN access'].get()); native=vlan_list(fields['VLAN natif'].get())
+                allowed=vlan_list(fields['VLAN autorisés'].get()); cost=int(fields['Coût STP'].get())
+                if len(access)!=1 or len(native)!=1 or not 1<=cost<=200000000:
+                    raise ValueError('VLAN ou coût invalide.')
+                mode=fields['Mode'].get()
+                if p.security and mode=='trunk':
+                    raise ValueError('Désactiver port-security avant le mode trunk.')
+                p.description=fields['Description'].get(); p.mode=mode; p.access_vlan=access[0]; p.native_vlan=native[0]; p.allowed=allowed; p.cost=cost; p.shutdown=not admin.get()
+                if admin.get():
+                    p.errdisabled=False
+                if n.kind=='Switch':
+                    n.vlans.setdefault(str(access[0]),f'VLAN{access[0]:04}')
+                win.destroy(); self.changed('Port configuré : '+node+'/'+name)
+            except ValueError as e:
+                messagebox.showerror('Configuration',str(e),parent=win)
+        button(win,'Appliquer la configuration',apply,True).pack(fill='x',padx=22,pady=15)
+
+    def xy(self,n):
+        return n.x*self.zoom+self.panx,n.y*self.zoom+self.pany
+
+    def geometry(self,index):
+        l=self.lab.links[index]; a=self.xy(self.lab.nodes[l.a]); b=self.xy(self.lab.nodes[l.b])
+        siblings=[i for i,k in enumerate(self.lab.links) if {k.a,k.b}=={l.a,l.b}]
+        rank=siblings.index(index)-(len(siblings)-1)/2
+        dx,dy=b[0]-a[0],b[1]-a[1]; length=max(1,math.hypot(dx,dy))
+        # Offset parallel cables in a stable orientation, even when endpoints reverse.
+        sign=1 if l.a<l.b else -1
+        off=rank*42*self.zoom*sign
+        control=((a[0]+b[0])/2-dy/length*off,(a[1]+b[1])/2+dx/length*off)
+        return a,control,b
+
+    def point(self,index,t):
+        a,c,b=self.geometry(index)
+        return ((1-t)**2*a[0]+2*(1-t)*t*c[0]+t*t*b[0],(1-t)**2*a[1]+2*(1-t)*t*c[1]+t*t*b[1])
+
+    def draw(self):
+        c=self.canvas; c.delete('all')
+        w,h=c.winfo_width(),c.winfo_height()
+        grid=max(14,int(32*self.zoom))
+        for x in range(int(self.panx)%grid,w,grid):
+            for y in range(int(self.pany)%grid,h,grid):
+                c.create_oval(x,y,x+1,y+1,fill='#243246',outline='')
+        vlan=int(self.view_vlan.get() or 1)
+        states=self.lab.stp(vlan)
+        for i,l in enumerate(self.lab.links):
+            pa,pb=self.lab.ends(l)
+            eligible=self.lab.eligible(l,vlan)
+            blocked=any(states.get(n,{}).get('ports',{}).get(p,('',''))[1]=='BLK' for n,p in ((l.a,l.a_port),(l.b,l.b_port)))
+            physically_down=not l.enabled or pa.shutdown or pb.shutdown or pa.errdisabled or pb.errdisabled or not self.lab.channel_state(l)[0]
+            color=RED if physically_down else GOLD if blocked else TEAL if eligible else '#4b5d77'
+            if self.selected_link==i:
+                color=BLUE
+            a,mid,b=self.geometry(i); tags=('link',str(i))
+            c.create_line(*a,*mid,*b,smooth=True,fill=color,width=2.4 if eligible else 1.5,dash=(6,4) if blocked or physically_down else (),tags=tags)
+            x,y=self.point(i,.5)
+            caption='Po'+str(pa.channel) if pa.channel else '802.1Q' if pa.mode=='trunk' or pb.mode=='trunk' else f'VLAN {pa.access_vlan if self.lab.nodes[l.a].kind=="Switch" else pb.access_vlan}'
+            roundrect(c,x-35,y-10,x+35,y+10,r=5,fill=PANEL,outline=LINE,tags=tags)
+            c.create_text(x,y,text=caption,fill=color,font=('DejaVu Sans',8),tags=tags)
+            for t,name in ((.33,l.a_port),(.67,l.b_port)):
+                xx,yy=self.point(i,t)
+                c.create_text(xx,yy-13,text=name,fill=MUTED,font=('DejaVu Sans',8),tags=tags)
+        for n in self.lab.nodes.values():
+            x,y=self.xy(n); z=self.zoom; tags=('node',n.name)
+            width,height=136*z,100*z
+            roundrect(c,x-width/2+3,y-height/2+5,x+width/2+3,y+height/2+5,r=12*z,fill='#050b13',outline='',tags=tags)
+            roundrect(c,x-width/2,y-height/2,x+width/2,y+height/2,r=12*z,fill=CARD,outline=TEAL if self.selected==n.name or self.anchor==n.name else LINE,width=2 if self.selected==n.name else 1,tags=tags)
+            color=BLUE if n.kind=='PC' else TEAL if n.kind=='Switch' else '#bb9aff'
+            self.icon(n.kind,x,y-8*z,z,color,tags)
+            c.create_text(x,y+31*z,text=n.hostname or n.name,fill=TEXT,font=('DejaVu Sans',max(8,int(10*z)),'bold'),tags=tags)
+            c.create_text(x,y+63*z,text=n.address if n.kind=='PC' else 'L2 • 24 ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
+            c.create_oval(x+width/2-14*z,y-height/2+9*z,x+width/2-8*z,y-height/2+15*z,fill=color,outline='',tags=tags)
+            if n.kind=='Switch' and states.get(n.name,{}).get('root')==n.name:
+                c.create_text(x,y-height/2-13*z,text='ROOT / VLAN '+str(vlan),fill=GOLD,font=('DejaVu Sans',max(7,int(8*z)),'bold'),tags=tags)
+        if self.hops and self.index<len(self.hops):
+            i,a,b,v,phase=self.hops[self.index]
+            link=self.lab.links[i]
+            t=self.progress if link.a==a else 1-self.progress
+            x,y=self.point(i,t)
+            color=GOLD if phase=='Aller' else BLUE
+            c.create_oval(x-15,y-15,x+15,y+15,fill='#3a3e4b',outline='')
+            c.create_rectangle(x-9,y-6,x+9,y+6,fill=color,outline='white')
+            c.create_line(x-9,y-6,x,y+1,x+9,y-6,fill='#23334b')
+            c.create_text(x,y-27,text=f'{phase} · VLAN {v}',fill=color,font=('DejaVu Sans',9,'bold'))
+        if not self.lab.nodes:
+            c.create_text(w/2,h/2,text='Construisez votre premier lab\nChoisir un équipement à gauche, puis cliquer ici.',fill=MUTED,font=('DejaVu Sans',14),justify='center')
+        if self.mode=='cable':
+            c.create_text(15,18,text='CÂBLAGE  /  '+(self.anchor+' → destination' if self.anchor else 'Choisir le premier équipement'),fill=GOLD,anchor='w',font=('DejaVu Sans',10,'bold'))
+        elif self.place_kind:
+            c.create_text(15,18,text='PLACER  /  '+self.place_kind+' · cliquer dans la topologie',fill=TEAL,anchor='w',font=('DejaVu Sans',10,'bold'))
+
+    def icon(self,kind,x,y,z,color,tags):
+        c=self.canvas
+        if kind=='PC':
+            c.create_rectangle(x-23*z,y-17*z,x+23*z,y+11*z,outline=color,width=2,tags=tags)
+            c.create_rectangle(x-18*z,y-12*z,x+18*z,y+6*z,fill='#142e45',outline='',tags=tags)
+            c.create_line(x,y+11*z,x,y+18*z,fill=color,width=2,tags=tags)
+            c.create_line(x-12*z,y+18*z,x+12*z,y+18*z,fill=color,width=2,tags=tags)
+        elif kind=='Switch':
+            roundrect(c,x-32*z,y-13*z,x+32*z,y+12*z,r=5*z,fill='#133a3d',outline=color,width=2,tags=tags)
+            for j in range(6):
+                xx=x-24*z+j*9*z
+                c.create_rectangle(xx,y-4*z,xx+5*z,y+3*z,outline=color,tags=tags)
+            c.create_line(x-12*z,y-20*z,x+12*z,y-20*z,arrow='last',fill=color,tags=tags)
+        else:
+            c.create_oval(x-25*z,y-22*z,x+25*z,y+22*z,outline=color,width=2,fill='#302841',tags=tags)
+            for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
+                c.create_line(x+dx*3*z,y+dy*3*z,x+dx*17*z,y+dy*15*z,fill=color,width=2,arrow='last',tags=tags)
+
+    def set_mode(self,mode):
+        self.mode=mode; self.anchor=None; self.place_kind=None
+        self.canvas.configure(cursor='crosshair' if mode=='cable' else '')
+        self.status.set('Câbler : cliquer sur deux équipements' if mode=='cable' else 'Sélection / déplacement')
         self.draw()
+
+    def set_place(self,kind):
+        self.set_mode('select'); self.place_kind=kind; self.canvas.configure(cursor='crosshair'); self.draw()
+
+    def hit(self):
+        found=self.canvas.find_withtag('current')
+        tags=self.canvas.gettags(found[0]) if found else ()
+        return tags[:2] if tags and tags[0] in ('node','link') else ()
+
+    def select(self,event):
+        self.canvas.focus_set()
+        hit=self.hit()
+        if self.place_kind:
+            kind=self.place_kind; prefix={'PC':'PC','Switch':'SW','Routeur':'R'}[kind]; i=1
+            while f'{prefix}{i}' in self.lab.nodes:
+                i+=1
+            name=f'{prefix}{i}'
+            self.lab.add(Node(name,kind,int((event.x-self.panx)/self.zoom),int((event.y-self.pany)/self.zoom)))
+            self.selected,self.selected_link=name,None; self.set_mode('select'); self.changed('Équipement ajouté : '+name)
+            return
+        if hit and hit[0]=='node':
+            name=hit[1]
+            if self.mode=='cable':
+                if self.anchor is None:
+                    self.anchor=name; self.draw()
+                else:
+                    source=self.anchor; self.anchor=None
+                    if source!=name:
+                        self.cable_dialog(source,name)
+                return
+            self.selected,self.selected_link=name,None
+            if self.lab.nodes[name].kind=='PC':
+                self.source.set(name)
+        elif hit:
+            self.selected,self.selected_link=None,int(hit[1])
+        else:
+            self.selected,self.selected_link=None,None
+        self.inspect(); self.draw()
+
+    def drag(self,event):
+        if self.mode=='select' and not self.place_kind and self.selected in self.lab.nodes:
+            n=self.lab.nodes[self.selected]
+            n.x=int((event.x-self.panx)/self.zoom); n.y=int((event.y-self.pany)/self.zoom)
+            self.dirty=True; self.draw()
+
+    def double_click(self,event):
+        hit=self.hit()
+        if hit and hit[0]=='node' and self.mode!='cable':
+            self.open_cli(hit[1])
+
+    def context(self,event):
+        self.select(event)
+        menu=tk.Menu(self.root,tearoff=False,bg=PANEL,fg=TEXT,activebackground=LINE,activeforeground=TEAL)
+        if self.selected:
+            menu.add_command(label='Ouvrir la console CLI',command=lambda:self.open_cli(self.selected))
+        if self.selected or self.selected_link is not None:
+            menu.add_command(label='Supprimer la sélection',command=self.delete)
+        else:
+            for kind in ('PC','Switch','Routeur'):
+                menu.add_command(label='Placer '+kind,command=lambda k=kind:self.set_place(k))
+        menu.tk_popup(event.x_root,event.y_root)
+
+    def cable_dialog(self,a,b):
+        ap,bp=self.lab.available_ports(a),self.lab.available_ports(b)
+        if not ap or not bp:
+            messagebox.showerror('Câblage','Aucun port disponible sur une extrémité.',parent=self.root); return
+        win=tk.Toplevel(self.root); win.title('Nouvelle liaison'); win.configure(bg=PANEL); win.transient(self.root)
+        body=tk.Frame(win,bg=PANEL,padx=24,pady=20); body.pack(fill='both',expand=True)
+        label(body,a+' ↔ '+b,TEAL,14,True).pack(fill='x',pady=(0,15))
+        fields=[]
+        for title,values in [(a,ap),(b,bp),('Mode',['access','trunk'])]:
+            label(body,title,MUTED,9).pack(fill='x',pady=(7,3))
+            var=tk.StringVar(value=values[0]); fields.append(var)
+            ttk.Combobox(body,textvariable=var,values=values,state='readonly',width=30).pack(fill='x')
+        vlans=tk.StringVar(value=self.view_vlan.get())
+        label(body,'VLAN initial (ou liste pour trunk)',MUTED,9).pack(fill='x',pady=(10,3))
+        ttk.Entry(body,textvariable=vlans).pack(fill='x')
+        label(body,'Configure les deux ports au départ.\nEnsuite chaque extrémité se configure séparément.',MUTED,8).pack(fill='x',pady=12)
+        def create():
+            try:
+                self.lab.connect(a,b,fields[2].get(),vlan_list(vlans.get()),fields[0].get(),fields[1].get())
+                win.destroy(); self.changed('Liaison ajoutée'); self.set_mode('select')
+            except ValueError as e:
+                messagebox.showerror('Câblage',str(e),parent=win)
+        button(body,'Créer la liaison',create,True).pack(fill='x',pady=10)
+
+    def open_cli(self,node):
+        if node not in self.lab.nodes:
+            return
+        if node not in self.terminals:
+            terminal=Terminal(self,node); self.terminals[node]=terminal
+            self.dock.add(terminal.frame,text='⌨ '+node)
+        terminal=self.terminals[node]
+        self.dock.select(terminal.frame); terminal.entry.focus_set()
+
+    def pan_begin(self,event):
+        self.pan_start=(event.x,event.y,self.panx,self.pany)
+
+    def pan_move(self,event):
+        if self.pan_start:
+            x,y,px,py=self.pan_start; self.panx=px+event.x-x; self.pany=py+event.y-y; self.draw()
+
+    def change_zoom(self,factor):
+        old=self.zoom; self.zoom=max(.45,min(1.8,self.zoom*factor))
+        cx,cy=self.canvas.winfo_width()/2,self.canvas.winfo_height()/2
+        self.panx=cx-(cx-self.panx)*self.zoom/old; self.pany=cy-(cy-self.pany)*self.zoom/old
+        self.zoom_label.set(f'{self.zoom:.0%}'); self.draw()
+
+    def fit(self):
+        if not self.lab.nodes:
+            return
+        xs=[n.x for n in self.lab.nodes.values()]; ys=[n.y for n in self.lab.nodes.values()]
+        w,h=self.canvas.winfo_width(),self.canvas.winfo_height()
+        self.zoom=max(.45,min(1.15,(w-70)/max(220,max(xs)-min(xs)+170),(h-60)/max(200,max(ys)-min(ys)+170)))
+        self.panx=w/2-(min(xs)+max(xs))/2*self.zoom; self.pany=h/2-(min(ys)+max(ys))/2*self.zoom
+        self.zoom_label.set(f'{self.zoom:.0%}'); self.draw()
+
+    def changed(self,text):
+        self.dirty=True; self.invalidate(); self.refresh(); self.status.set(text)
+
+    def invalidate(self):
+        self.pause(); self.hops=[]; self.index=0; self.progress=0.; self.result=None
+        self.events.delete(*self.events.get_children())
 
     def ping(self):
-        self.clear_simulation()
         ok,trace=self.lab.ping(self.source.get(),self.destination.get())
-        self.result=ok
-        for i,path in enumerate(self.lab.last_paths):
-            phase='Aller' if i==0 else 'Retour'
-            self.events.insert('', 'end', values=(phase,' → '.join(path)))
-            self.hops.extend((a,b,phase) for a,b in zip(path,path[1:]))
+        self.animate_result(ok,trace[-1])
+
+    def animate_result(self,ok,message=''):
+        self.invalidate(); self.result=ok
+        for j,hops in enumerate(self.lab.last_hops):
+            phase='Aller' if j==0 else 'Retour'
+            for i,a,b,v in hops:
+                l=self.lab.links[i]
+                aport=l.a_port if l.a==a else l.b_port; bport=l.b_port if l.b==b else l.a_port
+                self.events.insert('', 'end',values=(phase,v,a+'/'+aport,b+'/'+bport,'Parcours calculé • apprentissage MAC simplifié'))
+                self.hops.append((i,a,b,v,phase))
         if not ok:
-            self.events.insert('', 'end',values=('Échec',trace[-1]))
-        self.log('\n'.join(trace))
+            self.events.insert('', 'end',values=('Échec','','','',message or 'Voir le diagnostic dans la console'),tags=('error',))
+        self.status.set(message or ('Chemin accessible' if ok else 'Échec de connectivité'))
         if self.hops:
             self.play()
-        else:
-            self.status.set(('Réussite' if ok else 'Échec')+' : '+trace[-1])
         self.draw()
-
-    def pause(self):
-        self.running=False
-        if self.timer is not None:
-            self.root.after_cancel(self.timer)
-            self.timer=None
 
     def play(self):
         if self.running or self.index>=len(self.hops):
             return
-        self.running=True
-        self.tick()
+        self.running=True; self.tick()
 
     def tick(self):
         self.timer=None
         if not self.running:
             return
-        self.progress=min(1,self.progress+0.025*self.speed.get())
-        a,b,phase=self.hops[self.index]
-        self.status.set(f'{phase} · {a} → {b} · {self.index+1}/{len(self.hops)}')
+        i,a,b,v,phase=self.hops[self.index]
+        self.progress=min(1.,self.progress+.024*self.speed.get())
+        self.status.set(f'{phase}  /  {a} → {b}  /  VLAN {v}  /  saut {self.index+1}/{len(self.hops)}')
         self.draw()
         if self.progress>=1:
-            self.index+=1
-            self.progress=0
+            self.index+=1; self.progress=0.
         if self.index>=len(self.hops):
             self.finish()
         else:
             self.timer=self.root.after(25,self.tick)
 
+    def pause(self):
+        self.running=False
+        if self.timer is not None:
+            self.root.after_cancel(self.timer); self.timer=None
+
     def finish(self):
-        self.pause()
-        self.status.set('✓ Aller / retour accessibles' if self.result else '✗ Connectivité interrompue • voir diagnostic')
-        self.draw()
+        self.pause(); self.status.set('✓ Aller / retour accessibles' if self.result else '✗ Parcours interrompu • consulter le diagnostic'); self.draw()
 
     def step(self):
         self.pause()
         if self.index<len(self.hops):
-            a,b,phase=self.hops[self.index]
-            self.log(f'{phase} : {a} → {b}')
-            self.index+=1
-            self.progress=0
-            self.status.set(f'Étape : {b} atteint')
+            _,a,b,v,phase=self.hops[self.index]; self.status.set(f'{phase} / {b} atteint / VLAN {v}')
+            self.index+=1; self.progress=0.
             if self.index==len(self.hops):
                 self.finish()
             self.draw()
 
     def replay(self):
-        self.pause()
-        self.index,self.progress=0,0
-        self.play()
+        self.pause(); self.index=0; self.progress=0.; self.play()
+
+    def inspect_event(self,event):
+        selection=self.events.selection()
+        if selection:
+            values=self.events.item(selection[0],'values')
+            self.status.set('  /  '.join(str(v) for v in values if v))
+
+    def delete(self):
+        if not self.selected and self.selected_link is None:
+            return
+        self.invalidate()
+        if self.selected_link is not None:
+            self.lab.links.pop(self.selected_link)
+        elif self.selected in self.lab.nodes:
+            name=self.selected
+            self.lab.links=[l for l in self.lab.links if name not in (l.a,l.b)]
+            del self.lab.nodes[name]
+            if name in self.terminals:
+                terminal=self.terminals.pop(name); self.dock.forget(terminal.frame); terminal.frame.destroy()
+        self.selected=self.selected_link=None; self.changed('Sélection supprimée')
+
+    def discard(self):
+        if not self.dirty:
+            return True
+        answer=messagebox.askyesnocancel('Projet modifié','Sauvegarder le projet avant de continuer ?',parent=self.root)
+        return False if answer is None else self.save() if answer else True
+
+    def replace_lab(self,factory):
+        if not self.discard():
+            return
+        self.invalidate()
+        for terminal in self.terminals.values():
+            self.dock.forget(terminal.frame); terminal.frame.destroy()
+        self.terminals={}; self.lab=factory(); self.selected=self.selected_link=None; self.path=None; self.dirty=False
+        self.set_mode('select'); self.refresh(); self.fit()
+
+    def new(self):
+        self.replace_lab(Lab)
+
+    def save(self):
+        path=self.path or filedialog.asksaveasfilename(parent=self.root,defaultextension='.json',filetypes=[('Network LABS','*.json')])
+        if not path:
+            return False
+        try:
+            Path(path).write_text(self.lab.dumps(),encoding='utf-8')
+            self.path=path; self.dirty=False; self.status.set('Projet sauvegardé : '+Path(path).name); return True
+        except OSError as e:
+            messagebox.showerror('Sauvegarde',str(e),parent=self.root); return False
+
+    def load(self):
+        path=filedialog.askopenfilename(parent=self.root,filetypes=[('Network LABS','*.json')])
+        if not path:
+            return
+        try:
+            lab=Lab.loads(Path(path).read_text(encoding='utf-8'))
+            if not self.discard():
+                return
+            self.dirty=False; self.replace_lab(lambda:lab); self.path=path
+        except (OSError,ValueError,KeyError,TypeError) as e:
+            messagebox.showerror('Projet invalide',str(e),parent=self.root)
+
+    def close(self):
+        if self.discard():
+            self.pause(); self.root.destroy()
 
 if __name__=='__main__':
-    root=tk.Tk()
-    App(root)
-    root.mainloop()
+    root=tk.Tk(); App(root); root.mainloop()

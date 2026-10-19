@@ -1,7 +1,68 @@
-"""VLAN reachability model. No packets or real sockets are emitted."""
+"""Deterministic educational switching model; no real network sockets or vendor OS."""
 from dataclasses import dataclass, field, asdict
 from ipaddress import IPv4Interface, IPv4Address
+from hashlib import sha256
+from heapq import heappush, heappop
 import json
+import re
+
+
+def vlan_list(text):
+    if text == 'all':
+        return list(range(1, 4095))
+    if text == 'none':
+        return []
+    result = set()
+    for part in text.split(','):
+        pair = part.strip().split('-')
+        if len(pair) > 2:
+            raise ValueError('Liste VLAN invalide.')
+        start, end = int(pair[0]), int(pair[-1])
+        if not 1 <= start <= end <= 4094:
+            raise ValueError('VLAN attendu entre 1 et 4094.')
+        result.update(range(start, end + 1))
+    return sorted(result)
+
+
+def port_name(name):
+    name = name.lower().replace('gigabitethernet', 'gi').replace('fastethernet', 'fa')
+    name = name.replace('port-channel', 'po').replace('ethernet', 'eth').replace(' ', '')
+    if not re.fullmatch(r'(?:gi|fa)\d+/\d+(?:\.\d+)?|eth\d+|po\d+', name):
+        raise ValueError('Interface inconnue. Exemple : gi0/1, gi0/0.10, po1.')
+    return name
+
+
+def mac_for(name):
+    value = '02' + sha256(name.encode()).hexdigest()[:10]
+    return ':'.join(value[i:i+2] for i in range(0, 12, 2))
+
+@dataclass
+class Port:
+    mode: str = 'access'
+    access_vlan: int = 1
+    native_vlan: int = 1
+    allowed: list = field(default_factory=lambda: list(range(1, 4095)))
+    shutdown: bool = False
+    description: str = ''
+    cost: int = 19
+    port_priority: int = 128
+    portfast: bool = False
+    bpduguard: bool = False
+    errdisabled: bool = False
+    channel: int = 0
+    channel_mode: str = ''
+    security: bool = False
+    maximum: int = 1
+    violation: str = 'shutdown'
+    sticky: bool = False
+    secure_macs: list = field(default_factory=list)
+    violations: int = 0
+    sub_vlan: int = 0
+    address: str = ''
+
+    def __post_init__(self):
+        if isinstance(self.allowed,str):
+            self.allowed=vlan_list(self.allowed)
 
 @dataclass
 class Node:
@@ -11,141 +72,379 @@ class Node:
     y: int = 150
     address: str = ''
     gateway: str = ''
-    # Router subinterfaces: VLAN ID -> IPv4 CIDR. One trunk per router.
     interfaces: dict = field(default_factory=dict)
+    hostname: str = ''
+    ports: dict = field(default_factory=dict)
+    vlans: dict = field(default_factory=lambda: {'1': 'default'})
+    stp_mode: str = 'rapid-pvst'
+    priorities: dict = field(default_factory=dict)
+    startup: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
+        if not self.ports:
+            names = [f'gi0/{i}' for i in range(1, 25)] if self.kind == 'Switch' else ['gi0/0'] if self.kind == 'Routeur' else ['eth0']
+            self.ports = {name: Port() for name in names}
+
+    @property
+    def mac(self):
+        return mac_for(self.name)
+
+    def bridge_id(self, vlan):
+        return (int(self.priorities.get(str(vlan), 32768)), self.mac)
 
 @dataclass
 class Link:
     a: str
     b: str
-    mode: str = 'access'
+    mode: str = 'access'  # Kept for v1 migration; ports are authoritative in v2.
     vlans: list = field(default_factory=lambda: [1])
+    a_port: str = ''
+    b_port: str = ''
+    enabled: bool = True
 
 class Lab:
     def __init__(self):
-        self.nodes = {}
-        self.links = []
-        self.last_paths = []
+        self.nodes, self.links = {}, []
+        self.last_paths, self.last_hops, self.events = [], [], []
+        self.fdb = {}
+        self.secure_dynamic = {}
 
     def add(self, node):
         if not node.name or node.name in self.nodes:
             raise ValueError('Nom vide ou déjà utilisé.')
         if node.kind not in ('PC', 'Switch', 'Routeur'):
             raise ValueError('Type non pris en charge.')
+        if node.kind == 'Routeur':
+            for vlan, address in node.interfaces.items():
+                key = f'gi0/0.{vlan}'
+                node.ports.setdefault(key, Port(mode='trunk', sub_vlan=int(vlan), address=address))
         self.nodes[node.name] = node
 
-    def connect(self, a, b, mode='access', vlans=None):
-        vlans = list(vlans or [1])
+    def available_ports(self, name):
+        used = {l.a_port if l.a == name else l.b_port for l in self.links if name in (l.a,l.b)}
+        return [p for p in self.nodes[name].ports if p not in used and '.' not in p and not p.startswith('po')]
+
+    def connect(self, a, b, mode='access', vlans=None, a_port='', b_port='', enabled=True, configure=True):
+        vlans = [1] if vlans is None else list(vlans)
         if a == b or a not in self.nodes or b not in self.nodes:
             raise ValueError('Extrémités invalides.')
         if mode not in ('access', 'trunk') or not vlans or any(type(v) is not int or not 1 <= v <= 4094 for v in vlans):
             raise ValueError('Mode ou VLAN invalide.')
         if mode == 'access' and len(vlans) != 1:
             raise ValueError('Un port access appartient à un seul VLAN.')
-        if any({l.a, l.b} == {a, b} for l in self.links):
-            raise ValueError('Lien déjà présent.')
-        for name in (a, b):
-            if self.nodes[name].kind != 'Switch' and any(name in (l.a, l.b) for l in self.links):
-                raise ValueError('Prototype : un seul lien physique par PC/routeur.')
-        if any(self.nodes[n].kind == 'PC' for n in (a, b)) and mode != 'access':
+        if any(self.nodes[n].kind == 'PC' for n in (a,b)) and mode != 'access':
             raise ValueError('Les PC utilisent un lien access.')
-        self.links.append(Link(a, b, mode, vlans))
+        selected = []
+        for node, requested in ((a,a_port),(b,b_port)):
+            available = self.available_ports(node)
+            requested = port_name(requested) if requested else (available[0] if available else '')
+            if requested not in available:
+                raise ValueError(f'{node} : port indisponible {requested}.')
+            selected.append(requested)
+        link = Link(a,b,mode,vlans,*selected,enabled)
+        self.links.append(link)
+        if configure:
+            self.configure_link(link, mode, vlans)
+        return link
 
-    def path(self, source, target, vlan):
-        queue = [(source, [source])]
-        seen = {source}
-        while queue:
-            current, path = queue.pop(0)
-            if current == target:
-                return path
-            if current != source and self.nodes[current].kind != 'Switch':
+    def configure_link(self, link, mode, vlans):
+        if mode not in ('access','trunk') or not vlans or (mode == 'access' and len(vlans) != 1):
+            raise ValueError('Configuration de lien invalide.')
+        for node,p in ((link.a,link.a_port),(link.b,link.b_port)):
+            port = self.nodes[node].ports[p]
+            port.mode, port.access_vlan, port.allowed = mode, vlans[0], list(vlans)
+            if self.nodes[node].kind == 'Switch':
+                for vlan in vlans:
+                    self.nodes[node].vlans.setdefault(str(vlan), f'VLAN{vlan:04}')
+        link.mode,link.vlans = mode,list(vlans)
+
+    def ends(self, link):
+        return self.nodes[link.a].ports[link.a_port],self.nodes[link.b].ports[link.b_port]
+
+    def link_for(self, name, port):
+        return next((l for l in self.links if (l.a,l.a_port)==(name,port) or (l.b,l.b_port)==(name,port)),None)
+
+    def channel_state(self, link):
+        a,b=self.ends(link)
+        if not a.channel and not b.channel:
+            return True, ''
+        if not a.channel or not b.channel:
+            return False, 'EtherChannel : partenaire non configuré'
+        modes={a.channel_mode,b.channel_mode}
+        compatible = modes=={'on'} or (modes <= {'active','passive'} and 'active' in modes) or (modes <= {'auto','desirable'} and 'desirable' in modes)
+        if not compatible:
+            return False, 'EtherChannel : négociation incompatible'
+        def signature(p):
+            return (p.mode,p.access_vlan,p.native_vlan,tuple(p.allowed))
+        if signature(a)!=signature(b):
+            return False, 'EtherChannel : paramètres différents'
+        for name,port in ((link.a,a),(link.b,b)):
+            group=[p for key,p in self.nodes[name].ports.items() if p.channel==port.channel and not p.shutdown and not p.errdisabled and not key.startswith('po')]
+            if any(signature(p)!=signature(port) for p in group):
+                return False, 'EtherChannel : membres incohérents'
+            peers=set()
+            for other in self.links:
+                local = other.a_port if other.a==name else other.b_port if other.b==name else None
+                if local and self.nodes[name].ports[local].channel==port.channel:
+                    peers.add(other.b if other.a==name else other.a)
+            if len(peers)>1:
+                return False, 'EtherChannel : plusieurs partenaires'
+        return True, ''
+
+    def eligible(self, link, vlan):
+        if not link.enabled:
+            return False
+        pa,pb=self.ends(link)
+        for name,p,other in ((link.a,pa,link.b),(link.b,pb,link.a)):
+            if self.nodes[name].kind=='Switch' and p.bpduguard and self.nodes[other].kind=='Switch':
+                p.errdisabled=True
+        if any(p.shutdown or p.errdisabled for p in (pa,pb)) or not self.channel_state(link)[0]:
+            return False
+        for name,port in ((link.a,pa),(link.b,pb)):
+            node=self.nodes[name]
+            if node.kind=='Switch' and str(vlan) not in node.vlans:
+                return False
+            if node.kind!='PC' and (vlan not in port.allowed if port.mode=='trunk' else vlan!=port.access_vlan):
+                return False
+        if pa.mode=='trunk' and pb.mode=='trunk' and pa.native_vlan!=pb.native_vlan:
+            # Conservative simulator policy; real devices can map native VLANs differently.
+            return False
+        if pa.mode!=pb.mode and all(self.nodes[n].kind=='Switch' for n in (link.a,link.b)):
+            trunk=pa if pa.mode=='trunk' else pb
+            access=pb if pa.mode=='trunk' else pa
+            return vlan==trunk.native_vlan==access.access_vlan
+        return True
+
+    def stp(self, vlan):
+        """Converged per-VLAN STP; no BPDU timers. EtherChannels are logical edges."""
+        switches={n.name:n for n in self.nodes.values() if n.kind=='Switch' and str(vlan) in n.vlans}
+        logical={}
+        for i,l in enumerate(self.links):
+            if l.a not in switches or l.b not in switches or not self.eligible(l,vlan):
                 continue
-            for link in self.links:
-                if current not in (link.a, link.b) or vlan not in link.vlans:
+            pa,pb=self.ends(l)
+            key=tuple(sorted(((l.a,pa.channel),(l.b,pb.channel)))) if pa.channel and pb.channel else ('link',i)
+            logical.setdefault(key,[]).append(i)
+        edges=[ids for ids in logical.values()]
+        adjacency={n:[] for n in switches}
+        for e,ids in enumerate(edges):
+            l=self.links[ids[0]]
+            adjacency[l.a].append((l.b,e))
+            adjacency[l.b].append((l.a,e))
+        state={}
+        remaining=set(switches)
+        while remaining:
+            seed=next(iter(remaining))
+            component,stack=set(),[seed]
+            while stack:
+                n=stack.pop()
+                if n in component:
                     continue
-                other = link.b if current == link.a else link.a
+                component.add(n)
+                stack.extend(other for other,_ in adjacency[n])
+            remaining-=component
+            root=min(component,key=lambda n:switches[n].bridge_id(vlan))
+            distance={root:0}
+            parent={}
+            ranks={root:(0,(-1,''),(-1,-1),(-1,-1))}
+            queue=[(0,root)]
+            while queue:
+                d,n=heappop(queue)
+                if d!=distance[n]:
+                    continue
+                for other,e in adjacency[n]:
+                    ids=edges[e]
+                    l=self.links[ids[0]]
+                    local=l.b_port if l.b==other else l.a_port
+                    sender=l.a_port if l.a==n else l.b_port
+                    cost=max(1,switches[other].ports[local].cost//len(ids))
+                    rank=(d+cost,switches[n].bridge_id(vlan),(switches[n].ports[sender].port_priority, int(sender.split('/')[-1])),(switches[other].ports[local].port_priority,int(local.split('/')[-1])))
+                    if other not in ranks or rank<ranks[other]:
+                        distance[other],ranks[other],parent[other]=d+cost,rank,e
+                        heappush(queue,(d+cost,other))
+            for n in component:
+                state[n]={'root':root,'cost':distance[n],'ports':{}}
+            for e,ids in enumerate(edges):
+                l=self.links[ids[0]]
+                if l.a not in component:
+                    continue
+                designated=min((l.a,l.b),key=lambda n:(distance[n],switches[n].bridge_id(vlan)))
+                for i in ids:
+                    link=self.links[i]
+                    for n,p in ((link.a,link.a_port),(link.b,link.b_port)):
+                        role='ROOT' if parent.get(n)==e else 'DESG' if n==designated else 'ALTN'
+                        state[n]['ports'][p]=(role,'BLK' if role=='ALTN' else 'FWD')
+        return state
+
+    def forwarding(self, link, vlan):
+        if not self.eligible(link,vlan):
+            return False
+        for name,port in ((link.a,link.a_port),(link.b,link.b_port)):
+            p=self.nodes[name].ports[port]
+            if self.nodes[name].kind=='Switch':
+                other=link.b if name==link.a else link.a
+                if p.bpduguard and self.nodes[other].kind=='Switch':
+                    p.errdisabled=True
+                    return False
+                state=self.stp(vlan).get(name,{}).get('ports',{}).get(port,('DESG','FWD'))
+                if state[1]=='BLK':
+                    return False
+        return True
+
+    def path_details(self, source, target, vlan):
+        queue=[(source,[source],[])]
+        seen={source}
+        while queue:
+            current,path,hops=queue.pop(0)
+            if current==target:
+                return path,hops
+            if current!=source and self.nodes[current].kind!='Switch':
+                continue
+            for i,l in enumerate(self.links):
+                if current not in (l.a,l.b) or not self.forwarding(l,vlan):
+                    continue
+                other=l.b if current==l.a else l.a
                 if other not in seen:
                     seen.add(other)
-                    queue.append((other, path + [other]))
-        return None
+                    queue.append((other,path+[other],hops+[(i,current,other,vlan)]))
+        return None,None
 
-    def vlan(self, name):
-        links = [l for l in self.links if name in (l.a, l.b)]
-        if not links:
+    def path(self, source,target,vlan):
+        return self.path_details(source,target,vlan)[0]
+
+    def vlan(self,name):
+        link=next((l for l in self.links if name in (l.a,l.b)),None)
+        if not link:
             raise ValueError(f'{name} : aucun câble.')
-        return links[0].vlans[0]
+        other=link.b if link.a==name else link.a
+        p=link.b_port if link.a==name else link.a_port
+        port=self.nodes[other].ports[p]
+        return port.native_vlan if port.mode=='trunk' else port.access_vlan
 
-    def ping(self, source, destination):
-        """Check request AND reply using connected routes only."""
-        self.last_paths = []
+    def learn(self,hops,source):
+        mac=self.nodes[source].mac
+        for i,a,b,v in hops:
+            link=self.links[i]
+            if self.nodes[a].kind=='Routeur':
+                mac=self.nodes[a].mac
+            if self.nodes[b].kind=='Switch':
+                name=link.b_port if link.b==b else link.a_port
+                p=self.nodes[b].ports[name]
+                if p.security:
+                    dynamic=self.secure_dynamic.setdefault(b+'/'+name,[])
+                    known=set(p.secure_macs)|set(dynamic)
+                    if mac not in known:
+                        if len(known)>=p.maximum:
+                            if p.violation!='protect':
+                                p.violations+=1
+                            if p.violation=='shutdown':
+                                p.errdisabled=True
+                            raise ValueError(f'{b}/{name} : violation port-security ({p.violation}).')
+                        (p.secure_macs if p.sticky else dynamic).append(mac)
+                self.fdb.setdefault(b,{})[f'{v}/{mac}']=name
+            self.events.append({'link':i,'source':a,'target':b,'vlan':v,'mac':mac})
+
+    def router_interface_up(self, node, vlan):
+        sub = next((p for p in node.ports.values() if p.sub_vlan==vlan),None)
+        return sub is None or not sub.shutdown
+
+    def ping(self,source,destination):
+        self.last_paths,self.last_hops,self.events=[],[],[]
         try:
-            src = self.nodes[source]
-            if src.kind != 'PC':
-                raise ValueError('Sélectionner un PC source.')
-            src_ip = IPv4Interface(src.address)
-            dst_ip = IPv4Address(destination)
-            targets = [n for n in self.nodes.values() if n.kind == 'PC' and n.address and IPv4Interface(n.address).ip == dst_ip]
-            if len(targets) != 1:
-                raise ValueError('Destination PC absente ou adresse ambiguë.')
-            dst = targets[0]
-            trace = []
-            for a, b in ((src, dst), (dst, src)):
-                ai, bi = IPv4Interface(a.address), IPv4Interface(b.address)
-                av, bv = self.vlan(a.name), self.vlan(b.name)
-                if bi.ip in ai.network:
-                    path = self.path(a.name, b.name, av) if av == bv else None
+            src=self.nodes[source]
+            if src.kind!='PC':
+                raise ValueError('Ping actuellement disponible depuis les PC uniquement.')
+            si=IPv4Interface(src.address)
+            ip=IPv4Address(destination)
+            pcs=[n for n in self.nodes.values() if n.kind=='PC' and n.address and IPv4Interface(n.address).ip==ip]
+            router_targets=[(n,int(v)) for n in self.nodes.values() if n.kind=='Routeur' for v,cidr in n.interfaces.items() if IPv4Interface(cidr).ip==ip and self.router_interface_up(n,int(v))]
+            trace=[]
+            if len(pcs)+len(router_targets)!=1:
+                raise ValueError('Destination absente ou adresse IPv4 ambiguë.')
+            if router_targets:
+                router,v=router_targets[0]
+                if ip not in si.network or self.vlan(source)!=v:
+                    raise ValueError('Ce prototype permet de pinguer uniquement une interface routeur du sous-réseau local.')
+                path,hops=self.path_details(source,router.name,v)
+                if not path:
+                    raise ValueError('Interface de passerelle inaccessible : VLAN, port ou trunk.')
+                reverse=[(i,b,a,v) for i,a,b,v in reversed(hops)]
+                self.learn(hops,source)
+                self.last_paths.append(path)
+                self.last_hops.append(hops)
+                self.learn(reverse,router.name)
+                self.last_paths.append(list(reversed(path)))
+                self.last_hops.append(reverse)
+            else:
+                dst=pcs[0]
+                for a,b in ((src,dst),(dst,src)):
+                    ai,bi=IPv4Interface(a.address),IPv4Interface(b.address)
+                    av,bv=self.vlan(a.name),self.vlan(b.name)
+                    path,hops=None,None
+                    if bi.ip in ai.network:
+                        if av==bv:
+                            path,hops=self.path_details(a.name,b.name,av)
+                    else:
+                        gateway=IPv4Address(a.gateway)
+                        if gateway not in ai.network:
+                            raise ValueError(f'{a.name} : passerelle hors sous-réseau.')
+                        for router in self.nodes.values():
+                            if router.kind!='Routeur':
+                                continue
+                            incoming,outgoing=router.interfaces.get(str(av)),router.interfaces.get(str(bv))
+                            if not incoming or not outgoing or not self.router_interface_up(router,av) or not self.router_interface_up(router,bv) or IPv4Interface(incoming).ip!=gateway or bi.ip not in IPv4Interface(outgoing).network:
+                                continue
+                            p1,h1=self.path_details(a.name,router.name,av)
+                            p2,h2=self.path_details(router.name,b.name,bv)
+                            if p1 and p2:
+                                path,hops=p1+p2[1:],h1+h2
+                                break
                     if not path:
-                        raise ValueError(f'{a.name} : destination locale inaccessible en VLAN {av}.')
+                        raise ValueError(f'{a.name} : chemin inaccessible (VLAN, trunk, état du port, STP ou passerelle).')
+                    self.learn(hops,a.name)
                     self.last_paths.append(path)
-                    trace.append('Connectivité L2 : ' + ' → '.join(path))
-                    continue
-                gateway = IPv4Address(a.gateway)
-                if gateway not in ai.network:
-                    raise ValueError(f'{a.name} : passerelle hors sous-réseau.')
-                found = False
-                for router in self.nodes.values():
-                    if router.kind != 'Routeur':
-                        continue
-                    incoming = router.interfaces.get(str(av))
-                    outgoing = router.interfaces.get(str(bv))
-                    if not incoming or not outgoing:
-                        continue
-                    ri, ro = IPv4Interface(incoming), IPv4Interface(outgoing)
-                    if ri.ip != gateway or bi.ip not in ro.network:
-                        continue
-                    p1, p2 = self.path(a.name, router.name, av), self.path(router.name, b.name, bv)
-                    if p1 and p2:
-                        self.last_paths.append(p1 + p2[1:])
-                        trace.append(f'Route connectée VLAN {av} → {bv} : ' + ' → '.join(p1 + p2[1:]))
-                        found = True
-                        break
-                if not found:
-                    raise ValueError(f'{a.name} : passerelle, trunk ou route connectée inaccessible.')
-            return True, trace + ['Réussite : aller et retour accessibles (modèle simplifié).']
-        except (ValueError, KeyError) as error:
-            return False, [str(error)]
+                    self.last_hops.append(hops)
+                    trace.append('Chemin : '+' → '.join(path))
+            return True,trace+['Réussite : aller et retour accessibles (modèle pédagogique simplifié).']
+        except (ValueError,KeyError) as error:
+            return False,[str(error)]
 
     def dumps(self):
-        return json.dumps({'version': 1, 'nodes': [asdict(n) for n in self.nodes.values()], 'links': [asdict(l) for l in self.links]}, indent=2)
+        nodes=[asdict(n) for n in self.nodes.values()]
+        for node in nodes:
+            for port in node['ports'].values():
+                if len(port['allowed'])==4094:
+                    port['allowed']='all'
+        return json.dumps({'version':2,'nodes':nodes,'links':[asdict(l) for l in self.links]},indent=2)
 
     @classmethod
-    def loads(cls, text):
-        data = json.loads(text)
-        if data.get('version') != 1:
+    def loads(cls,text):
+        data=json.loads(text)
+        if data.get('version') not in (1,2):
             raise ValueError('Version de projet incompatible.')
-        lab = cls()
+        lab=cls()
         for node in data['nodes']:
             lab.add(Node(**node))
         for link in data['links']:
-            lab.connect(**link)
+            lab.connect(**link,configure=data['version']==1)
         return lab
 
 
 def demo():
-    lab = Lab()
-    for node in (Node('PC1', 'PC', 120, 160, '192.168.10.10/24', '192.168.10.1'), Node('PC2', 'PC', 120, 350, '192.168.20.10/24', '192.168.20.1'), Node('SW1', 'Switch', 380, 250), Node('R1', 'Routeur', 650, 250, interfaces={'10': '192.168.10.1/24', '20': '192.168.20.1/24'})):
-        lab.add(node)
-    lab.connect('PC1', 'SW1', vlans=[10])
-    lab.connect('PC2', 'SW1', vlans=[20])
-    lab.connect('SW1', 'R1', 'trunk', [10, 20])
+    lab=Lab()
+    for n in (Node('PC1','PC',160,160,'192.168.10.10/24','192.168.10.1'),Node('PC2','PC',160,400,'192.168.20.10/24','192.168.20.1'),Node('SW1','Switch',430,280),Node('R1','Routeur',710,280,interfaces={'10':'192.168.10.1/24','20':'192.168.20.1/24'})):
+        lab.add(n)
+    lab.connect('PC1','SW1',vlans=[10])
+    lab.connect('PC2','SW1',vlans=[20])
+    lab.connect('SW1','R1','trunk',[10,20])
+    return lab
+
+
+def switching_demo():
+    lab=demo()
+    lab.add(Node('SW2','Switch',430,500))
+    lab.add(Node('SW3','Switch',710,500))
+    for a,b in [('SW1','SW2'),('SW2','SW3'),('SW3','SW1')]:
+        lab.connect(a,b,'trunk',[10,20])
     return lab
