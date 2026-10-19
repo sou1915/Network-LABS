@@ -84,6 +84,106 @@ class WorkbenchTests(unittest.TestCase):
         self.assertAlmostEqual(editor.panel.canvas.yview()[1],1,places=2)
         editor.window.destroy()
 
+    def test_device_workspace_cli_gui_shared_config_and_conflict(self):
+        window=self.app.open_device('SW1');self.root.update()
+        window.vars['hostname'].set('ACCESS')
+        self.assertTrue(window.apply(['hostname ACCESS']))
+        self.assertIn('ACCESS',window.terminal.session.prompt)
+        window.terminal.send('enable\nconfigure terminal\ninterface gi0/1\nshutdown\nend')
+        self.root.update()
+        self.assertFalse(window.vars['port_up'].get())
+        window.vars['description'].set('GUI draft')
+        window.terminal.send('configure terminal\ninterface gi0/1\nno shutdown\nend')
+        self.root.update()
+        self.assertFalse(window.apply(['hostname STALE']))
+        self.assertEqual(self.app.lab.nodes['SW1'].hostname,'ACCESS')
+        window.reload();window.vars['description'].set('GUI managed')
+        self.assertTrue(window.apply_port())
+        self.assertIn('GUI managed',window.terminal.session.running_config())
+        window.close()
+
+    def test_device_workspace_network_atomic_and_endpoint_roles(self):
+        window=self.app.open_device('PC1');self.root.update()
+        before=self.app.lab.dumps()
+        window.vars['address'].set('10.0.0.5/24');window.vars['gateway'].set('invalid')
+        self.assertFalse(window.apply_endpoint());self.assertEqual(before,self.app.lab.dumps())
+        window.vars['gateway'].set('10.0.0.1');window.vars['dns'].set('1.1.1.1')
+        self.assertTrue(window.apply_endpoint())
+        self.assertEqual(self.app.lab.nodes['PC1'].address,'10.0.0.5/24')
+        window.close()
+        from network_labs.__main__ import App
+        self.app.dirty=False;self.app.replace_lab(App.lan_demo)
+        for node in ('PRN1','NAS1','CAM1','TEL1','IOT1','SRV1'):
+            window=self.app.open_device(node);self.root.update()
+            self.assertGreaterEqual(len(window.tabs.tabs()),3)
+            window.close()
+
+    def test_device_workspace_vlan_trunk_router_and_dhcp_forms(self):
+        window=self.app.open_device('SW1');self.root.update()
+        self.assertTrue(window.apply(['vlan 30','name GUI_VLAN','exit']))
+        self.assertEqual(self.app.lab.nodes['SW1'].vlans['30'],'GUI_VLAN')
+        window.vars['port'].set('gi0/3');window.load_port()
+        self.assertTrue(window.apply_port())
+        window.close()
+        router=self.app.open_device('R1');self.root.update()
+        self.assertTrue(router.apply(['interface gi0/0.30','encapsulation dot1Q 30','ip address 192.168.30.1/24','end']))
+        router.vars['pool'].set('GUI_POOL');router.vars['network'].set('192.168.30.0/24')
+        router.vars['pool_gateway'].set('192.168.30.1');router.vars['pool_dns'].set('1.1.1.1')
+        self.assertTrue(router.apply_pool())
+        self.assertIn('GUI_POOL',self.app.lab.nodes['R1'].dhcp_pools)
+        router.close()
+
+    def test_device_workspace_embedded_firewall_and_lab_lifecycle(self):
+        from network_labs.__main__ import App
+        self.app.replace_lab(App.firewall_demo)
+        window=self.app.open_device('FW1');self.root.update()
+        self.assertTrue(hasattr(window,'firewall'))
+        window.firewall.mode.set('stateless');window.firewall.default.set('allow')
+        self.assertTrue(window.firewall.policy_apply())
+        self.assertEqual((self.app.lab.nodes['FW1'].firewall_mode,self.app.lab.nodes['FW1'].firewall_default),('stateless','allow'))
+        window.firewall.number.set('1');window.firewall.action.set('deny');window.firewall.add()
+        self.assertFalse(self.app.lab.ping('PC1','192.168.10.20')[0])
+        window.window.geometry('800x500');self.root.update()
+        self.app.dirty=False;self.app.replace_lab(App.lan_demo);self.root.update()
+        self.assertFalse(self.app.device_windows)
+
+    def test_device_workspace_switch_protocol_forms(self):
+        from tkinter import ttk
+        window=self.app.open_device('SW1');self.root.update()
+        def click(text):
+            todo=[window.window]
+            while todo:
+                widget=todo.pop()
+                if isinstance(widget,ttk.Button) and widget.cget('text')==text:
+                    widget.invoke();self.root.update();return
+                todo.extend(widget.winfo_children())
+            self.fail('Button absent: '+text)
+        window.vars['vtp_mode'].set('server');window.vars['vtp_domain'].set('GUI_LAN');window.vars['vtp_password'].set('Secret')
+        self.assertTrue(window.apply_vtp());self.assertEqual(self.app.lab.nodes['SW1'].vtp_domain,'GUI_LAN')
+        window.vars['snooping'].set(True);window.vars['snoop_vlans'].set('10,20');window.vars['dai_vlans'].set('10')
+        self.assertTrue(window.apply_protection());self.assertEqual(self.app.lab.nodes['SW1'].snooping_vlans,[10,20])
+        window.vars['mst_name'].set('GUI_REGION');window.vars['mst_instance'].set('1');window.vars['mst_vlans'].set('10,20')
+        click('Appliquer région / mapping MST')
+        self.assertEqual(self.app.lab.nodes['SW1'].mst_map,{'10':1,'20':1})
+        window.vars['stp_mode'].set('mst');window.vars['stp_vlan'].set('1');window.vars['priority'].set('8192')
+        click('Appliquer STP');self.assertEqual(self.app.lab.nodes['SW1'].priorities['mst:1'],8192)
+        window.vars['port'].set('gi0/3');window.load_port();window.vars['channel'].set('1');window.vars['channel_mode'].set('active')
+        self.assertTrue(window.apply_port());self.assertEqual(self.app.lab.nodes['SW1'].ports['gi0/3'].channel,1)
+        window.close()
+
+    def test_device_workspace_dhcp_disable_and_console_tail(self):
+        from network_labs.__main__ import App
+        self.app.replace_lab(App.lan_demo)
+        window=self.app.open_device('PC1');self.root.update()
+        self.assertEqual(window.vars['address_mode'].get(),'dhcp')
+        window.vars['up'].set(False);self.assertTrue(window.apply_endpoint())
+        self.assertTrue(self.app.lab.nodes['PC1'].ports['eth0'].shutdown)
+        window.vars['up'].set(True);self.assertTrue(window.apply_endpoint())
+        window.window.geometry('800x500');window.tabs.select(window.terminal.frame)
+        window.terminal.send('help\nipconfig');self.root.update()
+        self.assertIsNotNone(window.terminal.text.dlineinfo('input_start'))
+        window.close()
+
     def test_console_controls_actual_port_state(self):
         app=self.app
         app.terminals['SW1'].send('enable\nconfigure terminal\ninterface gi0/1\nshutdown')

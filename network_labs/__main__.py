@@ -29,11 +29,12 @@ def roundrect(c,x1,y1,x2,y2,r=12,**kw):
 
 class Terminal:
     """Console with a protected transcript and direct, inline command editing."""
-    def __init__(self,app,node):
+    def __init__(self,app,node,parent=None):
+        self.executing=False
         self.app=app; self.session=Session(app.lab,node)
         self.history=[]; self.cursor=0
         self.tail_job=None; self.follow_tail=True
-        self.frame=tk.Frame(app.dock,bg='#000000')
+        self.frame=tk.Frame(parent if parent is not None else app.dock,bg='#000000')
         bar=tk.Frame(self.frame,bg='#1c2026',padx=9,pady=4); bar.pack(fill='x')
         tk.Label(bar,text=f'{node} — {PROFILES[self.session.n.profile].model} | Simulation',bg='#1c2026',fg='#a8afb8',font=('DejaVu Sans',9)).pack(side='left')
         for title,callback in [('?',lambda:self.send('?')),('Coller un bloc',self.block),('Effacer',self.clear)]:
@@ -100,6 +101,10 @@ class Terminal:
         self.write(self.session.prompt+' ')
         self.text.mark_set('input_start','end-1c'); self.text.mark_gravity('input_start','left')
         self.write(value); self.text.mark_set('insert','end-1c'); self.schedule_tail()
+
+    def refresh_prompt(self):
+        if not self.executing and self.text.winfo_exists() and self.prompt.get()!=self.session.prompt:
+            value=self.pending(); self.text.delete('prompt_start','end-1c'); self.new_prompt(value)
 
     def pending(self):
         return self.text.get('input_start','end-1c')
@@ -215,6 +220,7 @@ class Terminal:
         commands=[c for c in line.splitlines() if c.strip() and not c.strip().startswith('!')]
         if not commands:
             return
+        self.executing=True
         self.text.delete('prompt_start','end-1c')
         for command in commands:
             self.history.append(command); self.cursor=len(self.history)
@@ -228,7 +234,7 @@ class Terminal:
                 self.app.animate_result(not result.startswith(('FAILED','%')),result.splitlines()[-1] if result else ''); self.app.draw()
             if result.startswith('%'):
                 break
-        self.new_prompt()
+        self.new_prompt(); self.executing=False
 
     def paste(self,event=None):
         try:
@@ -311,7 +317,7 @@ class App:
         label(legend,'● STP bloqué',GOLD,9).pack(side='left',padx=6)
         label(legend,'● Down',RED,9).pack(side='left',padx=6)
         label(legend,'● Hors VLAN',MUTED,9).pack(side='left',padx=6)
-        label(legend,'Double-clic : CLI  ·  F10/F11 : agrandir',MUTED,9).pack(side='right')
+        label(legend,'Double-clic : GUI / CLI · F10/F11',MUTED,9).pack(side='right')
         self.dock=ttk.Notebook(middle,height=180)
         middle.add(self.dock,weight=2)
         self.build_events()
@@ -609,6 +615,10 @@ class App:
             self.view_vlan.set(str(vlans[0]))
         self.counts.set(f'{len(self.lab.nodes)} équipements  /  {len(self.lab.links)} liens  /  {len(vlans)} VLAN')
         self.inspect(); self.draw()
+        for terminal in self.terminals.values():
+            terminal.refresh_prompt()
+        for window in list(getattr(self,'device_windows',{}).values()):
+            window.external_changed()
 
     def inspect(self):
         for w in self.inspector.winfo_children():
@@ -619,7 +629,8 @@ class App:
             label(panel,n.hostname or n.name,TEAL,16,True).pack(fill='x',pady=(3,5))
             label(panel,PROFILES[n.profile].brand+' · '+PROFILES[n.profile].model,MUTED,8).pack(fill='x',pady=(0,10))
             label(panel,profile_role(PROFILES[n.profile])+' · '+n.mac,MUTED,8).pack(fill='x')
-            button(panel,'Ouvrir la console CLI',lambda:self.open_cli(n.name),True).pack(fill='x',pady=5)
+            button(panel,'Configurer en GUI / CLI',lambda:self.open_device(n.name),True).pack(fill='x',pady=5)
+            button(panel,'Console CLI dans le dock',lambda:self.open_cli(n.name)).pack(fill='x',pady=3)
             if n.kind=='PC':
                 self.fields={}
                 for title,value in [('IPv4 / CIDR',n.address),('Passerelle',n.gateway),('DNS (séparés par espace)',' '.join(n.dns))]:
@@ -678,7 +689,7 @@ class App:
                 label(panel,'SOUS-INTERFACES 802.1Q',MUTED,9,True).pack(fill='x',pady=(16,8))
                 for v,ip in n.interfaces.items():
                     label(panel,f'VLAN {v}  /  {ip}',TEXT,9).pack(fill='x',pady=4)
-                label(panel,'Configurer dans la console :\ninterface gi0/0.10\nencapsulation dot1Q 10\nip address 192.168.10.1/24',MUTED,9).pack(fill='x',pady=15)
+                label(panel,'GUI : onglet 802.1Q / IPv4.\nCLI : interface gi0/0.10\nencapsulation dot1Q 10\nip address 192.168.10.1/24',MUTED,9).pack(fill='x',pady=15)
         elif self.selected_link is not None and self.selected_link<len(self.lab.links):
             l=self.lab.links[self.selected_link]
             label(panel,'LIAISON PHYSIQUE',TEAL,12,True).pack(fill='x',pady=(5,12))
@@ -698,50 +709,15 @@ class App:
                 label(panel,reason,RED,9).pack(fill='x',pady=8)
         else:
             label(panel,'Votre espace réseau',TEAL,13,True).pack(fill='x',pady=(10,12))
-            label(panel,'Choisir un équipement dans\nla bibliothèque puis cliquer\ndans la topologie.\n\nDouble-clic sur un équipement\npour ouvrir sa console.\n\nCâbler : cliquer sur les deux\néquipements à connecter.',MUTED,10).pack(fill='x')
+            label(panel,'Choisir un équipement dans\nla bibliothèque puis cliquer\ndans la topologie.\n\nDouble-clic sur un équipement\npour choisir GUI ou CLI.\n\nCâbler : cliquer sur les deux\néquipements à connecter.',MUTED,10).pack(fill='x')
 
     def edit_port(self,node,name):
-        n=self.lab.nodes[node]; p=n.ports[name]
-        win=tk.Toplevel(self.root); win.title(f'Interface / {node} / {name}')
-        win.configure(bg=PANEL); win.transient(self.root); fit_dialog(win,480,620)
-        label(win,f'{node} / {name}',TEAL,15,True).pack(fill='x',padx=22,pady=18)
-        scroller=ScrollPanel(win,PANEL); scroller.pack(fill='both',expand=True)
-        body=scroller.inner; body.configure(padx=22)
-        fields={}
-        for title,value in [('Description',p.description),('Mode',p.mode),('VLAN access',str(p.access_vlan)),('VLAN natif',str(p.native_vlan)),('VLAN autorisés',Session.compact(p.allowed)),('Coût STP',str(p.cost))]:
-            label(body,title,MUTED,9).pack(fill='x',pady=(8,3))
-            var=tk.StringVar(value=value); fields[title]=var
-            if title=='Mode':
-                ttk.Combobox(body,textvariable=var,values=['access','trunk','dynamic auto','dynamic desirable'],state='readonly').pack(fill='x')
-            else:
-                ttk.Entry(body,textvariable=var).pack(fill='x')
-        admin=tk.BooleanVar(value=not p.shutdown)
-        ttk.Checkbutton(body,text='Port administrativement actif',variable=admin).pack(anchor='w',pady=14)
-        label(body,'STP / EtherChannel / sécurité : commandes CLI',MUTED,9).pack(fill='x')
-        def apply():
-            try:
-                access=vlan_list(fields['VLAN access'].get()); native=vlan_list(fields['VLAN natif'].get())
-                allowed=vlan_list(fields['VLAN autorisés'].get()); cost=int(fields['Coût STP'].get())
-                if len(access)!=1 or len(native)!=1 or not 1<=cost<=200000000:
-                    raise ValueError('VLAN ou coût invalide.')
-                mode=fields['Mode'].get()
-                if (p.security or p.source_guard) and mode!='access':
-                    raise ValueError('Désactiver port-security avant le mode trunk.')
-                if mode.startswith('dynamic') and p.nonegotiate:
-                    raise ValueError('Désactiver nonegotiate dans la CLI avant le mode dynamique.')
-                if n.kind=='Switch' and n.vtp_mode=='client' and str(access[0]) not in n.vlans:
-                    raise ValueError('VLAN absent du client VTP.')
-                p.description=fields['Description'].get(); p.mode=mode; p.access_vlan=access[0]; p.native_vlan=native[0]; p.allowed=allowed; p.cost=cost; p.shutdown=not admin.get()
-                if admin.get():
-                    p.errdisabled=False
-                if n.kind=='Switch' and str(access[0]) not in n.vlans:
-                    n.vlans[str(access[0])]=f'VLAN{access[0]:04}'
-                    self.lab.vlan_changed(n.name)
-                self.lab.sync_vtp()
-                win.destroy(); self.changed('Port configuré : '+node+'/'+name)
-            except ValueError as e:
-                messagebox.showerror('Configuration',str(e),parent=win)
-        button(win,'Appliquer la configuration',apply,True).pack(side='bottom',before=scroller,fill='x',padx=22,pady=15)
+        window=self.open_device(node)
+        if window is None or name not in self.lab.nodes[node].ports:
+            return
+        before=window.loading;window.loading=True
+        window.vars['port'].set(name);window.load_port();window.loading=before
+        window.show_page('Interfaces')
 
     def xy(self,n):
         return n.x*self.zoom+self.panx,n.y*self.zoom+self.pany
@@ -874,9 +850,12 @@ class App:
         from .firewall_ui import FirewallEditor
         return FirewallEditor(self,node)
 
-    def dns_editor(self,node):
-        win=tk.Toplevel(self.root); win.title('DNS local · '+node); win.configure(bg=PANEL)
-        fit_dialog(win,700,470)
+    def dns_editor(self,node,parent=None):
+        if parent is None:
+            win=tk.Toplevel(self.root); win.title('DNS local · '+node); win.configure(bg=PANEL)
+            fit_dialog(win,700,470)
+        else:
+            win=parent
         server=self.lab.nodes[node]
         enabled=tk.BooleanVar(value=server.dns_service)
         label(win,'Zone locale IPv4 · A uniquement · pas de récursion/cache',MUTED,10).pack(fill='x',padx=14,pady=12)
@@ -892,6 +871,7 @@ class App:
         ttk.Entry(fields,textvariable=name).pack(side='left',fill='x',expand=True,padx=(0,6))
         ttk.Entry(fields,textvariable=address,width=19).pack(side='left')
         def refresh():
+            enabled.set(server.dns_service)
             table.delete(*table.get_children())
             for host,ip in sorted(server.dns_records.items()):
                 table.insert('', 'end',iid=host,values=(host,ip))
@@ -907,6 +887,7 @@ class App:
         button(actions,'Ajouter / remplacer',add).pack(side='left')
         button(actions,'Supprimer la sélection',remove).pack(side='right')
         refresh()
+        return refresh
 
     def catalogue(self):
         dialog=tk.Toplevel(self.root)
@@ -1005,12 +986,13 @@ class App:
     def double_click(self,event):
         hit=self.hit()
         if hit and hit[0]=='node' and self.mode!='cable':
-            self.open_cli(hit[1])
+            self.open_device(hit[1])
 
     def context(self,event):
         self.select(event)
         menu=tk.Menu(self.root,tearoff=False,bg=PANEL,fg=TEXT,activebackground=LINE,activeforeground=TEAL)
         if self.selected:
+            menu.add_command(label='Configurer en GUI / CLI',command=lambda:self.open_device(self.selected))
             menu.add_command(label='Ouvrir la console CLI',command=lambda:self.open_cli(self.selected))
         if self.selected or self.selected_link is not None:
             menu.add_command(label='Supprimer la sélection',command=self.delete)
@@ -1042,6 +1024,19 @@ class App:
             except ValueError as e:
                 messagebox.showerror('Câblage',str(e),parent=win)
         button(body,'Créer la liaison',create,True).pack(fill='x',pady=10)
+
+    def open_device(self,node):
+        if node not in self.lab.nodes:
+            return
+        from .device_ui import DeviceWindow
+        if not hasattr(self,'device_windows'):
+            self.device_windows={}
+        if node in self.device_windows:
+            self.device_windows[node].window.lift()
+            return self.device_windows[node]
+        window=DeviceWindow(self,node)
+        self.device_windows[node]=window
+        return window
 
     def open_cli(self,node):
         if self.topology_focus:

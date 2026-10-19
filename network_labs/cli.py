@@ -163,6 +163,15 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
                 services=self.service_command(low,line)
                 if services is not None:
                     return services
+                if low.startswith('no interface ') and self.n.kind=='Routeur':
+                    if len(low.split())!=3:
+                        raise ValueError('no interface <sous-interface>')
+                    name=port_name(low.split()[-1])
+                    if '.' not in name or name not in self.n.ports:
+                        raise ValueError('Supprimer une sous-interface existante uniquement.')
+                    port=self.n.ports.pop(name)
+                    self.n.interfaces.pop(str(port.sub_vlan),None)
+                    self.selection=[]; self.mode='config'; self.changed=True; return ''
                 if low.startswith('hostname '):
                     value=line.split(maxsplit=1)[1]
                     if not re.fullmatch(r'[a-zA-Z0-9_-]{1,32}',value):
@@ -296,6 +305,8 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
         p=self.n.ports[name]
         if self.feature_port(name,low):
             return
+        if low=='no description':
+            p.description=''; return
         if low.startswith('description '):
             p.description=line[12:]
             return
@@ -549,6 +560,14 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
         feature=self.feature_pc(low,line)
         if feature is not None:
             return feature
+        if low=='no ip address':
+            self.lab.release_dhcp(self.node); self.n.address_mode='static'; self.changed=True; return ''
+        if low in ('no ip gateway','no ip dns'):
+            if low=='no ip gateway':
+                self.n.gateway=''
+            else:
+                self.n.dns=[]
+            self.changed=True; return ''
         if low in ('ip link down','ip link up'):
             self.n.ports['eth0'].shutdown=low.endswith('down'); self.changed=True; return ''
         if low in ('ip dhcp','ipconfig /renew'):

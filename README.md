@@ -37,7 +37,7 @@ et de configuration s'adaptent aussi à la taille d'écran.
 - Cliquer sur un équipement de la bibliothèque puis dans la topologie pour le placer.
 - Glisser les équipements ; molette pour zoomer ; clic milieu pour déplacer la vue.
 - Choisir **Câbler**, cliquer sur deux équipements, choisir les ports physiques et le mode initial.
-- **Double-cliquer sur un équipement pour ouvrir sa console CLI** dans un onglet dédié.
+- **Double-cliquer sur un équipement pour choisir GUI ou CLI** dans sa fenêtre de configuration. La console du dock reste disponible.
   Console noire, texte monochrome, curseur bloc et saisie directement après le prompt ;
   aucune zone de saisie séparée. Le transcript est protégé contre les modifications.
   `Ctrl+C` interrompt la saisie (ou copie la sélection), `Ctrl+Z` quitte le mode configuration,
@@ -207,3 +207,19 @@ NGFW/UTM/WAF/proxy/firewall hôte/routé restent des références non créables.
 
 [Types, commandes et limites précises](docs/FIREWALLS.md) ·
 [Exemple firewall LAN](examples/firewall_lan.lab.txt).
+
+### Choix GUI / CLI par équipement
+
+Double-cliquer sur un node, ou **Inspecteur → Configurer en GUI / CLI**. La même
+fenêtre contient les formulaires GUI, la console et une vue de la configuration.
+Les formulaires appliquent les mêmes commandes que la CLI, de façon atomique ;
+une erreur conserve toute la configuration précédente. Si la CLI modifie un
+équipement pendant l’édition d’un formulaire, actualiser avant d’appliquer.
+
+GUI disponible pour les profils créables : réseau IPv4/DHCP des endpoints,
+VLANs/interfaces/STP/MST/VTP/EtherChannel/protections des switches,
+sous-interfaces 802.1Q et serveur DHCP des routeurs, DNS et politiques firewall
+intégrés pour les rôles correspondants. Les limites des moteurs restent celles
+des profils : il ne s’agit pas d’une copie du GUI constructeur.
+
+[Guide GUI/CLI et couverture des formulaires](docs/GUI.md).

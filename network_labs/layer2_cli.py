@@ -12,6 +12,12 @@ class Layer2Commands:
     def layer2_command(self,low,line):
         if self.n.kind!='Switch':
             return None
+        if low in ('no vtp domain','no vtp password'):
+            if low=='no vtp domain':
+                self.n.vtp_domain=''; self.n.vtp_revision=0
+            else:
+                self.n.vtp_password=''
+            self.lab.sync_vtp(); self.changed=True; return ''
         if low.startswith('vtp '):
             parts=line.split(maxsplit=2)
             if len(parts)!=3:

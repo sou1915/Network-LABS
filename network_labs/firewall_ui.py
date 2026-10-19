@@ -3,12 +3,17 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 from .layout import fit_dialog,ScrollPanel
 from .cli import Session
+from .device_config import apply_device_commands
 
 class FirewallEditor:
-    def __init__(self,app,node):
+    def __init__(self,app,node,parent=None,on_change=None,can_apply=None):
         self.app,self.node=app,node
-        self.window=win=tk.Toplevel(app.root);win.title('Firewall LAN · '+node);win.configure(bg='#111d2e')
-        fit_dialog(win,880,610)
+        self.on_change,self.can_apply=on_change,can_apply
+        if parent is None:
+            self.window=win=tk.Toplevel(app.root);win.title('Firewall LAN · '+node);win.configure(bg='#111d2e')
+            fit_dialog(win,880,610)
+        else:
+            self.window=win=parent
         self.panel=ScrollPanel(win,'#111d2e');self.panel.pack(fill='both',expand=True)
         win=self.panel.inner
         ttk.Label(win,text='Filtrage transparent ICMP · console de simulation · ordre croissant des IDs',padding=12).pack(fill='x')
@@ -39,14 +44,22 @@ class FirewallEditor:
         self.refresh()
 
     def execute(self,line):
+        if self.can_apply and not self.can_apply():return False
         result=Session(self.app.lab,self.node).execute(line)
         if result.startswith('%'):
             messagebox.showerror('Politique firewall',result,parent=self.window);return False
+        if self.on_change:self.on_change()
         self.app.changed('Politique firewall mise à jour');self.refresh();return True
 
     def policy_apply(self):
-        self.execute('firewall mode '+self.mode.get())
-        self.execute('firewall default '+self.default.get())
+        if self.can_apply and not self.can_apply():return False
+        commands=['firewall mode '+self.mode.get(),'firewall default '+self.default.get()]
+        try:
+            apply_device_commands(self.app.lab,self.node,commands)
+        except ValueError as error:
+            messagebox.showerror('Politique firewall',str(error),parent=self.window);return False
+        if self.on_change:self.on_change()
+        self.app.changed('Politique firewall mise à jour');self.refresh();return True
 
     def add(self):
         self.execute(f'firewall rule {self.number.get().strip()} {self.action.get()} {self.source.get().strip()} {self.target.get().strip()}')
