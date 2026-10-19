@@ -7,6 +7,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from pathlib import Path
 from .engine import Lab, Node, demo, switching_demo, vlan_list
 from .cli import Session, FEATURES
+from .profiles import PROFILES
 from .layout import ScrollPanel, initial_geometry, fit_dialog
 
 BG='#0a101c'; PANEL='#111d2e'; CARD='#17263a'; LINE='#2b405a'
@@ -436,6 +437,12 @@ class App:
                 logo.create_line(x,y,xx,yy,fill='#2f887e',width=2)
             logo.create_oval(x-4,y-4,x+4,y+4,fill=TEAL,outline='')
         label(top,'NETWORK LABS',TEAL,16,True).pack(side='left')
+        files=tk.Menubutton(top,text='Fichier ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=8,pady=6)
+        file_menu=tk.Menu(files,tearoff=False,bg=PANEL,fg=TEXT)
+        file_menu.add_command(label='Importer un lab texte',command=self.import_text)
+        file_menu.add_command(label='Importer CLI sur la sélection',command=lambda:self.import_text(True))
+        file_menu.add_command(label='Exporter le lab en texte',command=self.export_text)
+        files.configure(menu=file_menu); files.pack(side='left',padx=4)
         view=tk.Menubutton(top,text='Vue ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=10,pady=6)
         menu=tk.Menu(view,tearoff=False,bg=PANEL,fg=TEXT)
         menu.add_command(label='Bibliothèque',command=lambda:self.toggle_panel('library'))
@@ -446,8 +453,16 @@ class App:
         view.configure(menu=menu); view.pack(side='left',padx=12)
         self.root.bind('<F11>',lambda e:self.toggle_console_focus())
         self.root.bind('<F10>',lambda e:self.toggle_topology_focus())
-        for title,callback in [('Sauvegarder',self.save),('Ouvrir',self.load),('Nouveau',self.new)]:
+        for title,callback in [('Sauvegarder',self.save),('Ouvrir',self.load),('Importer .txt',self.import_text),('Nouveau',self.new)]:
             button(top,title,callback,title=='Sauvegarder').pack(side='right',padx=4)
+
+    def import_text(self,device_mode=False):
+        from .text_ui import ImportDialog
+        return ImportDialog(self,device_mode)
+
+    def export_text(self):
+        from .text_ui import export_dialog
+        export_dialog(self)
 
     def build_sidebar(self):
         parent=self.sidebar.inner
@@ -458,6 +473,7 @@ class App:
             sub=tk.Label(card,text=subtitle,bg=CARD,fg=MUTED,font=('DejaVu Sans',8),anchor='w'); sub.pack(fill='x',pady=(4,0))
             for w in (card,name,sub):
                 w.bind('<Button-1>',lambda e,k=kind:self.set_place(k))
+        button(parent,'Catalogue · OS / marques',self.catalogue).pack(fill='x',padx=10,pady=8)
         label(parent,'OUTILS',MUTED,9,True).pack(fill='x',padx=14,pady=(20,8))
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
@@ -605,6 +621,7 @@ class App:
                         if gateway:
                             IPv4Address(gateway)
                         n.address,n.gateway=address,gateway
+                        n.address_mode='static'
                         self.changed('Configuration IPv4 appliquée')
                     except ValueError as e:
                         messagebox.showerror('IPv4',str(e),parent=self.root)
@@ -797,10 +814,43 @@ class App:
         self.status.set('Câbler : cliquer sur deux équipements' if mode=='cable' else 'Sélection / déplacement')
         self.draw()
 
+    def catalogue(self):
+        dialog=tk.Toplevel(self.root)
+        dialog.title('Catalogue des équipements')
+        fit_dialog(dialog,880,540)
+        query=tk.StringVar()
+        ttk.Entry(dialog,textvariable=query).pack(fill='x',padx=12,pady=12)
+        table=ttk.Treeview(dialog,columns=('brand','model','kind','support'),show='headings')
+        for key,title,width in [('brand','Marque',115),('model','Modèle / OS',280),('kind','Type',80),('support','Simulation',170)]:
+            table.heading(key,text=title); table.column(key,width=width)
+        table.pack(fill='both',expand=True,padx=12)
+        details=tk.StringVar(value='Choisir un profil. Les OS simulent uniquement les commandes réseau.')
+        ttk.Label(dialog,textvariable=details,wraplength=760).pack(fill='x',padx=12,pady=10)
+        def refresh(*args):
+            table.delete(*table.get_children())
+            for profile in PROFILES.values():
+                if query.get().lower() in (profile.brand+' '+profile.model+' '+profile.kind).lower():
+                    table.insert('', 'end',iid=profile.id,values=(profile.brand,profile.model,profile.kind,'Partielle' if profile.creatable else 'Référence uniquement'))
+        def selected(event=None):
+            items=table.selection()
+            if items:
+                profile=PROFILES[items[0]]
+                details.set(profile.scope+' '+('OS : commandes réseau uniquement.' if profile.kind=='PC' else ''))
+                create.configure(state='normal' if profile.creatable else 'disabled')
+        def place():
+            profile=PROFILES[table.selection()[0]]
+            self.set_place(profile.kind)
+            self.place_profile=profile.id
+            dialog.destroy()
+        create=ttk.Button(dialog,text='Placer dans la topologie',command=place,state='disabled')
+        create.pack(pady=(0,12))
+        table.bind('<<TreeviewSelect>>',selected)
+        query.trace_add('write',refresh); refresh()
+
     def set_place(self,kind):
         if self.console_focus:
             self.toggle_console_focus()
-        self.set_mode('select'); self.place_kind=kind; self.canvas.configure(cursor='crosshair'); self.draw()
+        self.set_mode('select'); self.place_kind=kind; self.place_profile=''; self.canvas.configure(cursor='crosshair'); self.draw()
 
     def hit(self):
         found=self.canvas.find_withtag('current')
@@ -815,7 +865,7 @@ class App:
             while f'{prefix}{i}' in self.lab.nodes:
                 i+=1
             name=f'{prefix}{i}'
-            self.lab.add(Node(name,kind,int((event.x-self.panx)/self.zoom),int((event.y-self.pany)/self.zoom)))
+            self.lab.add(Node(name,kind,int((event.x-self.panx)/self.zoom),int((event.y-self.pany)/self.zoom),profile=getattr(self,'place_profile','')))
             self.selected,self.selected_link=name,None; self.set_mode('select'); self.changed('Équipement ajouté : '+name)
             return
         if hit and hit[0]=='node':
@@ -1012,12 +1062,13 @@ class App:
 
     def replace_lab(self,factory):
         if not self.discard():
-            return
+            return False
         self.invalidate()
         for terminal in self.terminals.values():
             self.dock.forget(terminal.frame); terminal.frame.destroy()
         self.terminals={}; self.lab=factory(); self.selected=self.selected_link=None; self.path=None; self.dirty=False
         self.set_mode('select'); self.refresh(); self.fit()
+        return True
 
     def new(self):
         self.replace_lab(Lab)

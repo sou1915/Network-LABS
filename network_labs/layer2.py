@@ -33,6 +33,8 @@ class Layer2:
 
     def sync_vtp(self):
         """Instant modeled advertisements over live trunks; no real VTP packets."""
+        if getattr(self,'defer_protocols',False):
+            return
         servers=sorted((n for n in self.nodes.values() if n.kind=='Switch' and n.vtp_mode=='server' and n.vtp_domain),key=lambda n:(-n.vtp_revision,n.name))
         for server in servers:
             seen=set(); stack=[server.name]

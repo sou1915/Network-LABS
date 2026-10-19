@@ -89,6 +89,7 @@ class Services:
                 if switch.dhcp_snooping and v in switch.snooping_vlans and not switch.ports[ingress].dhcp_trust:
                     self.bindings.setdefault(b,{})[f'{v}/{node.mac}']={**record,'port':ingress}
             self.leases[client]=record
+            node.address_mode='dhcp'
             node.address=f'{ip}/{network.prefixlen}'; node.gateway=gateway; node.dns=pool.get('dns',[])[:]
             return f'DHCP DISCOVER on eth0 (modeled)\nDHCP OFFER from {server.name}: {ip}\nDHCP REQUEST for {ip}\nDHCP ACK from {server.name}\nIP address: {node.address}\nDefault gateway: {gateway or "none"}\nDNS: {", ".join(node.dns) or "none"}\nLease: {pool.get("lease",86400)} seconds'
         raise ValueError('DHCP failed : '+' '.join(rejected))

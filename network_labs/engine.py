@@ -5,6 +5,7 @@ from hashlib import sha256
 from heapq import heappush, heappop
 from .services import Services
 from .layer2 import Layer2
+from .access_multicast import AccessMulticast
 import json
 import re
 
@@ -47,6 +48,8 @@ class Port:
     dhcp_trust: bool = False
     arp_trust: bool = False
     source_guard: bool = False
+    auth_control: str = 'force-authorized'
+    authenticator: bool = False
     access_vlan: int = 1
     native_vlan: int = 1
     allowed: list = field(default_factory=lambda: list(range(1, 4095)))
@@ -102,8 +105,24 @@ class Node:
     vtp_password: str = ''
     vtp_version: int = 2
     vtp_revision: int = 0
+    address_mode: str = 'static'
+    dot1x_enabled: bool = False
+    aaa_enabled: bool = False
+    dot1x_radius: bool = False
+    dot1x_user: str = ''
+    dot1x_password: str = ''
+    groups: list = field(default_factory=list)
+    igmp_enabled: bool = True
+    igmp_disabled_vlans: list = field(default_factory=list)
+    igmp_unknown: str = 'flood'
+    profile: str = ''
 
     def __post_init__(self):
+        from .profiles import PROFILES, default_profile
+        self.profile = self.profile or default_profile(self.kind)
+        profile = PROFILES.get(self.profile)
+        if not profile or not profile.creatable or profile.kind != self.kind:
+            raise ValueError('Profil non simulé ou incompatible : '+self.profile)
         self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
         if not self.ports:
             names = [f'gi0/{i}' for i in range(1, 25)] if self.kind == 'Switch' else ['gi0/0'] if self.kind == 'Routeur' else ['eth0']
@@ -127,13 +146,14 @@ class Link:
     b_port: str = ''
     enabled: bool = True
 
-class Lab(Services,Layer2):
+class Lab(Services,Layer2,AccessMulticast):
     def __init__(self):
         self.nodes, self.links = {}, []
         self.last_paths, self.last_hops, self.events = [], [], []
         self.fdb = {}
         self.secure_dynamic = {}
         self.init_services()
+        self.init_access_multicast()
 
     def add(self, node):
         if not node.name or node.name in self.nodes:
@@ -237,6 +257,8 @@ class Lab(Services,Layer2):
             if self.nodes[name].kind=='Switch' and p.bpduguard and self.nodes[other].kind=='Switch':
                 p.errdisabled=True
         if any(p.shutdown or p.errdisabled for p in (pa,pb)) or not self.channel_state(link)[0]:
+            return False
+        if not self.access_allowed(link.a,link.a_port) or not self.access_allowed(link.b,link.b_port):
             return False
         ma,mb=self.operational_mode(link,link.a),self.operational_mode(link,link.b)
         for name,port,mode in ((link.a,pa,ma),(link.b,pb,mb)):
@@ -457,7 +479,7 @@ class Lab(Services,Layer2):
             for port in node['ports'].values():
                 if len(port['allowed'])==4094:
                     port['allowed']='all'
-        return json.dumps({'version':2,'nodes':nodes,'links':[asdict(l) for l in self.links]},indent=2)
+        return json.dumps({'version':2,'nodes':nodes,'links':[asdict(l) for l in self.links],'radius_users':self.radius_users},indent=2)
 
     @classmethod
     def loads(cls,text):
@@ -467,6 +489,9 @@ class Lab(Services,Layer2):
         lab=cls()
         for node in data['nodes']:
             lab.add(Node(**node))
+        lab.radius_users=data.get('radius_users',{}).copy()
+        if any(not isinstance(k,str) or not isinstance(v,str) for k,v in lab.radius_users.items()):
+            raise ValueError('RADIUS stub: identifiants invalides.')
         for link in data['links']:
             lab.connect(**link,configure=data['version']==1)
         return lab

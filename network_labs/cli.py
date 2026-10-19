@@ -5,6 +5,8 @@ import re
 from .engine import Port, port_name, vlan_list
 from .layer2_cli import Layer2Commands
 from .cli_editing import CLIEditing
+from .access_multicast_cli import AccessMulticastCLI
+from .profiles import PROFILES
 
 FEATURES = '''NETWORK LABS / CLI pédagogique (inspirée IOS, pas un IOS réel)
 Modes : enable, configure terminal, vlan, interface, interface range, end, exit
@@ -19,14 +21,15 @@ PC : ip address CIDR, ip gateway IPv4, ipconfig, ping IPv4
 Nouveau : DTP auto/desirable/nonegotiate, serveur/client DHCP (sans relais),
           DHCP snooping, DAI et IP Source Guard (contrôle d’identité simplifié).
 Nouveau : VTP v2 (server/client/transparent/off), MST mono-région (état convergé).
-Non implémentés : VTP v1/v3, MST multi-région, voix, QoS, IGMP snooping, 802.1X,
+Nouveau : IGMP snooping sans querier/timers, 802.1X avec backend RADIUS local simulé.
+Non implémentés : VTP v1/v3, MST multi-région, voix, QoS, EAP/RADIUS réels,
                  LLDP/CDP réels, ACL/NAT, OSPF/BGP.
 Les voisins sont déduits des câbles ; STP/LACP sont calculés sans temporisation.
 Aucune commande non prise en charge n'est enregistrée comme fonctionnelle.'''
 
 ALIASES={'en':'enable','conf':'configure','t':'terminal','int':'interface','sh':'show','run':'running-config','desc':'description','wr':'write'}
 
-class Session(Layer2Commands,CLIEditing):
+class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
     def __init__(self,lab,node):
         self.lab,self.node=lab,node
         self.mode='user'
@@ -44,7 +47,7 @@ class Session(Layer2Commands,CLIEditing):
     @property
     def prompt(self):
         if self.n.kind=='PC':
-            return f'user@{self.n.hostname or self.n.name}:~$'
+            return 'C:\\Users\\student>' if PROFILES[self.n.profile].family=='windows' else f'student@{self.n.hostname or self.n.name}:~$'
         suffix={'mst':'(config-mst)#','dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
         return (self.n.hostname or self.n.name)+suffix
 
@@ -136,6 +139,9 @@ class Session(Layer2Commands,CLIEditing):
             if low.startswith('ping '):
                 raise ValueError('Ping source : disponible sur les PC dans ce prototype.')
             if self.mode in ('config','if','range','vlan','dhcp','mst'):
+                feature=self.feature_command(low,line)
+                if feature is not None:
+                    return feature
                 layer2=self.layer2_command(low,line)
                 if layer2 is not None:
                     return layer2
@@ -194,14 +200,22 @@ class Session(Layer2Commands,CLIEditing):
                     return self.global_stp(low)
                 if self.mode in ('if','range'):
                     # Validate a range atomically, then apply to its members.
-                    saved=copy.deepcopy(self.n.ports)
-                    interfaces=copy.deepcopy(self.n.interfaces)
+                    affected=set(self.selection)
+                    for selected in self.selection:
+                        if selected.startswith('po'):
+                            group=int(selected[2:])
+                            affected.update(k for k,p in self.n.ports.items() if p.channel==group)
+                    saved={k:copy.deepcopy(self.n.ports[k],{id(self.n.ports[k].allowed):self.n.ports[k].allowed[:]}) for k in affected}
+                    interfaces=self.n.interfaces.copy()
+                    vlan_state={name:(node.vlans.copy(),node.vtp_revision) for name,node in self.lab.nodes.items()}
                     try:
                         for name in self.selection:
                             self.port_command(name,low,line)
                     except ValueError:
-                        self.n.ports=saved
+                        self.n.ports.update(saved)
                         self.n.interfaces=interfaces
+                        for node,(vlans,revision) in vlan_state.items():
+                            self.lab.nodes[node].vlans=vlans; self.lab.nodes[node].vtp_revision=revision
                         raise
                     self.lab.sync_vtp()
                     self.changed=True
@@ -265,6 +279,8 @@ class Session(Layer2Commands,CLIEditing):
 
     def port_command(self,name,low,line):
         p=self.n.ports[name]
+        if self.feature_port(name,low):
+            return
         if low.startswith('description '):
             p.description=line[12:]
             return
@@ -310,6 +326,8 @@ class Session(Layer2Commands,CLIEditing):
             if low!='switchport mode access' and p.security:
                 raise ValueError('Désactiver port-security avant le mode trunk.')
             mode=low[len('switchport mode '):]
+            if p.auth_control!='force-authorized' and mode!='access':
+                raise ValueError('802.1X configuré : conserver le mode access ou force-authorized.')
             if p.source_guard and mode!='access':
                 raise ValueError('Désactiver IP Source Guard avant de quitter le mode access.')
             if mode.startswith('dynamic') and p.nonegotiate:
@@ -506,7 +524,53 @@ class Session(Layer2Commands,CLIEditing):
             return '\n'.join(f'{name}: IP Source Guard enabled (DHCP binding required)' for name,p in self.n.ports.items() if p.source_guard) or 'IP Source Guard disabled.'
         return None
 
+    def pc_native(self,low,line):
+        family=PROFILES[self.n.profile].family
+        if low in ('ver','uname -a'):
+            expected='windows' if low=='ver' else 'linux'
+            if family!=expected:
+                raise ValueError('Commande incompatible avec le profil OS.')
+            return PROFILES[self.n.profile].model+' — simulation réseau, aucun noyau OS exécuté.'
+        if family=='linux':
+            if low in ('ip a','ip addr show','ip -br addr','ip link show'):
+                return f'eth0  {"UP" if self.lab.link_for(self.node,"eth0") else "DOWN"}  {self.n.address or "sans IPv4"}  {self.n.mac}'
+            if low in ('ip route','ip route show'):
+                return (f'default via {self.n.gateway} dev eth0\n' if self.n.gateway else '')+(f'{IPv4Interface(self.n.address).network} dev eth0' if self.n.address else '')
+            if low in ('dhclient','sudo dhclient','sudo dhclient eth0'):
+                return self.pc('ip dhcp','ip dhcp')
+            match=re.fullmatch(r'(?:sudo )?ip addr (?:add|replace) (\S+) dev eth0',low)
+            if match:
+                return self.pc('ip address '+match[1],'ip address '+match[1])
+            match=re.fullmatch(r'(?:sudo )?ip route (?:add|replace) default via (\S+)(?: dev eth0)?',low)
+            if match:
+                return self.pc('ip gateway '+match[1],'ip gateway '+match[1])
+        if family=='windows':
+            if low=='ipconfig /all':
+                return self.pc('ipconfig','ipconfig')
+            if low=='route print':
+                return f'IPv4 Route Table\n0.0.0.0/0 via {self.n.gateway or "non configurée"}\nInterface Ethernet: {self.n.address or "sans IPv4"}'
+            if low.startswith('netsh interface ipv4 set address '):
+                import shlex
+                values=dict(token.split('=',1) for token in shlex.split(line)[5:] if '=' in token)
+                if values.get('name','').lower()!='ethernet':
+                    raise ValueError('Interface simulée : name="Ethernet".')
+                if values.get('source')=='dhcp':
+                    return self.pc('ip dhcp','ip dhcp')
+                if values.get('source')!='static':
+                    raise ValueError('source=static ou dhcp requis.')
+                address=str(IPv4Interface(values['address']+'/'+values['mask']))
+                gateway=str(IPv4Address(values['gateway'])) if values.get('gateway') else ''
+                self.n.address=address; self.n.gateway=gateway; self.n.address_mode='static'; self.changed=True
+                return 'Ok.'
+        return None
+
     def pc(self,low,line):
+        native=self.pc_native(low,line)
+        if native is not None:
+            return native
+        feature=self.feature_pc(low,line)
+        if feature is not None:
+            return feature
         if low in ('ip dhcp','ipconfig /renew'):
             result=self.lab.request_dhcp(self.node)
             self.changed=True
@@ -517,8 +581,17 @@ class Session(Layer2Commands,CLIEditing):
             return 'DHCP lease released.'
         if low=='ipconfig' or low=='ip addr' or low=='show ip interface brief':
             return f'{self.n.name} / eth0\nMAC {self.n.mac}\nIPv4 {self.n.address or "non configurée"}\nPasserelle {self.n.gateway or "aucune"}\nDNS {', '.join(self.n.dns) or "aucun"}'
+        if low.startswith('hostname '):
+            value=line.split(maxsplit=1)[1]
+            if not re.fullmatch('[A-Za-z0-9_-]{1,32}',value):
+                raise ValueError('Hostname invalide.')
+            self.n.hostname=value; self.changed=True; return ''
+        if low.startswith('ip dns '):
+            self.n.dns=[str(IPv4Address(ip)) for ip in low.split()[2:]]
+            self.changed=True; return 'DNS appliqués.'
         if low.startswith('ip address '):
             self.n.address=str(IPv4Interface(low[len('ip address '):]))
+            self.n.address_mode='static'
             self.changed=True
             return 'Adresse appliquée.'
         if low.startswith('ip gateway '):
@@ -533,6 +606,9 @@ class Session(Layer2Commands,CLIEditing):
         raise ValueError('Commande PC non implémentée. Utiliser ?. Aucune commande shell réelle n’est exécutée.')
 
     def show(self,low):
+        feature=self.feature_show(low)
+        if feature is not None:
+            return feature
         layer2=self.layer2_show(low)
         if layer2 is not None:
             return layer2
@@ -635,6 +711,18 @@ class Session(Layer2Commands,CLIEditing):
                 lines.append(f' lease {days} {hours} {rem//60}')
                 lines.append(' exit')
         if self.n.kind=='Switch':
+            if self.n.aaa_enabled:
+                lines.append('aaa new-model')
+            if self.n.dot1x_radius:
+                lines.append('aaa authentication dot1x default group radius')
+            if self.n.dot1x_enabled:
+                lines.append('dot1x system-auth-control')
+            if not self.n.igmp_enabled:
+                lines.append('no ip igmp snooping')
+            if self.n.igmp_disabled_vlans:
+                lines.append('no ip igmp snooping vlan '+self.compact(self.n.igmp_disabled_vlans))
+            if self.n.igmp_unknown!='flood':
+                lines.append('ip igmp snooping unknown-multicast action '+self.n.igmp_unknown)
             if self.n.dhcp_snooping:
                 lines.append('ip dhcp snooping')
             if self.n.snooping_vlans:
@@ -659,12 +747,16 @@ class Session(Layer2Commands,CLIEditing):
                 lines.extend([f'vlan {v}',f' name {name}'])
             for v,priority in self.n.priorities.items():
                 lines.append(f'spanning-tree mst {v[4:]} priority {priority}' if v.startswith('mst:') else f'spanning-tree vlan {v} priority {priority}')
-        for name,p in self.n.ports.items():
+        for name,p in sorted(self.n.ports.items(),key=lambda item:not item[0].startswith('po')):
             lines.append('interface '+name)
             if p.description and not p.description.startswith('__logical__'):
                 lines.append(' description '+p.description)
             if self.n.kind=='Switch':
                 lines.extend([' switchport mode '+p.mode,' switchport access vlan '+str(p.access_vlan),' switchport trunk native vlan '+str(p.native_vlan),' switchport trunk allowed vlan '+self.compact(p.allowed)])
+                if p.auth_control!='force-authorized':
+                    lines.append(' authentication port-control '+p.auth_control)
+                if p.authenticator:
+                    lines.append(' dot1x pae authenticator')
                 if p.nonegotiate:
                     lines.append(' switchport nonegotiate')
                 if p.dhcp_trust:

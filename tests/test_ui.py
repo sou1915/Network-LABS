@@ -21,6 +21,26 @@ class WorkbenchTests(unittest.TestCase):
         self.root.destroy()
         self.assertEqual(self.errors,[])
 
+    def test_catalogue_and_import_validation(self):
+        import tkinter as tk
+        from network_labs.text_ui import ImportDialog
+        self.app.catalogue(); self.root.update()
+        dialogs=[w for w in self.root.winfo_children() if isinstance(w,tk.Toplevel)]
+        self.assertEqual(len(dialogs),1)
+        dialogs[0].destroy()
+        dialog=ImportDialog(self.app); self.root.update()
+        self.assertTrue(dialog.validate())
+        self.root.update()
+        self.assertIsNotNone(dialog.result)
+        original=self.app.lab
+        dialog.set_text('[devices]\nPC1 windows-11\n[config PC1]\nunknown command')
+        self.assertFalse(dialog.validate())
+        self.assertIs(self.app.lab,original)
+        dialog.set_text('[devices]\nPC1 linux-ubuntu')
+        self.assertTrue(dialog.validate())
+        dialog.apply(); self.root.update()
+        self.assertEqual(self.app.lab.nodes['PC1'].profile,'linux-ubuntu')
+
     def test_console_controls_actual_port_state(self):
         app=self.app
         app.terminals['SW1'].send('enable\nconfigure terminal\ninterface gi0/1\nshutdown')

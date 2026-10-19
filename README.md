@@ -141,3 +141,29 @@ Les tests de régression vérifient le prompt après commandes répétées à 13
 1024×600 et 900×500, ainsi que les modes de focus F10/F11.
 
 [Aperçu sur écran 1366×768](docs/laptop.png).
+
+### Import texte et catalogue
+
+Le menu **Fichier → Importer un lab texte** permet de préparer un lab dans un
+éditeur externe, valider chaque ligne, puis appliquer la topologie et ses
+configurations ensemble. Une erreur conserve le lab actuel. Voir
+`examples/inter_vlan.lab.txt`. L'import CLI s'applique aussi à un équipement
+sélectionné ; l'export texte permet de reprendre le lab plus tard.
+
+Le bouton **Catalogue · OS / marques** propose Windows 10/11/Server 2022,
+Ubuntu, Debian, Rocky Linux, des profils génériques et Cisco IOS pédagogiques.
+Les PC simulent uniquement le réseau : prompts, IPv4, passerelle, DHCP, ping,
+`ip addr`/`ip route` sous Linux, `ipconfig`/`route print` et configuration IPv4
+`netsh` sous Windows. Aucun système d'exploitation ni application n'est exécuté.
+Dans `[devices]`, utiliser par exemple `PC1 windows-11` ou `PC2 linux-ubuntu`.
+Le profil est conservé dans les sauvegardes JSON et les exports texte.
+
+Aruba, Juniper, Arista, Huawei, MikroTik, Fortinet et Palo Alto sont actuellement
+des références consultables, sans création : leurs CLI et moteurs spécifiques
+ne sont pas implémentés. Le catalogue n'est pas exhaustif. Le profil Catalyst
+2960 utilise encore les 24 ports génériques du moteur, pas une reproduction
+matérielle exacte.
+
+802.1X utilise un backend RADIUS local simulé (`[radius]` dans le fichier texte),
+sans EAPOL ni trafic RADIUS. IGMP snooping modélise les abonnements et la sélection
+des ports, sans querier, temporisations ou routage multicast.
