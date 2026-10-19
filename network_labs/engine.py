@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, asdict
 from ipaddress import IPv4Interface, IPv4Address
 from hashlib import sha256
 from heapq import heappush, heappop
+from .services import Services
 import json
 import re
 
@@ -39,6 +40,10 @@ def mac_for(name):
 @dataclass
 class Port:
     mode: str = 'access'
+    nonegotiate: bool = False
+    dhcp_trust: bool = False
+    arp_trust: bool = False
+    source_guard: bool = False
     access_vlan: int = 1
     native_vlan: int = 1
     allowed: list = field(default_factory=lambda: list(range(1, 4095)))
@@ -79,6 +84,13 @@ class Node:
     stp_mode: str = 'rapid-pvst'
     priorities: dict = field(default_factory=dict)
     startup: dict = field(default_factory=dict)
+    dhcp_pools: dict = field(default_factory=dict)
+    dhcp_excluded: list = field(default_factory=list)
+    dhcp_service: bool = True
+    dhcp_snooping: bool = False
+    snooping_vlans: list = field(default_factory=list)
+    dai_vlans: list = field(default_factory=list)
+    dns: list = field(default_factory=list)
 
     def __post_init__(self):
         self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
@@ -103,12 +115,13 @@ class Link:
     b_port: str = ''
     enabled: bool = True
 
-class Lab:
+class Lab(Services):
     def __init__(self):
         self.nodes, self.links = {}, []
         self.last_paths, self.last_hops, self.events = [], [], []
         self.fdb = {}
         self.secure_dynamic = {}
+        self.init_services()
 
     def add(self, node):
         if not node.name or node.name in self.nodes:
@@ -192,6 +205,17 @@ class Lab:
                 return False, 'EtherChannel : plusieurs partenaires'
         return True, ''
 
+    def operational_mode(self,link,name):
+        p=self.nodes[name].ports[link.a_port if link.a==name else link.b_port]
+        if p.mode in ('access','trunk'):
+            return p.mode
+        other=link.b if name==link.a else link.a
+        peer=self.nodes[other].ports[link.b_port if name==link.a else link.a_port]
+        if self.nodes[name].kind!='Switch' or self.nodes[other].kind!='Switch' or p.nonegotiate or peer.nonegotiate:
+            return 'access'
+        forms=peer.mode=='trunk' or peer.mode=='dynamic desirable' or (p.mode=='dynamic desirable' and peer.mode=='dynamic auto')
+        return 'trunk' if forms else 'access'
+
     def eligible(self, link, vlan):
         if not link.enabled:
             return False
@@ -201,18 +225,19 @@ class Lab:
                 p.errdisabled=True
         if any(p.shutdown or p.errdisabled for p in (pa,pb)) or not self.channel_state(link)[0]:
             return False
-        for name,port in ((link.a,pa),(link.b,pb)):
+        ma,mb=self.operational_mode(link,link.a),self.operational_mode(link,link.b)
+        for name,port,mode in ((link.a,pa,ma),(link.b,pb,mb)):
             node=self.nodes[name]
             if node.kind=='Switch' and str(vlan) not in node.vlans:
                 return False
-            if node.kind!='PC' and (vlan not in port.allowed if port.mode=='trunk' else vlan!=port.access_vlan):
+            if node.kind!='PC' and (vlan not in port.allowed if mode=='trunk' else vlan!=port.access_vlan):
                 return False
-        if pa.mode=='trunk' and pb.mode=='trunk' and pa.native_vlan!=pb.native_vlan:
+        if ma=='trunk' and mb=='trunk' and pa.native_vlan!=pb.native_vlan:
             # Conservative simulator policy; real devices can map native VLANs differently.
             return False
-        if pa.mode!=pb.mode and all(self.nodes[n].kind=='Switch' for n in (link.a,link.b)):
-            trunk=pa if pa.mode=='trunk' else pb
-            access=pb if pa.mode=='trunk' else pa
+        if ma!=mb and all(self.nodes[n].kind=='Switch' for n in (link.a,link.b)):
+            trunk=pa if ma=='trunk' else pb
+            access=pb if ma=='trunk' else pa
             return vlan==trunk.native_vlan==access.access_vlan
         return True
 
@@ -320,17 +345,20 @@ class Lab:
         other=link.b if link.a==name else link.a
         p=link.b_port if link.a==name else link.a_port
         port=self.nodes[other].ports[p]
-        return port.native_vlan if port.mode=='trunk' else port.access_vlan
+        return port.native_vlan if self.operational_mode(link,other)=='trunk' else port.access_vlan
 
     def learn(self,hops,source):
         mac=self.nodes[source].mac
+        ip=self.nodes[source].address.split('/')[0] if self.nodes[source].address else ''
         for i,a,b,v in hops:
             link=self.links[i]
             if self.nodes[a].kind=='Routeur':
                 mac=self.nodes[a].mac
+                ip=self.nodes[a].interfaces.get(str(v),'').split('/')[0]
             if self.nodes[b].kind=='Switch':
                 name=link.b_port if link.b==b else link.a_port
                 p=self.nodes[b].ports[name]
+                self.validate_sender(b,name,v,mac,ip)
                 if p.security:
                     dynamic=self.secure_dynamic.setdefault(b+'/'+name,[])
                     known=set(p.secure_macs)|set(dynamic)

@@ -83,3 +83,34 @@ class WorkbenchTests(unittest.TestCase):
         self.root.geometry('1180x800'); self.root.update(); app.fit()
         self.assertGreater(app.canvas.winfo_width(),500)
         self.assertGreater(app.canvas.winfo_height(),200)
+
+    def test_terminal_inline_edit_history_and_transcript_protection(self):
+        terminal=self.app.terminals['SW1']
+        text=terminal.text
+        text.focus_force(); self.root.update()
+        text.insert('end-1c','enable')
+        terminal.enter()
+        self.assertEqual(terminal.session.mode,'priv')
+        self.assertTrue(text.get('1.0','end-1c').endswith('SW1# '))
+        self.assertEqual(text.cget('background'),'#000000')
+        terminal.recall(-1)
+        self.assertEqual(terminal.pending(),'enable')
+        terminal.replace_input('')
+        text.mark_set('insert','input_start')
+        before=text.get('1.0','end-1c')
+        text.event_generate('<BackSpace>'); self.root.update()
+        self.assertEqual(before,text.get('1.0','end-1c'))
+        text.mark_set('insert','1.0')
+        text.event_generate('<Delete>'); self.root.update()
+        self.assertEqual(before,text.get('1.0','end-1c'))
+        terminal.send('configure terminal\ninterface gi0/1\nshutdown')
+        self.assertTrue(text.get('1.0','end-1c').endswith('SW1(config-if)# '))
+
+    def test_security_lab_dhcp_from_inline_console(self):
+        app=self.app
+        app.replace_lab(app.security_demo); self.root.update()
+        app.open_cli('PC1'); app.open_cli('PC2')
+        app.terminals['PC1'].send('ip dhcp')
+        app.terminals['PC2'].send('ip dhcp')
+        self.root.update()
+        self.assertTrue(app.lab.ping('PC1',app.lab.nodes['PC2'].address.split('/')[0])[0])

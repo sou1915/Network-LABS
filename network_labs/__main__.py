@@ -25,123 +25,193 @@ def roundrect(c,x1,y1,x2,y2,r=12,**kw):
     return c.create_polygon(x1+r,y1,x2-r,y1,x2,y1,x2,y1+r,x2,y2-r,x2,y2,x2-r,y2,x1+r,y2,x1,y2,x1,y2-r,x1,y1+r,x1,y1,smooth=True,**kw)
 
 class Terminal:
+    """Console with a protected transcript and direct, inline command editing."""
     def __init__(self,app,node):
-        self.app=app
-        self.session=Session(app.lab,node)
+        self.app=app; self.session=Session(app.lab,node)
         self.history=[]; self.cursor=0
-        self.frame=tk.Frame(app.dock,bg=BG)
-        bar=tk.Frame(self.frame,bg=PANEL,padx=10,pady=5)
-        bar.pack(fill='x')
-        label(bar,f'CONSOLE  /  {node}',TEAL,9,True).pack(side='left')
-        button(bar,'Aide ?',lambda:self.send('?')).pack(side='right',padx=3)
-        button(bar,'Coller un bloc',self.block).pack(side='right',padx=3)
-        button(bar,'Effacer',self.clear).pack(side='right',padx=3)
-        content=tk.Frame(self.frame,bg=BG)
-        content.pack(fill='both',expand=True)
-        self.text=tk.Text(content,bg=BG,fg='#c1d4ec',font=MONO,relief='flat',wrap='none',padx=14,pady=10,state='disabled',height=9,insertbackground=TEAL,selectbackground='#245274')
-        scroll=ttk.Scrollbar(content,command=self.text.yview)
-        self.text.configure(yscrollcommand=scroll.set)
+        self.frame=tk.Frame(app.dock,bg='#000000')
+        bar=tk.Frame(self.frame,bg='#1c2026',padx=9,pady=4); bar.pack(fill='x')
+        tk.Label(bar,text=f'{node} — Console 0  |  Local simulation',bg='#1c2026',fg='#a8afb8',font=('DejaVu Sans',9)).pack(side='left')
+        for title,callback in [('?',lambda:self.send('?')),('Coller un bloc',self.block),('Effacer',self.clear)]:
+            ttk.Button(bar,text=title,command=callback,style='Small.TButton').pack(side='right',padx=3)
+        content=tk.Frame(self.frame,bg='black'); content.pack(fill='both',expand=True)
+        self.text=tk.Text(content,bg='#000000',fg='#d5d5d5',font=('DejaVu Sans Mono',11),relief='flat',wrap='char',padx=12,pady=12,height=11,insertbackground='#e0e0e0',insertwidth=9,insertofftime=450,insertontime=650,selectbackground='#38485d',selectforeground='white',undo=False)
+        scroll=ttk.Scrollbar(content,command=self.text.yview); self.text.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y'); self.text.pack(fill='both',expand=True)
-        self.text.tag_configure('prompt',foreground=TEAL)
-        self.text.tag_configure('error',foreground=RED)
-        self.text.tag_configure('hint',foreground=MUTED)
-        row=tk.Frame(self.frame,bg='#15283b',padx=12,pady=8)
-        row.pack(fill='x')
+        self.entry=self.text  # Kept as the focus target for the workbench.
         self.prompt=tk.StringVar(value=self.session.prompt)
-        tk.Label(row,textvariable=self.prompt,bg=row['bg'],fg=TEAL,font=MONO).pack(side='left',padx=(0,8))
-        self.command=tk.StringVar()
-        self.entry=tk.Entry(row,textvariable=self.command,bg=row['bg'],fg=TEXT,insertbackground=TEAL,font=MONO,relief='flat')
-        self.entry.pack(side='left',fill='x',expand=True)
-        button(row,'Exécuter ↵',self.enter,True).pack(side='right')
-        self.entry.bind('<Return>',lambda e:self.enter())
-        self.entry.bind('<Up>',lambda e:self.recall(-1))
-        self.entry.bind('<Down>',lambda e:self.recall(1))
-        self.entry.bind('<Tab>',self.complete)
-        self.entry.bind('<Control-l>',lambda e:self.clear())
-        self.entry.bind('<<Paste>>',self.paste)
-        self.write('Network LABS • Console locale simulée\n? : aide  |  ↑/↓ : historique  |  Tab : suggestions  |  Coller un bloc : configuration multi-ligne\n', 'hint')
-        if app.lab.nodes[node].kind!='PC':
-            self.write('Commencer : enable → configure terminal. Les commandes non implémentées sont rejetées.\n','hint')
+        self.text.tag_configure('hint',foreground='#9b9b9b')
+        self.text.tag_configure('error',foreground='#d5d5d5')
+        self.text.tag_configure('prompt',foreground='#d5d5d5')
+        self.text.bind('<KeyPress>',self.key)
+        self.text.bind('<Return>',lambda e:self.enter())
+        self.text.bind('<Up>',lambda e:self.recall(-1))
+        self.text.bind('<Down>',lambda e:self.recall(1))
+        self.text.bind('<Tab>',self.complete)
+        self.text.bind('<Home>',self.home)
+        self.text.bind('<Control-a>',self.home)
+        self.text.bind('<Control-e>',self.end)
+        self.text.bind('<Control-l>',lambda e:self.clear())
+        self.text.bind('<Control-c>',self.interrupt)
+        self.text.bind('<Control-z>',self.ctrl_z)
+        self.text.bind('<<Paste>>',self.paste)
+        self.text.bind('<<Cut>>',self.cut)
+        self.text.bind('<Control-k>',self.kill_line)
+        self.write('Network LABS virtual console\nEducational simulation — no vendor operating system loaded.\n\n')
+        if self.session.n.kind=='PC':
+            self.write('Network workstation. Type help for network commands.\n\n')
+        else:
+            self.write('Console line 0 ready.\n\n')
+        self.new_prompt()
 
     def write(self,text,tag=None):
-        self.text.configure(state='normal')
-        self.text.insert('end',text,tag or ())
-        self.text.configure(state='disabled')
+        self.text.insert('end-1c',text,tag or ())
         self.text.see('end')
 
-    def clear(self):
-        self.text.configure(state='normal'); self.text.delete('1.0','end'); self.text.configure(state='disabled')
+    def new_prompt(self,value=''):
+        self.prompt.set(self.session.prompt)
+        self.text.mark_set('prompt_start','end-1c'); self.text.mark_gravity('prompt_start','left')
+        self.write(self.session.prompt+' ')
+        self.text.mark_set('input_start','end-1c'); self.text.mark_gravity('input_start','left')
+        self.write(value); self.text.mark_set('insert','end-1c'); self.text.see('end')
+
+    def pending(self):
+        return self.text.get('input_start','end-1c')
+
+    def replace_input(self,value):
+        self.text.delete('input_start','end-1c'); self.write(value); self.text.mark_set('insert','end-1c')
+
+    def protected_selection(self):
+        selection=self.text.tag_ranges('sel')
+        return bool(selection and self.text.compare(selection[0],'<','input_start'))
+
+    def key(self,event):
+        if event.state & 4 and event.keysym.lower() in ('h','d','backspace','delete','w','y','o','t'):
+            return 'break'
+        if event.char=='?':
+            value=self.pending()
+            self.write('?\n'+self.session.help()+'\n'); self.new_prompt(value); return 'break'
+        if event.keysym in ('Return','Up','Down','Tab','Home') or event.state & 4:
+            return None
+        if event.keysym in ('BackSpace','Left') and self.text.compare('insert','<=','input_start'):
+            return 'break'
+        if event.keysym in ('BackSpace','Delete') and self.protected_selection():
+            return 'break'
+        if event.char and event.char.isprintable():
+            if self.protected_selection():
+                self.text.tag_remove('sel','1.0','end')
+            if self.text.compare('insert','<','input_start'):
+                self.text.mark_set('insert','end-1c')
+        if event.keysym=='Delete' and self.text.compare('insert','<','input_start'):
+            return 'break'
+        return None
+
+    def home(self,event=None):
+        self.text.mark_set('insert','input_start'); return 'break'
+
+    def end(self,event=None):
+        self.text.mark_set('insert','end-1c'); return 'break'
+
+    def cut(self,event=None):
+        if self.protected_selection():
+            return 'break'
+        return None
+
+    def kill_line(self,event=None):
+        if self.text.compare('insert','<','input_start'):
+            self.text.mark_set('insert','input_start')
+        self.text.delete('insert','end-1c'); return 'break'
+
+    def interrupt(self,event=None):
+        selection=self.text.tag_ranges('sel')
+        if selection:
+            self.text.clipboard_clear(); self.text.clipboard_append(self.text.get(*selection)); return 'break'
+        self.write('^C\n'); self.new_prompt(); return 'break'
+
+    def ctrl_z(self,event=None):
+        if self.session.n.kind!='PC' and self.session.mode not in ('user','priv'):
+            self.send('end')
+        else:
+            self.interrupt()
         return 'break'
+
+    def clear(self):
+        self.text.delete('1.0','end'); self.new_prompt(); return 'break'
 
     def recall(self,direction):
         if self.history:
             self.cursor=max(0,min(len(self.history),self.cursor+direction))
-            self.command.set(self.history[self.cursor] if self.cursor<len(self.history) else '')
-            self.entry.icursor('end')
+            self.replace_input(self.history[self.cursor] if self.cursor<len(self.history) else '')
         return 'break'
 
     def complete(self,event=None):
-        candidates=['enable','configure terminal','interface ','interface range ','show vlan brief','show interfaces status','show interfaces trunk','show spanning-tree','show spanning-tree vlan ','show etherchannel summary','show mac address-table','show port-security','show running-config','show ip route','show capabilities','switchport mode access','switchport mode trunk','switchport access vlan ','switchport trunk allowed vlan ','switchport trunk native vlan ','spanning-tree portfast','spanning-tree bpduguard enable','channel-group ','ipconfig','ping ','end','exit','no shutdown','shutdown']
-        matches=[c for c in candidates if c.startswith(self.command.get().lower())]
+        candidates=['enable','configure terminal','interface ','interface range ','show vlan brief','show interfaces status','show interfaces trunk','show spanning-tree','show etherchannel summary','show mac address-table','show port-security','show running-config','show ip route','show ip dhcp binding','show ip dhcp snooping binding','show ip arp inspection','show dtp interface ','show capabilities','switchport mode access','switchport mode trunk','switchport mode dynamic auto','switchport mode dynamic desirable','switchport access vlan ','switchport trunk allowed vlan ','ip dhcp','ipconfig','ping ','end','exit','no shutdown','shutdown']
+        value=self.pending(); matches=[c for c in candidates if c.startswith(value.lower())]
         if len(matches)==1:
-            self.command.set(matches[0]); self.entry.icursor('end')
+            self.replace_input(matches[0])
         elif matches:
-            self.write('\n'+'    '.join(matches)+'\n','hint')
+            self.write('\n'+'    '.join(matches)+'\n'); self.new_prompt(value)
         return 'break'
 
     def enter(self):
-        line=self.command.get()
-        self.command.set('')
-        self.send(line)
-        self.entry.focus_set()
+        line=self.pending()
+        if line.strip():
+            self.send(line)
+        else:
+            self.write('\n'); self.new_prompt()
+        self.text.focus_set(); return 'break'
 
     def send(self,line):
         if self.session.node not in self.app.lab.nodes:
             return
-        for command in line.splitlines():
-            if not command.strip() or command.strip().startswith('!'):
-                continue
+        commands=[c for c in line.splitlines() if c.strip() and not c.strip().startswith('!')]
+        if not commands:
+            return
+        self.text.delete('prompt_start','end-1c')
+        for command in commands:
             self.history.append(command); self.cursor=len(self.history)
-            self.write(self.session.prompt+' '+command+'\n','prompt')
+            self.write(self.session.prompt+' '+command+'\n')
             result=self.session.execute(command)
             if result:
-                self.write(result+'\n','error' if result.startswith('%') else None)
-            self.prompt.set(self.session.prompt)
+                self.write(result+'\n')
             if self.session.changed:
-                self.app.dirty=True
-                self.app.invalidate()
-                self.app.refresh()
+                self.app.dirty=True; self.app.invalidate(); self.app.refresh()
             elif command.lower().strip().startswith('ping '):
-                self.app.animate_result(not result.startswith(('FAILED','%')))
-                self.app.draw()
+                self.app.animate_result(not result.startswith(('FAILED','%')),result.splitlines()[-1] if result else ''); self.app.draw()
             if result.startswith('%'):
                 break
+        self.new_prompt()
 
-    def paste(self,event):
+    def paste(self,event=None):
         try:
-            content=self.frame.clipboard_get()
+            value=self.frame.clipboard_get()
         except tk.TclError:
             return 'break'
-        if '\n' in content:
-            self.open_block(content)
-            return 'break'
-        return None
+        if '\n' in value or '\r' in value:
+            self.open_block(value)
+        else:
+            if self.protected_selection():
+                self.text.tag_remove('sel','1.0','end')
+            if self.text.compare('insert','<','input_start'):
+                self.text.mark_set('insert','end-1c')
+            selection=self.text.tag_ranges('sel')
+            if selection:
+                self.text.delete(*selection)
+            self.text.insert('insert',value)
+        return 'break'
 
     def block(self):
         self.open_block('')
 
     def open_block(self,initial):
-        win=tk.Toplevel(self.app.root)
-        win.title('Bloc de commandes / '+self.session.node)
-        win.geometry('690x460'); win.configure(bg=PANEL); win.transient(self.app.root)
+        win=tk.Toplevel(self.app.root); win.title('Configuration / '+self.session.node)
+        win.geometry('700x460'); win.configure(bg=PANEL); win.transient(self.app.root)
         label(win,'Une commande par ligne • arrêt à la première erreur',MUTED).pack(padx=15,pady=12)
-        editor=tk.Text(win,bg=BG,fg=TEXT,insertbackground=TEAL,font=MONO,padx=12,pady=12)
-        editor.pack(fill='both',expand=True,padx=12)
-        editor.insert('1.0',initial)
+        editor=tk.Text(win,bg='black',fg='#d5d5d5',insertbackground='white',font=MONO,padx=12,pady=12)
+        editor.pack(fill='both',expand=True,padx=12); editor.insert('1.0',initial)
         def run():
-            text=editor.get('1.0','end-1c'); win.destroy(); self.send(text); self.entry.focus_set()
-        button(win,'Exécuter le bloc',run,True).pack(anchor='e',padx=12,pady=12)
-        editor.focus_set()
+            value=editor.get('1.0','end-1c'); win.destroy(); self.send(value); self.text.focus_set()
+        button(win,'Exécuter le bloc',run,True).pack(anchor='e',padx=12,pady=12); editor.focus_set()
 
 class App:
     def __init__(self,root):
@@ -253,7 +323,7 @@ class App:
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
         label(parent,'LABS INTÉGRÉS',MUTED,9,True).pack(fill='x',padx=14,pady=(22,8))
-        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo)]:
+        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo)]:
             button(parent,title,lambda f=factory:self.replace_lab(f)).pack(fill='x',padx=10,pady=3)
         label(parent,'CLI inspirée IOS\nSimulation pédagogique\nSans VM / sans IOS',MUTED,8).pack(fill='x',padx=14,pady=20)
 
@@ -264,6 +334,21 @@ class App:
             link=lab.connect('SW1','SW2','trunk',[10,20])
             for node,port in ((link.a,link.a_port),(link.b,link.b_port)):
                 p=lab.nodes[node].ports[port]; p.channel=1; p.channel_mode='active'
+        return lab
+
+    @staticmethod
+    def security_demo():
+        lab=demo()
+        for node,lines in {
+            'R1':['enable','configure terminal','ip dhcp excluded-address 192.168.10.1 192.168.10.20','ip dhcp pool USERS','network 192.168.10.0/24','default-router 192.168.10.1','dns-server 1.1.1.1','exit','ip dhcp excluded-address 192.168.20.1 192.168.20.20','ip dhcp pool SERVERS','network 192.168.20.0/24','default-router 192.168.20.1','end'],
+            'SW1':['enable','configure terminal','ip dhcp snooping','ip dhcp snooping vlan 10,20','ip arp inspection vlan 10,20','interface gi0/3','ip dhcp snooping trust','ip arp inspection trust','exit','interface range gi0/1 - 2','ip verify source','end']}.items():
+            session=Session(lab,node)
+            for line in lines:
+                result=session.execute(line)
+                if result.startswith('%'):
+                    raise ValueError(result)
+        for name in ('PC1','PC2'):
+            lab.nodes[name].address=''; lab.nodes[name].gateway=''
         return lab
 
     def canvas_toolbar(self,parent):
@@ -409,7 +494,7 @@ class App:
             label(body,title,MUTED,9).pack(fill='x',pady=(8,3))
             var=tk.StringVar(value=value); fields[title]=var
             if title=='Mode':
-                ttk.Combobox(body,textvariable=var,values=['access','trunk'],state='readonly').pack(fill='x')
+                ttk.Combobox(body,textvariable=var,values=['access','trunk','dynamic auto','dynamic desirable'],state='readonly').pack(fill='x')
             else:
                 ttk.Entry(body,textvariable=var).pack(fill='x')
         admin=tk.BooleanVar(value=not p.shutdown)
@@ -422,8 +507,10 @@ class App:
                 if len(access)!=1 or len(native)!=1 or not 1<=cost<=200000000:
                     raise ValueError('VLAN ou coût invalide.')
                 mode=fields['Mode'].get()
-                if p.security and mode=='trunk':
+                if (p.security or p.source_guard) and mode!='access':
                     raise ValueError('Désactiver port-security avant le mode trunk.')
+                if mode.startswith('dynamic') and p.nonegotiate:
+                    raise ValueError('Désactiver nonegotiate dans la CLI avant le mode dynamique.')
                 p.description=fields['Description'].get(); p.mode=mode; p.access_vlan=access[0]; p.native_vlan=native[0]; p.allowed=allowed; p.cost=cost; p.shutdown=not admin.get()
                 if admin.get():
                     p.errdisabled=False
@@ -472,7 +559,7 @@ class App:
             a,mid,b=self.geometry(i); tags=('link',str(i))
             c.create_line(*a,*mid,*b,smooth=True,fill=color,width=2.4 if eligible else 1.5,dash=(6,4) if blocked or physically_down else (),tags=tags)
             x,y=self.point(i,.5)
-            caption='Po'+str(pa.channel) if pa.channel else '802.1Q' if pa.mode=='trunk' or pb.mode=='trunk' else f'VLAN {pa.access_vlan if self.lab.nodes[l.a].kind=="Switch" else pb.access_vlan}'
+            caption='Po'+str(pa.channel) if pa.channel else 'DTP' if pa.mode.startswith('dynamic') or pb.mode.startswith('dynamic') else '802.1Q' if pa.mode=='trunk' or pb.mode=='trunk' else f'VLAN {pa.access_vlan if self.lab.nodes[l.a].kind=="Switch" else pb.access_vlan}'
             roundrect(c,x-35,y-10,x+35,y+10,r=5,fill=PANEL,outline=LINE,tags=tags)
             c.create_text(x,y,text=caption,fill=color,font=('DejaVu Sans',8),tags=tags)
             for t,name in ((.33,l.a_port),(.67,l.b_port)):

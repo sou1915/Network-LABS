@@ -1,5 +1,5 @@
 """Small IOS-inspired CLI. Unsupported commands are rejected, never silently accepted."""
-from ipaddress import IPv4Interface, IPv4Address
+from ipaddress import IPv4Interface, IPv4Address, IPv4Network
 import copy
 import re
 from .engine import Port, port_name, vlan_list
@@ -14,8 +14,10 @@ Inspection : show vlan brief, interfaces, spanning-tree, etherchannel summary,
              mac address-table, port-security, cdp/lldp neighbors, running-config
 Routeur : sous-interfaces 802.1Q et IPv4, routes connectées uniquement
 PC : ip address CIDR, ip gateway IPv4, ipconfig, ping IPv4
-Non implémentés : VTP/DTP, MSTP, voix, QoS, IGMP snooping, DHCP snooping/DAI,
-                 802.1X, LLDP/CDP réels, DHCP, ACL/NAT, OSPF/BGP.
+Nouveau : DTP auto/desirable/nonegotiate, serveur/client DHCP (sans relais),
+          DHCP snooping, DAI et IP Source Guard (contrôle d’identité simplifié).
+Non implémentés : VTP, MSTP, voix, QoS, IGMP snooping, 802.1X,
+                 LLDP/CDP réels, ACL/NAT, OSPF/BGP.
 Les voisins sont déduits des câbles ; STP/LACP sont calculés sans temporisation.
 Aucune commande non prise en charge n'est enregistrée comme fonctionnelle.'''
 
@@ -27,6 +29,7 @@ class Session:
         self.mode='user'
         self.selection=[]
         self.vlan_id=None
+        self.pool_name=None
         self.changed=False
         self.history=[]
 
@@ -36,12 +39,14 @@ class Session:
 
     @property
     def prompt(self):
-        suffix={'user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
+        if self.n.kind=='PC':
+            return f'user@{self.n.hostname or self.n.name}:~$'
+        suffix={'dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
         return (self.n.hostname or self.n.name)+suffix
 
     def help(self):
         if self.n.kind=='PC':
-            return 'help | ipconfig | ip address <CIDR> | ip gateway <IPv4> | ping <IPv4> | show capabilities'
+            return 'help | ipconfig | ip address <CIDR> | ip gateway <IPv4> | ip dhcp | ip release | ping <IPv4> | show capabilities'
         if self.mode in ('if','range'):
             return 'description | shutdown | no shutdown | switchport ... | spanning-tree ... | channel-group ... | exit | end\n'+FEATURES
         return FEATURES
@@ -71,7 +76,7 @@ class Session:
                 self.mode='user'
                 return ''
             if low=='exit':
-                self.mode='config' if self.mode in ('if','range','vlan') else 'priv' if self.mode=='config' else 'user'
+                self.mode='config' if self.mode in ('if','range','vlan','dhcp') else 'priv' if self.mode=='config' else 'user'
                 return ''
             if low=='end':
                 self.mode='priv'
@@ -98,7 +103,10 @@ class Session:
                 return 'Table MAC vidée.'
             if low.startswith('ping '):
                 raise ValueError('Ping source : disponible sur les PC dans ce prototype.')
-            if self.mode in ('config','if','range','vlan'):
+            if self.mode in ('config','if','range','vlan','dhcp'):
+                services=self.service_command(low,line)
+                if services is not None:
+                    return services
                 if low.startswith('hostname '):
                     value=line.split(maxsplit=1)[1]
                     if not re.fullmatch(r'[a-zA-Z0-9_-]{1,32}',value):
@@ -253,10 +261,27 @@ class Session:
             raise ValueError('Routeur : description, shutdown, encapsulation dot1Q, ip address. Autres fonctions non implémentées.')
         if self.n.kind!='Switch':
             raise ValueError('Commande réservée au switch.')
-        if low in ('switchport mode access','switchport mode trunk'):
-            if low.endswith('trunk') and p.security:
+        if low in ('switchport mode access','switchport mode trunk','switchport mode dynamic auto','switchport mode dynamic desirable'):
+            if low!='switchport mode access' and p.security:
                 raise ValueError('Désactiver port-security avant le mode trunk.')
-            p.mode=low.split()[-1]
+            mode=low[len('switchport mode '):]
+            if p.source_guard and mode!='access':
+                raise ValueError('Désactiver IP Source Guard avant de quitter le mode access.')
+            if mode.startswith('dynamic') and p.nonegotiate:
+                raise ValueError('Désactiver nonegotiate avant le mode dynamique.')
+            p.mode=mode
+        elif low in ('switchport nonegotiate','no switchport nonegotiate'):
+            if low=='switchport nonegotiate' and p.mode.startswith('dynamic'):
+                raise ValueError('nonegotiate requiert un mode access ou trunk statique.')
+            p.nonegotiate=not low.startswith('no ')
+        elif low in ('ip dhcp snooping trust','no ip dhcp snooping trust'):
+            p.dhcp_trust=not low.startswith('no ')
+        elif low in ('ip arp inspection trust','no ip arp inspection trust'):
+            p.arp_trust=not low.startswith('no ')
+        elif low in ('ip verify source','no ip verify source'):
+            if low=='ip verify source' and p.mode!='access':
+                raise ValueError('IP Source Guard : access uniquement dans ce modèle.')
+            p.source_guard=not low.startswith('no ')
         elif low=='no switchport access vlan':
             p.access_vlan=1
         elif low=='no switchport trunk allowed vlan':
@@ -342,9 +367,107 @@ class Session:
                     for field in ('mode','access_vlan','allowed','native_vlan','shutdown','cost'):
                         setattr(member,field,copy.deepcopy(getattr(p,field)))
 
+    def service_command(self,low,line):
+        if self.mode in ('if','range'):
+            return None
+        if self.n.kind=='Switch':
+            if low in ('ip dhcp snooping','no ip dhcp snooping'):
+                self.n.dhcp_snooping=not low.startswith('no ')
+            elif low.startswith(('ip dhcp snooping vlan ','no ip dhcp snooping vlan ')):
+                ids=vlan_list(low.split()[-1])
+                self.n.snooping_vlans=sorted(set(self.n.snooping_vlans)-set(ids)) if low.startswith('no ') else sorted(set(self.n.snooping_vlans)|set(ids))
+            elif low.startswith(('ip arp inspection vlan ','no ip arp inspection vlan ')):
+                ids=vlan_list(low.split()[-1])
+                self.n.dai_vlans=sorted(set(self.n.dai_vlans)-set(ids)) if low.startswith('no ') else sorted(set(self.n.dai_vlans)|set(ids))
+            else:
+                return None
+            self.changed=True
+            return ''
+        if self.n.kind!='Routeur':
+            return None
+        if low in ('service dhcp','no service dhcp'):
+            self.n.dhcp_service=not low.startswith('no ')
+        elif low.startswith(('ip dhcp excluded-address ','no ip dhcp excluded-address ')):
+            parts=low.split('excluded-address ',1)[1].split()
+            if not 1<=len(parts)<=2:
+                raise ValueError('ip dhcp excluded-address <début> [fin]')
+            a,b=str(IPv4Address(parts[0])),str(IPv4Address(parts[-1]))
+            if IPv4Address(a)>IPv4Address(b):
+                raise ValueError('Plage exclue inversée.')
+            if low.startswith('no '):
+                self.n.dhcp_excluded=[pair for pair in self.n.dhcp_excluded if list(pair)!=[a,b]]
+            elif [a,b] not in self.n.dhcp_excluded:
+                self.n.dhcp_excluded.append([a,b])
+        elif low.startswith('ip dhcp pool '):
+            name=line[len('ip dhcp pool '):]
+            if not re.fullmatch(r'[A-Za-z0-9_-]{1,32}',name):
+                raise ValueError('Nom du pool invalide.')
+            self.n.dhcp_pools.setdefault(name,{})
+            self.pool_name=name; self.mode='dhcp'
+        elif low.startswith('no ip dhcp pool '):
+            self.n.dhcp_pools.pop(line[len('no ip dhcp pool '):],None)
+        elif self.mode=='dhcp':
+            pool=self.n.dhcp_pools[self.pool_name]
+            if low.startswith('network '):
+                parts=low.split()[1:]
+                if len(parts) not in (1,2):
+                    raise ValueError('network <CIDR> ou <réseau> <masque>')
+                network=IPv4Network(parts[0] if len(parts)==1 else '/'.join(parts),strict=False)
+                pool['network']=str(network)
+            elif low.startswith('default-router '):
+                pool['gateway']=str(IPv4Address(low.split(' ',1)[1]))
+            elif low.startswith('dns-server '):
+                pool['dns']=[str(IPv4Address(ip)) for ip in low.split()[1:]]
+            elif low.startswith('lease '):
+                parts=list(map(int,low.split()[1:]))
+                if not 1<=len(parts)<=3:
+                    raise ValueError('lease <jours> [heures] [minutes]')
+                parts+= [0]*(3-len(parts))
+                days,hours,minutes=parts
+                if days<0 or not 0<=hours<=23 or not 0<=minutes<=59 or not 60<=days*86400+hours*3600+minutes*60<=31536000:
+                    raise ValueError('Durée de bail : 1 minute à 365 jours.')
+                pool['lease']=days*86400+hours*3600+minutes*60
+            else:
+                return None
+        else:
+            return None
+        self.changed=True
+        return ''
+
+    def service_show(self,low):
+        if low in ('show ip dhcp binding','show ip dhcp pool'):
+            if self.n.kind!='Routeur':
+                raise ValueError('Serveur DHCP disponible sur routeur.')
+            if low.endswith('pool'):
+                return '\n'.join(f'Pool {name}: {pool.get("network","not configured")} gateway {pool.get("gateway","none")}' for name,pool in self.n.dhcp_pools.items()) or 'No DHCP pools.'
+            return '\n'.join(['IP address        Client MAC          Pool       Remaining(s)']+[f'{b["ip"]:17} {b["mac"]:19} {b["pool"]:10} {int(b["expires"]-self.lab.clock())}' for b in self.lab.leases.values() if b['server']==self.node and b['expires']>self.lab.clock()])
+        if low=='show ip dhcp snooping':
+            return f'DHCP snooping: {"enabled" if self.n.dhcp_snooping else "disabled"}\nConfigured VLANs: {self.compact(self.n.snooping_vlans)}\nTrusted ports: '+', '.join(name for name,p in self.n.ports.items() if p.dhcp_trust)
+        if low=='show ip dhcp snooping binding':
+            return '\n'.join(['MacAddress          IpAddress         VLAN Interface  Remaining(s)']+[f'{b["mac"]:19} {b["ip"]:17} {b["vlan"]:<4} {b["port"]:10} {int(b["expires"]-self.lab.clock())}' for b in self.lab.bindings.get(self.node,{}).values() if b['expires']>self.lab.clock()])
+        if low in ('show ip arp inspection','show ip arp inspection statistics'):
+            stats=self.lab.inspection_stats.get(self.node,{'passed':0,'dropped':0})
+            return f'DAI VLANs: {self.compact(self.n.dai_vlans)}\nIngress identity checks passed: {stats["passed"]} dropped: {stats["dropped"]}\nSimplified checks during reachability tests, not real ARP packets.'
+        if low.startswith('show dtp interface '):
+            name=port_name(low.split()[-1]); p=self.n.ports[name]
+            link=self.lab.link_for(self.node,name)
+            mode=self.lab.operational_mode(link,self.node) if link else 'down'
+            return f'Interface: {name}\nAdministrative mode: {p.mode}\nOperational mode: {mode}\nNegotiation: {"off" if p.nonegotiate else "on"}\nDTP state calculated without frames/timers; VTP domains not modeled.'
+        if low=='show ip verify source':
+            return '\n'.join(f'{name}: IP Source Guard enabled (DHCP binding required)' for name,p in self.n.ports.items() if p.source_guard) or 'IP Source Guard disabled.'
+        return None
+
     def pc(self,low,line):
+        if low in ('ip dhcp','ipconfig /renew'):
+            result=self.lab.request_dhcp(self.node)
+            self.changed=True
+            return result
+        if low in ('ip release','ipconfig /release'):
+            self.lab.release_dhcp(self.node)
+            self.changed=True
+            return 'DHCP lease released.'
         if low=='ipconfig' or low=='ip addr' or low=='show ip interface brief':
-            return f'{self.n.name} / eth0\nMAC {self.n.mac}\nIPv4 {self.n.address or "non configurée"}\nPasserelle {self.n.gateway or "aucune"}'
+            return f'{self.n.name} / eth0\nMAC {self.n.mac}\nIPv4 {self.n.address or "non configurée"}\nPasserelle {self.n.gateway or "aucune"}\nDNS {', '.join(self.n.dns) or "aucun"}'
         if low.startswith('ip address '):
             self.n.address=str(IPv4Interface(low[len('ip address '):]))
             self.changed=True
@@ -361,6 +484,9 @@ class Session:
         raise ValueError('Commande PC non implémentée. Utiliser ?. Aucune commande shell réelle n’est exécutée.')
 
     def show(self,low):
+        service=self.service_show(low)
+        if service is not None:
+            return service
         if low in ('show running-config','show run'):
             return self.running_config()
         if low=='show startup-config':
@@ -378,7 +504,7 @@ class Session:
             return '\n'.join(lines)
         if low.startswith('show interfaces'):
             if low=='show interfaces trunk':
-                return '\n'.join(['Port       Native   Allowed VLANs']+[f'{name:10} {p.native_vlan:<8} {self.compact(p.allowed)}' for name,p in self.n.ports.items() if p.mode=='trunk'])
+                return '\n'.join(['Port       Native   Allowed VLANs']+[f'{name:10} {p.native_vlan:<8} {self.compact(p.allowed)}' for name,p in self.n.ports.items() if self.lab.link_for(self.node,name) and self.lab.operational_mode(self.lab.link_for(self.node,name),self.node)=='trunk'])
             if low=='show interfaces switchport':
                 names=list(self.n.ports)
             else:
@@ -386,7 +512,7 @@ class Session:
                 if not m:
                     raise ValueError('show interfaces status | trunk | switchport | gi0/1 switchport')
                 names=[port_name(m[1])]
-            return '\n\n'.join(f'Name: {name}\nDescription: {self.n.ports[name].description}\nAdministrative Mode: {self.n.ports[name].mode}\nAccess VLAN: {self.n.ports[name].access_vlan}\nNative VLAN: {self.n.ports[name].native_vlan}\nAllowed: {self.compact(self.n.ports[name].allowed)}' for name in names)
+            return '\n\n'.join(f'Name: {name}\nDescription: {self.n.ports[name].description}\nAdministrative Mode: {self.n.ports[name].mode}\nOperational Mode: {self.lab.operational_mode(self.lab.link_for(self.node,name),self.node) if self.lab.link_for(self.node,name) else 'down'}\nAccess VLAN: {self.n.ports[name].access_vlan}\nNative VLAN: {self.n.ports[name].native_vlan}\nAllowed: {self.compact(self.n.ports[name].allowed)}' for name in names)
         if low in ('show vlan','show vlan brief'):
             return '\n'.join(['VLAN  Name                     Access ports']+[f'{v:5} {label:24} '+', '.join(p for p,c in self.n.ports.items() if c.mode=='access' and str(c.access_vlan)==v) for v,label in sorted(self.n.vlans.items(),key=lambda kv:int(kv[0]))])
         if low.startswith('show spanning-tree'):
@@ -439,7 +565,30 @@ class Session:
 
     def running_config(self):
         lines=['! Network LABS — sous-ensemble IOS-like',f'hostname {self.n.hostname or self.n.name}']
+        if self.n.kind=='Routeur':
+            if not self.n.dhcp_service:
+                lines.append('no service dhcp')
+            for a,b in self.n.dhcp_excluded:
+                lines.append(f'ip dhcp excluded-address {a} {b}')
+            for name,pool in self.n.dhcp_pools.items():
+                lines.append('ip dhcp pool '+name)
+                if 'network' in pool:
+                    lines.append(' network '+pool['network'])
+                if pool.get('gateway'):
+                    lines.append(' default-router '+pool['gateway'])
+                if pool.get('dns'):
+                    lines.append(' dns-server '+' '.join(pool['dns']))
+                seconds=pool.get('lease',86400)
+                days,rem=divmod(seconds,86400); hours,rem=divmod(rem,3600)
+                lines.append(f' lease {days} {hours} {rem//60}')
+                lines.append(' exit')
         if self.n.kind=='Switch':
+            if self.n.dhcp_snooping:
+                lines.append('ip dhcp snooping')
+            if self.n.snooping_vlans:
+                lines.append('ip dhcp snooping vlan '+self.compact(self.n.snooping_vlans))
+            if self.n.dai_vlans:
+                lines.append('ip arp inspection vlan '+self.compact(self.n.dai_vlans))
             lines.append('spanning-tree mode '+self.n.stp_mode)
             for v,name in sorted(self.n.vlans.items(),key=lambda x:int(x[0])):
                 lines.extend([f'vlan {v}',f' name {name}'])
@@ -451,6 +600,14 @@ class Session:
                 lines.append(' description '+p.description)
             if self.n.kind=='Switch':
                 lines.extend([' switchport mode '+p.mode,' switchport access vlan '+str(p.access_vlan),' switchport trunk native vlan '+str(p.native_vlan),' switchport trunk allowed vlan '+self.compact(p.allowed)])
+                if p.nonegotiate:
+                    lines.append(' switchport nonegotiate')
+                if p.dhcp_trust:
+                    lines.append(' ip dhcp snooping trust')
+                if p.arp_trust:
+                    lines.append(' ip arp inspection trust')
+                if p.source_guard:
+                    lines.append(' ip verify source')
                 if p.cost!=19:
                     lines.append(' spanning-tree cost '+str(p.cost))
                 if p.port_priority!=128:

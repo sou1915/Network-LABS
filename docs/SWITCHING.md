@@ -245,6 +245,105 @@ PC2 doit disposer d'une adresse 192.168.20.0/24 et de la passerelle 192.168.20.1
 Le test valide aussi le retour. Les routes statiques, protocoles de routage, SVI de
 management et ping émis par un switch/routeur ne sont pas implémentés.
 
+## 7. DTP : négociation du trunk
+
+Sur deux switches reliés, sélectionner le port du câble :
+
+```text
+enable
+configure terminal
+interface gi0/1
+switchport mode dynamic desirable
+end
+show dtp interface gi0/1
+show interfaces gi0/1 switchport
+```
+
+Sur le partenaire, utiliser `switchport mode dynamic auto` : le lien devient trunk.
+Deux ports auto restent access ; desirable/auto et desirable/desirable deviennent trunk.
+Un routeur ou PC ne négocie pas DTP. Les domaines VTP et timers ne sont pas modélisés.
+
+Pour figer le trunk et désactiver la négociation :
+
+```text
+switchport mode trunk
+switchport nonegotiate
+```
+
+Configurer alors le partenaire en trunk statique aussi. `no switchport nonegotiate`
+réactive la négociation. Nonegotiate est refusé sur un port en mode dynamique.
+
+## 8. DHCP, snooping, DAI et IP Source Guard
+
+Le lab **DHCP / Sécurité** inclut deux pools et les ports trusted déjà configurés.
+Les PC n'ont pas d'adresse. Dans chacune des consoles PC :
+
+```text
+ip dhcp
+ipconfig
+```
+
+Puis PC1 peut pinguer l'adresse attribuée à PC2 (par défaut `192.168.20.21`).
+La commande `ip release` ou `ipconfig /release` libère le bail ; `ipconfig /renew`
+renouvelle la demande. Les phases DHCP sont des événements logiques, pas des paquets.
+
+Configuration équivalente du pool VLAN 10 sur R1 :
+
+```text
+enable
+configure terminal
+ip dhcp excluded-address 192.168.10.1 192.168.10.20
+ip dhcp pool USERS
+network 192.168.10.0 255.255.255.0
+default-router 192.168.10.1
+dns-server 1.1.1.1 8.8.8.8
+lease 0 1
+end
+show ip dhcp pool
+show ip dhcp binding
+```
+
+`lease` accepte jours, heures, minutes. `no service dhcp` désactive le serveur,
+`service dhcp` le réactive. L'interface routeur 802.1Q doit être configurée et joignable.
+Le serveur n'alloue pas d'adresse exclue, déjà attribuée, de routeur, réseau ou broadcast.
+
+Sur SW1 :
+
+```text
+enable
+configure terminal
+ip dhcp snooping
+ip dhcp snooping vlan 10,20
+ip arp inspection vlan 10,20
+interface gi0/3
+ip dhcp snooping trust
+ip arp inspection trust
+exit
+interface range gi0/1 - 2
+ip verify source
+end
+show ip dhcp snooping
+show ip dhcp snooping binding
+show ip arp inspection statistics
+show ip verify source
+```
+
+Le port gi0/3 est l'uplink serveur ; si on retire `ip dhcp snooping trust`, les réponses
+DHCP sont rejetées et aucun nouveau bail n'est attribué. Les ports utilisateurs restent
+untrusted. Sur un réseau de plusieurs switches, configurer les trusts nécessaires sur
+le parcours de retour du serveur.
+
+DAI et Source Guard nécessitent une association valide IP/MAC/VLAN/port. Après `ip dhcp`,
+changer l'adresse du PC avec `ip address 192.168.10.99/24` fait rejeter son test de
+connectivité. Un poste configuré statiquement sans binding est aussi rejeté ; les ARP ACL
+statiques ne sont pas implémentées. Le port routeur doit être trusted pour DAI car il
+n'a pas de bail DHCP utilisateur. Les commandes `no ip dhcp snooping trust`,
+`no ip arp inspection trust` et `no ip verify source` retirent les options sur un port.
+
+Les étapes DHCP, la négociation DTP et les contrôles DAI/IPSG sont simplifiés, sans
+véritables trames/paquets ni timers automatiques. Les baux/bindings ne sont pas sauvegardés ;
+renouveler les adresses après réouverture. Voir les limites dans le README.
+
 ## Références de conception
 
 Le comportement de vrais équipements est plus riche que ce modèle pédagogique :
