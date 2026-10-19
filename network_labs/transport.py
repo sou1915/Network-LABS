@@ -1,5 +1,6 @@
 """LAN service/port probes. No host sockets, packet stack or application execution."""
 from ipaddress import IPv4Address,IPv4Interface
+from .explanation import recorded
 
 def service_key(protocol,port):
     port=int(port)
@@ -8,12 +9,17 @@ def service_key(protocol,port):
     return f'{protocol}/{port}'
 
 class Transport:
+    @recorded("probe")
     def probe(self,source,destination,protocol,port):
         try:
             key=service_key(protocol,port);port=int(port)
+            dns_trace=[]
             try:address=str(IPv4Address(destination))
-            except ValueError:address,_=self.resolve_name(source,destination)
+            except ValueError:
+                address,server=self.resolve_name(source,destination)
+                dns_trace=[f'DNS: {destination} → {address} via {server}']
             ok,trace=self._ping_ipv4(source,address,protocol,port)
+            trace=dns_trace+trace
             if not ok:return False,trace
             targets=[n for n in self.nodes.values() if n.kind=='PC' and n.address and str(IPv4Interface(n.address).ip)==address]
             if len(targets)!=1:return False,['Service endpoint absent ou ambigu.']

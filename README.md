@@ -31,6 +31,23 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+## Un espace pour chaque tâche
+
+**Conception** affiche le plan et les catégories Nodes/Outils/Labs.
+**Simulation** réunit les tests ICMP/TCP/UDP, l'animation et une explication
+sélectionnable de chaque décision : demande, DNS, sauts aller/retour, filtrage
+et résultat. **Consoles** donne tout l'espace aux terminaux.
+
+Les présentations web dépendent maintenant de la famille : bureau NAS, écran
+caméra, état imprimante/téléphone, paramètres Windows/Linux, dashboards et
+navigations FortiGate/Palo Alto/pfSense, ainsi que présentations de switches.
+Ce sont des interfaces **inspirées**, pas des copies complètes des firmwares.
+
+Les consoles interactives séparent la grammaire interne du simulateur des
+sous-ensembles IOS, Windows, Linux, FortiOS, PAN-OS et RouterOS. Une CLI non
+implémentée est annoncée comme telle. Voir la [matrice de fidélité, exemples et
+limites](docs/FIDELITY.md) et le [guide de simulation](docs/SIMULATION.md).
+
 ## Choisir web, GUI bureau ou CLI
 
 - Double-clic sur un équipement réseau : **page web locale réelle**.
@@ -41,7 +58,7 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 - Les formulaires, pages web et consoles partagent la même configuration.
   Validation atomique des groupes de commandes et détection des formulaires obsolètes.
 - La page web propose inventaire, interfaces, VLANs, DNS, services, firewall,
-  diagnostics et configuration. Les options avancées restent dans la CLI et le GUI bureau.
+  diagnostics et configuration. Les options avancées restent dans l’éditeur technique ; la CLI dépend du dialecte implémenté.
 - Thème bureau clair, panneaux défilants et tailles adaptées à l'écran. F10
   agrandit la topologie, F11 la console du dock. Le prompt reste visible.
 
@@ -129,6 +146,10 @@ IPS/antivirus, NGFW/WAF/proxy ou reproduction exhaustive des CLI et matériels.
 Les commandes non implémentées sont rejetées.
 
 ## Tests
+
+Validation locale : **130 tests réussis**, dont **22 tests GUI** sous Tk/Xvfb.
+Le contrôle navigateur facultatif vérifie 23 présentations et leur affichage mobile,
+ainsi que des modifications réelles du modèle via HTTP.
 
 ```bash
 python3 -m unittest discover -s tests -v

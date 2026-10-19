@@ -35,3 +35,9 @@ class PortalTests(unittest.TestCase):
         headers={'Authorization':'Bearer '+self.portal.token,'Content-Type':'application/json'}
         self.assertEqual(self.request('POST','/api/apply','bad',headers)['status'],400)
         self.assertEqual(self.request('GET','/../../README.md')['status'],404)
+
+    def test_family_assets_are_served_without_arbitrary_files(self):
+        for path,kind in [('/device_faces.css','text/css'),('/device_faces.js','text/javascript')]:
+            response=self.request('GET',path)
+            self.assertEqual(response['status'],200);self.assertTrue(response['headers']['Content-Type'].startswith(kind))
+        self.assertEqual(self.request('GET','/vendor_cli.py')['status'],404)

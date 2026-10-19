@@ -16,10 +16,15 @@ La page web et le GUI bureau proposent l'édition et les compteurs du même mote
 
 Les identités FortiGate, Palo Alto PA, Cisco ASA, pfSense, OPNsense, Sophos,
 Check Point Quantum, SonicWall TZ et Juniper SRX partagent ce moteur. Elles ne
-reproduisent pas leurs systèmes et CLI constructeur ou fonctions avancées.
+reproduisent pas leurs systèmes ou fonctions avancées. Des sous-ensembles de
+syntaxe FortiOS et PAN-OS sont disponibles : voir [FIDELITY.md](FIDELITY.md).
+Les autres consoles constructeur ne sont pas implémentées.
 Le catalogue n'est pas exhaustif.
 
-## Commandes de simulation
+## Grammaire interne du simulateur
+
+Ces commandes servent aux imports et aux profils génériques. Elles ne sont
+pas des commandes à taper dans une console FortiOS/PAN-OS.
 
 ```text
 firewall mode stateful
@@ -39,6 +44,7 @@ défaut s'applique. `any` représente tous les réseaux, protocoles ou ports sel
 le champ. Un ID existant est remplacé après validation. L'ancienne syntaxe
 `firewall rule ID allow|deny SOURCE DESTINATION` reste compatible et signifie
 ICMP uniquement. Les règles persistantes contiennent protocole et port.
+`tcpudp` correspond à TCP ou UDP sur le même port (par exemple DNS/53).
 
 L'état est limité à la transaction en cours et réinitialisé au test suivant,
 sans suivi de connexions réel ni timers. Le port est le port du service sur les

@@ -34,7 +34,7 @@ class FirewallEditor:
         protocol_row=ttk.Frame(win,padding=(12,0));protocol_row.pack(fill='x')
         self.protocol=tk.StringVar(value='icmp');self.port=tk.StringVar(value='any')
         ttk.Label(protocol_row,text='Protocole').pack(side='left',padx=4)
-        ttk.Combobox(protocol_row,textvariable=self.protocol,values=['icmp','tcp','udp','any'],state='readonly',width=10).pack(side='left',padx=4)
+        ttk.Combobox(protocol_row,textvariable=self.protocol,values=['icmp','tcp','udp','tcpudp','any'],state='readonly',width=10).pack(side='left',padx=4)
         ttk.Label(protocol_row,text='Port service (any = tous)').pack(side='left',padx=4)
         ttk.Entry(protocol_row,textvariable=self.port,width=10).pack(side='left',padx=4)
         self.number=tk.StringVar(value='10');self.action=tk.StringVar(value='allow');self.source=tk.StringVar(value='any');self.target=tk.StringVar(value='any')
@@ -69,7 +69,7 @@ class FirewallEditor:
         self.app.changed('Politique firewall mise à jour');self.refresh();return True
 
     def add(self):
-        self.execute(f'firewall rule {self.number.get().strip()} {self.action.get()} {self.protocol.get()} {self.source.get().strip()} {self.target.get().strip()} {self.port.get().strip() if self.protocol.get() in ('tcp','udp') else 'any'}')
+        self.execute(f'firewall rule {self.number.get().strip()} {self.action.get()} {self.protocol.get()} {self.source.get().strip()} {self.target.get().strip()} {self.port.get().strip() if self.protocol.get() in ('tcp','udp','tcpudp') else 'any'}')
 
     def remove(self):
         if self.table.selection():

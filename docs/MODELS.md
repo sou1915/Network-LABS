@@ -28,8 +28,10 @@ rôle, marque et modèle, et reste non exhaustif.
 ## Portée commune
 
 Les nouveaux switches partagent le moteur L2 éducatif et le gestionnaire web
-local. Leur console est explicitement nommée « Simulation L2 », pas RouterOS,
-SwOS, UniFi, ArubaOS ou une CLI constructeur. Le modèle de ports n'est pas un
+local. Leur interface est présentée selon leur famille. Les consoles de marque
+non implémentées sont annoncées indisponibles. MikroTik possède un sous-ensemble
+RouterOS identité/interfaces ; les réglages bridge/VLAN RouterOS ne sont pas
+implémentés. Voir [FIDELITY.md](FIDELITY.md). Le modèle de ports n'est pas un
 inventaire exact des fonctionnalités réelles : le moteur partagé peut exposer
 des options que le produit réel ne fournit pas. Pas de firmware, débit mesuré,
 transceiver physique, PoE, ASIC ou système constructeur.

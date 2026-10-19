@@ -14,6 +14,9 @@ root=tk.Tk()
 process=None
 try:
     app=App(root);app.replace_lab(App.service_demo);root.withdraw()
+    from network_labs.engine import Node
+    for name,profile,kind in [('SYNO','synology-ds224','PC'),('PA','palo-alto','Switch'),('PHONE','yealink-t54w','PC'),('LINUX','linux-ubuntu','PC'),('PFS','pfsense','Switch'),('UBNT','unifi-lite8','Switch'),('MT','mikrotik-crs326','Switch'),('ASA','cisco-asa','Switch'),('SOPHOS','sophos-fw','Switch'),('CP','checkpoint-fw','Switch'),('SONIC','sonicwall-fw','Switch'),('JUNIPER','juniper-srx','Switch'),('OPN','opnsense','Switch'),('TP','tplink-sg108e','Switch'),('ARUBA','aruba-1930-24','Switch'),('DLINK','dlink-dgs1210','Switch'),('CISCO','cisco-9200l','Switch'),('HP','hp-4002dn','PC')]:
+        app.lab.add(Node(name,kind,profile=profile))
     app.web_portal=portal=WebPortal(app)
     output=Path(os.environ.get('QA_OUTPUT',tempfile.mkdtemp(prefix='network-labs-browser-'))).resolve();output.mkdir(parents=True,exist_ok=True)
     env={**os.environ,'DEVICE_URL':portal.url('SW1'),'QA_OUTPUT':str(output)}

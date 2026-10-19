@@ -1,5 +1,5 @@
 """Device catalogue. Profiles describe simulation scope, never vendor firmware."""
-from dataclasses import dataclass
+from dataclasses import dataclass,replace
 
 @dataclass(frozen=True)
 class Profile:
@@ -104,6 +104,10 @@ for identity,brand,model,role,family in [
 ]:
     PROFILES[identity]=Profile(identity,brand,model,'PC',family,True,ENDPOINT_SCOPE+'Services/ports simulés seulement ; pas de système constructeur ou application réelle.',role)
 
+
+for native_id,detail in [('fortigate','Sous-ensemble FortiOS : identité, état/alias des deux interfaces, objets IPv4 et politiques any/always avec services prédéfinis.'),('palo-alto','Sous-ensemble PAN-OS : identité et règles IPv4 any/HTTP/HTTPS avec candidate locale et commit.'),('mikrotik-crs326','Sous-ensemble RouterOS : identité et état/commentaire Ethernet ; bridge/VLAN uniquement via les formulaires du modèle.')]:
+    p=PROFILES[native_id]
+    PROFILES[native_id]=replace(p,scope=p.scope.replace('Console de simulation uniquement.','Console constructeur partielle simulée.').replace('pas de firmware/CLI constructeur','pas de firmware constructeur')+' '+detail)
 
 def profile_role(profile):
     return profile.role or {'PC':'Poste','Switch':'Switch','Routeur':'Routeur'}.get(profile.kind,profile.kind)

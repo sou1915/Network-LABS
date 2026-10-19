@@ -1,9 +1,11 @@
 """Device management API. All calls execute on the application's owner thread."""
+import json
 from dataclasses import asdict
 from hashlib import sha256
 from .cli import Session
 from .device_config import apply_device_commands,fingerprint
 from .profiles import PROFILES,profile_role
+from .device_identity import identity
 
 class Conflict(ValueError):
     pass
@@ -23,11 +25,20 @@ class DeviceAPI:
                 local=link.a_port if node==link.a else link.b_port
                 peer=link.b if node==link.a else link.a
                 links.append({'port':local,'peer':peer,'enabled':link.enabled and not any(q.shutdown or q.errdisabled for q in self.app.lab.ends(link))})
-        return {'node':data,'profile':{'brand':p.brand,'model':p.model,'role':profile_role(p),'scope':p.scope},
+        return {'node':data,'profile':{'brand':p.brand,'model':p.model,'role':profile_role(p),'scope':p.scope,**identity(n.profile)},
                 'revision':self.revision(n),'links':links,
                 'inventory':[{'id':name,'brand':PROFILES[x.profile].brand,'model':PROFILES[x.profile].model,'role':profile_role(PROFILES[x.profile])} for name,x in self.app.lab.nodes.items()],
-                'configuration':Session(self.app.lab,node).execute('ipconfig') if n.kind=='PC' else Session(self.app.lab,node).running_config(),
+                'configuration':self.configuration(n),
                 'firewall_log':self.app.lab.firewall_log[-30:],'counters':self.app.lab.firewall_counters.get(node,{'allow':0,'deny':0})}
+
+    def configuration(self,n):
+        if identity(n.profile)['console']=='ios':return Session(self.app.lab,n.name).running_config()
+        state={key:getattr(n,key) for key in ('name','profile','hostname','address_mode','address','gateway','dns','services')}
+        state['ports']={name:{'shutdown':p.shutdown,'description':p.description,'mode':p.mode,'access_vlan':p.access_vlan} for name,p in n.ports.items()}
+        if profile_role(PROFILES[n.profile])=='Firewall':
+            state.update(mode=n.firewall_mode,default=n.firewall_default,rules=n.firewall_rules)
+        elif n.kind=='Switch':state['vlans']=n.vlans
+        return json.dumps(state,ensure_ascii=False,indent=2)
 
     def dispatch(self,action,payload):
         node=payload.get('node')
@@ -52,5 +63,5 @@ class DeviceAPI:
             elif protocol in ('tcp','udp'):ok,trace=self.app.lab.probe(node,target,protocol,payload.get('port',0))
             else:raise ValueError('Protocole icmp/tcp/udp requis.')
             self.app.animate_result(ok,trace[-1])
-            return {'ok':ok,'trace':trace,'paths':self.app.lab.last_paths,'firewall_log':self.app.lab.firewall_log[-30:]}
+            return {'ok':ok,'trace':trace,'paths':self.app.lab.last_paths,'firewall_log':self.app.lab.firewall_log[-30:],'explanation':self.app.lab.last_explanation}
         raise ValueError('Action inconnue.')

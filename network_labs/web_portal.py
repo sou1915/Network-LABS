@@ -30,6 +30,9 @@ class WebPortal:
                 parsed=urlsplit(self.path)
                 if parsed.path=='/':
                     return self.respond(200,Path(__file__).with_name('device_web.html').read_bytes(),'text/html; charset=utf-8')
+                if parsed.path in ('/device_faces.css','/device_faces.js'):
+                    kind='text/css' if parsed.path.endswith('.css') else 'text/javascript'
+                    return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),kind+'; charset=utf-8')
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')
                 if parsed.path!='/api/state':return self.respond(404,{'error':'Page absente.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})

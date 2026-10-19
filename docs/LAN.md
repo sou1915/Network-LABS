@@ -74,5 +74,5 @@ Les caractéristiques complètes des produits ne sont pas celles de la simulatio
 ![Éditeur DNS local](dns_editor.png)
 
 Les firewalls transparents ICMP/TCP/UDP disposent désormais d'un moteur utilisable :
-voir [types et couverture firewall](FIREWALLS.md). Leurs CLI constructeur et
-fonctions NGFW/UTM/WAF restent distinctes et non implémentées.
+voir [types et couverture firewall](FIREWALLS.md). La couverture CLI est décrite dans [FIDELITY.md](FIDELITY.md). Les systèmes et
+fonctions NGFW/UTM/WAF restent distincts et non implémentés.

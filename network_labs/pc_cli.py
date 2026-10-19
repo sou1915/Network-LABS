@@ -49,7 +49,7 @@ class PCCommands:
                 addresses=[str(IPv4Address(ip)) for ip in match[1].split()]
                 self.n.dns=addresses; self.changed=True; return ''
             if low=='resolvectl status':
-                return 'Link eth0\nDNS Servers: '+(' '.join(self.n.dns) or 'aucun')+'\nRésolution de noms non simulée.'
+                return 'Link eth0\nDNS Servers: '+(' '.join(self.n.dns) or 'aucun')+'\nDNS local A simulé.'
         if family=='windows':
             if low=='ipconfig /all':
                 return self.pc('ipconfig','ipconfig')

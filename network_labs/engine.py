@@ -9,6 +9,7 @@ from .access_multicast import AccessMulticast
 from .lan_services import LANServices
 from .firewall import Firewall,firewall_rule
 from .transport import Transport
+from .explanation import recorded
 import json
 import re
 
@@ -125,6 +126,7 @@ class Node:
     firewall_mode: str = ''
     firewall_default: str = 'deny'
     firewall_rules: list = field(default_factory=list)
+    vendor: dict = field(default_factory=dict)
 
     def __post_init__(self):
         from .profiles import PROFILES, default_profile, profile_ports
@@ -132,6 +134,7 @@ class Node:
         profile = PROFILES.get(self.profile)
         if not profile or not profile.creatable or profile.kind != self.kind:
             raise ValueError('Profil non simulé ou incompatible : '+self.profile)
+        if not isinstance(self.vendor,dict):raise ValueError('Métadonnées constructeur : objet requis.')
         from .lan_services import dns_name
         if not isinstance(self.dns_records,dict):
             raise ValueError('DNS: dictionnaire de records requis.')
@@ -442,6 +445,7 @@ class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
         sub = next((p for p in node.ports.values() if p.sub_vlan==vlan),None)
         return sub is None or not sub.shutdown
 
+    @recorded("icmp")
     def ping(self,source,destination):
         try:
             IPv4Address(destination)

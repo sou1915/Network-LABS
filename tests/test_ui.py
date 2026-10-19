@@ -14,6 +14,8 @@ class WorkbenchTests(unittest.TestCase):
         self.errors=[]
         self.root.report_callback_exception=lambda *e:self.errors.append(str(e))
         self.app=App(self.root)
+        self.app.open_cli('SW1')
+        self.app.toggle_console_focus()
         self.root.update()
 
     def tearDown(self):
@@ -306,7 +308,7 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(len(app.middle.panes()),1)
         app.open_cli('PC1'); self.root.update()
         self.assertFalse(app.topology_focus)
-        self.assertEqual(len(app.middle.panes()),2)
+        self.assertEqual(len(app.middle.panes()),1)
         app.show_test_panel(); self.root.update()
         self.assertEqual(app.inspector_book.select(),str(app.test_panel))
         app.toggle_console_focus(); app.set_place('PC'); self.root.update()
@@ -319,3 +321,27 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(app.lab.stp(20)['SW2']['root'],'SW3')
         app.replace_lab(app.vtp_demo); self.root.update()
         self.assertEqual(app.lab.nodes['SW2'].vlans['30'],'USERS')
+
+    def test_workspace_modes_and_explanation_are_separate(self):
+        app=self.app
+        app.set_workspace_mode('Conception');self.root.update()
+        self.assertTrue(app.topology_focus);self.assertNotIn(str(app.dock),app.middle.panes())
+        app.dirty=False;app.replace_lab(app.service_demo)
+        app.set_workspace_mode('Simulation');app.destination.set('nas.lan');app.test_protocol.set('tcp');app.test_port.set('445');app.ping();app.pause();self.root.update()
+        self.assertTrue(app.story.report['ok']);self.assertIn('TCP/445',app.story.heading.get())
+        self.assertEqual(app.dock.select(),str(app.story));self.assertNotIn(str(app.sidebar),app.workspace.panes())
+        app.story.select(len(app.story.report['steps'])-1);self.assertIn('service SMB',app.story.body.get('1.0','end'))
+        app.changed('Configuration changée');self.assertIsNone(app.story.report)
+        app.open_cli('PC1');app.set_workspace_mode('Simulation');app.set_workspace_mode('Consoles');self.root.update()
+        self.assertEqual(app.dock.select(),str(app.terminals['PC1'].frame))
+        self.assertNotIn(str(app.topology),app.middle.panes());self.assertIn(str(app.dock),app.middle.panes())
+
+    def test_native_console_in_device_window(self):
+        app=self.app;app.dirty=False;app.replace_lab(app.service_demo)
+        window=app.open_device('FW1');self.root.update()
+        window.tabs.select(window.terminal.frame)
+        window.terminal.send('config system global\nset hostname FORTI_LAN\nend');self.root.update()
+        self.assertEqual(app.lab.nodes['FW1'].hostname,'FORTI_LAN')
+        self.assertEqual(window.terminal.session.prompt,'FORTI_LAN #')
+        window.terminal.send('configure terminal');self.assertIn('non implémentée',window.terminal.text.get('1.0','end'))
+        window.close()

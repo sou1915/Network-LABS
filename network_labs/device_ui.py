@@ -4,6 +4,8 @@ from .theme import PANEL
 from tkinter import ttk
 from .layout import fit_dialog,ScrollPanel
 from .profiles import PROFILES,profile_role
+from .device_identity import identity
+from .preferences_ui import PreferencesPages
 from .firewall import is_firewall
 from .cli import Session
 from .device_config import apply_device_commands,fingerprint
@@ -13,12 +15,16 @@ class DeviceWindow:
         from .__main__ import Terminal
         self.app,self.node,self.lab=app,node,app.lab
         self.loading=True;self.dirty=False;self.closed=False;self.vars={}
-        self.window=win=tk.Toplevel(app.root);win.title(node+' · Configuration GUI / CLI');win.configure(bg=PANEL)
+        self.window=win=tk.Toplevel(app.root);win.title(node+' · Réglages et console');win.configure(bg=PANEL)
         fit_dialog(win,1060,720)
         win.protocol('WM_DELETE_WINDOW',self.close)
         win.bind('<Destroy>',self.destroyed)
         profile=PROFILES[self.n.profile]
-        ttk.Label(win,text=f'{node} · {profile.brand} {profile.model} · {profile_role(profile)}',padding=10).pack(fill='x')
+        face=identity(self.n.profile)
+        heading='Paramètres Windows · Ethernet' if face['skin']=='windows' else 'Paramètres Linux · Réseau filaire' if face['skin']=='linux' else 'Éditeur technique · '+profile_role(profile)
+        color={'windows':'#0067c0','linux':'#be522c'}.get(face['skin'],'#25496b')
+        tk.Label(win,text=heading+'   /   '+node,bg=color,fg='white',anchor='w',padx=18,pady=15,font=('DejaVu Sans',14,'bold')).pack(fill='x')
+        ttk.Label(win,text=f'{profile.brand} {profile.model}',padding=(15,7)).pack(fill='x')
         self.status=tk.StringVar(value='GUI et CLI utilisent la même configuration. Appliquer pour enregistrer un formulaire.')
         footer=ttk.Frame(win,padding=8);footer.pack(side='bottom',fill='x')
         ttk.Button(footer,text='Actualiser les formulaires',command=self.reload).pack(side='right')
@@ -27,8 +33,8 @@ class DeviceWindow:
         footer.bind('<Configure>',lambda e:status_label.configure(wraplength=max(180,e.width-240)))
         ttk.Button(win,text='Ouvrir l’interface web dans le navigateur',command=lambda:app.open_web(node)).pack(anchor='e',padx=10,pady=(0,5))
         self.tabs=ttk.Notebook(win);self.tabs.pack(fill='both',expand=True,padx=8,pady=5)
-        self.gui=ttk.Notebook(self.tabs);self.tabs.add(self.gui,text='GUI · Configuration')
-        self.terminal=Terminal(app,node,parent=self.tabs);self.tabs.add(self.terminal.frame,text='CLI · Console')
+        self.gui=PreferencesPages(self.tabs,face['skin']);self.tabs.add(self.gui,text='Paramètres réseau' if face['skin'] in ('windows','linux') else 'Éditeur technique')
+        self.terminal=Terminal(app,node,parent=self.tabs);self.tabs.add(self.terminal.frame,text='CLI · '+face['console'] if face['native'] else 'Console · disponibilité')
         self.config=tk.Text(self.tabs,bg='#0a101c',fg='#d9e7f7',font=('DejaVu Sans Mono',10),wrap='word',state='disabled')
         self.tabs.add(self.config,text='Configuration / limites')
         general=self.page('Système')
@@ -337,7 +343,7 @@ class DeviceWindow:
 
     def update_config(self):
         n=self.n;profile=PROFILES[n.profile]
-        text=profile.scope+'\n\n'
+        text='État interne du simulateur · pas un dump de firmware constructeur.\n'+profile.scope+'\n\n'
         text+=Session(self.app.lab,self.node).execute('ipconfig') if n.kind=='PC' else Session(self.app.lab,self.node).running_config()
         self.config.configure(state='normal');self.config.delete('1.0','end');self.config.insert('1.0',text);self.config.configure(state='disabled')
 

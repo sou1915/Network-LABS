@@ -12,11 +12,20 @@ modèle mais ne charge pas FortiOS, DSM, QTS, UniFi, SwOS ou un firmware constru
 Les fonctions non simulées du produit réel ne deviennent pas disponibles en
 changeant son nom de modèle.
 
+## Familles et navigation
+
+Les structures ne sont plus identiques : bureau avec raccourcis pour NAS,
+visualisation et réseau pour caméra, état produit pour imprimante/téléphone,
+paramètres Windows/Linux et dashboards de sécurité selon la famille.
+Les pages restent des présentations inspirées, sans firmware ni fonctions
+constructeur complètes. [Matrice détaillée](FIDELITY.md).
+Le bouton CLI n'apparaît que pour un dialecte implémenté ou un profil générique.
+
 ## Pages fonctionnelles
 
 - Vue d'ensemble : inventaire, interfaces, liens physiques et nom système.
 - Endpoints : IPv4 statique/DHCP, passerelle, DNS et interface activée/désactivée.
-- Switches : interfaces, VLANs et paramètres globaux STP/VTP/snooping.
+- Switches : interfaces et VLANs ; paramètres globaux STP/VTP/snooping sur les profils IOS.
 - Routeurs : sous-interfaces 802.1Q et pools DHCP.
 - Serveurs : activation DNS et enregistrements A.
 - Services LAN : activer/désactiver un port TCP/UDP simulé et son nom.
@@ -24,7 +33,8 @@ changeant son nom de modèle.
 - Diagnostics : ping ou test TCP/UDP, résultat, trajet aller-retour et décisions firewall.
 - Configuration : lecture de l'état courant ; bouton pour ouvrir la CLI du logiciel.
 
-Les formulaires utilisent le même parseur que la CLI et la validation atomique.
+Les formulaires utilisent la grammaire canonique interne et la validation atomique.
+Les consoles constructeur sont des adaptateurs séparés sur le même moteur.
 Une configuration modifiée dans le logiciel produit un conflit de version plutôt
 qu'un écrasement silencieux depuis un ancien formulaire web. Actualiser recharge
 l'état courant. Un formulaire non appliqué bloque la navigation vers une autre

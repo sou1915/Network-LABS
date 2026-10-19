@@ -3,8 +3,8 @@
 Pour les formulaires bureau, utiliser **Configuration bureau / CLI** dans
 l'inspecteur / menu contextuel. La gestion web est décrite dans [WEB.md](WEB.md). Une fenêtre unique par équipement comporte :
 
-- **GUI · Configuration** : formulaires, sélecteurs, tableaux et actions.
-- **CLI · Console** : console interactive sur le même équipement.
+- **Paramètres réseau / Éditeur technique** : navigation par sections, formulaires et tableaux.
+- **CLI** : dialecte du profil ou indication de son indisponibilité.
 - **Configuration / limites** : état/configuration courante et périmètre du profil.
 
 Les consoles déjà ouvertes dans le dock restent utilisables. Le nom système
@@ -15,7 +15,7 @@ un port ouvre désormais le formulaire Interfaces de cette même fenêtre.
 
 | Équipement | GUI disponible |
 | --- | --- |
-| Tous les profils créables | Nom système, description du périmètre et console |
+| Tous les profils créables | Nom système, description du périmètre et couverture de console |
 | Postes Windows/Linux, portables, imprimantes, NAS, caméras, téléphones IP, IoT | IPv4 statique / DHCP, passerelle, DNS, interface activée/désactivée, test ping par IP/nom |
 | Serveur | Réseau endpoint + service DNS, records A et édition graphique |
 | Switch L2 | Création/suppression VLAN, ports access/trunk/dynamiques, native/allowed VLAN, état administratif, description |
@@ -31,8 +31,9 @@ fonctionnel. Les limites Wi-Fi/voix/vidéo/fichiers/NGFW sont inchangées.
 
 ## Validation et synchronisation
 
-Chaque action de formulaire prépare une copie isolée du lab et exécute le même
-parseur de commandes que la console. L'ensemble est appliqué uniquement après
+Chaque action de formulaire prépare une copie isolée du lab et exécute la
+grammaire canonique interne. Les consoles constructeur ont leurs adaptateurs
+séparés : voir [FIDELITY.md](FIDELITY.md). L'ensemble est appliqué uniquement après
 validation ; un CIDR, VLAN, DNS ou autre paramètre invalide n'applique aucune
 partie du formulaire. Les identités des objets utilisés par les consoles et
 dialogues existants sont conservées.

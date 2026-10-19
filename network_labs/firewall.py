@@ -1,4 +1,4 @@
-"""Transparent LAN firewall for modeled ICMP request/reply only. No OS or L7 inspection."""
+"""Transparent LAN firewall for modeled IPv4 transactions. No OS or L7 inspection."""
 from ipaddress import IPv4Address,IPv4Network
 from .profiles import PROFILES,profile_role
 
@@ -10,8 +10,8 @@ def firewall_rule(number,action,source,target,protocol='icmp',port=0):
     if not 1<=number<=65535 or action not in ('allow','deny'):
         raise ValueError('Règle : ID 1..65535 et action allow/deny.')
     port=int(port)
-    if protocol not in ('icmp','tcp','udp','any') or not 0<=port<=65535 or (protocol in ('icmp','any') and port):
-        raise ValueError('Protocole icmp/tcp/udp/any et port 0..65535 (0 = tous).')
+    if protocol not in ('icmp','tcp','udp','tcpudp','any') or not 0<=port<=65535 or (protocol in ('icmp','any') and port):
+        raise ValueError('Protocole icmp/tcp/udp/tcpudp/any et port 0..65535 (0 = tous).')
     def network(value):
         return str(IPv4Network('0.0.0.0/0' if value=='any' else value,strict=False))
     return {'id':number,'action':action,'source':network(source),'target':network(target),'protocol':protocol,'port':port}
@@ -33,7 +33,7 @@ class Firewall:
                 if not reason:
                     reason='politique par défaut'
                     for rule in sorted(node.firewall_rules,key=lambda r:r['id']):
-                        if rule.get('protocol','icmp') in (protocol,'any') and rule.get('port',0) in (0,port) and IPv4Address(source) in IPv4Network(rule['source']) and IPv4Address(target) in IPv4Network(rule['target']):
+                        if (rule.get('protocol','icmp') in (protocol,'any') or (rule.get('protocol')=='tcpudp' and protocol in ('tcp','udp'))) and rule.get('port',0) in (0,port) and IPv4Address(source) in IPv4Network(rule['source']) and IPv4Address(target) in IPv4Network(rule['target']):
                             action=rule['action'];reason='règle '+str(rule['id']);break
                 counts=self.firewall_counters.setdefault(name,{'allow':0,'deny':0})
                 counts[action]+=1
