@@ -1,5 +1,6 @@
 """Device workspace: typed graphical forms and a live CLI share one engine."""
 import tkinter as tk
+from .theme import PANEL
 from tkinter import ttk
 from .layout import fit_dialog,ScrollPanel
 from .profiles import PROFILES,profile_role
@@ -12,7 +13,7 @@ class DeviceWindow:
         from .__main__ import Terminal
         self.app,self.node,self.lab=app,node,app.lab
         self.loading=True;self.dirty=False;self.closed=False;self.vars={}
-        self.window=win=tk.Toplevel(app.root);win.title(node+' · Configuration GUI / CLI');win.configure(bg='#111d2e')
+        self.window=win=tk.Toplevel(app.root);win.title(node+' · Configuration GUI / CLI');win.configure(bg=PANEL)
         fit_dialog(win,1060,720)
         win.protocol('WM_DELETE_WINDOW',self.close)
         win.bind('<Destroy>',self.destroyed)
@@ -24,6 +25,7 @@ class DeviceWindow:
         status_label=ttk.Label(footer,textvariable=self.status,wraplength=620)
         status_label.pack(side='left',fill='x',expand=True)
         footer.bind('<Configure>',lambda e:status_label.configure(wraplength=max(180,e.width-240)))
+        ttk.Button(win,text='Ouvrir l’interface web dans le navigateur',command=lambda:app.open_web(node)).pack(anchor='e',padx=10,pady=(0,5))
         self.tabs=ttk.Notebook(win);self.tabs.pack(fill='both',expand=True,padx=8,pady=5)
         self.gui=ttk.Notebook(self.tabs);self.tabs.add(self.gui,text='GUI · Configuration')
         self.terminal=Terminal(app,node,parent=self.tabs);self.tabs.add(self.terminal.frame,text='CLI · Console')
@@ -45,7 +47,7 @@ class DeviceWindow:
             from .firewall_ui import FirewallEditor
             page=self.page('Politique firewall',scroll=False)
             self.firewall=FirewallEditor(app,node,parent=page,on_change=self.reload,can_apply=self.form_is_current)
-            for var in (self.firewall.mode,self.firewall.default,self.firewall.number,self.firewall.action,self.firewall.source,self.firewall.target):var.trace_add('write',self.edited)
+            for var in (self.firewall.protocol,self.firewall.port,self.firewall.mode,self.firewall.default,self.firewall.number,self.firewall.action,self.firewall.source,self.firewall.target):var.trace_add('write',self.edited)
         if profile_role(profile)=='Serveur':
             page=self.page('DNS local')
             self.reload_dns=app.dns_editor(node,parent=page)
@@ -58,9 +60,9 @@ class DeviceWindow:
 
     def page(self,title,scroll=True):
         if scroll:
-            panel=ScrollPanel(self.gui,'#111d2e');self.gui.add(panel,text=title)
+            panel=ScrollPanel(self.gui,PANEL);self.gui.add(panel,text=title)
             panel.inner.configure(padx=16,pady=10);return panel.inner
-        panel=tk.Frame(self.gui,bg='#111d2e');self.gui.add(panel,text=title);return panel
+        panel=tk.Frame(self.gui,bg=PANEL);self.gui.add(panel,text=title);return panel
 
     def edited(self,*args):
         if not self.loading:
@@ -115,9 +117,20 @@ class DeviceWindow:
         ttk.Label(page,text='En DHCP, adresse/passerelle/DNS proviennent du serveur. Les champs statiques sont ignorés.',wraplength=760).pack(fill='x',pady=8)
         self.action(page,'Appliquer la configuration réseau',self.apply_endpoint)
         self.test_target=tk.StringVar(value='192.168.10.1')
+        self.test_protocol=tk.StringVar(value='icmp');self.test_port=tk.StringVar(value='445')
         ttk.Label(page,text='Tester une adresse ou un nom DNS').pack(anchor='w',pady=(14,3))
         ttk.Entry(page,textvariable=self.test_target).pack(fill='x')
-        self.action(page,'Tester ping',self.test_ping)
+        ttk.Combobox(page,textvariable=self.test_protocol,values=['icmp','tcp','udp'],state='readonly').pack(fill='x',pady=4)
+        ttk.Label(page,text='Port service pour TCP / UDP').pack(anchor='w')
+        ttk.Entry(page,textvariable=self.test_port).pack(fill='x')
+        self.action(page,'Tester la connexion',self.test_ping)
+        services=self.page('Services LAN')
+        self.service_table=ttk.Treeview(services,columns=('key','name'),show='headings',height=6)
+        self.service_table.heading('key',text='Protocole / port');self.service_table.heading('name',text='Service simulé');self.service_table.pack(fill='x')
+        self.field(services,'service_proto','Protocole','tcp',['tcp','udp']);self.field(services,'service_port','Port','443');self.field(services,'service_name','Nom du service','HTTPS')
+        self.action(services,'Activer le service de port',lambda:self.apply(['listen '+self.value('service_proto')+' '+self.value('service_port')+' '+self.value('service_name')]))
+        self.action(services,'Désactiver le port',lambda:self.apply(['unlisten '+self.value('service_proto')+' '+self.value('service_port')]))
+        ttk.Label(services,text='Tests de disponibilité uniquement ; aucune application, impression, voix ou vidéo réelle.',wraplength=760).pack(fill='x',pady=12)
 
     def apply_endpoint(self):
         commands=['ip link '+('up' if self.vars['up'].get() else 'down')]
@@ -131,7 +144,8 @@ class DeviceWindow:
         return self.apply(commands)
 
     def test_ping(self):
-        ok,trace=self.app.lab.ping(self.node,self.test_target.get().strip())
+        if self.test_protocol.get()=='icmp':ok,trace=self.app.lab.ping(self.node,self.test_target.get().strip())
+        else:ok,trace=self.app.lab.probe(self.node,self.test_target.get().strip(),self.test_protocol.get(),self.test_port.get())
         self.app.animate_result(ok,trace[-1]);self.status.set(('✓ ' if ok else '✗ ')+ '\n'.join(trace))
 
     def build_vlans(self):
@@ -296,6 +310,9 @@ class DeviceWindow:
             self.port_box['values']=list(n.ports)
             if self.vars['port'].get() not in n.ports:self.vars['port'].set(next(iter(n.ports)))
             self.load_port()
+        if hasattr(self,'service_table'):
+            self.service_table.delete(*self.service_table.get_children())
+            for key,label in sorted(n.services.items()):self.service_table.insert('', 'end',values=(key,label))
         if hasattr(self,'vlans'):
             self.vlans.delete(*self.vlans.get_children())
             for v,name in sorted(n.vlans.items(),key=lambda item:int(item[0])):self.vlans.insert('', 'end',values=(v,name))

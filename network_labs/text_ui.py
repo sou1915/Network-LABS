@@ -1,6 +1,7 @@
 """Preview/validate/apply workflow for text labs and per-device CLI files."""
 from pathlib import Path
 import tkinter as tk
+from .theme import PANEL,BG,TEXT,MUTED
 from tkinter import ttk,filedialog,messagebox
 from .text_lab import parse_lab,import_device_config,export_lab,LabTextError
 from .layout import fit_dialog
@@ -9,10 +10,10 @@ class ImportDialog:
     def __init__(self,app,device_mode=False):
         self.app=app; self.result=None; self.signature=None
         self.window=win=tk.Toplevel(app.root)
-        win.title('Importer une configuration texte / Network LABS'); win.configure(bg='#111d2e'); win.transient(app.root)
+        win.title('Importer une configuration texte / Network LABS'); win.configure(bg=PANEL); win.transient(app.root)
         fit_dialog(win,1080,650)
         win.grab_set()
-        top=tk.Frame(win,bg='#111d2e',padx=12,pady=12); top.pack(fill='x')
+        top=tk.Frame(win,bg=PANEL,padx=12,pady=12); top.pack(fill='x')
         self.mode=tk.StringVar(value='CLI équipement' if device_mode else 'Créer un lab')
         self.target=tk.StringVar(value=app.selected if app.selected in app.lab.nodes else next(iter(app.lab.nodes),''))
         mode=ttk.Combobox(top,textvariable=self.mode,values=['Créer un lab','CLI équipement'],state='readonly',width=19)
@@ -21,13 +22,13 @@ class ImportDialog:
         target.pack(side='left',padx=4); target.bind('<<ComboboxSelected>>',lambda e:self.invalidate())
         ttk.Button(top,text='Ouvrir .txt',command=self.load).pack(side='right',padx=4)
         ttk.Button(top,text='Exemple',command=self.sample).pack(side='right',padx=4)
-        bottom=tk.Frame(win,bg='#111d2e',padx=12,pady=10); bottom.pack(side='bottom',fill='x')
+        bottom=tk.Frame(win,bg=PANEL,padx=12,pady=10); bottom.pack(side='bottom',fill='x')
         self.summary=tk.StringVar(value='Éditer ou ouvrir un fichier, puis Valider.')
-        tk.Label(bottom,textvariable=self.summary,bg='#111d2e',fg='#91a5c0',anchor='w',width=1).pack(side='left',fill='x',expand=True)
+        tk.Label(bottom,textvariable=self.summary,bg=PANEL,fg=MUTED,anchor='w',width=1).pack(side='left',fill='x',expand=True)
         self.apply_button=ttk.Button(bottom,text='Appliquer au logiciel',command=self.apply,state='disabled',style='Accent.TButton')
         self.apply_button.pack(side='right',padx=4)
         ttk.Button(bottom,text='Valider / Aperçu',command=self.validate).pack(side='right',padx=4)
-        self.report=tk.Text(win,height=3,bg='#0b1422',fg='#e3edf9',font=('DejaVu Sans',9),relief='flat',wrap='word',padx=12,pady=6,state='disabled')
+        self.report=tk.Text(win,height=3,bg=BG,fg=TEXT,font=('DejaVu Sans',9),relief='flat',wrap='word',padx=12,pady=6,state='disabled')
         self.report.pack(side='bottom',fill='x',padx=12)
         panes=ttk.Panedwindow(win,orient='horizontal'); panes.pack(fill='both',expand=True,padx=12,pady=(0,8))
         editing=tk.Frame(panes,bg='black'); panes.add(editing,weight=3)
@@ -44,7 +45,7 @@ class ImportDialog:
         self.editor.tag_configure('errorline',background='#512631')
         self.editor.bind('<<Modified>>',self.modified)
         self.editor.bind('<Configure>',lambda e:self.line_numbers())
-        preview=tk.Frame(panes,bg='#111d2e',width=235); panes.add(preview,weight=1)
+        preview=tk.Frame(panes,bg=PANEL,width=235); panes.add(preview,weight=1)
         ttk.Label(preview,text='Aperçu du lab validé',padding=8).pack(fill='x')
         self.preview=ttk.Treeview(preview,columns=('type','name'),show='headings',height=10)
         self.preview.heading('type',text='Type'); self.preview.heading('name',text='Équipement')

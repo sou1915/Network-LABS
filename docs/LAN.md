@@ -1,7 +1,7 @@
 # LAN : couverture réelle du simulateur
 
 Le lab intégré **07 LAN entreprise** (ou `examples/enterprise_lan.lab.txt`)
-contient 7 endpoints, un Catalyst 2960 pédagogique et un routeur DHCP/inter-VLAN.
+contient 7 endpoints, un Catalyst 2960 pédagogique et un routeur DHCP/inter-VLAN. Le lab 09 ajoute des services et règles TCP/UDP.
 Le catalogue se filtre par rôle et par texte. Les profils sont enregistrés dans
 les sauvegardes et imports texte. Les noms commerciaux identifient les profils ;
 ils ne chargent aucun firmware ni système constructeur.
@@ -49,7 +49,7 @@ serveurs DNS alternatifs sont essayés en cas de serveur absent/inaccessible ;
 pas après NXDOMAIN. Les noms sont normalisés en minuscules, point final accepté.
 Le modèle utilise des enregistrements A, sans paquets UDP/TCP, cache, TTL,
 transfert de zone, suffixe de recherche, CNAME, DNSSEC ou récursion Internet.
-La vérification de transport emploie le même moteur de connectivité que ping.
+La vérification de transport emploie le même moteur de chemins aller-retour et une transaction UDP/53, avec contrôle firewall par protocole/port.
 
 ## Couverture à compléter
 
@@ -73,6 +73,6 @@ Les caractéristiques complètes des produits ne sont pas celles de la simulatio
 ![LAN entreprise](enterprise_lan.png)
 ![Éditeur DNS local](dns_editor.png)
 
-Les firewalls transparents ICMP disposent désormais d'un moteur utilisable :
+Les firewalls transparents ICMP/TCP/UDP disposent désormais d'un moteur utilisable :
 voir [types et couverture firewall](FIREWALLS.md). Leurs CLI constructeur et
 fonctions NGFW/UTM/WAF restent distinctes et non implémentées.

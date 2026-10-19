@@ -1,66 +1,53 @@
 # Firewalls LAN : types et support réel
 
-Le lab **08 Firewall LAN** place un firewall transparent entre un poste Windows
-et un NAS. Par défaut, le firewall refuse les tests. Une règle autorise le poste
-vers le NAS ; en mode stateful, le retour de ce même test est autorisé. Une
-nouvelle initiation depuis le NAS reste refusée.
-
-## Familles
+Deux ports Ethernet transparents, règles IPv4 source/destination, protocole et
+port de service, ordre par ID, modes stateful/stateless et politique par défaut.
+La page web et le GUI bureau proposent l'édition et les compteurs du même moteur.
 
 | Type | État | Couverture |
 | --- | --- | --- |
-| Filtre réseau stateless | Utilisable | Règles IPv4 source/destination, ICMP simulé ; retour explicitement autorisé |
-| Firewall réseau stateful | Utilisable | Même filtrage + retour du test ICMP courant autorisé par état |
-| Firewall transparent | Utilisable | Deux ports Ethernet dans un même domaine L2 ; pas d'adresse IP de gestion |
-| Firewall routé / zones L3 | Référence | Routage, zones et politiques inter-zones à implémenter |
-| Firewall hôte | Référence | Politique locale de poste à implémenter |
-| NGFW | Référence | Identification applicative, IPS/IDS, inspection TLS à implémenter |
-| UTM | Référence | Antivirus, filtrage web et services intégrés à implémenter |
-| WAF | Référence | Analyse HTTP et protection applicative à implémenter |
-| Proxy applicatif | Référence | Terminaison et analyse des connexions applicatives à implémenter |
+| Filtre réseau stateless | Utilisable | Transactions ICMP/TCP/UDP ; retour à autoriser explicitement |
+| Firewall réseau stateful | Utilisable | Retour de la transaction courante autorisé par état |
+| Firewall transparent | Utilisable | Deux ports dans le même domaine L2, sans IP de gestion virtuelle |
+| Firewall routé / zones L3 | Référence | Routage/zones à implémenter |
+| Firewall hôte | Référence | Politique locale du poste à implémenter |
+| NGFW / UTM | Référence | Inspection applicative, IPS, antivirus et filtrage web à implémenter |
+| WAF / proxy applicatif | Référence | Analyse/terminaison HTTP à implémenter |
 
-Le catalogue propose des identités **Fortinet FortiGate, Palo Alto PA, Cisco ASA,
-Netgate pfSense, Deciso OPNsense, Sophos, Check Point Quantum, SonicWall TZ et
-Juniper SRX**, plus les modèles génériques. Ces profils partagent le même moteur
-transparent ICMP. Ils ne reproduisent pas les systèmes/CLI constructeur ni leurs
-fonctions avancées ; sélectionner un FortiGate n'active pas un moteur UTM.
-Le catalogue n'est pas une liste exhaustive de tous les modèles commercialisés.
+Les identités FortiGate, Palo Alto PA, Cisco ASA, pfSense, OPNsense, Sophos,
+Check Point Quantum, SonicWall TZ et Juniper SRX partagent ce moteur. Elles ne
+reproduisent pas leurs systèmes et CLI constructeur ou fonctions avancées.
+Le catalogue n'est pas exhaustif.
 
-## Configuration
-
-Utiliser **Inspecteur → Politique firewall LAN** ou la console de simulation :
+## Commandes de simulation
 
 ```text
 firewall mode stateful
 firewall default deny
-firewall rule 10 allow 192.168.10.10/32 192.168.10.20/32
+firewall rule 10 allow udp 192.168.10.10/32 192.168.10.2/32 53
+firewall rule 20 allow tcp 192.168.10.10/32 192.168.10.20/32 445
+firewall rule 30 deny tcp any any 554
+firewall rule 40 allow icmp 192.168.10.10/32 192.168.10.20/32
 show firewall
 show firewall sessions
 show firewall counters
-firewall rule delete 10
+firewall rule delete 20
 ```
 
-Les commandes sont propres au simulateur, pas du FortiOS/PAN-OS/ASA/pf.
-Les IDs de 1 à 65535 définissent l'ordre croissant. La première règle dont les
-réseaux source et destination correspondent décide ; sinon la politique par
-défaut s'applique. `any` signifie `0.0.0.0/0`. Un ID existant est remplacé après
-validation complète. En mode stateless, créer aussi une règle pour le retour.
-Les configurations, interfaces et règles persistent dans JSON et export texte.
-Sessions et compteurs sont temporaires, non sauvegardés.
+IDs 1..65535 : la première règle correspondante décide, sinon la politique par
+défaut s'applique. `any` représente tous les réseaux, protocoles ou ports selon
+le champ. Un ID existant est remplacé après validation. L'ancienne syntaxe
+`firewall rule ID allow|deny SOURCE DESTINATION` reste compatible et signifie
+ICMP uniquement. Les règles persistantes contiennent protocole et port.
 
-## Limites du modèle
+L'état est limité à la transaction en cours et réinitialisé au test suivant,
+sans suivi de connexions réel ni timers. Le port est le port du service sur les
+deux jambes, sans port client éphémère. Les compteurs mesurent les décisions de
+test, pas des paquets réels. DHCP, multicast et protocoles L2 ne sont pas filtrés
+par ces règles de transactions. Pas de NAT, VPN, HA, routage, IPS/antivirus ou
+inspection L7. Le bridge utilise le moteur L2 pédagogique partagé ; un chemin
+physique contournant le firewall contourne également sa politique.
 
-Le contrôle s'applique uniquement aux chemins des tests ICMP IPv4. Il ne filtre
-pas de vrais paquets. DNS emploie le contrôle de connectivité ICMP du moteur ;
-il n'existe pas de filtrage DNS UDP/53 distinct. DHCP, multicast et protocoles L2
-ne passent pas par cette politique ICMP. Ce modèle ne constitue donc pas une
-émulation complète de firewall réseau.
+Voir [simulation des services](SERVICES.md) et [gestion web](WEB.md).
 
-L'état est limité à l'aller/retour du test en cours et réinitialisé au prochain
-test, sans suivi de connexions TCP/UDP, ports, timers ou séquences. Les compteurs
-comptent des décisions de test, pas des paquets réels. Pas de NAT, VPN, haute
-disponibilité, routage, inspection L7 ou moteur de sécurité constructeur.
-Le bridge utilise le moteur L2 pédagogique partagé (VLAN/STP/ports) ; une route
-physique contournant le firewall contourne aussi sa politique.
-
-![Éditeur de politique firewall](firewall_editor.png)
+![Éditeur web de politique](web_firewall.png)

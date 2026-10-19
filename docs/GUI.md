@@ -1,7 +1,7 @@
 # Configurer un équipement en GUI ou CLI
 
-Double-cliquer sur un node ou utiliser **Configurer en GUI / CLI** dans
-l'inspecteur / menu contextuel. Une fenêtre unique par équipement comporte :
+Pour les formulaires bureau, utiliser **Configuration bureau / CLI** dans
+l'inspecteur / menu contextuel. La gestion web est décrite dans [WEB.md](WEB.md). Une fenêtre unique par équipement comporte :
 
 - **GUI · Configuration** : formulaires, sélecteurs, tableaux et actions.
 - **CLI · Console** : console interactive sur le même équipement.
@@ -46,8 +46,8 @@ appliqués font partie du lab ; sauvegarder le projet pour les conserver sur dis
 En DHCP, adresse/passerelle/DNS viennent du serveur et les champs statiques sont
 ignorés. Désactiver une interface déjà configurée en DHCP conserve son mode.
 Une première obtention DHCP exige une interface active et un serveur accessible.
-Les politiques firewall restent limitées aux tests ICMP simulés ; la GUI ne
-rajoute pas d'inspection TCP/UDP ou applicative.
+Les politiques firewall filtrent les tests ICMP et les transactions TCP/UDP
+simulées par protocole et port. Il n'y a pas d'inspection applicative réelle.
 
 ## Fenêtres et navigation
 

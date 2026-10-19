@@ -1,5 +1,6 @@
 """Editor for transparent LAN ICMP policies."""
 import tkinter as tk
+from .theme import PANEL
 from tkinter import ttk,messagebox
 from .layout import fit_dialog,ScrollPanel
 from .cli import Session
@@ -10,13 +11,13 @@ class FirewallEditor:
         self.app,self.node=app,node
         self.on_change,self.can_apply=on_change,can_apply
         if parent is None:
-            self.window=win=tk.Toplevel(app.root);win.title('Firewall LAN · '+node);win.configure(bg='#111d2e')
+            self.window=win=tk.Toplevel(app.root);win.title('Firewall LAN · '+node);win.configure(bg=PANEL)
             fit_dialog(win,880,610)
         else:
             self.window=win=parent
-        self.panel=ScrollPanel(win,'#111d2e');self.panel.pack(fill='both',expand=True)
+        self.panel=ScrollPanel(win,PANEL);self.panel.pack(fill='both',expand=True)
         win=self.panel.inner
-        ttk.Label(win,text='Filtrage transparent ICMP · console de simulation · ordre croissant des IDs',padding=12).pack(fill='x')
+        ttk.Label(win,text='Filtrage transparent ICMP / TCP / UDP · console de simulation · ordre croissant des IDs',padding=12).pack(fill='x')
         policy=ttk.Frame(win,padding=12);policy.pack(fill='x')
         n=app.lab.nodes[node]
         self.mode=tk.StringVar(value=n.firewall_mode);self.default=tk.StringVar(value=n.firewall_default)
@@ -24,12 +25,18 @@ class FirewallEditor:
             ttk.Label(policy,text=caption).pack(side='left',padx=5)
             ttk.Combobox(policy,textvariable=value,values=options,state='readonly',width=13).pack(side='left')
         ttk.Button(policy,text='Appliquer la politique',command=self.policy_apply).pack(side='right')
-        self.table=ttk.Treeview(win,columns=('id','action','source','target'),show='headings',height=6)
-        for key,title,width in [('id','Ordre / ID',75),('action','Action',75),('source','Source IPv4 / CIDR',270),('target','Destination IPv4 / CIDR',270)]:
+        self.table=ttk.Treeview(win,columns=('id','action','protocol','source','target','port'),show='headings',height=6)
+        for key,title,width in [('id','Ordre / ID',75),('action','Action',75),('protocol','Protocole',75),('source','Source IPv4 / CIDR',190),('target','Destination IPv4 / CIDR',190),('port','Port',65)]:
             self.table.heading(key,text=title);self.table.column(key,width=width)
         self.table.pack(fill='both',expand=True,padx=12,pady=8)
         ttk.Label(win,text='Nouvelle règle : ID · action · source CIDR ou any · destination CIDR ou any',padding=10).pack(fill='x')
         fields=ttk.Frame(win,padding=12);fields.pack(fill='x')
+        protocol_row=ttk.Frame(win,padding=(12,0));protocol_row.pack(fill='x')
+        self.protocol=tk.StringVar(value='icmp');self.port=tk.StringVar(value='any')
+        ttk.Label(protocol_row,text='Protocole').pack(side='left',padx=4)
+        ttk.Combobox(protocol_row,textvariable=self.protocol,values=['icmp','tcp','udp','any'],state='readonly',width=10).pack(side='left',padx=4)
+        ttk.Label(protocol_row,text='Port service (any = tous)').pack(side='left',padx=4)
+        ttk.Entry(protocol_row,textvariable=self.port,width=10).pack(side='left',padx=4)
         self.number=tk.StringVar(value='10');self.action=tk.StringVar(value='allow');self.source=tk.StringVar(value='any');self.target=tk.StringVar(value='any')
         ttk.Entry(fields,textvariable=self.number,width=7).pack(side='left',padx=4)
         ttk.Combobox(fields,textvariable=self.action,values=['allow','deny'],state='readonly',width=8).pack(side='left',padx=4)
@@ -40,7 +47,7 @@ class FirewallEditor:
         ttk.Button(actions,text='Supprimer la sélection',command=self.remove).pack(side='right')
         self.report=tk.StringVar()
         ttk.Label(win,textvariable=self.report,padding=12,wraplength=780).pack(fill='x')
-        ttk.Label(win,text='Sessions : dernier test ICMP uniquement. Pas de TCP/UDP, NAT, VPN, IPS/antivirus ou inspection web.',padding=12,wraplength=780).pack(fill='x')
+        ttk.Label(win,text='Sessions : transaction simulée courante. Pas de handshake TCP, application réelle, NAT, VPN, IPS ou inspection web.',padding=12,wraplength=780).pack(fill='x')
         self.refresh()
 
     def execute(self,line):
@@ -62,7 +69,7 @@ class FirewallEditor:
         self.app.changed('Politique firewall mise à jour');self.refresh();return True
 
     def add(self):
-        self.execute(f'firewall rule {self.number.get().strip()} {self.action.get()} {self.source.get().strip()} {self.target.get().strip()}')
+        self.execute(f'firewall rule {self.number.get().strip()} {self.action.get()} {self.protocol.get()} {self.source.get().strip()} {self.target.get().strip()} {self.port.get().strip() if self.protocol.get() in ('tcp','udp') else 'any'}')
 
     def remove(self):
         if self.table.selection():
@@ -71,6 +78,6 @@ class FirewallEditor:
     def refresh(self):
         self.table.delete(*self.table.get_children())
         for r in sorted(self.app.lab.nodes[self.node].firewall_rules,key=lambda r:r['id']):
-            self.table.insert('', 'end',iid=str(r['id']),values=(r['id'],r['action'],r['source'],r['target']))
+            self.table.insert('', 'end',iid=str(r['id']),values=(r['id'],r['action'],r.get('protocol','icmp'),r['source'],r['target'],r.get('port',0) or 'any'))
         counts=self.app.lab.firewall_counters.get(self.node,{'allow':0,'deny':0})
-        self.report.set(f'Tests ICMP : autorisés {counts["allow"]} · refusés {counts["deny"]}. Compteurs pédagogiques, pas des compteurs de paquets réels.')
+        self.report.set(f'Transactions : autorisés {counts["allow"]} · refusés {counts["deny"]}. Compteurs pédagogiques, pas des compteurs de paquets réels.')

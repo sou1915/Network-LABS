@@ -11,6 +11,8 @@ class Profile:
     creatable: bool = True
     scope: str = 'Moteur pédagogique partagé ; pas de firmware constructeur.'
     role: str = ''
+    access_ports: int = 0
+    uplinks: int = 0
 
 PROFILES = {p.id:p for p in [
     Profile('generic-pc','Générique','PC réseau','PC','generic'),
@@ -38,7 +40,7 @@ PROFILES = {p.id:p for p in [
 ]}
 
 # Endpoints share the LAN IPv4 model; product services and extra hardware ports are excluded.
-ENDPOINT_SCOPE='Adaptateur LAN unique simulé : IPv4, DHCP, DNS client, ping, VLAN d’accès. Console de simulation, pas de CLI constructeur. '
+ENDPOINT_SCOPE='Adaptateur LAN unique simulé : IPv4, DHCP, DNS client, ping, tests TCP/UDP de services, VLAN d’accès. Console de simulation, pas de CLI constructeur. '
 for identity,brand,model,role,limits in [
     ('server-linux','Générique','Serveur Linux','Serveur','DNS local A disponible ; pas de fichiers/HTTP/AD.'),
     ('server-windows','Microsoft','Windows Server · LAN','Serveur','DNS local A disponible ; pas d’Active Directory.'),
@@ -78,9 +80,29 @@ for identity,brand,model in [
     ('sonicwall-fw','SonicWall','TZ · profil transparent LAN'),
     ('juniper-srx','Juniper','SRX · profil transparent LAN'),
 ]:
-    PROFILES[identity]=Profile(identity,brand,model,'Switch','lab-firewall',True,'Deux ports LAN transparents ; règles IPv4 source/destination sur tests ICMP, stateful/stateless. Console de simulation uniquement. Pas de NAT, VPN, IPS/IDS, antivirus, TCP/UDP, routage ou inspection applicative.', 'Firewall')
+    PROFILES[identity]=Profile(identity,brand,model,'Switch','lab-firewall',True,'Deux ports LAN transparents ; règles IPv4/protocole/port sur transactions ICMP/TCP/UDP, stateful/stateless. Console de simulation uniquement. Pas de handshake TCP réel, NAT, VPN, IPS/IDS, antivirus, routage ou inspection applicative.', 'Firewall')
 for identity,title in [('fw-ngfw','NGFW / inspection applicative'),('fw-utm','UTM / antivirus et filtrage web'),('fw-waf','WAF / protection HTTP'),('fw-proxy','Proxy applicatif'),('fw-host','Firewall hôte / endpoint'),('fw-routed','Firewall routé / zones L3')]:
     PROFILES[identity]=Profile(identity,'Générique',title,'Switch','reference',False,'Référence : inspection L7/services spécifiques non implémentés.','Firewall spécialisé')
+
+
+# Port counts are product layouts; protocol behavior is the shared educational L2 model.
+for identity,brand,model,ports,uplinks in [
+    ('tplink-sg108e','TP-Link','TL-SG108E',8,0),
+    ('netgear-gs108e','NETGEAR','GS108Ev3',8,0),
+    ('aruba-1930-24','HPE Aruba','Instant On 1930 JL682A',24,4),
+    ('unifi-lite8','Ubiquiti','UniFi USW-Lite-8-PoE',8,0),
+    ('mikrotik-crs326','MikroTik','CRS326-24G-2S+RM',24,2),
+    ('dlink-dgs1210','D-Link','DGS-1210-28',24,4),
+]:
+    PROFILES[identity]=Profile(identity,brand,model,'Switch','lab-switch',True,'Profil de ports du modèle, moteur L2 pédagogique commun et gestion web locale. Noms de ports génériques, pas de firmware/CLI constructeur, débit, PoE ou catalogue exact des fonctions réelles.',access_ports=ports,uplinks=uplinks)
+for identity,brand,model,role,family in [
+    ('qnap-ts264','QNAP','TS-264','NAS','lab'),
+    ('brother-hl5200','Brother','HL-L5200DW','Imprimante','lab'),
+    ('dell-poweredge','Dell','PowerEdge · profil serveur','Serveur','linux'),
+    ('hpe-proliant','HPE','ProLiant · profil serveur','Serveur','linux'),
+    ('lenovo-thinksystem','Lenovo','ThinkSystem · profil serveur','Serveur','linux'),
+]:
+    PROFILES[identity]=Profile(identity,brand,model,'PC',family,True,ENDPOINT_SCOPE+'Services/ports simulés seulement ; pas de système constructeur ou application réelle.',role)
 
 
 def profile_role(profile):
@@ -94,6 +116,9 @@ def default_profile(kind):
 def profile_ports(profile_id,kind):
     if profile_id in PROFILES and PROFILES[profile_id].role=='Firewall':
         return ['gi0/1','gi0/2']
+    profile=PROFILES.get(profile_id)
+    if profile and profile.access_ports:
+        return [f'gi0/{i}' for i in range(1,profile.access_ports+1)]+[f'gi1/{i}' for i in range(1,profile.uplinks+1)]
     if profile_id=='cisco-2960':
         return [f'fa0/{i}' for i in range(1,25)]+['gi0/1','gi0/2']
     if profile_id=='cisco-9200l':

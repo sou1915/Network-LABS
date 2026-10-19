@@ -24,8 +24,8 @@ Routeur : sous-interfaces 802.1Q et IPv4, routes connectées uniquement
 LAN : postes, serveurs, imprimantes, NAS, caméras, téléphones et IoT Ethernet
 Endpoints : ip address CIDR, DHCP, DNS client, ping IPv4/nom, nslookup
 Serveurs : DNS local A uniquement, service dns, dns record / show dns records
-Firewalls LAN : bridge transparent 2 ports, règles IPv4 sur tests ICMP, stateful/stateless
-                pas de TCP/UDP/NAT/VPN/IPS/WAF ni CLI constructeur réelle
+Firewalls LAN : bridge transparent 2 ports, règles IPv4/protocole/port sur transactions ICMP/TCP/UDP
+                pas de handshake réel, NAT/VPN/IPS/WAF ni CLI constructeur réelle
 Nouveau : DTP auto/desirable/nonegotiate, serveur/client DHCP (sans relais),
           DHCP snooping, DAI et IP Source Guard (contrôle d’identité simplifié).
 Nouveau : VTP v2 (server/client/transparent/off), MST mono-région (état convergé).
@@ -58,6 +58,8 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
             if PROFILES[self.n.profile].family=='lab':
                 return f'{self.n.hostname or self.n.name} [LAN]>'
             return 'C:\\Users\\student>' if PROFILES[self.n.profile].family=='windows' else f'student@{self.n.hostname or self.n.name}:~$'
+        if PROFILES[self.n.profile].family=='lab-switch':
+            return f'{self.n.hostname or self.n.name} [Simulation L2:{self.mode}]>'
         if is_firewall(self.n):
             return f'{self.n.hostname or self.n.name} [Firewall LAN]>'
         suffix={'mst':'(config-mst)#','dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
@@ -701,7 +703,7 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
         lines=['! Network LABS — sous-ensemble IOS-like',f'hostname {self.n.hostname or self.n.name}']
         if is_firewall(self.n):
             lines.extend(['firewall mode '+self.n.firewall_mode,'firewall default '+self.n.firewall_default])
-            lines.extend(f'firewall rule {r["id"]} {r["action"]} {r["source"]} {r["target"]}' for r in sorted(self.n.firewall_rules,key=lambda r:r['id']))
+            lines.extend(f'firewall rule {r["id"]} {r["action"]} {r.get("protocol","icmp")} {r["source"]} {r["target"]} {r.get("port",0) or "any"}' for r in sorted(self.n.firewall_rules,key=lambda r:r['id']))
         if self.n.kind=='Routeur':
             if not self.n.dhcp_service:
                 lines.append('no service dhcp')

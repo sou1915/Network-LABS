@@ -21,7 +21,7 @@ class LANServices:
             matches=[n for n in self.nodes.values() if n.kind=='PC' and n.address and str(IPv4Interface(n.address).ip)==address]
             if len(matches)!=1 or not matches[0].dns_service:
                 errors.append(address+': service DNS absent ou adresse ambiguë');continue
-            ok,_=self.ping(client,address)
+            ok,_=self._ping_ipv4(client,address,'udp',53)
             if not ok:
                 errors.append(address+': serveur inaccessible');continue
             server=matches[0]

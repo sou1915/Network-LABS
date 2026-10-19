@@ -202,6 +202,8 @@ def export_lab(lab):
                 output.append('hostname '+n.hostname)
             if n.dns_service:
                 output.append('service dns')
+            output.append('clear services')
+            output.extend(f'listen {key.replace("/"," ")} {label}' for key,label in sorted(n.services.items()))
             output.extend(f'dns record {name} {address}' for name,address in sorted(n.dns_records.items()))
             if n.dot1x_user:
                 output.append('dot1x login '+shlex.quote(n.dot1x_user)+' '+shlex.quote(n.dot1x_password))

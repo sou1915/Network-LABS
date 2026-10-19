@@ -11,8 +11,7 @@ from .profiles import PROFILES,profile_role
 from .firewall import is_firewall
 from .layout import ScrollPanel, initial_geometry, fit_dialog
 
-BG='#0a101c'; PANEL='#111d2e'; CARD='#17263a'; LINE='#2b405a'
-TEXT='#e3edf9'; MUTED='#91a5c0'; TEAL='#40dfba'; BLUE='#67aafa'; GOLD='#f6c566'; RED='#fb818d'
+from .theme import BG,PANEL,CARD,LINE,TEXT,MUTED,TEAL,BLUE,GOLD,RED
 FONT=('DejaVu Sans',10); MONO=('DejaVu Sans Mono',10)
 
 
@@ -230,7 +229,7 @@ class Terminal:
                 self.write(result+'\n')
             if self.session.changed:
                 self.app.dirty=True; self.app.invalidate(); self.app.refresh()
-            elif command.lower().strip().startswith('ping '):
+            elif command.lower().strip().startswith(('ping ','probe ')):
                 self.app.animate_result(not result.startswith(('FAILED','%')),result.splitlines()[-1] if result else ''); self.app.draw()
             if result.startswith('%'):
                 break
@@ -317,7 +316,7 @@ class App:
         label(legend,'● STP bloqué',GOLD,9).pack(side='left',padx=6)
         label(legend,'● Down',RED,9).pack(side='left',padx=6)
         label(legend,'● Hors VLAN',MUTED,9).pack(side='left',padx=6)
-        label(legend,'Double-clic : GUI / CLI · F10/F11',MUTED,9).pack(side='right')
+        label(legend,'Double-clic : Web / GUI · F10/F11',MUTED,9).pack(side='right')
         self.dock=ttk.Notebook(middle,height=180)
         middle.add(self.dock,weight=2)
         self.build_events()
@@ -342,6 +341,7 @@ class App:
     def cleanup(self,event):
         if event.widget==self.root:
             self.pause()
+            if getattr(self,'web_portal',None) is not None:self.web_portal.close()
             if self.layout_job is not None:
                 self.root.after_cancel(self.layout_job); self.layout_job=None
 
@@ -416,11 +416,11 @@ class App:
     def style(self):
         s=ttk.Style(self.root); s.theme_use('clam')
         s.configure('.',background=PANEL,foreground=TEXT,font=FONT)
-        s.configure('TButton',background='#21334a',foreground=TEXT,padding=(10,8),borderwidth=0)
-        s.map('TButton',background=[('active','#304e6c')],foreground=[('disabled',MUTED)])
+        s.configure('TButton',background='#e8edf4',foreground=TEXT,padding=(10,8),borderwidth=0)
+        s.map('TButton',background=[('active','#dce6f4')],foreground=[('disabled',MUTED)])
         s.configure('Small.TButton',padding=(7,7),width=0)
-        s.configure('Accent.TButton',background='#147d70',foreground='white')
-        s.map('Accent.TButton',background=[('active','#219d88')])
+        s.configure('Accent.TButton',background=BLUE,foreground='white')
+        s.map('Accent.TButton',background=[('active','#174fbb')])
         s.configure('TEntry',fieldbackground=BG,foreground=TEXT,insertcolor=TEAL,padding=6,bordercolor=LINE)
         s.configure('TCombobox',fieldbackground=BG,foreground=TEXT,padding=5,arrowcolor=TEAL)
         s.map('TCombobox',fieldbackground=[('readonly',BG)],foreground=[('readonly',TEXT)])
@@ -431,7 +431,7 @@ class App:
         s.map('TNotebook.Tab',background=[('selected',CARD)],foreground=[('selected',TEAL)])
         s.configure('Treeview',background=PANEL,fieldbackground=PANEL,foreground=TEXT,rowheight=26,borderwidth=0)
         s.configure('Treeview.Heading',background=CARD,foreground=MUTED,font=('DejaVu Sans',9,'bold'),padding=7,relief='flat')
-        s.map('Treeview',background=[('selected','#254a64')])
+        s.map('Treeview',background=[('selected','#e1ebfb')],foreground=[('selected',TEXT)])
         s.configure('TPanedwindow',background=BG)
         s.configure('TScale',background=PANEL,troughcolor=BG)
 
@@ -485,7 +485,7 @@ class App:
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
         label(parent,'LABS INTÉGRÉS',MUTED,9,True).pack(fill='x',padx=14,pady=(22,8))
-        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo),('05  VTP v2',self.vtp_demo),('06  MST instances',self.mst_demo),('07  LAN entreprise',self.lan_demo),('08  Firewall LAN',self.firewall_demo)]:
+        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo),('05  VTP v2',self.vtp_demo),('06  MST instances',self.mst_demo),('07  LAN entreprise',self.lan_demo),('08  Firewall LAN',self.firewall_demo),('09  Services TCP/UDP',self.service_demo)]:
             button(parent,title,lambda f=factory:self.replace_lab(f)).pack(fill='x',padx=10,pady=3)
         label(parent,'CLI inspirée IOS\nSimulation pédagogique\nSans VM / sans IOS',MUTED,8).pack(fill='x',padx=14,pady=20)
 
@@ -498,6 +498,11 @@ class App:
     def firewall_demo():
         from .text_lab import parse_lab
         return parse_lab((Path(__file__).resolve().parent.parent/'examples'/'firewall_lan.lab.txt').read_text(encoding='utf-8')).lab
+
+    @staticmethod
+    def service_demo():
+        from .text_lab import parse_lab
+        return parse_lab((Path(__file__).resolve().parent.parent/'examples'/'service_firewall.lab.txt').read_text(encoding='utf-8')).lab
 
     @staticmethod
     def channel_demo():
@@ -629,7 +634,8 @@ class App:
             label(panel,n.hostname or n.name,TEAL,16,True).pack(fill='x',pady=(3,5))
             label(panel,PROFILES[n.profile].brand+' · '+PROFILES[n.profile].model,MUTED,8).pack(fill='x',pady=(0,10))
             label(panel,profile_role(PROFILES[n.profile])+' · '+n.mac,MUTED,8).pack(fill='x')
-            button(panel,'Configurer en GUI / CLI',lambda:self.open_device(n.name),True).pack(fill='x',pady=5)
+            button(panel,'Interface web · navigateur',lambda:self.open_web(n.name),True).pack(fill='x',pady=5)
+            button(panel,'Configuration bureau / CLI',lambda:self.open_device(n.name)).pack(fill='x',pady=3)
             button(panel,'Console CLI dans le dock',lambda:self.open_cli(n.name)).pack(fill='x',pady=3)
             if n.kind=='PC':
                 self.fields={}
@@ -743,7 +749,7 @@ class App:
         grid=max(14,int(32*self.zoom))
         for x in range(int(self.panx)%grid,w,grid):
             for y in range(int(self.pany)%grid,h,grid):
-                c.create_oval(x,y,x+1,y+1,fill='#243246',outline='')
+                c.create_oval(x,y,x+1,y+1,fill='#dce3ed',outline='')
         vlan=int(self.view_vlan.get() or 1)
         states=self.lab.stp(vlan)
         for i,l in enumerate(self.lab.links):
@@ -766,9 +772,9 @@ class App:
         for n in self.lab.nodes.values():
             x,y=self.xy(n); z=self.zoom; tags=('node',n.name)
             width,height=136*z,100*z
-            roundrect(c,x-width/2+3,y-height/2+5,x+width/2+3,y+height/2+5,r=12*z,fill='#050b13',outline='',tags=tags)
+            roundrect(c,x-width/2+3,y-height/2+5,x+width/2+3,y+height/2+5,r=12*z,fill='#dce2eb',outline='',tags=tags)
             roundrect(c,x-width/2,y-height/2,x+width/2,y+height/2,r=12*z,fill=CARD,outline=TEAL if self.selected==n.name or self.anchor==n.name else LINE,width=2 if self.selected==n.name else 1,tags=tags)
-            color=BLUE if n.kind=='PC' else TEAL if n.kind=='Switch' else '#bb9aff'
+            color=BLUE if n.kind=='PC' else TEAL if n.kind=='Switch' else '#7851b4'
             role=profile_role(PROFILES[n.profile])
             self.icon(role if n.kind=='PC' or is_firewall(n) else n.kind,x,y-8*z,z,color,tags)
             c.create_text(x,y+31*z,text=n.hostname or n.name,fill=TEXT,font=('DejaVu Sans',max(8,int(10*z)),'bold'),tags=tags)
@@ -786,7 +792,7 @@ class App:
             c.create_oval(x-15,y-15,x+15,y+15,fill='#3a3e4b',outline='')
             c.create_rectangle(x-9,y-6,x+9,y+6,fill=color,outline='white')
             c.create_line(x-9,y-6,x,y+1,x+9,y-6,fill='#23334b')
-            c.create_text(x,y-27,text=f'{phase} · VLAN {v}',fill=color,font=('DejaVu Sans',9,'bold'))
+            c.create_text(x,y+35,text=f'{phase} · VLAN {v}',fill=color,font=('DejaVu Sans',9,'bold'))
         if not self.lab.nodes:
             c.create_text(w/2,h/2,text='Construisez votre premier lab\nChoisir un équipement à gauche, puis cliquer ici.',fill=MUTED,font=('DejaVu Sans',14),justify='center')
         if self.mode=='cable':
@@ -798,30 +804,30 @@ class App:
         c=self.canvas
         if kind in ('PC','Poste','Portable'):
             c.create_rectangle(x-23*z,y-17*z,x+23*z,y+11*z,outline=color,width=2,tags=tags)
-            c.create_rectangle(x-18*z,y-12*z,x+18*z,y+6*z,fill='#142e45',outline='',tags=tags)
+            c.create_rectangle(x-18*z,y-12*z,x+18*z,y+6*z,fill='#e3ebf6',outline='',tags=tags)
             c.create_line(x,y+11*z,x,y+18*z,fill=color,width=2,tags=tags)
             c.create_line(x-12*z,y+18*z,x+12*z,y+18*z,fill=color,width=2,tags=tags)
         elif kind=='Firewall':
             for row in range(3):
                 for col in range(3):
                     left=x-28*z+col*19*z+(9*z if row==1 else 0)
-                    c.create_rectangle(left,y-22*z+row*15*z,left+17*z,y-9*z+row*15*z,outline=color,fill='#422c35',width=2,tags=tags)
+                    c.create_rectangle(left,y-22*z+row*15*z,left+17*z,y-9*z+row*15*z,outline=color,fill='#fae3e7',width=2,tags=tags)
         elif kind in ('Serveur','NAS'):
-            c.create_rectangle(x-22*z,y-24*z,x+22*z,y+23*z,outline=color,width=2,fill='#142e45',tags=tags)
+            c.create_rectangle(x-22*z,y-24*z,x+22*z,y+23*z,outline=color,width=2,fill='#e3ebf6',tags=tags)
             for row in range(3):
                 yy=y-17*z+row*14*z
                 c.create_rectangle(x-16*z,yy,x+16*z,yy+9*z,outline=color,tags=tags)
                 c.create_oval(x+9*z,yy+3*z,x+12*z,yy+6*z,fill=color,outline='',tags=tags)
         elif kind=='Imprimante':
-            c.create_rectangle(x-15*z,y-24*z,x+15*z,y-4*z,outline=color,fill='#142e45',tags=tags)
+            c.create_rectangle(x-15*z,y-24*z,x+15*z,y-4*z,outline=color,fill='#e3ebf6',tags=tags)
             c.create_rectangle(x-27*z,y-8*z,x+27*z,y+16*z,outline=color,width=2,tags=tags)
-            c.create_rectangle(x-16*z,y+5*z,x+16*z,y+25*z,outline=color,fill='#142e45',tags=tags)
+            c.create_rectangle(x-16*z,y+5*z,x+16*z,y+25*z,outline=color,fill='#e3ebf6',tags=tags)
         elif kind=='Caméra':
             c.create_rectangle(x-28*z,y-16*z,x+12*z,y+8*z,outline=color,width=2,tags=tags)
             c.create_oval(x+4*z,y-13*z,x+24*z,y+5*z,outline=color,width=2,tags=tags)
             c.create_line(x-8*z,y+9*z,x-8*z,y+23*z,x+14*z,y+23*z,fill=color,width=2,tags=tags)
         elif kind=='Téléphone IP':
-            roundrect(c,x-25*z,y-19*z,x+25*z,y+20*z,r=5*z,outline=color,fill='#142e45',width=2,tags=tags)
+            roundrect(c,x-25*z,y-19*z,x+25*z,y+20*z,r=5*z,outline=color,fill='#e3ebf6',width=2,tags=tags)
             c.create_rectangle(x-12*z,y-13*z,x+18*z,y-2*z,outline=color,tags=tags)
             for row in range(2):
                 for col in range(3):
@@ -830,13 +836,13 @@ class App:
             c.create_oval(x-18*z,y-18*z,x+18*z,y+18*z,outline=color,width=2,tags=tags)
             c.create_oval(x-6*z,y-6*z,x+6*z,y+6*z,fill=color,outline='',tags=tags)
         elif kind=='Switch':
-            roundrect(c,x-32*z,y-13*z,x+32*z,y+12*z,r=5*z,fill='#133a3d',outline=color,width=2,tags=tags)
+            roundrect(c,x-32*z,y-13*z,x+32*z,y+12*z,r=5*z,fill='#e1f0ec',outline=color,width=2,tags=tags)
             for j in range(6):
                 xx=x-24*z+j*9*z
                 c.create_rectangle(xx,y-4*z,xx+5*z,y+3*z,outline=color,tags=tags)
             c.create_line(x-12*z,y-20*z,x+12*z,y-20*z,arrow='last',fill=color,tags=tags)
         else:
-            c.create_oval(x-25*z,y-22*z,x+25*z,y+22*z,outline=color,width=2,fill='#302841',tags=tags)
+            c.create_oval(x-25*z,y-22*z,x+25*z,y+22*z,outline=color,width=2,fill='#eee8f6',tags=tags)
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 c.create_line(x+dx*3*z,y+dy*3*z,x+dx*17*z,y+dy*15*z,fill=color,width=2,arrow='last',tags=tags)
 
@@ -986,12 +992,13 @@ class App:
     def double_click(self,event):
         hit=self.hit()
         if hit and hit[0]=='node' and self.mode!='cable':
-            self.open_device(hit[1])
+            self.open_management(hit[1])
 
     def context(self,event):
         self.select(event)
         menu=tk.Menu(self.root,tearoff=False,bg=PANEL,fg=TEXT,activebackground=LINE,activeforeground=TEAL)
         if self.selected:
+            menu.add_command(label='Interface web',command=lambda:self.open_web(self.selected))
             menu.add_command(label='Configurer en GUI / CLI',command=lambda:self.open_device(self.selected))
             menu.add_command(label='Ouvrir la console CLI',command=lambda:self.open_cli(self.selected))
         if self.selected or self.selected_link is not None:
@@ -1024,6 +1031,20 @@ class App:
             except ValueError as e:
                 messagebox.showerror('Câblage',str(e),parent=win)
         button(body,'Créer la liaison',create,True).pack(fill='x',pady=10)
+
+    def open_web(self,node):
+        if node not in self.lab.nodes:return
+        if getattr(self,'web_portal',None) is None or self.web_portal.closed:
+            from .web_portal import WebPortal
+            self.web_portal=WebPortal(self)
+        self.status.set('Interface web locale prête : '+node)
+        return self.web_portal.open(node)
+
+    def open_management(self,node):
+        if node not in self.lab.nodes:return
+        if profile_role(PROFILES[self.lab.nodes[node].profile]) in ('Poste','Portable'):
+            return self.open_device(node)
+        return self.open_web(node)
 
     def open_device(self,node):
         if node not in self.lab.nodes:
@@ -1089,7 +1110,9 @@ class App:
             for i,a,b,v in hops:
                 l=self.lab.links[i]
                 aport=l.a_port if l.a==a else l.b_port; bport=l.b_port if l.b==b else l.a_port
-                self.events.insert('', 'end',values=(phase,v,a+'/'+aport,b+'/'+bport,'Parcours calculé • apprentissage MAC simplifié'))
+                proto=getattr(self.lab,'last_protocol','icmp').upper();port=getattr(self.lab,'last_service_port',0)
+                detail=proto+(('/'+str(port)) if port else '')+' · parcours simulé / MAC'
+                self.events.insert('', 'end',values=(phase,v,a+'/'+aport,b+'/'+bport,detail))
                 self.hops.append((i,a,b,v,phase))
         if not ok:
             self.events.insert('', 'end',values=('Échec','','','',message or 'Voir le diagnostic dans la console'),tags=('error',))
@@ -1202,6 +1225,7 @@ class App:
     def close(self):
         if self.discard():
             self.pause()
+            if getattr(self,'web_portal',None) is not None:self.web_portal.close()
             if self.layout_job is not None:
                 self.root.after_cancel(self.layout_job)
             self.root.destroy()
