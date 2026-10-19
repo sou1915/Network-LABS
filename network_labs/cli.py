@@ -8,6 +8,9 @@ from .cli_editing import CLIEditing
 from .access_multicast_cli import AccessMulticastCLI
 from .profiles import PROFILES
 from .pc_cli import PCCommands
+from .lan_cli import LANCommands
+from .firewall_cli import FirewallCommands
+from .firewall import is_firewall
 
 FEATURES = '''NETWORK LABS / CLI pédagogique (inspirée IOS, pas un IOS réel)
 Modes : enable, configure terminal, vlan, interface, interface range, end, exit
@@ -18,7 +21,11 @@ Sécurité : port-security/maximum/MAC/sticky/violation, BPDU guard, PortFast
 Inspection : show vlan brief, interfaces, spanning-tree, etherchannel summary,
              mac address-table, port-security, cdp/lldp neighbors, running-config
 Routeur : sous-interfaces 802.1Q et IPv4, routes connectées uniquement
-PC : ip address CIDR, ip gateway IPv4, ipconfig, ping IPv4
+LAN : postes, serveurs, imprimantes, NAS, caméras, téléphones et IoT Ethernet
+Endpoints : ip address CIDR, DHCP, DNS client, ping IPv4/nom, nslookup
+Serveurs : DNS local A uniquement, service dns, dns record / show dns records
+Firewalls LAN : bridge transparent 2 ports, règles IPv4 sur tests ICMP, stateful/stateless
+                pas de TCP/UDP/NAT/VPN/IPS/WAF ni CLI constructeur réelle
 Nouveau : DTP auto/desirable/nonegotiate, serveur/client DHCP (sans relais),
           DHCP snooping, DAI et IP Source Guard (contrôle d’identité simplifié).
 Nouveau : VTP v2 (server/client/transparent/off), MST mono-région (état convergé).
@@ -30,7 +37,7 @@ Aucune commande non prise en charge n'est enregistrée comme fonctionnelle.'''
 
 ALIASES={'en':'enable','conf':'configure','t':'terminal','int':'interface','sh':'show','run':'running-config','desc':'description','wr':'write'}
 
-class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
+class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommands,FirewallCommands):
     def __init__(self,lab,node):
         self.lab,self.node=lab,node
         self.mode='user'
@@ -48,7 +55,11 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
     @property
     def prompt(self):
         if self.n.kind=='PC':
+            if PROFILES[self.n.profile].family=='lab':
+                return f'{self.n.hostname or self.n.name} [LAN]>'
             return 'C:\\Users\\student>' if PROFILES[self.n.profile].family=='windows' else f'student@{self.n.hostname or self.n.name}:~$'
+        if is_firewall(self.n):
+            return f'{self.n.hostname or self.n.name} [Firewall LAN]>'
         suffix={'mst':'(config-mst)#','dhcp':'(dhcp-config)#','user':'>','priv':'#','config':'(config)#','vlan':'(config-vlan)#','if':'(config-if)#','range':'(config-if-range)#'}[self.mode]
         return (self.n.hostname or self.n.name)+suffix
 
@@ -95,6 +106,9 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
                     start=next((i for i,text in enumerate(lines) if regex.search(text)),len(lines))
                     return '\n'.join(lines[start:])
                 return '\n'.join(text for text in lines if bool(regex.search(text))==(operation=='include'))
+            fw=self.firewall_command(low,line)
+            if fw is not None:
+                return fw
             if self.n.kind=='PC':
                 return self.pc(low,line)
             if low=='enable' and self.mode=='user':
@@ -526,6 +540,9 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
         return None
 
     def pc(self,low,line):
+        lan=self.lan_command(low,line)
+        if lan is not None:
+            return lan
         native=self.pc_native(low,line)
         if native is not None:
             return native
@@ -561,7 +578,15 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
             self.changed=True
             return 'Passerelle appliquée.'
         if low.startswith('ping '):
-            ok,trace=self.lab.ping(self.node,low.split()[-1])
+            destination=low.split()[-1]
+            resolved=[]
+            try:
+                IPv4Address(destination)
+            except ValueError:
+                destination,server=self.lab.resolve_name(self.node,destination)
+                resolved=[f'DNS: {low.split()[-1]} → {destination} via {server}']
+            ok,trace=self.lab.ping(self.node,destination)
+            trace=resolved+trace
             return ('SUCCESS\n' if ok else 'FAILED\n')+'\n'.join(trace)
         if low=='show capabilities':
             return FEATURES
@@ -655,6 +680,9 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
 
     def running_config(self):
         lines=['! Network LABS — sous-ensemble IOS-like',f'hostname {self.n.hostname or self.n.name}']
+        if is_firewall(self.n):
+            lines.extend(['firewall mode '+self.n.firewall_mode,'firewall default '+self.n.firewall_default])
+            lines.extend(f'firewall rule {r["id"]} {r["action"]} {r["source"]} {r["target"]}' for r in sorted(self.n.firewall_rules,key=lambda r:r['id']))
         if self.n.kind=='Routeur':
             if not self.n.dhcp_service:
                 lines.append('no service dhcp')

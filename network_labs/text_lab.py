@@ -200,6 +200,9 @@ def export_lab(lab):
         if n.kind=='PC':
             if n.hostname:
                 output.append('hostname '+n.hostname)
+            if n.dns_service:
+                output.append('service dns')
+            output.extend(f'dns record {name} {address}' for name,address in sorted(n.dns_records.items()))
             if n.dot1x_user:
                 output.append('dot1x login '+shlex.quote(n.dot1x_user)+' '+shlex.quote(n.dot1x_password))
             if getattr(n,'address_mode','static')=='dhcp':

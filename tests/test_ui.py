@@ -55,6 +55,35 @@ class WorkbenchTests(unittest.TestCase):
         invoke('Activer eth0')
         self.assertTrue(self.app.lab.ping('PC1','192.168.20.10')[0])
 
+    def test_enterprise_lan_roles_and_dns_editor(self):
+        import tkinter as tk
+        from network_labs.__main__ import App
+        self.app.replace_lab(App.lan_demo)
+        for name in ('SRV1','PRN1','NAS1','CAM1','TEL1','IOT1'):
+            self.app.selected=name;self.app.inspect();self.app.draw();self.root.update()
+        self.assertTrue(self.app.lab.ping('PC1','printer.lan')[0])
+        self.app.dns_editor('SRV1');self.root.update()
+        dialogs=[w for w in self.root.winfo_children() if isinstance(w,tk.Toplevel)]
+        self.assertEqual(len(dialogs),1)
+        dialogs[0].destroy()
+
+    def test_firewall_policy_editor_applies_actual_policy(self):
+        from network_labs.__main__ import App
+        self.app.replace_lab(App.firewall_demo)
+        self.app.selected='FW1';self.app.inspect();self.root.update()
+        self.assertTrue(self.app.lab.ping('PC1','192.168.10.20')[0])
+        editor=self.app.firewall_editor('FW1');self.root.update()
+        editor.number.set('5');editor.action.set('deny');editor.source.set('any');editor.target.set('any');editor.add()
+        self.root.update()
+        self.assertFalse(self.app.lab.ping('PC1','192.168.10.20')[0])
+        self.assertIn('5',editor.table.get_children())
+        editor.table.selection_set('5');editor.remove()
+        self.assertTrue(self.app.lab.ping('PC1','192.168.10.20')[0])
+        editor.window.geometry('640x400');self.root.update()
+        editor.panel.canvas.yview_moveto(1);self.root.update()
+        self.assertAlmostEqual(editor.panel.canvas.yview()[1],1,places=2)
+        editor.window.destroy()
+
     def test_console_controls_actual_port_state(self):
         app=self.app
         app.terminals['SW1'].send('enable\nconfigure terminal\ninterface gi0/1\nshutdown')

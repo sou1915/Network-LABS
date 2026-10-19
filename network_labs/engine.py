@@ -6,6 +6,8 @@ from heapq import heappush, heappop
 from .services import Services
 from .layer2 import Layer2
 from .access_multicast import AccessMulticast
+from .lan_services import LANServices
+from .firewall import Firewall,firewall_rule
 import json
 import re
 
@@ -116,6 +118,11 @@ class Node:
     igmp_disabled_vlans: list = field(default_factory=list)
     igmp_unknown: str = 'flood'
     profile: str = ''
+    dns_service: bool = False
+    dns_records: dict = field(default_factory=dict)
+    firewall_mode: str = ''
+    firewall_default: str = 'deny'
+    firewall_rules: list = field(default_factory=list)
 
     def __post_init__(self):
         from .profiles import PROFILES, default_profile, profile_ports
@@ -123,6 +130,16 @@ class Node:
         profile = PROFILES.get(self.profile)
         if not profile or not profile.creatable or profile.kind != self.kind:
             raise ValueError('Profil non simulé ou incompatible : '+self.profile)
+        from .lan_services import dns_name
+        if not isinstance(self.dns_records,dict):
+            raise ValueError('DNS: dictionnaire de records requis.')
+        self.dns_records={dns_name(host):str(IPv4Address(address)) for host,address in self.dns_records.items()}
+        self.firewall_mode=self.firewall_mode or ('stateless' if self.profile=='fw-stateless' else 'stateful')
+        if self.firewall_mode not in ('stateful','stateless') or self.firewall_default not in ('allow','deny'):
+            raise ValueError('Politique firewall invalide.')
+        self.firewall_rules=[firewall_rule(r['id'],r['action'],r['source'],r['target']) for r in self.firewall_rules]
+        if len({r['id'] for r in self.firewall_rules})!=len(self.firewall_rules):
+            raise ValueError('IDs de règles firewall dupliqués.')
         self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
         if not self.ports:
             names = profile_ports(self.profile,self.kind)
@@ -146,11 +163,12 @@ class Link:
     b_port: str = ''
     enabled: bool = True
 
-class Lab(Services,Layer2,AccessMulticast):
+class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall):
     def __init__(self):
         self.nodes, self.links = {}, []
         self.last_paths, self.last_hops, self.events = [], [], []
         self.fdb = {}
+        self.firewall_sessions={}; self.firewall_counters={}; self.firewall_log=[]
         self.secure_dynamic = {}
         self.init_services()
         self.init_access_multicast()
@@ -413,6 +431,20 @@ class Lab(Services,Layer2,AccessMulticast):
         return sub is None or not sub.shutdown
 
     def ping(self,source,destination):
+        try:
+            IPv4Address(destination)
+        except ValueError:
+            try:
+                address,server=self.resolve_name(source,destination)
+            except (ValueError,KeyError) as error:
+                self.last_paths,self.last_hops,self.events=[],[],[]
+                return False,[str(error)]
+            ok,trace=self._ping_ipv4(source,address)
+            return ok,[f'DNS: {destination} → {address} via {server}']+trace
+        return self._ping_ipv4(source,destination)
+
+    def _ping_ipv4(self,source,destination):
+        self.firewall_sessions={}; self.firewall_log=[]
         self.last_paths,self.last_hops,self.events=[],[],[]
         try:
             src=self.nodes[source]
@@ -433,9 +465,11 @@ class Lab(Services,Layer2,AccessMulticast):
                 if not path:
                     raise ValueError('Interface de passerelle inaccessible : VLAN, port ou trunk.')
                 reverse=[(i,b,a,v) for i,a,b,v in reversed(hops)]
+                self.firewall_check(hops,si.ip,ip)
                 self.learn(hops,source)
                 self.last_paths.append(path)
                 self.last_hops.append(hops)
+                self.firewall_check(reverse,ip,si.ip)
                 self.learn(reverse,router.name)
                 self.last_paths.append(list(reversed(path)))
                 self.last_hops.append(reverse)
@@ -465,6 +499,7 @@ class Lab(Services,Layer2,AccessMulticast):
                                 break
                     if not path:
                         raise ValueError(f'{a.name} : chemin inaccessible (VLAN, trunk, état du port, STP ou passerelle).')
+                    self.firewall_check(hops,ai.ip,bi.ip)
                     self.learn(hops,a.name)
                     self.last_paths.append(path)
                     self.last_hops.append(hops)

@@ -171,7 +171,7 @@ des ports, sans querier, temporisations ou routage multicast.
 Les interfaces PC peuvent être activées/désactivées depuis l’inspecteur et sous
 Linux avec `sudo ip link set dev eth0 up|down`. Les commandes `resolvectl dns`
 et `netsh interface ipv4 set dnsservers` règlent la liste DNS ; la résolution
-de noms reste à implémenter. L’aide `?`/`help` expose les commandes du profil OS.
+locale A est disponible via un profil Serveur DNS, sans cache ni récursion Internet. L’aide `?`/`help` expose les commandes du profil OS.
 Les paramètres netsh non simulés sont rejetés avant toute modification.
 
 Exemple prêt à importer : [`examples/windows_linux.lab.txt`](examples/windows_linux.lab.txt)
@@ -179,3 +179,31 @@ Exemple prêt à importer : [`examples/windows_linux.lab.txt`](examples/windows_
 
 ![Inspecteur PC](docs/pc_profiles.png)
 ![Catalogue](docs/catalogue.png)
+
+### LAN entreprise et périphériques
+
+Le lab **07 LAN entreprise** ajoute serveur DNS, imprimante, NAS, caméra IP,
+téléphone IP et capteur Ethernet. Dans le catalogue, filtrer par rôle ;
+`show device` décrit les fonctions et limites du profil. Les endpoints spécialisés
+ont une console de simulation LAN et une seule interface Ethernet ; impression,
+fichiers, voix et vidéo ne sont pas exécutés.
+
+DNS local A : configurer `service dns` et `dns record printer.lan 192.168.10.20`
+sur un profil Serveur, puis `ip dns 192.168.10.2` et `ping printer.lan` ou
+`nslookup printer.lan` sur les clients. L'inspecteur Serveur propose un éditeur
+DNS. Le DHCP du lab distribue automatiquement l'adresse du serveur DNS.
+
+[Couverture LAN, limites et commandes](docs/LAN.md) ·
+[Exemple complet à importer](examples/enterprise_lan.lab.txt).
+
+### Firewalls LAN
+
+Le lab **08 Firewall LAN** ajoute un firewall transparent à deux ports,
+avec règles IPv4 source/destination sur les tests ICMP, mode stateful/stateless,
+politique par défaut et éditeur GUI. Des profils génériques et identités Fortinet,
+Palo Alto, Cisco ASA, pfSense, OPNsense, Sophos, Check Point, SonicWall et Juniper
+partagent ce modèle pédagogique ; leurs systèmes et CLI natifs ne sont pas chargés.
+NGFW/UTM/WAF/proxy/firewall hôte/routé restent des références non créables.
+
+[Types, commandes et limites précises](docs/FIREWALLS.md) ·
+[Exemple firewall LAN](examples/firewall_lan.lab.txt).

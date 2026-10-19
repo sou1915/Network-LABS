@@ -7,7 +7,8 @@ from ipaddress import IPv4Interface, IPv4Address
 from pathlib import Path
 from .engine import Lab, Node, demo, switching_demo, vlan_list
 from .cli import Session, FEATURES
-from .profiles import PROFILES
+from .profiles import PROFILES,profile_role
+from .firewall import is_firewall
 from .layout import ScrollPanel, initial_geometry, fit_dialog
 
 BG='#0a101c'; PANEL='#111d2e'; CARD='#17263a'; LINE='#2b405a'
@@ -473,14 +474,24 @@ class App:
             sub=tk.Label(card,text=subtitle,bg=CARD,fg=MUTED,font=('DejaVu Sans',8),anchor='w'); sub.pack(fill='x',pady=(4,0))
             for w in (card,name,sub):
                 w.bind('<Button-1>',lambda e,k=kind:self.set_place(k))
-        button(parent,'Catalogue équipements',self.catalogue).pack(fill='x',padx=10,pady=8)
+        button(parent,'Catalogue LAN',self.catalogue).pack(fill='x',padx=10,pady=8)
         label(parent,'OUTILS',MUTED,9,True).pack(fill='x',padx=14,pady=(20,8))
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
         label(parent,'LABS INTÉGRÉS',MUTED,9,True).pack(fill='x',padx=14,pady=(22,8))
-        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo),('05  VTP v2',self.vtp_demo),('06  MST instances',self.mst_demo)]:
+        for title,factory in [('01  Inter-VLAN',demo),('02  Boucle STP',switching_demo),('03  EtherChannel',self.channel_demo),('04  DHCP / Sécurité',self.security_demo),('05  VTP v2',self.vtp_demo),('06  MST instances',self.mst_demo),('07  LAN entreprise',self.lan_demo),('08  Firewall LAN',self.firewall_demo)]:
             button(parent,title,lambda f=factory:self.replace_lab(f)).pack(fill='x',padx=10,pady=3)
         label(parent,'CLI inspirée IOS\nSimulation pédagogique\nSans VM / sans IOS',MUTED,8).pack(fill='x',padx=14,pady=20)
+
+    @staticmethod
+    def lan_demo():
+        from .text_lab import parse_lab
+        return parse_lab((Path(__file__).resolve().parent.parent/'examples'/'enterprise_lan.lab.txt').read_text(encoding='utf-8')).lab
+
+    @staticmethod
+    def firewall_demo():
+        from .text_lab import parse_lab
+        return parse_lab((Path(__file__).resolve().parent.parent/'examples'/'firewall_lan.lab.txt').read_text(encoding='utf-8')).lab
 
     @staticmethod
     def channel_demo():
@@ -607,7 +618,7 @@ class App:
             n=self.lab.nodes[self.selected]
             label(panel,n.hostname or n.name,TEAL,16,True).pack(fill='x',pady=(3,5))
             label(panel,PROFILES[n.profile].brand+' · '+PROFILES[n.profile].model,MUTED,8).pack(fill='x',pady=(0,10))
-            label(panel,n.mac+' · simulation réseau',MUTED,8).pack(fill='x')
+            label(panel,profile_role(PROFILES[n.profile])+' · '+n.mac,MUTED,8).pack(fill='x')
             button(panel,'Ouvrir la console CLI',lambda:self.open_cli(n.name),True).pack(fill='x',pady=5)
             if n.kind=='PC':
                 self.fields={}
@@ -637,7 +648,12 @@ class App:
                     n.ports['eth0'].shutdown=not n.ports['eth0'].shutdown
                     self.changed('Interface eth0 '+('désactivée' if n.ports['eth0'].shutdown else 'activée'))
                 button(panel,'Activer eth0' if n.ports['eth0'].shutdown else 'Désactiver eth0',toggle_link).pack(fill='x',pady=3)
+                if profile_role(PROFILES[n.profile])=='Serveur':
+                    button(panel,'Configurer DNS local',lambda:self.dns_editor(n.name)).pack(fill='x',pady=5)
             elif n.kind=='Switch':
+                if is_firewall(n):
+                    button(panel,'Politique firewall LAN',lambda:self.firewall_editor(n.name),True).pack(fill='x',pady=6)
+                    label(panel,f'{n.firewall_mode} · défaut {n.firewall_default} · ICMP',MUTED,9).pack(fill='x')
                 label(panel,'PORTS PHYSIQUES',MUTED,9,True).pack(fill='x',pady=(14,7))
                 port_frame=tk.Frame(panel,bg=PANEL)
                 port_frame.pack(fill='both',expand=True)
@@ -777,7 +793,8 @@ class App:
             roundrect(c,x-width/2+3,y-height/2+5,x+width/2+3,y+height/2+5,r=12*z,fill='#050b13',outline='',tags=tags)
             roundrect(c,x-width/2,y-height/2,x+width/2,y+height/2,r=12*z,fill=CARD,outline=TEAL if self.selected==n.name or self.anchor==n.name else LINE,width=2 if self.selected==n.name else 1,tags=tags)
             color=BLUE if n.kind=='PC' else TEAL if n.kind=='Switch' else '#bb9aff'
-            self.icon(n.kind,x,y-8*z,z,color,tags)
+            role=profile_role(PROFILES[n.profile])
+            self.icon(role if n.kind=='PC' or is_firewall(n) else n.kind,x,y-8*z,z,color,tags)
             c.create_text(x,y+31*z,text=n.hostname or n.name,fill=TEXT,font=('DejaVu Sans',max(8,int(10*z)),'bold'),tags=tags)
             if z>=.7:
                 c.create_text(x,y+63*z,text=(PROFILES[n.profile].model+' · '+(n.address or 'sans IPv4')) if n.kind=='PC' else f'L2 • {sum(not p.startswith("po") and "." not in p for p in n.ports)} ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
@@ -803,11 +820,39 @@ class App:
 
     def icon(self,kind,x,y,z,color,tags):
         c=self.canvas
-        if kind=='PC':
+        if kind in ('PC','Poste','Portable'):
             c.create_rectangle(x-23*z,y-17*z,x+23*z,y+11*z,outline=color,width=2,tags=tags)
             c.create_rectangle(x-18*z,y-12*z,x+18*z,y+6*z,fill='#142e45',outline='',tags=tags)
             c.create_line(x,y+11*z,x,y+18*z,fill=color,width=2,tags=tags)
             c.create_line(x-12*z,y+18*z,x+12*z,y+18*z,fill=color,width=2,tags=tags)
+        elif kind=='Firewall':
+            for row in range(3):
+                for col in range(3):
+                    left=x-28*z+col*19*z+(9*z if row==1 else 0)
+                    c.create_rectangle(left,y-22*z+row*15*z,left+17*z,y-9*z+row*15*z,outline=color,fill='#422c35',width=2,tags=tags)
+        elif kind in ('Serveur','NAS'):
+            c.create_rectangle(x-22*z,y-24*z,x+22*z,y+23*z,outline=color,width=2,fill='#142e45',tags=tags)
+            for row in range(3):
+                yy=y-17*z+row*14*z
+                c.create_rectangle(x-16*z,yy,x+16*z,yy+9*z,outline=color,tags=tags)
+                c.create_oval(x+9*z,yy+3*z,x+12*z,yy+6*z,fill=color,outline='',tags=tags)
+        elif kind=='Imprimante':
+            c.create_rectangle(x-15*z,y-24*z,x+15*z,y-4*z,outline=color,fill='#142e45',tags=tags)
+            c.create_rectangle(x-27*z,y-8*z,x+27*z,y+16*z,outline=color,width=2,tags=tags)
+            c.create_rectangle(x-16*z,y+5*z,x+16*z,y+25*z,outline=color,fill='#142e45',tags=tags)
+        elif kind=='Caméra':
+            c.create_rectangle(x-28*z,y-16*z,x+12*z,y+8*z,outline=color,width=2,tags=tags)
+            c.create_oval(x+4*z,y-13*z,x+24*z,y+5*z,outline=color,width=2,tags=tags)
+            c.create_line(x-8*z,y+9*z,x-8*z,y+23*z,x+14*z,y+23*z,fill=color,width=2,tags=tags)
+        elif kind=='Téléphone IP':
+            roundrect(c,x-25*z,y-19*z,x+25*z,y+20*z,r=5*z,outline=color,fill='#142e45',width=2,tags=tags)
+            c.create_rectangle(x-12*z,y-13*z,x+18*z,y-2*z,outline=color,tags=tags)
+            for row in range(2):
+                for col in range(3):
+                    c.create_rectangle(x-7*z+col*8*z,y+5*z+row*7*z,x-3*z+col*8*z,y+8*z+row*7*z,fill=color,tags=tags)
+        elif kind=='IoT':
+            c.create_oval(x-18*z,y-18*z,x+18*z,y+18*z,outline=color,width=2,tags=tags)
+            c.create_oval(x-6*z,y-6*z,x+6*z,y+6*z,fill=color,outline='',tags=tags)
         elif kind=='Switch':
             roundrect(c,x-32*z,y-13*z,x+32*z,y+12*z,r=5*z,fill='#133a3d',outline=color,width=2,tags=tags)
             for j in range(6):
@@ -825,11 +870,53 @@ class App:
         self.status.set('Câbler : cliquer sur deux équipements' if mode=='cable' else 'Sélection / déplacement')
         self.draw()
 
+    def firewall_editor(self,node):
+        from .firewall_ui import FirewallEditor
+        return FirewallEditor(self,node)
+
+    def dns_editor(self,node):
+        win=tk.Toplevel(self.root); win.title('DNS local · '+node); win.configure(bg=PANEL)
+        fit_dialog(win,700,470)
+        server=self.lab.nodes[node]
+        enabled=tk.BooleanVar(value=server.dns_service)
+        label(win,'Zone locale IPv4 · A uniquement · pas de récursion/cache',MUTED,10).pack(fill='x',padx=14,pady=12)
+        def service():
+            server.dns_service=enabled.get(); self.changed('Service DNS local mis à jour')
+        ttk.Checkbutton(win,text='Activer le service DNS simulé',variable=enabled,command=service).pack(anchor='w',padx=14)
+        table=ttk.Treeview(win,columns=('name','ip'),show='headings',height=8)
+        table.heading('name',text='Nom DNS'); table.heading('ip',text='IPv4')
+        table.pack(fill='both',expand=True,padx=14,pady=10)
+        label(win,'Nom DNS (gauche) · Adresse IPv4 (droite)',MUTED,9).pack(fill='x',padx=14,pady=(0,4))
+        fields=tk.Frame(win,bg=PANEL); fields.pack(fill='x',padx=14)
+        name=tk.StringVar(); address=tk.StringVar()
+        ttk.Entry(fields,textvariable=name).pack(side='left',fill='x',expand=True,padx=(0,6))
+        ttk.Entry(fields,textvariable=address,width=19).pack(side='left')
+        def refresh():
+            table.delete(*table.get_children())
+            for host,ip in sorted(server.dns_records.items()):
+                table.insert('', 'end',iid=host,values=(host,ip))
+        def add():
+            result=Session(self.lab,node).execute('dns record '+name.get().strip()+' '+address.get().strip())
+            if result.startswith('%'):
+                messagebox.showerror('DNS',result,parent=win); return
+            refresh(); self.changed('Enregistrement DNS ajouté')
+        def remove():
+            if table.selection():
+                server.dns_records.pop(table.selection()[0],None); refresh(); self.changed('Enregistrement DNS supprimé')
+        actions=tk.Frame(win,bg=PANEL); actions.pack(fill='x',padx=14,pady=12)
+        button(actions,'Ajouter / remplacer',add).pack(side='left')
+        button(actions,'Supprimer la sélection',remove).pack(side='right')
+        refresh()
+
     def catalogue(self):
         dialog=tk.Toplevel(self.root)
         dialog.title('Catalogue des équipements'); dialog.configure(bg=PANEL)
         fit_dialog(dialog,880,540)
         query=tk.StringVar()
+        category=tk.StringVar(value='Tous')
+        categories=['Tous']+sorted({profile_role(p) for p in PROFILES.values()})
+        category_box=ttk.Combobox(dialog,textvariable=category,values=categories,state='readonly')
+        category_box.pack(fill='x',padx=12,pady=(10,0))
         label(dialog,'Rechercher une marque, un modèle ou un OS',MUTED,9).pack(fill='x',padx=12,pady=(10,0))
         ttk.Entry(dialog,textvariable=query).pack(fill='x',padx=12,pady=12)
         table=ttk.Treeview(dialog,columns=('brand','model','kind','support'),show='headings')
@@ -845,8 +932,8 @@ class App:
             table.delete(*table.get_children())
             create.configure(state='disabled')
             for profile in PROFILES.values():
-                if query.get().lower() in (profile.brand+' '+profile.model+' '+profile.kind).lower():
-                    table.insert('', 'end',iid=profile.id,values=(profile.brand,profile.model,profile.kind,'Partielle' if profile.creatable else 'Référence uniquement'))
+                if (category.get()=='Tous' or profile_role(profile)==category.get()) and query.get().lower() in (profile.brand+' '+profile.model+' '+profile_role(profile)).lower():
+                    table.insert('', 'end',iid=profile.id,values=(profile.brand,profile.model,profile_role(profile),'Partielle' if profile.creatable else 'Référence uniquement'))
         def selected(event=None):
             items=table.selection()
             if items:
@@ -865,7 +952,7 @@ class App:
         create=ttk.Button(dialog,text='Placer dans la topologie',command=place,state='disabled')
         create.pack(pady=(0,12))
         table.bind('<<TreeviewSelect>>',selected)
-        query.trace_add('write',refresh); refresh()
+        query.trace_add('write',refresh); category.trace_add('write',refresh); refresh()
 
     def set_place(self,kind):
         if self.console_focus:
@@ -881,7 +968,9 @@ class App:
         self.canvas.focus_set()
         hit=self.hit()
         if self.place_kind:
-            kind=self.place_kind; prefix={'PC':'PC','Switch':'SW','Routeur':'R'}[kind]; i=1
+            kind=self.place_kind; profile=PROFILES.get(getattr(self,'place_profile',''))
+            role=profile_role(profile) if profile else kind
+            prefix={'Serveur':'SRV','Imprimante':'PRN','NAS':'NAS','Caméra':'CAM','Téléphone IP':'TEL','IoT':'IOT','Portable':'LAP','Firewall':'FW'}.get(role,{'PC':'PC','Switch':'SW','Routeur':'R'}[kind]); i=1
             while f'{prefix}{i}' in self.lab.nodes:
                 i+=1
             name=f'{prefix}{i}'
