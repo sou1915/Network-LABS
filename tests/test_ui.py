@@ -41,6 +41,20 @@ class WorkbenchTests(unittest.TestCase):
         dialog.apply(); self.root.update()
         self.assertEqual(self.app.lab.nodes['PC1'].profile,'linux-ubuntu')
 
+    def test_pc_inspector_dns_and_interface_controls(self):
+        from tkinter import ttk
+        self.app.selected='PC1'; self.app.inspect(); self.root.update()
+        self.app.fields['DNS (séparés par espace)'].set('1.1.1.1 8.8.8.8')
+        def invoke(text):
+            next(w for w in self.app.inspector.winfo_children() if isinstance(w,ttk.Button) and w.cget('text')==text).invoke()
+            self.root.update()
+        invoke('Appliquer IPv4')
+        self.assertEqual(self.app.lab.nodes['PC1'].dns,['1.1.1.1','8.8.8.8'])
+        invoke('Désactiver eth0')
+        self.assertFalse(self.app.lab.ping('PC1','192.168.20.10')[0])
+        invoke('Activer eth0')
+        self.assertTrue(self.app.lab.ping('PC1','192.168.20.10')[0])
+
     def test_console_controls_actual_port_state(self):
         app=self.app
         app.terminals['SW1'].send('enable\nconfigure terminal\ninterface gi0/1\nshutdown')

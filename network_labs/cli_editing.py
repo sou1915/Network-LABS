@@ -14,7 +14,7 @@ class CLIEditing:
         if not words or self.n.kind=='PC':
             return line
         config=self.mode not in ('user','priv')
-        first=['hostname','interface','vlan','exit','end','no','do','spanning-tree','switchport','description','shutdown','channel-group','ip','encapsulation','network','default-router','dns-server','lease','vtp','name','revision','instance','service'] if config else ['enable','disable','show','write','copy','clear','configure','ping','exit']
+        first=['hostname','interface','vlan','exit','end','no','do','spanning-tree','switchport','description','shutdown','channel-group','ip','encapsulation','network','default-router','dns-server','lease','vtp','name','revision','instance','service','aaa','dot1x','authentication','access-session'] if config else ['enable','disable','show','write','copy','clear','configure','ping','exit']
         words[0]=self.expand(words[0],first)
         if words[0] in ('no','do') and len(words)>1:
             return words[0]+' '+self.normalize_command(' '.join(words[1:]))
@@ -31,7 +31,7 @@ class CLIEditing:
                 words[1]='interfaces'
             if len(words)>1 and words[1].lower()=='run':
                 words[1]='running-config'
-            at(1,['interfaces','vlan','spanning-tree','etherchannel','mac','port-security','running-config','startup-config','ip','dtp','vtp','capabilities','version','cdp','lldp','pending'])
+            at(1,['interfaces','vlan','spanning-tree','etherchannel','mac','port-security','running-config','startup-config','ip','dtp','vtp','capabilities','version','cdp','lldp','pending','dot1x','authentication'])
             if len(words)>1:
                 command=words[1]
                 if command=='interfaces':
@@ -83,9 +83,13 @@ class CLIEditing:
         return ' '.join(words)
 
     def help_patterns(self):
-        shows=['show running-config','show startup-config','show interfaces status','show interfaces trunk','show interfaces <interface> switchport','show vlan brief','show spanning-tree','show spanning-tree vlan <id>','show spanning-tree mst <instance>','show spanning-tree mst configuration','show etherchannel summary','show mac address-table','show port-security','show ip interface brief','show ip route','show ip dhcp pool','show ip dhcp binding','show ip dhcp snooping binding','show ip arp inspection statistics','show dtp interface <interface>','show vtp status','show capabilities']
+        shows=['show dot1x','show authentication sessions','show ip igmp snooping','show ip igmp snooping groups','show running-config','show startup-config','show interfaces status','show interfaces trunk','show interfaces <interface> switchport','show vlan brief','show spanning-tree','show spanning-tree vlan <id>','show spanning-tree mst <instance>','show spanning-tree mst configuration','show etherchannel summary','show mac address-table','show port-security','show ip interface brief','show ip route','show ip dhcp pool','show ip dhcp binding','show ip dhcp snooping binding','show ip arp inspection statistics','show dtp interface <interface>','show vtp status','show capabilities']
         if self.n.kind=='PC':
-            return ['help','ipconfig','ip address <CIDR>','ip gateway <IPv4>','ip dhcp','ip release','ping <IPv4>','show capabilities']
+            from .profiles import PROFILES
+            family=PROFILES[self.n.profile].family
+            native={'windows':['ver','ipconfig /all','ipconfig /renew','ipconfig /release','route print','netsh interface ipv4 set address name=Ethernet source=static address=<IPv4> mask=<mask> gateway=<IPv4>','netsh interface ipv4 set address name=Ethernet source=dhcp','netsh interface ipv4 set dnsservers name=Ethernet source=static address=<IPv4>','netsh interface ipv4 show dnsservers'],
+                    'linux':['uname -a','ip addr show','ip route','ip link show','sudo ip addr replace <CIDR> dev eth0','sudo ip route replace default via <IPv4> dev eth0','sudo ip link set dev eth0 down','sudo ip link set dev eth0 up','sudo ip addr flush dev eth0','sudo resolvectl dns eth0 <IPv4>','resolvectl status','sudo dhclient eth0','sudo dhclient -r eth0']}.get(family,[])
+            return native+['help','ipconfig','ip address <CIDR>','ip gateway <IPv4>','ip dns <IPv4>','ip dhcp','ip release','ip link up','ip link down','ping <IPv4>','dot1x login <user> <password>','dot1x logoff','igmp join <group>','igmp leave <group>','multicast <group>','show capabilities']
         common=['exit','end','help']
         if self.mode in ('user','priv'):
             return shows+['enable','disable','configure terminal','write memory','copy running-config startup-config','clear mac address-table dynamic']+common
@@ -97,9 +101,9 @@ class CLIEditing:
             return ['name <VLAN-name>']+common
         if self.mode in ('if','range'):
             commands=['description <text>','shutdown','no shutdown']
-            commands+=['switchport mode access','switchport mode trunk','switchport mode dynamic auto','switchport mode dynamic desirable','switchport access vlan <id>','switchport trunk allowed vlan <list>','switchport trunk native vlan <id>','switchport nonegotiate','switchport port-security','spanning-tree portfast','spanning-tree bpduguard enable','spanning-tree cost <number>','channel-group <id> mode active','channel-group <id> mode passive','ip dhcp snooping trust','ip arp inspection trust','ip verify source'] if self.n.kind=='Switch' else ['encapsulation dot1Q <VLAN>','ip address <IPv4> <mask>','no ip address']
+            commands+=['switchport mode access','switchport mode trunk','switchport mode dynamic auto','switchport mode dynamic desirable','switchport access vlan <id>','switchport trunk allowed vlan <list>','switchport trunk native vlan <id>','switchport nonegotiate','switchport port-security','spanning-tree portfast','spanning-tree bpduguard enable','spanning-tree cost <number>','channel-group <id> mode active','channel-group <id> mode passive','ip dhcp snooping trust','ip arp inspection trust','ip verify source','authentication port-control auto','authentication port-control force-authorized','dot1x pae authenticator'] if self.n.kind=='Switch' else ['encapsulation dot1Q <VLAN>','ip address <IPv4> <mask>','no ip address']
             return commands+['do '+s for s in shows]+common
-        return ['hostname <name>','vlan <id>','no vlan <id>','interface <interface>','interface range <range>','spanning-tree mode mst','spanning-tree mode rapid-pvst','spanning-tree mst configuration','spanning-tree mst <id> priority <number>','spanning-tree vlan <id> priority <number>','vtp mode server','vtp mode client','vtp mode transparent','vtp domain <name>','vtp version 2','ip dhcp snooping','ip dhcp snooping vlan <list>','ip arp inspection vlan <list>','ip dhcp pool <name>','ip dhcp excluded-address <first> <last>']+['do '+s for s in shows]+common
+        return ['aaa new-model','aaa authentication dot1x default group radius','dot1x system-auth-control','ip igmp snooping','no ip igmp snooping','ip igmp snooping unknown-multicast action drop','hostname <name>','vlan <id>','no vlan <id>','interface <interface>','interface range <range>','spanning-tree mode mst','spanning-tree mode rapid-pvst','spanning-tree mst configuration','spanning-tree mst <id> priority <number>','spanning-tree vlan <id> priority <number>','vtp mode server','vtp mode client','vtp mode transparent','vtp domain <name>','vtp version 2','ip dhcp snooping','ip dhcp snooping vlan <list>','ip arp inspection vlan <list>','ip dhcp pool <name>','ip dhcp excluded-address <first> <last>']+['do '+s for s in shows]+common
 
     def context_help(self,prefix=''):
         prefix=prefix.strip()

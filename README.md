@@ -42,7 +42,7 @@ et de configuration s'adaptent aussi à la taille d'écran.
   aucune zone de saisie séparée. Le transcript est protégé contre les modifications.
   `Ctrl+C` interrompt la saisie (ou copie la sélection), `Ctrl+Z` quitte le mode configuration,
   `Ctrl+A/E` déplace le curseur au début/à la fin de la commande.
-- Cliquer sur un switch : liste de ses 24 ports. Double-cliquer sur un port pour le configurer.
+- Cliquer sur un switch : liste de ses ports. Double-cliquer sur un port pour le configurer.
 - Cliquer sur un câble pour inspecter et configurer chaque extrémité indépendamment ou le couper.
 - Choisir le VLAN observé : root STP, liens bloqués, liens down et liens hors VLAN sont distingués.
 - Dans l’onglet **Simulation** à droite, lancer le ping depuis un PC, puis utiliser Lecture, Pause, Étape, Rejouer et le curseur de vitesse.
@@ -160,10 +160,22 @@ Le profil est conservé dans les sauvegardes JSON et les exports texte.
 
 Aruba, Juniper, Arista, Huawei, MikroTik, Fortinet et Palo Alto sont actuellement
 des références consultables, sans création : leurs CLI et moteurs spécifiques
-ne sont pas implémentés. Le catalogue n'est pas exhaustif. Le profil Catalyst
-2960 utilise encore les 24 ports génériques du moteur, pas une reproduction
-matérielle exacte.
+ne sont pas implémentés. Le catalogue n'est pas exhaustif. Les profils Catalyst 2960 (24 FE + 2 GE) et 9200L (24 GE + 4 uplinks)
+utilisent des noms de ports spécifiques mais le moteur pédagogique partagé ;
+il ne reproduit pas toutes les variantes matérielles et fonctions constructeur.
 
 802.1X utilise un backend RADIUS local simulé (`[radius]` dans le fichier texte),
 sans EAPOL ni trafic RADIUS. IGMP snooping modélise les abonnements et la sélection
 des ports, sans querier, temporisations ou routage multicast.
+
+Les interfaces PC peuvent être activées/désactivées depuis l’inspecteur et sous
+Linux avec `sudo ip link set dev eth0 up|down`. Les commandes `resolvectl dns`
+et `netsh interface ipv4 set dnsservers` règlent la liste DNS ; la résolution
+de noms reste à implémenter. L’aide `?`/`help` expose les commandes du profil OS.
+Les paramètres netsh non simulés sont rejetés avant toute modification.
+
+Exemple prêt à importer : [`examples/windows_linux.lab.txt`](examples/windows_linux.lab.txt)
+(Windows 11 et Ubuntu, commandes natives, VLAN 10/20 et routeur inter-VLAN).
+
+![Inspecteur PC](docs/pc_profiles.png)
+![Catalogue](docs/catalogue.png)

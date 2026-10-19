@@ -32,7 +32,7 @@ def port_name(name):
     name = re.sub(r'^g(?=\d)', 'gi', name)
     name = re.sub(r'^f(?=\d)', 'fa', name)
     name = name.replace('port-channel', 'po').replace('ethernet', 'eth').replace(' ', '')
-    if not re.fullmatch(r'(?:gi|fa)\d+/\d+(?:\.\d+)?|eth\d+|po\d+', name):
+    if not re.fullmatch(r'(?:gi|fa)\d+/(?:\d+/)?\d+(?:\.\d+)?|eth\d+|po\d+', name):
         raise ValueError('Interface inconnue. Exemple : gi0/1, gi0/0.10, po1.')
     return name
 
@@ -118,14 +118,14 @@ class Node:
     profile: str = ''
 
     def __post_init__(self):
-        from .profiles import PROFILES, default_profile
+        from .profiles import PROFILES, default_profile, profile_ports
         self.profile = self.profile or default_profile(self.kind)
         profile = PROFILES.get(self.profile)
         if not profile or not profile.creatable or profile.kind != self.kind:
             raise ValueError('Profil non simulé ou incompatible : '+self.profile)
         self.ports = {k: Port(**v) if isinstance(v, dict) else v for k,v in self.ports.items()}
         if not self.ports:
-            names = [f'gi0/{i}' for i in range(1, 25)] if self.kind == 'Switch' else ['gi0/0'] if self.kind == 'Routeur' else ['eth0']
+            names = profile_ports(self.profile,self.kind)
             self.ports = {name: Port() for name in names}
 
     @property

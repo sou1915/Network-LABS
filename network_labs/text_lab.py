@@ -211,6 +211,9 @@ def export_lab(lab):
                 if n.dns:
                     output.append('ip dns '+' '.join(n.dns))
             output.extend('igmp join '+group for group in n.groups)
+            if n.ports['eth0'].shutdown:
+                # Canonical helper is independent of the selected OS profile.
+                output.append('ip link down')
         else:
             config=Session(lab,n.name).running_config().splitlines()
             # VTP clients cannot create VLANs; restore the database before enabling client mode.

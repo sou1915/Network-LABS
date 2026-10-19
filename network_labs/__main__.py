@@ -34,7 +34,7 @@ class Terminal:
         self.tail_job=None; self.follow_tail=True
         self.frame=tk.Frame(app.dock,bg='#000000')
         bar=tk.Frame(self.frame,bg='#1c2026',padx=9,pady=4); bar.pack(fill='x')
-        tk.Label(bar,text=f'{node} — Console 0  |  Local simulation',bg='#1c2026',fg='#a8afb8',font=('DejaVu Sans',9)).pack(side='left')
+        tk.Label(bar,text=f'{node} — {PROFILES[self.session.n.profile].model} | Simulation',bg='#1c2026',fg='#a8afb8',font=('DejaVu Sans',9)).pack(side='left')
         for title,callback in [('?',lambda:self.send('?')),('Coller un bloc',self.block),('Effacer',self.clear)]:
             ttk.Button(bar,text=title,command=callback,style='Small.TButton').pack(side='right',padx=3)
         content=tk.Frame(self.frame,bg='black'); content.pack(fill='both',expand=True)
@@ -473,7 +473,7 @@ class App:
             sub=tk.Label(card,text=subtitle,bg=CARD,fg=MUTED,font=('DejaVu Sans',8),anchor='w'); sub.pack(fill='x',pady=(4,0))
             for w in (card,name,sub):
                 w.bind('<Button-1>',lambda e,k=kind:self.set_place(k))
-        button(parent,'Catalogue · OS / marques',self.catalogue).pack(fill='x',padx=10,pady=8)
+        button(parent,'Catalogue équipements',self.catalogue).pack(fill='x',padx=10,pady=8)
         label(parent,'OUTILS',MUTED,9,True).pack(fill='x',padx=14,pady=(20,8))
         for title,callback in [('↖  Sélection',lambda:self.set_mode('select')),('⌁  Câbler',lambda:self.set_mode('cable')),('⌨  Ouvrir CLI',lambda:self.open_cli(self.selected)),('Supprimer',self.delete)]:
             button(parent,title,callback).pack(fill='x',padx=10,pady=3)
@@ -606,11 +606,12 @@ class App:
         if self.selected in self.lab.nodes:
             n=self.lab.nodes[self.selected]
             label(panel,n.hostname or n.name,TEAL,16,True).pack(fill='x',pady=(3,5))
-            label(panel,n.kind+'  /  '+n.mac,MUTED,8).pack(fill='x',pady=(0,10))
+            label(panel,PROFILES[n.profile].brand+' · '+PROFILES[n.profile].model,MUTED,8).pack(fill='x',pady=(0,10))
+            label(panel,n.mac+' · simulation réseau',MUTED,8).pack(fill='x')
             button(panel,'Ouvrir la console CLI',lambda:self.open_cli(n.name),True).pack(fill='x',pady=5)
             if n.kind=='PC':
                 self.fields={}
-                for title,value in [('IPv4 / CIDR',n.address),('Passerelle',n.gateway)]:
+                for title,value in [('IPv4 / CIDR',n.address),('Passerelle',n.gateway),('DNS (séparés par espace)',' '.join(n.dns))]:
                     label(panel,title,MUTED,9).pack(fill='x',pady=(12,4))
                     var=tk.StringVar(value=value); self.fields[title]=var
                     ttk.Entry(panel,textvariable=var).pack(fill='x')
@@ -620,12 +621,22 @@ class App:
                         gateway=self.fields['Passerelle'].get().strip()
                         if gateway:
                             IPv4Address(gateway)
-                        n.address,n.gateway=address,gateway
-                        n.address_mode='static'
+                        dns=[str(IPv4Address(ip)) for ip in self.fields['DNS (séparés par espace)'].get().split()]
+                        Session(self.lab,n.name).pc_static_address(address,gateway)
+                        n.dns=dns
                         self.changed('Configuration IPv4 appliquée')
                     except ValueError as e:
                         messagebox.showerror('IPv4',str(e),parent=self.root)
                 button(panel,'Appliquer IPv4',apply).pack(fill='x',pady=12)
+                def dhcp():
+                    result=Session(self.lab,n.name).execute('ip dhcp')
+                    self.status.set(result)
+                    self.dirty=True; self.refresh()
+                button(panel,'Obtenir une adresse DHCP',dhcp).pack(fill='x',pady=3)
+                def toggle_link():
+                    n.ports['eth0'].shutdown=not n.ports['eth0'].shutdown
+                    self.changed('Interface eth0 '+('désactivée' if n.ports['eth0'].shutdown else 'activée'))
+                button(panel,'Activer eth0' if n.ports['eth0'].shutdown else 'Désactiver eth0',toggle_link).pack(fill='x',pady=3)
             elif n.kind=='Switch':
                 label(panel,'PORTS PHYSIQUES',MUTED,9,True).pack(fill='x',pady=(14,7))
                 port_frame=tk.Frame(panel,bg=PANEL)
@@ -638,9 +649,9 @@ class App:
                     if '.' in name or name.startswith('po'):
                         continue
                     link=self.lab.link_for(n.name,name)
-                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or (link and not link.enabled) else 'BOUND' if link and self.lab.boundary_reason(link) else 'SUSP' if link and not self.lab.channel_state(link)[0] else stp.get(name,('','UP'))[1] if link else 'libre'
+                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or (link and not link.enabled) else 'AUTH' if not self.lab.access_allowed(n.name,name) else 'BOUND' if link and self.lab.boundary_reason(link) else 'SUSP' if link and not self.lab.channel_state(link)[0] else stp.get(name,('','UP'))[1] if link else 'libre'
                     operational=self.lab.operational_mode(link,n.name) if link else p.mode
-                    ports.insert('', 'end',iid=name,values=(name,state,'trunk' if operational=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK','BOUND','SUSP') else ())
+                    ports.insert('', 'end',iid=name,values=(name,state,'trunk' if operational=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK','BOUND','SUSP','AUTH') else ())
                 ports.tag_configure('bad',foreground=GOLD)
                 scroll=ttk.Scrollbar(port_frame,command=ports.yview)
                 ports.configure(yscrollcommand=scroll.set)
@@ -769,7 +780,7 @@ class App:
             self.icon(n.kind,x,y-8*z,z,color,tags)
             c.create_text(x,y+31*z,text=n.hostname or n.name,fill=TEXT,font=('DejaVu Sans',max(8,int(10*z)),'bold'),tags=tags)
             if z>=.7:
-                c.create_text(x,y+63*z,text=n.address if n.kind=='PC' else 'L2 • 24 ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
+                c.create_text(x,y+63*z,text=(PROFILES[n.profile].model+' · '+(n.address or 'sans IPv4')) if n.kind=='PC' else f'L2 • {sum(not p.startswith("po") and "." not in p for p in n.ports)} ports' if n.kind=='Switch' else 'Router-on-a-stick',fill=MUTED,font=('DejaVu Sans',max(7,int(8*z))),tags=tags)
             c.create_oval(x+width/2-14*z,y-height/2+9*z,x+width/2-8*z,y-height/2+15*z,fill=color,outline='',tags=tags)
             if n.kind=='Switch' and states.get(n.name,{}).get('root')==n.name:
                 c.create_text(x,y-height/2-13*z,text=('ROOT / MST '+str(n.mst_map.get(str(vlan),0))) if n.stp_mode=='mst' else 'ROOT / VLAN '+str(vlan),fill=GOLD,font=('DejaVu Sans',max(7,int(8*z)),'bold'),tags=tags)
@@ -816,18 +827,23 @@ class App:
 
     def catalogue(self):
         dialog=tk.Toplevel(self.root)
-        dialog.title('Catalogue des équipements')
+        dialog.title('Catalogue des équipements'); dialog.configure(bg=PANEL)
         fit_dialog(dialog,880,540)
         query=tk.StringVar()
+        label(dialog,'Rechercher une marque, un modèle ou un OS',MUTED,9).pack(fill='x',padx=12,pady=(10,0))
         ttk.Entry(dialog,textvariable=query).pack(fill='x',padx=12,pady=12)
         table=ttk.Treeview(dialog,columns=('brand','model','kind','support'),show='headings')
         for key,title,width in [('brand','Marque',115),('model','Modèle / OS',280),('kind','Type',80),('support','Simulation',170)]:
             table.heading(key,text=title); table.column(key,width=width)
+        scrolling=ttk.Scrollbar(dialog,orient='vertical',command=table.yview)
+        scrolling.pack(side='right',fill='y')
+        table.configure(yscrollcommand=scrolling.set)
         table.pack(fill='both',expand=True,padx=12)
         details=tk.StringVar(value='Choisir un profil. Les OS simulent uniquement les commandes réseau.')
         ttk.Label(dialog,textvariable=details,wraplength=760).pack(fill='x',padx=12,pady=10)
         def refresh(*args):
             table.delete(*table.get_children())
+            create.configure(state='disabled')
             for profile in PROFILES.values():
                 if query.get().lower() in (profile.brand+' '+profile.model+' '+profile.kind).lower():
                     table.insert('', 'end',iid=profile.id,values=(profile.brand,profile.model,profile.kind,'Partielle' if profile.creatable else 'Référence uniquement'))
@@ -838,7 +854,11 @@ class App:
                 details.set(profile.scope+' '+('OS : commandes réseau uniquement.' if profile.kind=='PC' else ''))
                 create.configure(state='normal' if profile.creatable else 'disabled')
         def place():
+            if not table.selection():
+                return
             profile=PROFILES[table.selection()[0]]
+            if not profile.creatable:
+                return
             self.set_place(profile.kind)
             self.place_profile=profile.id
             dialog.destroy()

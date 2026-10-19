@@ -7,6 +7,7 @@ from .layer2_cli import Layer2Commands
 from .cli_editing import CLIEditing
 from .access_multicast_cli import AccessMulticastCLI
 from .profiles import PROFILES
+from .pc_cli import PCCommands
 
 FEATURES = '''NETWORK LABS / CLI pédagogique (inspirée IOS, pas un IOS réel)
 Modes : enable, configure terminal, vlan, interface, interface range, end, exit
@@ -29,7 +30,7 @@ Aucune commande non prise en charge n'est enregistrée comme fonctionnelle.'''
 
 ALIASES={'en':'enable','conf':'configure','t':'terminal','int':'interface','sh':'show','run':'running-config','desc':'description','wr':'write'}
 
-class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
+class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands):
     def __init__(self,lab,node):
         self.lab,self.node=lab,node
         self.mode='user'
@@ -244,7 +245,7 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
     def parse_range(self,text):
         names=[]
         for item in text.split(','):
-            match=re.fullmatch(r'\s*((?:gi|fa)\d+/)(\d+)\s*(?:-\s*(\d+))?\s*',item)
+            match=re.fullmatch(r'\s*((?:gi|fa)\d+/(?:\d+/)?)(\d+)\s*(?:-\s*(\d+))?\s*',item)
             if not match:
                 raise ValueError('Exemple : interface range gi0/1 - 4, gi0/8')
             prefix,start,end=match.groups()
@@ -524,46 +525,6 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
             return '\n'.join(f'{name}: IP Source Guard enabled (DHCP binding required)' for name,p in self.n.ports.items() if p.source_guard) or 'IP Source Guard disabled.'
         return None
 
-    def pc_native(self,low,line):
-        family=PROFILES[self.n.profile].family
-        if low in ('ver','uname -a'):
-            expected='windows' if low=='ver' else 'linux'
-            if family!=expected:
-                raise ValueError('Commande incompatible avec le profil OS.')
-            return PROFILES[self.n.profile].model+' — simulation réseau, aucun noyau OS exécuté.'
-        if family=='linux':
-            if low in ('ip a','ip addr show','ip -br addr','ip link show'):
-                return f'eth0  {"UP" if self.lab.link_for(self.node,"eth0") else "DOWN"}  {self.n.address or "sans IPv4"}  {self.n.mac}'
-            if low in ('ip route','ip route show'):
-                return (f'default via {self.n.gateway} dev eth0\n' if self.n.gateway else '')+(f'{IPv4Interface(self.n.address).network} dev eth0' if self.n.address else '')
-            if low in ('dhclient','sudo dhclient','sudo dhclient eth0'):
-                return self.pc('ip dhcp','ip dhcp')
-            match=re.fullmatch(r'(?:sudo )?ip addr (?:add|replace) (\S+) dev eth0',low)
-            if match:
-                return self.pc('ip address '+match[1],'ip address '+match[1])
-            match=re.fullmatch(r'(?:sudo )?ip route (?:add|replace) default via (\S+)(?: dev eth0)?',low)
-            if match:
-                return self.pc('ip gateway '+match[1],'ip gateway '+match[1])
-        if family=='windows':
-            if low=='ipconfig /all':
-                return self.pc('ipconfig','ipconfig')
-            if low=='route print':
-                return f'IPv4 Route Table\n0.0.0.0/0 via {self.n.gateway or "non configurée"}\nInterface Ethernet: {self.n.address or "sans IPv4"}'
-            if low.startswith('netsh interface ipv4 set address '):
-                import shlex
-                values=dict(token.split('=',1) for token in shlex.split(line)[5:] if '=' in token)
-                if values.get('name','').lower()!='ethernet':
-                    raise ValueError('Interface simulée : name="Ethernet".')
-                if values.get('source')=='dhcp':
-                    return self.pc('ip dhcp','ip dhcp')
-                if values.get('source')!='static':
-                    raise ValueError('source=static ou dhcp requis.')
-                address=str(IPv4Interface(values['address']+'/'+values['mask']))
-                gateway=str(IPv4Address(values['gateway'])) if values.get('gateway') else ''
-                self.n.address=address; self.n.gateway=gateway; self.n.address_mode='static'; self.changed=True
-                return 'Ok.'
-        return None
-
     def pc(self,low,line):
         native=self.pc_native(low,line)
         if native is not None:
@@ -571,6 +532,8 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
         feature=self.feature_pc(low,line)
         if feature is not None:
             return feature
+        if low in ('ip link down','ip link up'):
+            self.n.ports['eth0'].shutdown=low.endswith('down'); self.changed=True; return ''
         if low in ('ip dhcp','ipconfig /renew'):
             result=self.lab.request_dhcp(self.node)
             self.changed=True
@@ -590,9 +553,8 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI):
             self.n.dns=[str(IPv4Address(ip)) for ip in low.split()[2:]]
             self.changed=True; return 'DNS appliqués.'
         if low.startswith('ip address '):
-            self.n.address=str(IPv4Interface(low[len('ip address '):]))
-            self.n.address_mode='static'
-            self.changed=True
+            address=str(IPv4Interface(low[len('ip address '):]))
+            self.pc_static_address(address)
             return 'Adresse appliquée.'
         if low.startswith('ip gateway '):
             self.n.gateway=str(IPv4Address(low[len('ip gateway '):]))

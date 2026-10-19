@@ -20,7 +20,8 @@ PROFILES = {p.id:p for p in [
     Profile('linux-debian','Debian','Debian','PC','linux'),
     Profile('linux-rocky','Rocky','Rocky Linux','PC','linux'),
     Profile('generic-switch','Générique','Switch 24 ports','Switch'),
-    Profile('cisco-2960','Cisco','Catalyst 2960 (24 ports simulés)','Switch'),
+    Profile('cisco-2960','Cisco','Catalyst 2960 · 24 FE + 2 GE','Switch'),
+    Profile('cisco-9200l','Cisco','Catalyst 9200L · 24 GE + 4 uplinks','Switch'),
     Profile('cisco-ios-router','Cisco','Routeur IOS (1 uplink simulé)','Routeur'),
     Profile('generic-router','Générique','Routeur 802.1Q','Routeur'),
     *[Profile(i,b,m,k,'reference',False,'Référence catalogue : CLI et fonctions constructeur non implémentées.') for i,b,m,k in [
@@ -37,3 +38,11 @@ PROFILES = {p.id:p for p in [
 
 def default_profile(kind):
     return {'PC':'generic-pc','Switch':'generic-switch','Routeur':'generic-router'}[kind]
+
+
+def profile_ports(profile_id,kind):
+    if profile_id=='cisco-2960':
+        return [f'fa0/{i}' for i in range(1,25)]+['gi0/1','gi0/2']
+    if profile_id=='cisco-9200l':
+        return [f'gi1/0/{i}' for i in range(1,25)]+[f'gi1/1/{i}' for i in range(1,5)]
+    return [f'gi0/{i}' for i in range(1,25)] if kind=='Switch' else ['gi0/0'] if kind=='Routeur' else ['eth0']
