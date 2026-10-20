@@ -137,15 +137,23 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
             if ready:
                 ready()
             try:
-                process.communicate(timeout=max(0, deadline - time.monotonic()))
+                # Only the independent watchdog sends the duration signal.
+                # Signalling here at the same deadline can deliver two INTs
+                # while tcpdump is closing its PCAP and kill normal cleanup.
+                process.communicate(timeout=max(0, deadline - time.monotonic()) + 3)
             except subprocess.TimeoutExpired:
-                reason = 'duration'; _finish(process)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate(timeout=2)
+                raise RuntimeFailure('Capture watchdog exceeded its duration and cleanup grace; partial file retained.')
         except KeyboardInterrupt:
             reason = 'interrupted'; _finish(process)
         if process.returncode == 124 and reason != 'interrupted':
             reason = 'duration'
         if process.returncode not in (0, 124):
-            raise RuntimeFailure('tcpdump failed: ' + _log(log_handle).decode(errors='replace').strip())
+            raise RuntimeFailure(f'tcpdump failed (exit {process.returncode}): ' + _log(log_handle).decode(errors='replace').strip())
         summary = pcap_summary(handle)
         if summary['captured_packets'] > packets or summary['snapshot_length'] > snaplen:
             raise RuntimeFailure('Capture exceeded its requested packet/snapshot bounds.')

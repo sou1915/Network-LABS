@@ -856,7 +856,10 @@ ne répond pas sous 2 s, avec une seconde attente de nettoyage de 2 s. Le watchd
 applique aussi le délai si le parent Python est tué ; stderr est conservé dans
 un fichier temporaire anonyme pour éviter un SIGPIPE après cette disparition. Tuer le watchdog lui-même
 est hors de cette garantie. Le code 124 du watchdog est interprété comme une fin
-par durée, après validation du PCAP. Ctrl-C après démarrage conserve un
+par durée, après validation du PCAP. Le parent attend ce watchdog avec 3 s de
+grâce sans envoyer un deuxième SIGINT au même instant ; si le watchdog ne
+termine pas, il tue le groupe puis retourne une erreur avec fichier partiel.
+Ctrl-C après démarrage conserve un
 PCAP valide si tcpdump le ferme correctement, avec `stop_reason=interrupted` et
 un code retour CLI 130. Les erreurs retournent 1.
 
