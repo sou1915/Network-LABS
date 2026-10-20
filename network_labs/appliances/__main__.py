@@ -16,15 +16,25 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--campus', action='store_true', help='Eight-node VLAN/trunk/router/DHCP reference LAN.')
     rootfs = commands.add_parser('rootfs', help='Build an offline minimal rootfs from trusted static BusyBox.')
     rootfs.add_argument('--busybox', type=Path, required=True)
     rootfs.add_argument('--output', type=Path, required=True)
     for command in ('plan', 'start'):
         item = commands.add_parser(command)
         item.add_argument('manifest', type=Path)
-    for command in ('status', 'stop'):
+    for command in ('status', 'stop', 'save', 'restore', 'recover', 'export'):
         item = commands.add_parser(command)
         item.add_argument('name')
+        if command == 'export':
+            item.add_argument('--startup', action='store_true', help='Export last saved startup configuration.')
+    inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
+    inspect.add_argument('name'); inspect.add_argument('node')
+    configure = commands.add_parser('configure', help='Apply a validated partial IOS-style block to a running node.')
+    configure.add_argument('name'); configure.add_argument('node')
+    config_source = configure.add_mutually_exclusive_group(required=True)
+    config_source.add_argument('--file', type=Path)
+    config_source.add_argument('--text', help='Multiline configuration; quote it in the calling shell.')
     execute = commands.add_parser('exec', help='Execute real commands in an OCI node, not the simulator CLI.')
     execute.add_argument('--tty', action='store_true')
     execute.add_argument('name'); execute.add_argument('node')
@@ -34,7 +44,8 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            result = example(args.rootfs)
+            from .examples import campus
+            result = campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
         elif args.command == 'plan':
@@ -44,8 +55,30 @@ def main(arguments=None):
             with Manager(spec['name'] if spec else args.name).locked() as manager:
                 if args.command == 'start':
                     manager.start(spec); result = manager.status()
+                elif args.command == 'restore':
+                    from .persistence import load_startup
+                    manager.start(load_startup(args.name)); result = manager.status()
                 elif args.command == 'stop':
                     manager.stop(); result = {'stopped': args.name}
+                elif args.command == 'save':
+                    result = manager.write_startup()
+                elif args.command == 'recover':
+                    manager.recover(); result = manager.status()
+                elif args.command == 'inspect':
+                    result = manager.inspect(args.node)
+                elif args.command == 'configure':
+                    text = args.file.read_text(encoding='utf-8') if args.file else args.text
+                    result = manager.configure_ios(args.node, text)
+                elif args.command == 'export':
+                    if args.startup:
+                        from .persistence import load_startup
+                        result = load_startup(args.name)
+                    else:
+                        from .persistence import drift
+                        differences = drift(manager)
+                        if differences:
+                            raise RuntimeFailure('Unmanaged kernel changes detected: ' + '; '.join(differences))
+                        result = manager.read()['spec']
                 elif args.command == 'exec':
                     command = args.argv[1:] if args.argv[:1] == ['--'] else args.argv
                     return manager.execute(args.node, command, tty=args.tty)

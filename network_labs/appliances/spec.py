@@ -43,8 +43,8 @@ def asset(value):
 def validate(data):
     data = copy.deepcopy(data)
     keys(data, ('version', 'name', 'budget_mib', 'reserve_mib', 'nodes', 'links'), 'Lab')
-    if type(data.get('version')) is not int or data['version'] != 1:
-        raise ValueError('Native manifest version 1 required.')
+    if type(data.get('version')) is not int or data['version'] not in (1, 2):
+        raise ValueError('Native manifest version 1 or 2 required.')
     identifier(data.get('name'))
     budget = integer(data.setdefault('budget_mib', 2048), 128, 1048576, 'budget_mib')
     reserve = integer(data.setdefault('reserve_mib', 512), 64, budget, 'reserve_mib')
@@ -52,7 +52,8 @@ def validate(data):
         raise ValueError('1..256 nodes required.')
     names = set()
     for node in data['nodes']:
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway'), 'Node')
+        from .lan import LAN_FIELDS, addresses, validate_lan
+        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -74,9 +75,10 @@ def validate(data):
                 raise ValueError('Interface address must be a string.')
             if address:
                 ipaddress.IPv4Interface(address)
+        validate_lan(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
-            if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in interfaces.values()):
+            if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
                 raise ValueError('Gateway must belong to a configured interface subnet.')
         if runtime == 'oci':
             asset(node.get('rootfs'))

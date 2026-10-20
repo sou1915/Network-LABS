@@ -5,6 +5,7 @@ Only explicitly requested start/stop commands create host resources.
 """
 from contextlib import contextmanager
 import fcntl
+import copy
 import ipaddress
 import json
 import os
@@ -19,6 +20,7 @@ from .catalog import capabilities
 from .spec import MIB, identifier, namespace, prefix, validate
 
 STATE_ROOT = Path('/run/network-labs')
+CONFIG_ROOT = Path('/var/lib/network-labs')
 
 
 class RuntimeFailure(RuntimeError):
@@ -59,6 +61,8 @@ def oci_config(spec, node, index, rootfs):
                     'cwd': '/', 'noNewPrivileges': True,
                     'capabilities': {key: caps for key in ('bounding', 'effective', 'permitted')}},
         'mounts': [
+            {'destination': '/lab', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files'),
+             'options': ['bind', 'ro', 'nosuid', 'nodev']},
             {'destination': '/proc', 'type': 'proc', 'source': 'proc', 'options': ['nosuid', 'noexec', 'nodev']},
             {'destination': '/dev', 'type': 'tmpfs', 'source': 'tmpfs', 'options': ['nosuid', 'strictatime', 'mode=755', 'size=4m']},
             {'destination': '/dev/pts', 'type': 'devpts', 'source': 'devpts', 'options': ['nosuid', 'noexec', 'newinstance', 'ptmxmode=0666', 'mode=0620']},
@@ -109,8 +113,8 @@ def plan(data):
                       for i, n in enumerate(spec['nodes'])],
             'links': spec['links'],
             'limits': ['Native lab is separate from the model/Wasm canvas.',
-                       'No automatic vendor firmware, CLI translation, VLAN/STP configuration or GUI replication.',
-                       'Switch role is an untagged Linux bridge with STP off. Configure advanced features explicitly.',
+                       'No automatic vendor firmware or complete vendor GUI/CLI replication.',
+                       'VLAN access/trunk and dot1Q routing are native; STP/RSTP/LACP are not implemented.',
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
@@ -118,12 +122,14 @@ def static_busybox_rootfs(binary, target):
     """Build offline, and reject dynamically linked ELF before copying it."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
-    if raw[:4] != b'\x7fELF' or raw[4] not in (1, 2) or raw[5] not in (1, 2):
+    if len(raw) < 64 or raw[:4] != b'\x7fELF' or raw[4] not in (1, 2) or raw[5] not in (1, 2):
         raise ValueError('Static BusyBox ELF binary required.')
     endian = '<' if raw[5] == 1 else '>'
     is64 = raw[4] == 2
     offset = struct.unpack_from(endian + ('Q' if is64 else 'I'), raw, 32 if is64 else 28)[0]
     size, count = struct.unpack_from(endian + 'HH', raw, 54 if is64 else 42)
+    if size < 4 or offset + count * size > len(raw):
+        raise ValueError('Malformed ELF program header table.')
     if any(struct.unpack_from(endian + 'I', raw, offset + i * size)[0] == 3 for i in range(count)):
         raise ValueError('BusyBox is dynamically linked; install busybox-static.')
     if target.exists():
@@ -132,7 +138,7 @@ def static_busybox_rootfs(binary, target):
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root'):
         (target / name).mkdir(parents=True, exist_ok=True)
     shutil.copyfile(binary, target / 'bin/busybox'); (target / 'bin/busybox').chmod(0o755)
-    for applet in ('sh', 'sleep', 'ping', 'ip', 'cat', 'ls', 'ps', 'hostname', 'httpd', 'wget', 'nc', 'echo', 'mkdir', 'kill'):
+    for applet in ('sh', 'sleep', 'ping', 'ip', 'cat', 'ls', 'ps', 'hostname', 'httpd', 'wget', 'nc', 'echo', 'mkdir', 'kill', 'udhcpc', 'udhcpd', 'ipcalc'):
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     return target
@@ -172,6 +178,7 @@ class Manager:
     def read(self):
         if self.state is None:
             self.state = json.loads((self.directory / 'state.json').read_text())
+            self.state['spec'] = validate(self.state['spec'])
         return self.state
 
     def crun(self, *args, **options):
@@ -205,7 +212,8 @@ class Manager:
             raise RuntimeFailure('Lab state already exists. Inspect status or stop it before restarting.')
         self.preflight(spec)
         self.directory.mkdir(mode=0o700)
-        self.state = {'spec': spec, 'phase': 'starting', 'namespaces': [], 'mounts': [],
+        self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
+                      'phase': 'starting', 'namespaces': [], 'mounts': [],
                       'containers': [], 'vms': [], 'host_links': []}
         self.save()
         try:
@@ -230,8 +238,8 @@ class Manager:
                     j, node = byname[name]
                     run(['ip', 'link', 'set', peer, 'netns', namespace(spec, j)])
                     self.ns(j, 'ip', 'link', 'set', peer, 'name', port)
-                    self.ns(j, 'ip', 'link', 'set', port, 'up')
                     if node['runtime'] == 'firecracker':
+                        self.ns(j, 'ip', 'link', 'set', port, 'up')
                         self.ns(j, 'ip', 'link', 'set', port, 'master', 'vmbr0')
             connected = {tuple(e) for link in spec['links'] for e in link}
             for i, node in enumerate(spec['nodes']):
@@ -240,21 +248,14 @@ class Manager:
                         if (node['name'], port) not in connected:
                             self.ns(i, 'ip', 'link', 'add', port, 'type', 'dummy')
                             self.ns(i, 'ip', 'link', 'set', port, 'up')
-                    if node['role'] == 'switch':
-                        self.ns(i, 'ip', 'link', 'add', 'br0', 'type', 'bridge', 'stp_state', '0')
-                        self.ns(i, 'ip', 'link', 'set', 'br0', 'up')
-                        for port in node['interfaces']:
-                            self.ns(i, 'ip', 'link', 'set', port, 'master', 'br0')
-                    if node['role'] in ('router', 'firewall'):
-                        self.ns(i, 'sysctl', '-w', 'net.ipv4.ip_forward=1')
-                    for port, address in node['interfaces'].items():
-                        if address:
-                            self.ns(i, 'ip', 'addr', 'add', address, 'dev', port)
-                    if node.get('gateway'):
-                        self.ns(i, 'ip', 'route', 'add', 'default', 'via', node['gateway'])
+                    from .lan import configure
+                    configure(self, i, node)
                     self.start_oci(spec, node, i)
                 else:
                     self.start_vm(node, i)
+            from .dhcp import start_clients, start_servers
+            start_servers(self)
+            start_clients(self)
             self.state['phase'] = 'running'; self.save()
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
@@ -263,6 +264,8 @@ class Manager:
 
     def start_oci(self, spec, node, index):
         bundle = self.directory / node['name']; bundle.mkdir()
+        from .dhcp import prepare_files
+        prepare_files(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):
             (bundle / folder).mkdir()
         options = f'lowerdir={Path(node["rootfs"]).resolve()},upperdir={bundle / "upper"},workdir={bundle / "work"}'
@@ -317,14 +320,74 @@ class Manager:
                 report['state'] = json.loads(result.stdout) if result.returncode == 0 else {'status': 'unavailable', 'detail': result.stderr.strip()}
                 memory = Path('/sys/fs/cgroup/network-labs') / prefix(state['spec']) / node['name'] / 'memory.current'
                 report['memory_current_bytes'] = int(memory.read_text()) if memory.exists() else None
+                if node.get('dhcp_clients'):
+                    observed = self.inspect(node['name'])
+                    report['dhcp'] = {port: [f'{a["local"]}/{a["prefixlen"]}' for item in observed['addresses']
+                                            if item['ifname'] == port for a in item.get('addr_info', []) if a.get('scope') == 'global']
+                                      for port in node['dhcp_clients']}
             else:
                 vm = next((v for v in state['vms'] if v['name'] == node['name']), None)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')
             nodes.append(report)
-        return {'name': self.name, 'phase': state['phase'], 'nodes': nodes,
+        return {'name': self.name, 'phase': state['phase'], 'revision': state.get('revision', 0), 'nodes': nodes,
                 'memory_note': 'OCI cgroup memory only; not total app/VM/host usage.'}
+
+    def inspect(self, name):
+        from .lan import observe
+        for index, node in enumerate(self.read()['spec']['nodes']):
+            if node['name'] == name and node['runtime'] == 'oci':
+                return observe(self, index, node)
+        raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
+
+    def configure_ios(self, name, text):
+        from .ios import compile_config
+        from .lan import configure
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before configuration.')
+        candidate = compile_config(state['spec'], name, text)
+        index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
+        previous = copy.deepcopy(state['spec'])
+        state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
+        try:
+            configure(self, index, candidate['nodes'][index], previous['nodes'][index])
+        except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as original:
+            try:
+                configure(self, index, previous['nodes'][index], candidate['nodes'][index])
+            except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as rollback:
+                state['phase'] = 'configuration-failed'; self.save()
+                raise RuntimeFailure(f'Apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
+            state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+            raise RuntimeFailure(f'Configuration failed and was rolled back: {original}') from original
+        state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
+        state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+        return {'configured': name, 'revision': state['revision'], 'source': 'Linux namespaces; partial IOS-style adapter'}
+
+    def recover(self):
+        from .lan import configure
+        state = self.read()
+        if state['phase'] not in ('configuring', 'configuration-failed') or 'pending_spec' not in state:
+            raise RuntimeFailure('No interrupted network configuration to recover.')
+        for index, node in enumerate(state['spec']['nodes']):
+            if node['runtime'] == 'oci':
+                configure(self, index, node, state['pending_spec']['nodes'][index])
+        state.pop('pending_spec'); state['phase'] = 'running'; self.save()
+
+    def write_startup(self):
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Save requires a running lab without pending configuration.')
+        from .persistence import drift, save_startup
+        differences = drift(self)
+        if differences:
+            raise RuntimeFailure('Unmanaged kernel changes detected; no stale configuration saved: ' + '; '.join(differences))
+        spec = validate(state['spec'])
+        save_startup(self.name, spec)
+        state['startup_spec'] = copy.deepcopy(spec); self.save()
+        return {'saved': str(CONFIG_ROOT / self.name / 'startup.json'),
+                'note': 'Declarative network configuration only; no runtime filesystem snapshot or DHCP lease persistence.'}
 
     def stop(self):
         state = self.read(); errors = []
