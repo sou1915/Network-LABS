@@ -665,7 +665,9 @@ un port-channel, jamais à ses membres physiques. Aucun daemon supplémentaire.
   Le lien peut rester administrativement UP. Ce n'est pas une émulation de
   l'état Cisco err-disabled et aucun timer de récupération automatique n'est fourni.
 - `root_guard: true` applique `root_block on`. Le port ne peut devenir root port.
-  Les BPDUs supérieures peuvent le laisser en blocking ; une autre voie reste
+  Avec des BPDUs supérieures répétées, le kernel peut le maintenir en
+  listening en réarmant forward_delay : il ne transmet alors pas les données.
+  Ce mécanisme peut aussi laisser un port en blocking ; une autre voie reste
   utilisable si elle existe. Il ne désactive pas toute réception de BPDUs.
 
 Le cas habituel est de protéger les ports vers des équipements en aval non
@@ -673,7 +675,8 @@ fiables, sans empêcher les uplinks prévus d'atteindre le root. Activer ces
 protections sur tous les uplinks peut isoler le switch. `inspect` expose les
 flags effectifs du kernel et l'état du port, sans inventer une cause ou un
 compteur de déclenchement. `local_state_settled` reste faux lorsqu'un port
-opérationnel est désactivé par le moteur ; examiner les protections et les liens.
+opérationnel est désactivé par le moteur ou maintenu en listening par Root Guard ;
+examiner les protections et les liens.
 
 Exemple de déclenchement volontaire sur le lien redondant de SW3 :
 
@@ -703,7 +706,8 @@ uplinks, puis par BPDU Guard, des pings négatifs et positifs dans les VLAN 10/2
 la récupération, la détection de drift et le déclenchement après save/restore.
 Les tests STP et STP/LACP précédents restent exécutés sans protection par défaut.
 Référence : [attributs de ports du bridge Linux](https://docs.kernel.org/networking/bridge.html#bridge-port-netlink-attributes),
-`IFLA_BRPORT_GUARD` et `IFLA_BRPORT_PROTECT`.
+`IFLA_BRPORT_GUARD` et `IFLA_BRPORT_PROTECT`, et
+[br_root_port_block du kernel](https://github.com/torvalds/linux/blob/master/net/bridge/br_stp.c).
 
 ### Pourquoi RSTP n'est pas annoncé comme fonctionnel
 

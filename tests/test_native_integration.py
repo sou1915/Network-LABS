@@ -446,8 +446,16 @@ class RealContainerTests(unittest.TestCase):
             with manager.locked():
                 try:
                     manager.start(spec)
-                    wait(lambda t: t['is_root'] and all(t['ports'][p]['state'] == 'blocking' and t['ports'][p]['root_guard'] for p in ('eth2', 'eth3')))
+                    wait(lambda t: t['is_root'] and all(t['ports'][p]['state'] in ('listening', 'blocking') and t['ports'][p]['root_guard'] for p in ('eth2', 'eth3'))
+                         and all(t['ports'][p]['state'] == 'forwarding' for p in ('eth0', 'eth1')))
+                    # Repeated superior BPDUs hold Linux root-protected ports
+                    # in listening, rearming forward_delay. Verify data remains
+                    # blocked beyond that delay, not just during startup.
+                    time.sleep(5)
+                    self.assertTrue(tree()['is_root'])
+                    self.assertTrue(all(tree()['ports'][p]['state'] in ('listening', 'blocking') for p in ('eth2', 'eth3')))
                     self.assertFalse(probe('PC1', '192.0.2.30'))
+                    self.assertFalse(probe('PC2', '198.18.0.30'))
                     both('spanning-tree guard none')
                     wait(lambda t: not t['is_root'] and t['root_port'] == 'eth2' and t['local_state_settled'])
                     connected()
