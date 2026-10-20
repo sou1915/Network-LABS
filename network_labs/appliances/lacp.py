@@ -77,6 +77,9 @@ def configure(manager, index, node, previous):
             ns('ip', 'link', 'add', 'name', name, 'type', 'bond', 'mode', '802.3ad', *options)
             recreated.add(name)
         elif channel != old.get(name):
+            # Bonding options can require IFF_DOWN; only this logical bundle
+            # is interrupted. The LAN apply restores its declared admin state.
+            ns('ip', 'link', 'set', 'dev', name, 'down')
             ns('ip', 'link', 'set', 'dev', name, 'type', 'bond', *options)
         for member in channel['members']:
             # Enslaving requires DOWN. Unchanged members must not be flapped.
@@ -130,8 +133,8 @@ def drift(node, actual):
         info = links.get(name, {}).get('linkinfo', {})
         data = info.get('info_data', {})
         if (info.get('info_kind') != 'bond' or data.get('mode') != '802.3ad' or data.get('miimon') != 100
-                or data.get('lacp_rate') != 'fast' or data.get('min_links') != channel['min_links']
-                or data.get('lacp_active') not in (('on', 1) if channel['mode'] == 'active' else ('off', 0))
+                or data.get('ad_lacp_rate', data.get('lacp_rate')) != 'fast' or data.get('min_links') != channel['min_links']
+                or data.get('ad_lacp_active', data.get('lacp_active')) not in (('on', 1) if channel['mode'] == 'active' else ('off', 0))
                 or data.get('xmit_hash_policy') != 'layer2+3'):
             errors.append(node['name'] + '/' + name + ': bonding configuration differs')
     return errors

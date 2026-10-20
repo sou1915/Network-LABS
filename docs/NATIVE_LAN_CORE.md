@@ -475,7 +475,10 @@ Les membres sont définis dans le manifest au démarrage. La CLI partielle peut
 éditer la politique VLAN et shutdown du port-channel, le shutdown de chaque
 membre, le seuil et le mode d'un bundle existant. Elle ne crée/supprime pas ses
 membres pendant le fonctionnement. `channel-group ... mode` s'applique au mode
-du bundle Linux entier, pas à un mode distinct pour chaque membre.
+du bundle Linux entier, pas à un mode distinct pour chaque membre. Un changement
+de mode/min-links interrompt temporairement ce bond (DOWN, paramètres, état
+administratif déclaré) et peut nécessiter une nouvelle négociation ; les autres
+interfaces ne sont pas volontairement interrompues.
 
 ```bash
 # Couper un membre ; l'autre doit continuer à transporter les deux VLAN.

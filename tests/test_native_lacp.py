@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from network_labs.appliances.examples import lacp_lab
 from network_labs.appliances.ios import compile_config
-from network_labs.appliances.lacp import parse_members
+from network_labs.appliances.lacp import configure, drift, parse_members
 from network_labs.appliances.runtime import Manager
 from network_labs.appliances.spec import validate
 
@@ -72,6 +72,33 @@ details partner lacp pdu:
         self.assertTrue(result[0]['collecting_distributing'])
         self.assertFalse(result[1]['collecting_distributing'])
         self.assertFalse(parse_members('Slave Interface: eth2\nMII Status: up\n')[0]['collecting_distributing'])
+
+    def test_parameter_update_takes_only_affected_bond_down_before_netlink(self):
+        import json
+        import subprocess
+        from types import SimpleNamespace
+        node = lacp_lab('/rootfs')['nodes'][5]
+        old = copy.deepcopy(node); node['port_channels']['bond1']['mode'] = 'active'
+        calls = []
+        links = [{'ifname': 'bond1', 'ifindex': 5}, {'ifname': 'eth2', 'master': 'bond1'}, {'ifname': 'eth3', 'master': 'bond1'}]
+        def ns(index, *args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, json.dumps(links) if '-j' in args else '', '')
+        configure(SimpleNamespace(ns=ns), 0, node, old)
+        down = calls.index(('ip', 'link', 'set', 'dev', 'bond1', 'down'))
+        apply = next(i for i, call in enumerate(calls) if 'lacp_active' in call)
+        self.assertLess(down, apply)
+        self.assertFalse(any(call[-1:] == ('down',) and 'bond1' not in call for call in calls))
+
+    def test_drift_uses_actual_iproute_ad_option_keys(self):
+        node = lacp_lab('/rootfs')['nodes'][4]
+        links = [{'ifname': p, 'ifindex': i + 1, 'master': 'bond1' if p in ('eth2', 'eth3') else 'br0'} for i, p in enumerate(node['interfaces'])]
+        links += [{'ifname': 'br0', 'ifindex': 20}, {'ifname': 'bond1', 'ifindex': 21, 'master': 'br0',
+                   'linkinfo': {'info_kind': 'bond', 'info_data': {'mode': '802.3ad', 'miimon': 100, 'min_links': 1,
+                               'ad_lacp_active': 'on', 'ad_lacp_rate': 'fast', 'xmit_hash_policy': 'layer2+3'}}}]
+        self.assertEqual(drift(node, {'links': links}), [])
+        links[-1]['linkinfo']['info_data']['miimon'] = 200
+        self.assertIn('bonding configuration differs', drift(node, {'links': links})[0])
 
     def test_invalid_configuration_never_applied(self):
         manager = Manager('lacp-lan'); manager.state = {'spec': lacp_lab('/rootfs'), 'phase': 'running'}
