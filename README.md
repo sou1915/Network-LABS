@@ -31,6 +31,27 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+## Micro-nodes Linux natifs et microVMs (expérimental)
+
+**Fichier → Micro-nodes natifs · runtimes / manifest**, ou
+`python3 -m network_labs --native-lab`, ouvre le diagnostic des runtimes et un
+éditeur de lab JSON avec validation et budget mémoire cible. Le laboratoire
+natif est distinct du canvas pédagogique : il ne convertit pas automatiquement
+les modèles constructeur ni leurs configurations.
+
+Le nouveau gestionnaire peut démarrer des **containers OCI/crun persistants**,
+relier leurs namespaces par veth et lancer des **microVMs Firecracker** optionnelles
+sur le même fabric via TAP. Rootfs, kernel et disque sont fournis explicitement.
+Les commandes OCI sont exécutées dans le node réel. Le démarrage/arrêt nécessite
+sudo dans un terminal ; conserver la GUI sans privilèges. Libkrun, Unikraft,
+Hyperlight/Nanvix, WASI 0.3 et netkit sont identifiés comme pistes non intégrées.
+
+```bash
+python3 -m network_labs.appliances doctor
+```
+
+[Guide d'installation, premier ping réel, limites et validation](docs/HYBRID_APPLIANCES.md).
+
 ## Essai facultatif : micro-appliances Wasm
 
 Le choix **Moteur du projet → Wasm · LAN** exécute les endpoints et switches de
