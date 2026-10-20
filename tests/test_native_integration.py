@@ -202,6 +202,8 @@ class RealContainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = enterprise(rootfs); spec['name'] = 'enterprise-test-' + str(os.getpid())
+            next(n for n in spec['nodes'] if n['name'] == 'FW1')['routes'].append(
+                {'destination': '10.10.10.2/32', 'gateway': '172.31.255.2', 'interface': 'eth0'})
             report = benchmark(spec, target='198.51.100.10', seconds=2)
             self.assertEqual(report['node_count'], 20)
             self.assertTrue(report['cleanup_complete'])

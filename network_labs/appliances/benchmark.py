@@ -4,7 +4,6 @@ Cgroup attribution is not a measurement of total application memory. Host deltas
 include unrelated activity; no total-application 2 GiB certification is inferred.
 """
 import ipaddress
-import json
 import os
 from pathlib import Path
 import platform

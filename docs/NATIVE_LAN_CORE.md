@@ -295,7 +295,8 @@ firewall nodes remain available without declarative firewall guarantees.
 The opt-in native integration test starts real HTTP servers and checks default
 deny, ordered deny, established replies, masquerade, explicit SNAT, DNAT,
 policy edits, drift refusal, startup restore and preservation of host rules/routes.
-The 2 GiB target has not been measured for a 20-node topology yet.
+The total-application 2 GiB target remains unverified; the 20-node headless
+benchmark below reports narrower, explicitly scoped measurements.
 
 Primary references: [nftables manual](https://netfilter.org/projects/nftables/manpage.html),
 [atomic replacement](https://wiki.nftables.org/wiki-nftables/index.php/Atomic_rule_replacement),
@@ -387,3 +388,22 @@ brutes `exec ... ip route` restent possibles, mais ne modifient pas le manifest.
 
 Références : [cgroup v2 : mémoire et CPU](https://docs.kernel.org/admin-guide/cgroup-v2.html),
 [/proc : MemAvailable, CPU et PSS](https://docs.kernel.org/filesystems/proc.html).
+
+### Première mesure CI (20 octobre 2026)
+
+[Rapport complet](benchmarks/enterprise-20-ci.json), commit `f0f9e86`,
+[Actions 39469314404](https://github.com/sou1915/Network-LABS/actions/runs/39469314404).
+Linux `7.0.0-1017-azure`, x86_64, 4 CPU logiques ; 2 secondes par phase :
+
+| Mesure échantillonnée | Repos | ICMP parallèle |
+| --- | ---: | ---: |
+| RAM du cgroup parent du lab, pic | 4,953 Mio | 7,910 Mio |
+| CPU du cgroup du lab, moyenne (100 % = un cœur) | 0 % | 1,036 % |
+| PSS du runner Python, pic séparé | 19,882 Mio | 19,884 Mio |
+
+Les 12 PC reçoivent 20/20 réponses chacun : **240/240** au total. Aucun OOM ni
+swap du lab n'est observé ; démarrage avec disponibilité DHCP en 3,83 secondes.
+Le delta global de RAM du host est négatif sur ce court essai, ce qui illustre
+le bruit de fond et ne permet aucune attribution de mémoire totale au lab.
+Ces chiffres portent sur BusyBox et une charge faible, sans GUI ni firmware ;
+ils ne prédisent pas la consommation sur le PC de l'utilisateur ni sous charge lourde.
