@@ -192,6 +192,60 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout)), before)
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
+    def test_enterprise_twenty_nodes_benchmark_and_real_return_routes(self):
+        from network_labs.appliances.benchmark import benchmark, wait_ready
+        from network_labs.appliances.examples import enterprise
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        before = fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout))
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = enterprise(rootfs); spec['name'] = 'enterprise-test-' + str(os.getpid())
+            report = benchmark(spec, target='198.51.100.10', seconds=2)
+            self.assertEqual(report['node_count'], 20)
+            self.assertTrue(report['cleanup_complete'])
+            self.assertTrue(report['all_nodes_running_after_load'])
+            self.assertTrue(report['load']['all_packets_received'], report['load']['flows'])
+            self.assertEqual(len(report['load']['flows']), 12)
+            self.assertFalse(report['assessment']['oom_kill_observed'])
+            self.assertGreater(report['idle']['lab_cgroup_memory_sampled_peak_bytes'], 0)
+            self.assertGreater(report['load']['metrics']['lab_cgroup_cpu_percent_one_core'], 0)
+            self.assertEqual(report['assessment']['total_application_under_target'], 'unverified')
+            print('ENTERPRISE_BENCHMARK ' + json.dumps(report), file=sys.stderr)
+            manager = Manager(spec['name'])
+            def ping(source):
+                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False).returncode == 0
+            def get(node, address):
+                return manager.crun('exec', node, '/bin/busybox', 'wget', '-T', '1', '-q', '-O', '-', 'http://' + address + '/', check=False)
+            with manager.locked():
+                try:
+                    manager.start(spec); wait_ready(manager)
+                    self.assertEqual(len(manager.status()['nodes']), 20)
+                    for node in ('WAN1', 'DHCP1'):
+                        manager.crun('exec', node, '/bin/sh', '-c', 'mkdir -p /tmp/www; echo ' + node + ' > /tmp/www/index.html; /bin/busybox httpd -p 80 -h /tmp/www')
+                    manager.crun('exec', 'WAN1', '/bin/busybox', 'httpd', '-p', '8081', '-h', '/tmp/www')
+                    self.assertEqual(get('PC12', '198.51.100.10').stdout.strip(), 'WAN1')
+                    self.assertEqual(get('WAN1', '198.51.100.10:8081').returncode, 0)
+                    self.assertNotEqual(get('PC12', '198.51.100.10:8081').returncode, 0)
+                    self.assertEqual(get('WAN1', '198.51.100.1:8080').stdout.strip(), 'DHCP1')
+                    firewall_index = next(i for i, n in enumerate(spec['nodes']) if n['name'] == 'FW1')
+                    manager.ns(firewall_index, 'ip', '-4', 'route', 'del', '10.10.10.0/24')
+                    self.assertFalse(ping('PC1'))
+                    self.assertTrue(ping('PC2'))
+                    with self.assertRaisesRegex(RuntimeFailure, 'static routes differ'):
+                        manager.write_startup()
+                    manager.ns(firewall_index, 'ip', '-4', 'route', 'add', '10.10.10.0/24', 'via', '172.31.255.2', 'dev', 'eth0', 'proto', 'static')
+                    self.assertTrue(ping('PC1'))
+                    manager.write_startup(); manager.stop()
+                    manager.start(load_startup(spec['name'])); wait_ready(manager)
+                    self.assertTrue(ping('PC1')); self.assertTrue(ping('PC12'))
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout)), before)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+
     def test_packets_persistence_namespace_isolation_and_cleanup(self):
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
         for tool in ('crun', 'ip', 'busybox'):

@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--enterprise', action='store_true', help='20-node LAN with router, firewall, DHCP and WAN.')
     sample.add_argument('--firewall', action='store_true', help='Three-node stateful firewall and NAT reference lab.')
     sample.add_argument('--campus', action='store_true', help='Eight-node VLAN/trunk/router/DHCP reference LAN.')
     rootfs = commands.add_parser('rootfs', help='Build an offline minimal rootfs from trusted static BusyBox.')
@@ -24,6 +25,12 @@ def main(arguments=None):
     for command in ('plan', 'start'):
         item = commands.add_parser(command)
         item.add_argument('manifest', type=Path)
+    bench = commands.add_parser('benchmark', help='Start a stopped OCI lab, measure idle/ICMP load, then stop it.')
+    bench.add_argument('manifest', type=Path)
+    bench.add_argument('--seconds', type=int, default=5, help='Seconds per phase, 1..30.')
+    bench.add_argument('--source', action='append', help='Repeat for each host; default: PC-prefixed hosts.')
+    bench.add_argument('--target', required=True, help='Static IPv4 address belonging to this lab.')
+    bench.add_argument('--output', type=Path, help='New JSON report file; existing files are refused.')
     for command in ('status', 'stop', 'save', 'restore', 'recover', 'export'):
         item = commands.add_parser(command)
         item.add_argument('name')
@@ -51,12 +58,22 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus, firewall_lab
-            if args.campus and args.firewall:
-                raise ValueError('Choose --campus or --firewall.')
-            result = firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import campus, firewall_lab, enterprise
+            if sum((args.campus, args.firewall, args.enterprise)) > 1:
+                raise ValueError('Choose --campus, --firewall or --enterprise.')
+            result = enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
+        elif args.command == 'benchmark':
+            from .benchmark import benchmark, summary
+            if args.output and (args.output.exists() or args.output.is_symlink()):
+                raise ValueError('Report already exists; choose a new --output path.')
+            result = benchmark(load(args.manifest), seconds=args.seconds, sources=args.source, target=args.target)
+            if args.output:
+                with args.output.open('x', encoding='utf-8') as output:
+                    json.dump(result, output, indent=2)
+            print(json.dumps({**summary(result), 'report': str(args.output)} if args.output else result, indent=2))
+            return 0 if result['assessment']['packet_test_passed'] and result['all_nodes_running_after_load'] and not result['assessment']['oom_kill_observed'] else 1
         elif args.command == 'plan':
             result = plan(load(args.manifest))
         else:

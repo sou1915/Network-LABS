@@ -57,3 +57,54 @@ def firewall_lab(rootfs):
                   'protocol': 'tcp', 'dport': 8080, 'to': '10.42.0.10', 'to_port': 80}]}},
         {'name': 'SRV1', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '198.51.100.10/24'}},
     ], 'links': [[['PC1', 'eth0'], ['FW1', 'eth0']], [['FW1', 'eth1'], ['SRV1', 'eth0']]]})
+
+
+def enterprise(rootfs):
+    """20 nodes: 12 PCs, 4 switches, router, firewall, DHCP and WAN servers."""
+    rootfs = str(Path(rootfs).resolve())
+    base = campus(rootfs)
+    router = next(n for n in base['nodes'] if n['name'] == 'R1')
+    router['interfaces']['eth1'] = '172.31.255.2/30'
+    router['interface_aliases']['fa0/1'] = 'eth1'
+    router['gateway'] = '172.31.255.1'
+    dhcp = next(n for n in base['nodes'] if n['name'] == 'SRV1')
+    dhcp['name'] = 'DHCP1'
+    nodes, links = [], []
+    for switch_index in range(4):
+        sw = f'SW{switch_index + 1}'
+        ports = {}
+        for port_index in range(3):
+            number = switch_index * 3 + port_index + 1
+            vlan = 10 if number % 2 else 20
+            interface = f'eth{port_index}'
+            nodes.append({'name': f'PC{number}', 'runtime': 'oci', 'rootfs': rootfs,
+                          'interfaces': {'eth0': '' if number == 1 else f'10.{vlan}.{vlan}.{10 + number}/24'},
+                          **({'dhcp_clients': ['eth0']} if number == 1 else {'gateway': f'10.{vlan}.{vlan}.1'})})
+            ports[interface] = {'mode': 'access', 'vlan': vlan}
+            links.append([[f'PC{number}', 'eth0'], [sw, interface]])
+        # A chain without L2 cycles; trunk IDs match on each link.
+        ports['eth3'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+        if switch_index < 3:
+            ports['eth4'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+            links.append([[sw, 'eth4'], [f'SW{switch_index + 2}', 'eth3']])
+        if switch_index == 0:
+            links.append([['R1', 'eth0'], [sw, 'eth3']])
+        if switch_index == 3:
+            ports['eth4'] = {'mode': 'access', 'vlan': 10}
+            links.append([['DHCP1', 'eth0'], [sw, 'eth4']])
+        nodes.append({'name': sw, 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs,
+                      'dialect': 'ios-basic', 'vlans': [1, 10, 20], 'interfaces': {p: '' for p in ports},
+                      'switchports': ports, 'interface_aliases': {f'fa0/{i+1}': p for i, p in enumerate(ports)}})
+    firewall = firewall_lab(rootfs)['nodes'][1]
+    firewall['interfaces']['eth0'] = '172.31.255.1/30'
+    firewall['routes'] = [{'destination': f'10.{v}.{v}.0/24', 'gateway': '172.31.255.2', 'interface': 'eth0'} for v in (10, 20)]
+    firewall['firewall']['rules'][2]['destination'] = '10.10.10.2/32'
+    firewall['firewall']['nat'] = [
+        {'name': f'vlan{v}-masq', 'type': 'masquerade', 'out': 'eth1', 'source': f'10.{v}.{v}.0/24'} for v in (10, 20)] + [
+        {'name': 'publish-dhcp-http', 'type': 'dnat', 'in': 'eth1', 'destination': '198.51.100.1/32',
+         'protocol': 'tcp', 'dport': 8080, 'to': '10.10.10.2', 'to_port': 80}]
+    wan = firewall_lab(rootfs)['nodes'][2]; wan['name'] = 'WAN1'
+    nodes += [router, firewall, dhcp, wan]
+    links += [[['R1', 'eth1'], ['FW1', 'eth0']], [['FW1', 'eth1'], ['WAN1', 'eth0']]]
+    return validate({'version': 2, 'name': 'enterprise-20', 'budget_mib': 2048, 'reserve_mib': 512,
+                     'nodes': nodes, 'links': links})

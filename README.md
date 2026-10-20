@@ -68,7 +68,9 @@ python3 -m network_labs.appliances plan campus-lan.json
 [Lancement, commandes couvertes, sauvegarde et critères de validation](docs/NATIVE_LAN_CORE.md).
 Le backend Linux propose aussi un firewall IPv4 stateful et masquerade/SNAT/DNAT
 (`example --firewall`), avec règles, compteurs, sessions et sauvegarde.
-Le jalon 20 nodes / 2 Gio et STP/LACP restent à valider/implémenter.
+Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
+routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
+parallèle puis nettoie le lab. Le budget total 2 Gio et STP/LACP restent à valider/implémenter.
 
 ## Essai facultatif : micro-appliances Wasm
 

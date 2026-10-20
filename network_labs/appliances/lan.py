@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes')
 
 
 def addresses(node):
@@ -138,7 +138,28 @@ def validate_lan(node):
         for address in dns:
             ipaddress.IPv4Address(address)
         integer(server.setdefault('lease_seconds', 3600), 60, 604800, 'DHCP lease_seconds')
-    if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, dialect != 'linux')):
+    routes = node.setdefault('routes', [])
+    if not isinstance(routes, list) or len(routes) > 128:
+        raise ValueError('routes: array of at most 128 static IPv4 routes.')
+    destinations = set()
+    for route in routes:
+        keys(route, ('destination', 'gateway', 'interface'), 'Static route')
+        network = ipaddress.IPv4Network(route.get('destination'), strict=False)
+        route['destination'] = str(network)
+        if network.prefixlen == 0 or route['destination'] in destinations:
+            raise ValueError('Static routes must have unique non-default prefixes; use gateway for default.')
+        destinations.add(route['destination'])
+        interface = route.get('interface')
+        if role == 'switch' or interface not in all_interfaces or not all_interfaces[interface]:
+            raise ValueError('Static route requires a numbered non-switch interface.')
+        local = ipaddress.IPv4Interface(all_interfaces[interface])
+        gateway = ipaddress.IPv4Address(route.get('gateway'))
+        if gateway not in local.network or gateway == local.ip or (local.network.prefixlen < 31 and gateway in (local.network.network_address, local.network.broadcast_address)):
+            raise ValueError('Static route gateway must be a usable on-link peer.')
+        if any(address and network == ipaddress.IPv4Interface(address).network for address in all_interfaces.values()):
+            raise ValueError('Static route cannot replace a directly connected subnet.')
+        route['gateway'] = str(gateway)
+    if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
 
@@ -209,6 +230,17 @@ def configure(manager, index, node, previous=None):
         ns('ip', '-4', 'route', 'flush', 'default')
         if node.get('gateway'):
             ns('ip', 'route', 'add', 'default', 'via', node['gateway'])
+    # Address/admin changes may remove kernel routes; always reassert declared routes.
+    desired = {r['destination']: r for r in node['routes']}
+    removed = [r for r in previous.get('routes', []) if r['destination'] not in desired]
+    if removed:
+        current = json.loads(ns('ip', '-j', '-4', 'route', 'show').stdout)
+        for old in removed:
+            if any(r.get('dst') != 'default' and str(ipaddress.IPv4Network(r['dst'], strict=False)) == old['destination'] for r in current):
+                ns('ip', '-4', 'route', 'del', old['destination'])
+    for route in node['routes']:
+        ns('ip', '-4', 'route', 'replace', route['destination'], 'via', route['gateway'],
+           'dev', route['interface'], 'proto', 'static')
 
 
 def observe(manager, index, node):

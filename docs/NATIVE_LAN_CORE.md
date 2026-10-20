@@ -301,3 +301,89 @@ Primary references: [nftables manual](https://netfilter.org/projects/nftables/ma
 [atomic replacement](https://wiki.nftables.org/wiki-nftables/index.php/Atomic_rule_replacement),
 [NAT semantics](https://wiki.nftables.org/wiki-nftables/index.php/Performing_Network_Address_Translation_(NAT)),
 [conntrack](https://www.netfilter.org/projects/conntrack-tools/conntrack-manpage.html).
+
+## Scénario intégré à 20 nodes et mesure RAM/CPU
+
+`example --enterprise` génère **12 PC + 4 switches + R1 + FW1 + DHCP1 + WAN1**.
+Les switches sont reliés en chaîne sans boucle, avec trunks VLAN 10/20.
+Les PC impairs sont dans VLAN 10, les pairs dans VLAN 20. PC1 reçoit son adresse
+par DHCP ; les autres ont une adresse statique. DHCP1 est en `10.10.10.2/24`.
+R1 porte les passerelles `.1` des deux VLAN et route vers FW1 par le transit
+`172.31.255.0/30`. FW1 possède les deux routes de retour vers R1, filtre les
+flux sortants et fait du masquerade vers WAN1 (`198.51.100.10/24`). WAN1 n'a
+pas de route de retour LAN. Le port FW1 TCP/8080 publie DHCP1 TCP/80 ; le
+serveur HTTP doit être démarré explicitement. Aucun accès Internet n'est requis.
+
+```bash
+cd ~/Network-LABS
+git fetch origin
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+sudo apt install -y crun iproute2 busybox-static nftables conntrack
+python3 -m network_labs.appliances example --enterprise \
+  --rootfs "$HOME/network-labs-rootfs" > enterprise-20.json
+python3 -m network_labs.appliances plan enterprise-20.json
+
+# Crée le lab, attend DHCP, mesure 5 s au repos puis 5 s sous ICMP, arrête le lab.
+# Le fichier de rapport doit être nouveau ; choisir un autre nom pour répéter.
+sudo python3 -m network_labs.appliances benchmark enterprise-20.json \
+  --seconds 5 --target 198.51.100.10 --output benchmark-20.json
+```
+
+Cette commande refuse un lab déjà démarré, pour ne pas interrompre son travail.
+Le rootfs doit avoir été préparé comme décrit plus haut. Pour des résultats
+comparables, fermer les applications lourdes et arrêter les autres labs avant
+le benchmark. La mesure ne ferme aucun autre programme. `--seconds` accepte
+1 à 30 secondes **par phase** ; les sources par défaut sont les hôtes dont le
+nom commence par PC. `--source PC1 --source PC12` permet une sélection explicite,
+avec 16 sources maximum. La cible doit être une adresse statique déclarée dans
+ce même lab. Chaque source envoie 10 pings/s pendant la durée demandée : avec
+12 PC et 5 secondes, cela fait 600 requêtes ICMP, et leurs réponses attendues.
+Ce test mesure une charge de connectivité limitée, pas le débit maximal.
+
+Le résumé terminal donne le pic échantillonné de RAM des cgroups, CPU au repos
+et sous charge, résultat des paquets et nettoyage. Le JSON complet inclut :
+
+| Mesure | Ce qu'elle couvre | Limite d'interprétation |
+| --- | --- | --- |
+| Cgroup parent du lab | `memory.current`, swap et `cpu.stat` avec descendants | Ne pas ajouter une seconde fois les valeurs par node ; certaines allocations réseau/kernel et helpers sont ailleurs |
+| PSS et CPU du runner | Processus Python de mesure | Pas la GUI finale ni tous les helpers transitoires ; PSS et mémoire cgroup ne sont pas deux termes directement additionnables |
+| Host avant/après et pendant | `MemAvailable`, swap, ticks CPU globaux | Comprend les autres applications et l'activité de fond ; delta bruité, non attribuable exclusivement au lab |
+| Chaque node après charge | Mémoire courante, swap, CPU cumulé et événements OOM | Photo après charge, pas un pic de RAM de chaque node |
+| Paquets | Code retour, compteurs envoyés/reçus, sortie réelle de ping | Une perte rend le test négatif même si ping reçoit quelques réponses |
+
+CPU du lab : `100 × Δusage_usec / (durée × 1 000 000)` ; **100 % = un cœur**,
+et plusieurs cœurs peuvent dépasser 100 %. CPU host : pourcentage de capacité
+CPU globale occupée, avec idle/iowait exclus. Les deux pourcentages n'ont pas
+le même dénominateur. Les échantillons sont espacés d'environ 200 ms, excluent
+le démarrage et peuvent manquer des pics brefs. Le temps de démarrage inclut
+l'attente de disponibilité DHCP. La commande nettoie le lab même si la mesure
+ou le trafic échoue ; en cas d'échec du nettoyage, l'état reste pour diagnostic.
+
+Les limites configurées font 20 × 64 Mio + 512 Mio de réserve = **1792 Mio** ;
+c'est une vérification d'allocation, pas une consommation mesurée ni une limite
+globale imposée. Le rapport garde `total_application_under_target: unverified`,
+même si le pic cgroup est inférieur à 2048 Mio. Il faut encore mesurer la GUI,
+les services plus lourds et les futurs backends avant de valider le budget total.
+Le benchmark ne sauvegarde aucune session ni configuration de lab à sa fermeture.
+
+### Routes statiques du manifest
+
+Un node OCI numéroté hors switch peut déclarer jusqu'à 128 routes IPv4 :
+
+```json
+"routes": [
+  {"destination": "10.10.10.0/24", "gateway": "172.31.255.2", "interface": "eth0"},
+  {"destination": "10.20.20.0/24", "gateway": "172.31.255.2", "interface": "eth0"}
+]
+```
+
+La passerelle doit être un voisin utilisable sur l'interface indiquée. Les
+préfixes sont uniques, sans remplacement d'un réseau directement connecté.
+La route par défaut reste le champ `gateway`. Les routes sont appliquées au
+kernel et vérifiées avant `save`/`export`, puis recréées par `restore`. Ce jalon
+ne fournit pas encore `ip route` dans l'adaptateur IOS partiel. Les commandes
+brutes `exec ... ip route` restent possibles, mais ne modifient pas le manifest.
+
+Références : [cgroup v2 : mémoire et CPU](https://docs.kernel.org/admin-guide/cgroup-v2.html),
+[/proc : MemAvailable, CPU et PSS](https://docs.kernel.org/filesystems/proc.html).

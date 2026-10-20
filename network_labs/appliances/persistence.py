@@ -50,8 +50,11 @@ def drift(manager):
             gateways = [r.get('gateway') for r in actual['routes'] if r.get('dst') == 'default']
             if gateways != ([node['gateway']] if node.get('gateway') else []):
                 errors.append(node['name'] + ': default route differs')
-        if any(r.get('dst') != 'default' and r.get('protocol') != 'kernel' for r in actual['routes']):
-            errors.append(node['name'] + ': unmanaged static route')
+        configured = {(r['destination'], r['gateway'], r['interface']) for r in node['routes']}
+        observed = {(str(ipaddress.IPv4Network(r['dst'], strict=False)), r.get('gateway'), r.get('dev')) for r in actual['routes']
+                    if r.get('dst') != 'default' and r.get('protocol') != 'kernel'}
+        if observed != configured:
+            errors.append(node['name'] + ': static routes differ')
         if node['role'] == 'switch':
             for name, port in node['switchports'].items():
                 if _memberships(actual['vlans'], name) != set(memberships(node, port)):
