@@ -126,18 +126,25 @@ class LifecycleTests(unittest.TestCase):
                 raise RuntimeFailure('injected boot failure')
             return subprocess.CompletedProcess(args, 0, '', '')
         with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder) / 'state'; rootfs = Path(folder) / 'rootfs'; rootfs.mkdir()
+            base = Path(folder) / 'state'; base.mkdir()
+            rootfs = Path(folder) / 'rootfs'; rootfs.mkdir()
             spec = example(rootfs)
             with patch('network_labs.appliances.runtime.STATE_ROOT', base), \
                  patch('network_labs.appliances.runtime.run', side_effect=fake_run), \
                  patch.object(Manager, 'preflight'), patch('os.geteuid', return_value=0):
-                with Manager(spec['name']).locked() as manager:
-                    with self.assertRaisesRegex(RuntimeFailure, 'injected'):
-                        manager.start(spec)
+                manager = Manager(spec['name'])
+                with self.assertRaisesRegex(RuntimeFailure, 'injected'):
+                    manager.start(spec)
                 self.assertFalse((base / spec['name']).exists())
         self.assertFalse(namespaces)
         self.assertFalse(any('unrelated' in command for command in calls))
         self.assertTrue(any(command[0] == 'crun' and 'delete' in command for command in calls))
+
+    def test_unprivileged_lifecycle_is_rejected_before_host_changes(self):
+        with patch('os.geteuid', return_value=1000), patch('pathlib.Path.mkdir', side_effect=AssertionError('host change')):
+            with self.assertRaisesRegex(RuntimeFailure, 'requires sudo'):
+                with Manager('test').locked():
+                    self.fail('unprivileged lock acquired')
 
     def test_exec_keeps_argv_boundaries_and_rejects_vm(self):
         manager = Manager('test')

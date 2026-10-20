@@ -25,10 +25,20 @@ class RuntimeFailure(RuntimeError):
     pass
 
 
-def run(args, *, check=True, timeout=30):
-    result = subprocess.run([str(a) for a in args], capture_output=True, text=True, timeout=timeout)
+def run(args, *, check=True, timeout=30, log=None):
+    command = [str(a) for a in args]
+    if log is None:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    else:
+        # Detached init processes and daemons can inherit stdout/stderr. Pipes
+        # would keep communicate() waiting for the lifetime of the container.
+        with Path(log).open('a') as output:
+            child = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=output,
+                                   stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        result = subprocess.CompletedProcess(command, child.returncode, '', '')
     if check and result.returncode:
-        raise RuntimeFailure(f'{args[0]}: {result.stderr.strip() or result.stdout.strip() or result.returncode}')
+        detail = Path(log).read_text(errors='replace')[-4000:] if log else result.stderr.strip() or result.stdout.strip()
+        raise RuntimeFailure(f'{args[0]}: {detail or result.returncode}')
     return result
 
 
@@ -261,9 +271,9 @@ class Manager:
         write_json(bundle / 'config.json', oci_config(spec, node, index, bundle / 'rootfs'))
         # Record before run: crun can create state before reporting a startup error.
         self.state['containers'].append(node['name']); self.save()
-        self.crun('run', '--detach', '--bundle', bundle, node['name'])
+        self.crun('run', '--detach', '--bundle', bundle, node['name'], log=bundle / 'console.log')
         for command in node['startup']:
-            self.crun('exec', node['name'], *command)
+            self.crun('exec', node['name'], *command, log=bundle / 'console.log')
 
     def start_vm(self, node, index):
         bundle = self.directory / node['name']; bundle.mkdir()
