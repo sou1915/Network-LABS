@@ -54,6 +54,17 @@ class STPTests(unittest.TestCase):
         configure_ports(manager, 0, node, node, initial=True, recreated=set())
         self.assertTrue(all(call[-1] == '32' for call in calls))
 
+    def test_explicit_path_edit_flushes_dynamic_cache_but_shutdown_does_not(self):
+        node = next(n for n in stp_lab('/rootfs')['nodes'] if n['name'] == 'SW1')
+        previous = copy.deepcopy(node); node['spanning_tree']['ports']['eth2']['cost'] = 200
+        calls = []
+        manager = SimpleNamespace(ns=lambda *args: calls.append(args))
+        configure_ports(manager, 0, node, previous, initial=False, recreated=set())
+        self.assertIn((0, 'bridge', 'fdb', 'flush', 'dev', 'br0', 'dynamic'), calls)
+        previous = copy.deepcopy(node); node['shutdown'].append('eth2'); calls.clear()
+        configure_ports(manager, 0, node, previous, initial=False, recreated=set())
+        self.assertEqual(calls, [])
+
     def test_unknown_or_userspace_controller_cannot_be_claimed_as_classic_stp(self):
         node = next(n for n in stp_lab('/rootfs')['nodes'] if n['name'] == 'SW1')
         for state in (0, 2):

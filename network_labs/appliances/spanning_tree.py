@@ -102,6 +102,11 @@ def configure_ports(manager, index, node, previous, initial, recreated):
         if initial or port in recreated or settings != old:
             manager.ns(index, 'bridge', 'link', 'set', 'dev', port, 'cost', str(settings['cost']),
                        'priority', str(settings['priority'] // 4))
+    if not initial and policy['mode'] == 'stp' and policy != previous.get('spanning_tree'):
+        # Explicit path-policy edits invalidate learned MAC destinations on
+        # this bridge. Keep static/permanent entries; physical failover alone
+        # remains the kernel STP/TCN engine's responsibility.
+        manager.ns(index, 'bridge', 'fdb', 'flush', 'dev', 'br0', 'dynamic')
 
 
 def kernel_ids(manager, index):

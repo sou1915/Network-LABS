@@ -348,10 +348,13 @@ class RealContainerTests(unittest.TestCase):
                     if time.monotonic() >= deadline:
                         self.fail('Classic STP did not converge: ' + json.dumps(state))
                     time.sleep(0.2)
+            last_probe = []
             def ping(source, target):
                 deadline = time.monotonic() + 10
                 while True:
-                    if manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0:
+                    probe = manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
+                    last_probe[:] = [source, target, probe.returncode, probe.stdout, probe.stderr]
+                    if probe.returncode == 0:
                         return True
                     if time.monotonic() >= deadline:
                         return False
@@ -374,7 +377,12 @@ class RealContainerTests(unittest.TestCase):
                     manager.configure_spanning_tree('SW3', priority=0)
                     wait_tree('SW3')
                     self.assertTrue(ping('PC3', '192.0.2.30'))
+                    sw2_index = next(i for i, n in enumerate(spec['nodes']) if n['name'] == 'SW2')
+                    marker = '02:aa:bb:cc:dd:ee'
+                    manager.ns(sw2_index, 'bridge', 'fdb', 'add', marker, 'dev', 'eth0', 'master', 'static', 'vlan', '10')
                     apply('SW2', 'interface fa0/4\nspanning-tree cost 1000\ninterface fa0/3\nspanning-tree port-priority 64')
+                    self.assertTrue(any(f['mac'] == marker for f in manager.inspect('SW2')['fdb']))
+                    manager.ns(sw2_index, 'bridge', 'fdb', 'del', marker, 'dev', 'eth0', 'master', 'vlan', '10')
                     tree = wait_tree('SW3')
                     self.assertEqual(tree['SW2']['root_port'], 'eth2')
                     self.assertEqual(tree['SW2']['root_path_cost'], 200)
@@ -395,7 +403,7 @@ class RealContainerTests(unittest.TestCase):
                     self.assertTrue(ping('PC1', '192.0.2.30')); self.assertTrue(ping('PC2', '198.18.0.30'))
                 except BaseException:
                     if manager.directory.exists():
-                        print('STP diagnostics:', snapshot(), file=sys.stderr)
+                        print('STP diagnostics:', last_probe, {n: manager.inspect(n) for n in ('SW1', 'SW2', 'SW3')}, file=sys.stderr)
                     raise
                 finally:
                     if manager.directory.exists():

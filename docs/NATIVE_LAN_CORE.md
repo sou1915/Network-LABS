@@ -608,6 +608,11 @@ Changer la priorité d'un bridge :
 sudo python3 -m network_labs.appliances spanning-tree stp-lan SW3 --priority 0
 ```
 
+Une édition explicite de priorité/coût/politique STP invalide la FDB dynamique
+du seul switch édité pour éviter de réutiliser une destination MAC sur un ancien
+chemin. Les entrées statiques/permanentes restent en place. Une panne de lien
+seule ne déclenche pas ce flush dans le gestionnaire : le kernel gère STP/TCN.
+
 Une politique complète peut être fournie par `--file policy.json` à cette même
 commande, avec validation du composant avant mutation, journal, rollback et
 `recover` communs à la configuration réseau. Changer la priorité peut provoquer
