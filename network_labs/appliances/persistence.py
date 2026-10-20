@@ -23,6 +23,10 @@ def drift(manager):
         if node['runtime'] != 'oci':
             continue
         actual = manager.inspect(node['name'])
+        if node.get('firewall') is not None:
+            from .firewall import fingerprint
+            if fingerprint(actual['firewall']) != manager.read().get('firewall_fingerprints', {}).get(node['name']):
+                errors.append(node['name'] + ': firewall rules differ')
         expected = addresses(node)
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())

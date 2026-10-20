@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--firewall', action='store_true', help='Three-node stateful firewall and NAT reference lab.')
     sample.add_argument('--campus', action='store_true', help='Eight-node VLAN/trunk/router/DHCP reference LAN.')
     rootfs = commands.add_parser('rootfs', help='Build an offline minimal rootfs from trusted static BusyBox.')
     rootfs.add_argument('--busybox', type=Path, required=True)
@@ -35,6 +36,12 @@ def main(arguments=None):
     config_source = configure.add_mutually_exclusive_group(required=True)
     config_source.add_argument('--file', type=Path)
     config_source.add_argument('--text', help='Multiline configuration; quote it in the calling shell.')
+    firewall = commands.add_parser('firewall', help='Atomically replace a managed IPv4 firewall policy.')
+    firewall.add_argument('name'); firewall.add_argument('node')
+    firewall.add_argument('--file', type=Path, required=True)
+    for action in ('sessions', 'clear-sessions'):
+        item = commands.add_parser(action)
+        item.add_argument('name'); item.add_argument('node')
     execute = commands.add_parser('exec', help='Execute real commands in an OCI node, not the simulator CLI.')
     execute.add_argument('--tty', action='store_true')
     execute.add_argument('name'); execute.add_argument('node')
@@ -44,8 +51,10 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus
-            result = campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import campus, firewall_lab
+            if args.campus and args.firewall:
+                raise ValueError('Choose --campus or --firewall.')
+            result = firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
         elif args.command == 'plan':
@@ -69,6 +78,10 @@ def main(arguments=None):
                 elif args.command == 'configure':
                     text = args.file.read_text(encoding='utf-8') if args.file else args.text
                     result = manager.configure_ios(args.node, text)
+                elif args.command == 'firewall':
+                    result = manager.configure_firewall(args.node, json.loads(args.file.read_text(encoding='utf-8')))
+                elif args.command in ('sessions', 'clear-sessions'):
+                    result = manager.sessions(args.node, clear=args.command == 'clear-sessions')
                 elif args.command == 'export':
                     if args.startup:
                         from .persistence import load_startup

@@ -57,7 +57,7 @@ def validate(data):
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -80,6 +80,8 @@ def validate(data):
             if address:
                 ipaddress.IPv4Interface(address)
         validate_lan(node)
+        from .firewall import validate_firewall
+        validate_firewall(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
@@ -94,7 +96,7 @@ def validate(data):
                 raise ValueError('startup must be a list of argv arrays.')
             for command in startup:
                 argv(command)
-            if role == 'firewall' and not startup:
+            if role == 'firewall' and not startup and node.get('firewall') is None:
                 raise ValueError('Firewall requires explicit startup rules; no fake firewall or default pass-through.')
             if role == 'switch' and (any(interfaces.values()) or node.get('gateway')):
                 raise ValueError('Switch is initially an unnumbered bridge; management IP requires explicit startup commands.')

@@ -200,6 +200,8 @@ class Manager:
                 asset = Path(node[key])
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
+        if any(n.get('firewall') is not None for n in spec['nodes']) and not shutil.which('nft'):
+            raise RuntimeFailure('Managed firewall requires host nftables (nft).')
         existing = {line.split()[0] for line in run(['ip', 'netns', 'list']).stdout.splitlines() if line.strip()}
         if any(namespace(spec, i) in existing for i in range(len(spec['nodes']))):
             raise RuntimeFailure('A lab namespace already exists; refusing to adopt or delete it.')
@@ -214,13 +216,17 @@ class Manager:
         self.directory.mkdir(mode=0o700)
         self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
                       'phase': 'starting', 'namespaces': [], 'mounts': [],
-                      'containers': [], 'vms': [], 'host_links': []}
+                      'containers': [], 'vms': [], 'host_links': [], 'firewall_fingerprints': {}}
         self.save()
         try:
             for i, node in enumerate(spec['nodes']):
                 ns = namespace(spec, i)
                 run(['ip', 'netns', 'add', ns]); self.state['namespaces'].append(ns); self.save()
                 self.ns(i, 'ip', 'link', 'set', 'lo', 'up')
+                if node.get('firewall') is not None:
+                    from .firewall import apply
+                    self.state['firewall_fingerprints'][node['name']] = apply(self, i, node)
+                    self.save()
                 if node['runtime'] == 'firecracker':
                     self.ns(i, 'ip', 'tuntap', 'add', 'tap0', 'mode', 'tap')
                     self.ns(i, 'ip', 'link', 'add', 'vmbr0', 'type', 'bridge', 'stp_state', '0')
@@ -338,7 +344,11 @@ class Manager:
         from .lan import observe
         for index, node in enumerate(self.read()['spec']['nodes']):
             if node['name'] == name and node['runtime'] == 'oci':
-                return observe(self, index, node)
+                result = observe(self, index, node)
+                if node.get('firewall') is not None:
+                    from .firewall import observe as firewall_observe
+                    result['firewall'] = firewall_observe(self, index)
+                return result
         raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
 
     def configure_ios(self, name, text):
@@ -365,6 +375,41 @@ class Manager:
         state['phase'] = 'running'; state.pop('pending_spec'); self.save()
         return {'configured': name, 'revision': state['revision'], 'source': 'Linux namespaces; partial IOS-style adapter'}
 
+    def configure_firewall(self, name, policy):
+        from .firewall import apply
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before configuration.')
+        index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
+        if index is None or state['spec']['nodes'][index].get('firewall') is None:
+            raise ValueError('An existing managed firewall node is required.')
+        candidate = copy.deepcopy(state['spec'])
+        candidate['nodes'][index]['firewall'] = policy
+        candidate = validate(candidate)
+        previous = state['spec']['nodes'][index]
+        state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
+        try:
+            baseline = apply(self, index, candidate['nodes'][index])
+        except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as original:
+            try:
+                state.setdefault('firewall_fingerprints', {})[name] = apply(self, index, previous)
+            except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as rollback:
+                state['phase'] = 'configuration-failed'; self.save()
+                raise RuntimeFailure(f'Firewall apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
+            state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+            raise RuntimeFailure(f'Firewall failed and was rolled back: {original}') from original
+        state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
+        state.setdefault('firewall_fingerprints', {})[name] = baseline
+        state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+        return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
+
+    def sessions(self, name, clear=False):
+        for index, node in enumerate(self.read()['spec']['nodes']):
+            if node['name'] == name and node.get('firewall') is not None:
+                result = self.ns(index, 'conntrack', '-F' if clear else '-L', '-f', 'ipv4')
+                return {'node': name, 'cleared': clear, 'output': result.stdout, 'summary': result.stderr}
+        raise ValueError('An existing managed firewall node is required.')
+
     def recover(self):
         from .lan import configure
         state = self.read()
@@ -372,6 +417,9 @@ class Manager:
             raise RuntimeFailure('No interrupted network configuration to recover.')
         for index, node in enumerate(state['spec']['nodes']):
             if node['runtime'] == 'oci':
+                if node.get('firewall') is not None:
+                    from .firewall import apply
+                    state.setdefault('firewall_fingerprints', {})[node['name']] = apply(self, index, node)
                 configure(self, index, node, state['pending_spec']['nodes'][index])
         state.pop('pending_spec'); state['phase'] = 'running'; self.save()
 

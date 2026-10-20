@@ -222,3 +222,81 @@ sudo env NETWORK_LABS_NATIVE_TESTS=1 python3 -m unittest discover \
 Les références Cisco guident le sous-ensemble syntaxique et ses résultats
 attendus ; les versions/plateformes ne sont pas interchangeables et aucun test
 comparatif sur IOS réel n'est revendiqué ici.
+
+## Managed Linux firewall: IPv4 forwarding and NAT
+
+The `firewall` node policy drives real nftables inside that node's owned network
+namespace. It is a Linux policy backend, not vendor firmware or a FortiOS/ASA
+command emulator. Input/output filtering, IPv6, VPN, application inspection,
+hardware offload and vendor-specific features are not implemented here.
+
+Host prerequisites: `nftables` (`nft`); install `conntrack` for session inspection
+and clearing. Node rootfs does not need either host binary or its libraries.
+Policy installation precedes links and IPv4 forwarding during startup; failure
+aborts startup and cleans up. No host firewall table is modified.
+
+```bash
+python3 -m network_labs.appliances example --firewall --rootfs /opt/network-labs/busybox-rootfs > firewall-lan.json
+sudo python3 -m network_labs.appliances start firewall-lan.json
+sudo python3 -m network_labs.appliances exec firewall-lan PC1 -- /bin/ping -c 3 198.51.100.10
+sudo python3 -m network_labs.appliances inspect firewall-lan FW1
+sudo python3 -m network_labs.appliances sessions firewall-lan FW1
+sudo python3 -m network_labs.appliances save firewall-lan
+sudo python3 -m network_labs.appliances stop firewall-lan
+sudo python3 -m network_labs.appliances restore firewall-lan
+```
+
+The sample has PC1 → FW1 → SRV1, with no LAN return route on SRV1. Outbound
+ICMP and TCP/80 are allowed; other new forwarded traffic is dropped. Source
+masquerading supplies the WAN return path. WAN TCP/8080 is translated to
+PC1 TCP/80; an HTTP server must actually be started on PC1 to serve requests.
+The sample deliberately starts no HTTP services automatically.
+
+Each policy has `default` (`drop` or `accept`), `stateful` (boolean), ordered
+`rules` and ordered `nat` arrays. A filter rule has a unique `name`, an `action`
+(`accept` or `drop`) and optional `in`, `out`, `source`, `destination`,
+`protocol` (`any`, `tcp`, `udp`, `icmp`) and `dport`. IPv4 CIDRs are normalized;
+ports require TCP or UDP. Rules match forwarded packets after DNAT and before
+source NAT. Invalid conntrack state is dropped first. With `stateful: true`,
+established/related packets are accepted before user rules, including replies.
+
+NAT entries share the match fields and have a unique `name` and `type`:
+
+| Type | Required fields | Current scope |
+| --- | --- | --- |
+| `masquerade` | `out` | Source address selected from numbered/DHCP outbound interface |
+| `snat` | `out`, `to` | Explicit configured outbound interface IPv4 address |
+| `dnat` | `in`, `destination`, `to` | Optional `to_port` with TCP/UDP `dport`; no `out` match before routing |
+
+To update, write the **policy object only** to a JSON file, then run:
+
+```bash
+sudo python3 -m network_labs.appliances firewall firewall-lan FW1 --file policy.json
+```
+
+The validated policy is checked and replaced with one nftables batch. Updates
+retain conntrack entries; existing established flows and NAT mappings may keep
+their previous behavior. To deliberately disrupt/reset sessions for a test:
+
+```bash
+sudo python3 -m network_labs.appliances clear-sessions firewall-lan FW1
+```
+
+NAT itself uses conntrack even when `stateful` automatic reply acceptance is
+disabled. NAT counters count flow setup rather than every translated packet.
+`inspect` exposes actual kernel rules and counters. Save/export detect ruleset
+changes across the firewall namespace, including extra tables, while ignoring
+traffic counter increments. Saved startup includes policy, not sessions,
+counters, DHCP leases or filesystem contents. Untracked `startup` commands
+cannot be combined with a managed firewall policy. Legacy explicit-startup
+firewall nodes remain available without declarative firewall guarantees.
+
+The opt-in native integration test starts real HTTP servers and checks default
+deny, ordered deny, established replies, masquerade, explicit SNAT, DNAT,
+policy edits, drift refusal, startup restore and preservation of host rules/routes.
+The 2 GiB target has not been measured for a 20-node topology yet.
+
+Primary references: [nftables manual](https://netfilter.org/projects/nftables/manpage.html),
+[atomic replacement](https://wiki.nftables.org/wiki-nftables/index.php/Atomic_rule_replacement),
+[NAT semantics](https://wiki.nftables.org/wiki-nftables/index.php/Performing_Network_Address_Translation_(NAT)),
+[conntrack](https://www.netfilter.org/projects/conntrack-tools/conntrack-manpage.html).

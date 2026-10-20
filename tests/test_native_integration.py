@@ -109,6 +109,84 @@ class RealContainerTests(unittest.TestCase):
             self.assertFalse(manager.directory.exists())
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, before)
 
+    def test_stateful_firewall_nat_policy_drift_and_restore(self):
+        import copy
+        from network_labs.appliances.examples import firewall_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        before = fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout))
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = firewall_lab(rootfs); spec['name'] = 'firewall-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            policy = copy.deepcopy(spec['nodes'][1]['firewall'])
+            def server(node, port):
+                manager.crun('exec', node, '/bin/sh', '-c', 'mkdir -p /tmp/www; echo ' + node + ' > /tmp/www/index.html')
+                manager.crun('exec', '--detach', node, '/bin/busybox', 'httpd', '-f', '-p', str(port), '-h', '/tmp/www',
+                             log=manager.directory / (node + '-' + str(port) + '.http.log'))
+            def get(node, address):
+                return manager.crun('exec', node, '/bin/busybox', 'wget', '-T', '1', '-q', '-O', '-',
+                                    'http://' + address + '/', check=False)
+            def update(value):
+                manager.configure_firewall('FW1', value)
+                manager.sessions('FW1', clear=True)
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    server('PC1', 80); server('SRV1', 80); server('SRV1', 8081)
+                    self.assertEqual(get('PC1', '198.51.100.10').stdout.strip(), 'SRV1')
+                    sessions = manager.sessions('FW1')['output']
+                    self.assertIn('src=10.42.0.10', sessions)
+                    self.assertIn('dst=198.51.100.1', sessions)
+                    # A listening service on an unpermitted port is actually filtered.
+                    self.assertEqual(get('SRV1', '198.51.100.10:8081').returncode, 0)
+                    self.assertNotEqual(get('PC1', '198.51.100.10:8081').returncode, 0)
+                    rules = manager.inspect('FW1')['firewall']['nftables']
+                    default = next(v['rule'] for v in rules if v.get('rule', {}).get('comment') == 'default')
+                    self.assertGreater(sum(x.get('counter', {}).get('packets', 0) for x in default['expr']), 0)
+                    # DNAT is matched by forwarding rules after destination translation.
+                    self.assertEqual(get('SRV1', '198.51.100.1:8080').stdout.strip(), 'PC1')
+                    # The reply has no explicit reverse allow rule: conntrack supplies it.
+                    stateless = copy.deepcopy(policy); stateless['stateful'] = False
+                    update(stateless)
+                    self.assertNotEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    update(policy)
+                    self.assertEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    # The server has no route to 10.42.0.0/24, so NAT is necessary.
+                    no_nat = copy.deepcopy(policy); no_nat['nat'] = []
+                    update(no_nat)
+                    self.assertNotEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    snat = copy.deepcopy(policy); snat['nat'][0].update(type='snat', to='198.51.100.1')
+                    update(snat)
+                    self.assertEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    denied = copy.deepcopy(policy)
+                    denied['rules'].insert(0, {'name': 'deny-first', 'action': 'drop', 'in': 'eth0', 'protocol': 'tcp', 'dport': 80})
+                    update(denied)
+                    self.assertNotEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    update(policy)
+                    self.assertEqual(get('PC1', '198.51.100.10').returncode, 0)
+                    # Counter updates alone never make saved configuration stale.
+                    manager.write_startup()
+                    manager.ns(1, 'nft', 'add', 'table', 'ip', 'unmanaged')
+                    with self.assertRaisesRegex(RuntimeFailure, 'firewall rules differ'):
+                        manager.write_startup()
+                    manager.ns(1, 'nft', 'delete', 'table', 'ip', 'unmanaged')
+                    manager.stop()
+                    manager.start(load_startup(spec['name']))
+                    server('PC1', 80); server('SRV1', 80)
+                    self.assertEqual(get('PC1', '198.51.100.10').stdout.strip(), 'SRV1')
+                    self.assertEqual(get('SRV1', '198.51.100.1:8080').stdout.strip(), 'PC1')
+                except BaseException:
+                    if manager.directory.exists():
+                        print('Firewall diagnostics:', manager.inspect('FW1'), file=sys.stderr)
+                    raise
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout)), before)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+
     def test_packets_persistence_namespace_isolation_and_cleanup(self):
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
         for tool in ('crun', 'ip', 'busybox'):

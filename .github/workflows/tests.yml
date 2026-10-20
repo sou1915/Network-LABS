@@ -26,6 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native appliance prerequisites
-        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static
+        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static nftables conntrack
       - name: Boot isolated nodes and verify actual packet delivery and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -v
