@@ -411,6 +411,73 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(host_links(), before)
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
+    def test_stp_root_and_bpdu_guards_block_real_traffic_and_recover(self):
+        from network_labs.appliances.examples import stp_lab
+        from network_labs.appliances.persistence import load_startup
+        before = run(['ip', '-j', 'route', 'show']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = stp_lab(rootfs); spec['name'] = 'guard-test-' + str(os.getpid())
+            sw3 = next(n for n in spec['nodes'] if n['name'] == 'SW3')
+            for p in ('eth2', 'eth3'):
+                sw3['spanning_tree']['ports'][p]['root_guard'] = True
+            manager = Manager(spec['name'])
+            def tree():
+                return manager.inspect('SW3')['spanning_tree']
+            def wait(predicate):
+                deadline = time.monotonic() + 30
+                while True:
+                    state = tree()
+                    if predicate(state):
+                        return state
+                    if time.monotonic() >= deadline:
+                        self.fail('Protection did not settle: ' + json.dumps(state))
+                    time.sleep(0.2)
+            def probe(source, target):
+                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0
+            def connected():
+                deadline = time.monotonic() + 15
+                while not (probe('PC1', '192.0.2.30') and probe('PC2', '198.18.0.30')):
+                    if time.monotonic() >= deadline:
+                        self.fail('Packets did not recover after removing protection')
+                    time.sleep(0.2)
+            def both(commands):
+                return manager.configure_ios('SW3', 'conf t\ninterface fa0/3\n' + commands + '\ninterface fa0/4\n' + commands + '\nend')
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    wait(lambda t: t['is_root'] and all(t['ports'][p]['state'] == 'blocking' and t['ports'][p]['root_guard'] for p in ('eth2', 'eth3')))
+                    self.assertFalse(probe('PC1', '192.0.2.30'))
+                    both('spanning-tree guard none')
+                    wait(lambda t: not t['is_root'] and t['root_port'] == 'eth2' and t['local_state_settled'])
+                    connected()
+                    both('spanning-tree bpduguard enable')
+                    wait(lambda t: all(t['ports'][p]['state'] == 'disabled' and t['ports'][p]['bpdu_guard'] for p in ('eth2', 'eth3')))
+                    self.assertFalse(probe('PC1', '192.0.2.30'))
+                    self.assertFalse(probe('PC2', '198.18.0.30'))
+                    # Disabled protocol state is not administrative drift. Persist
+                    # policy, then require real BPDUs to trigger protection again.
+                    manager.write_startup()
+                    index = next(i for i, n in enumerate(spec['nodes']) if n['name'] == 'SW3')
+                    manager.ns(index, 'bridge', 'link', 'set', 'dev', 'eth2', 'guard', 'off')
+                    with self.assertRaisesRegex(RuntimeFailure, 'spanning-tree port parameters differ'):
+                        manager.write_startup()
+                    manager.stop(); manager.start(load_startup(spec['name']))
+                    wait(lambda t: all(t['ports'][p]['state'] == 'disabled' and t['ports'][p]['bpdu_guard'] for p in ('eth2', 'eth3')))
+                    both('spanning-tree bpduguard disable\nshutdown')
+                    both('no shutdown')
+                    wait(lambda t: not t['is_root'] and t['root_port'] == 'eth2' and t['local_state_settled'])
+                    connected()
+                    manager.write_startup()
+                except BaseException:
+                    if manager.directory.exists():
+                        print('Guard diagnostics:', {n: manager.inspect(n) for n in ('SW1', 'SW2', 'SW3')}, file=sys.stderr)
+                    raise
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, before)
+
     def test_common_stp_uses_lacp_as_one_port_and_fails_over_to_spare_trunk(self):
         from network_labs.appliances.examples import lacp_lab
         from network_labs.appliances.spec import validate

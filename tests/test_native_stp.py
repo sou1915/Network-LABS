@@ -52,7 +52,7 @@ class STPTests(unittest.TestCase):
         calls = []
         manager = SimpleNamespace(ns=lambda *args: calls.append(args))
         configure_ports(manager, 0, node, node, initial=True, recreated=set())
-        self.assertTrue(all(call[-1] == '32' for call in calls))
+        self.assertTrue(all(call[call.index('priority') + 1] == '32' for call in calls))
 
     def test_explicit_path_edit_flushes_dynamic_cache_but_shutdown_does_not(self):
         node = next(n for n in stp_lab('/rootfs')['nodes'] if n['name'] == 'SW1')
@@ -79,7 +79,7 @@ class STPTests(unittest.TestCase):
                   'bridge_id': '1000.aa:bb:cc:dd:ee:ff', 'root_id': '0000.aa:bb:cc:dd:ee:01', 'root_port': 3}
         links = [{'ifname': 'br0', 'linkinfo': {'info_data': bridge}}]
         links += [{'ifname': p, 'flags': ['UP', 'LOWER_UP'], 'linkinfo': {'info_slave_data': {
-                    'cost': 100, 'priority': 32, 'state': 'blocking' if p == 'eth3' else 'forwarding', 'no': hex(i+1)}}}
+                    'cost': 100, 'priority': 32, 'guard': False, 'root_block': False, 'state': 'blocking' if p == 'eth3' else 'forwarding', 'no': hex(i+1)}}}
                   for i, p in enumerate(node['switchports'])]
         self.assertEqual(drift(node, links), [])
         actual = observe(node, links, {'bridge_id': bridge['bridge_id'], 'root_id': bridge['root_id']})
@@ -101,8 +101,8 @@ class STPTests(unittest.TestCase):
         s = validate(s)
         result = compile_config(s, 'SW1', 'conf t\ninterface fa0/3\nspanning-tree cost 200\nspanning-tree port-priority 64\nend')
         sw = next(n for n in result['nodes'] if n['name'] == 'SW1')
-        self.assertEqual(sw['spanning_tree']['ports']['eth2'], {'cost': 200, 'priority': 64})
-        self.assertEqual(sw['spanning_tree']['ports']['eth3'], shared)
+        self.assertEqual(sw['spanning_tree']['ports']['eth2'], {'cost': 200, 'priority': 64, 'bpdu_guard': False, 'root_guard': False})
+        self.assertEqual(sw['spanning_tree']['ports']['eth3'], {**shared, 'bpdu_guard': False, 'root_guard': False})
 
     def test_policy_updates_validate_before_apply_and_use_rollback_journal(self):
         manager = Manager('stp-lan'); spec = stp_lab('/rootfs')
@@ -117,3 +117,25 @@ class STPTests(unittest.TestCase):
             self.assertEqual(manager.state['spec'], spec)
             self.assertEqual(manager.state['phase'], 'running')
             self.assertNotIn('pending_spec', manager.state)
+
+    def test_protection_flags_validate_parse_apply_and_detect_drift(self):
+        s = stp_lab('/rootfs')
+        configured = compile_config(s, 'SW3', 'conf t\ninterface fa0/3\nspanning-tree bpduguard enable\nspanning-tree guard root\nend')
+        node = next(n for n in configured['nodes'] if n['name'] == 'SW3')
+        self.assertTrue(node['spanning_tree']['ports']['eth2']['bpdu_guard'])
+        self.assertTrue(node['spanning_tree']['ports']['eth2']['root_guard'])
+        calls = []
+        configure_ports(SimpleNamespace(ns=lambda *a: calls.append(a)), 0, node, node, True, set())
+        command = next(c for c in calls if 'eth2' in c)
+        self.assertEqual(command[command.index('guard')+1], 'on')
+        self.assertEqual(command[command.index('root_block')+1], 'on')
+        disabled = compile_config(configured, 'SW3', 'conf t\ninterface fa0/3\nspanning-tree bpduguard disable\nspanning-tree guard none\nend')
+        port = next(n for n in disabled['nodes'] if n['name'] == 'SW3')['spanning_tree']['ports']['eth2']
+        self.assertFalse(port['bpdu_guard']); self.assertFalse(port['root_guard'])
+        for value in (1, 'on', None):
+            bad = copy.deepcopy(configured)
+            next(n for n in bad['nodes'] if n['name'] == 'SW3')['spanning_tree']['ports']['eth2']['bpdu_guard'] = value
+            with self.assertRaises(ValueError):
+                validate(bad)
+        with self.assertRaises(ValueError):
+            compile_config(lacp_lab('/rootfs'), 'SW1', 'conf t\ninterface fa0/3\nspanning-tree bpduguard enable')

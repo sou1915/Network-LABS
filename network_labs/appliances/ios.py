@@ -97,6 +97,17 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    if command in ('spanning-tree bpduguard enable', 'spanning-tree bpduguard disable',
+                                   'no spanning-tree bpduguard enable', 'spanning-tree guard root',
+                                   'spanning-tree guard none', 'no spanning-tree guard root'):
+                        tree = node['spanning_tree']
+                        if tree['mode'] != 'stp' or interface not in tree['ports']:
+                            raise ValueError('STP protection requires an enabled logical bridge port.')
+                        if 'bpduguard' in command:
+                            tree['ports'][interface]['bpdu_guard'] = command == 'spanning-tree bpduguard enable'
+                        else:
+                            tree['ports'][interface]['root_guard'] = command == 'spanning-tree guard root'
+                        continue
                     match = re.fullmatch(r'spanning-tree (cost|port-priority) (\d+)', command)
                     if match:
                         tree = node['spanning_tree']

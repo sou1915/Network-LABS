@@ -628,8 +628,8 @@ sudo python3 -m network_labs.appliances configure stp-lan SW2 \
 ```
 
 Elles agissent sur ce **common spanning tree Linux**, pas sur une instance PVST
-par VLAN. `spanning-tree mode rapid-pvst`, PVST/MSTP, PortFast, BPDU guard et
-root guard ne sont pas fournis dans ce jalon. Tous les VLAN d'un port bloqué
+par VLAN. `spanning-tree mode rapid-pvst`, PVST/MSTP et PortFast ne sont pas fournis
+dans ce jalon. Les protections BPDU/root du kernel sont décrites ci-dessous. Tous les VLAN d'un port bloqué
 partagent son état : des listes VLAN divergentes peuvent rendre un VLAN inaccessible.
 La GUI constructeur et un shell IOS complet restent hors de ce backend.
 
@@ -652,6 +652,58 @@ une perte pendant la convergence. Une réélection peut aussi nécessiter l'expi
 Les tests vérifient la récupération bornée de paquets après convergence.
 Les tests de panne ne revendiquent ni
 bascule instantanée, ni absence de perte sur un flux continu.
+
+### Protections BPDU Guard et Root Guard du bridge Linux
+
+Chaque port de `spanning_tree.ports` accepte deux booléens indépendants,
+`bpdu_guard` et `root_guard`, tous deux désactivés par défaut. Ils nécessitent
+STP actif et s'appliquent au port logique du bridge, donc au bond entier pour
+un port-channel, jamais à ses membres physiques. Aucun daemon supplémentaire.
+
+- `bpdu_guard: true` applique `bridge link ... guard on`. Une BPDU reçue
+  désactive réellement le port dans le moteur STP Linux : `state: disabled`.
+  Le lien peut rester administrativement UP. Ce n'est pas une émulation de
+  l'état Cisco err-disabled et aucun timer de récupération automatique n'est fourni.
+- `root_guard: true` applique `root_block on`. Le port ne peut devenir root port.
+  Les BPDUs supérieures peuvent le laisser en blocking ; une autre voie reste
+  utilisable si elle existe. Il ne désactive pas toute réception de BPDUs.
+
+Le cas habituel est de protéger les ports vers des équipements en aval non
+fiables, sans empêcher les uplinks prévus d'atteindre le root. Activer ces
+protections sur tous les uplinks peut isoler le switch. `inspect` expose les
+flags effectifs du kernel et l'état du port, sans inventer une cause ou un
+compteur de déclenchement. `local_state_settled` reste faux lorsqu'un port
+opérationnel est désactivé par le moteur ; examiner les protections et les liens.
+
+Exemple de déclenchement volontaire sur le lien redondant de SW3 :
+
+```bash
+sudo python3 -m network_labs.appliances configure stp-lan SW3 \
+  --text $'configure terminal\ninterface fa0/4\nspanning-tree bpduguard enable\nend'
+# Après réception d'une BPDU, inspect SW3 : eth3 doit être disabled.
+# Retirer la protection, puis cycler explicitement le lien pour récupérer :
+sudo python3 -m network_labs.appliances configure stp-lan SW3 \
+  --text $'configure terminal\ninterface fa0/4\nspanning-tree bpduguard disable\nshutdown\nend'
+sudo python3 -m network_labs.appliances configure stp-lan SW3 \
+  --text $'configure terminal\ninterface fa0/4\nno shutdown\nend'
+# Après convergence, eth3 redevient blocking dans le triangle initial.
+```
+
+Les commandes d'interface `spanning-tree guard root` et `spanning-tree guard none`
+activent/retirent Root Guard ; `no spanning-tree guard root` retire également
+cette protection. `no spanning-tree bpduguard enable` retire BPDU Guard.
+Le parseur valide tout le bloc avant application. Les flags sont persistés dans
+startup et vérifiés contre la configuration kernel lors de save/export.
+L'état disabled/blocking déclenché par le protocole n'est pas une dérive.
+Restore recrée les ports et attend de nouvelles BPDUs pour déclencher la protection.
+Ne pas supposer qu'un port précédemment désactivé restera tel quel après restore.
+
+L'intégration privilégiée teste une vraie isolation par Root Guard sur les deux
+uplinks, puis par BPDU Guard, des pings négatifs et positifs dans les VLAN 10/20,
+la récupération, la détection de drift et le déclenchement après save/restore.
+Les tests STP et STP/LACP précédents restent exécutés sans protection par défaut.
+Référence : [attributs de ports du bridge Linux](https://docs.kernel.org/networking/bridge.html#bridge-port-netlink-attributes),
+`IFLA_BRPORT_GUARD` et `IFLA_BRPORT_PROTECT`.
 
 ### Pourquoi RSTP n'est pas annoncé comme fonctionnel
 

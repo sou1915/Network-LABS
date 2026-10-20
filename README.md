@@ -71,7 +71,7 @@ Le backend Linux propose aussi un firewall IPv4 stateful et masquerade/SNAT/DNAT
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,
-avec inspection de négociation et seuil min-links. `example --stp` ajoute une boucle contrôlée par le STP commun 802.1D du kernel.
+avec inspection de négociation et seuil min-links. `example --stp` ajoute une boucle contrôlée par le STP commun 802.1D du kernel, avec protections BPDU Guard/Root Guard optionnelles.
 Le budget total 2 Gio et RSTP restent à valider/implémenter.
 
 ## Essai facultatif : micro-appliances Wasm

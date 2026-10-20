@@ -39,7 +39,10 @@ def validate_tree(node):
         for name in node['switchports']:
             port = copy.deepcopy(ports.setdefault(name, {}))
             ports[name] = port
-            keys(port, ('cost', 'priority'), 'STP port')
+            keys(port, ('cost', 'priority', 'bpdu_guard', 'root_guard'), 'STP port')
+            for flag in ('bpdu_guard', 'root_guard'):
+                if type(port.setdefault(flag, False)) is not bool:
+                    raise ValueError(flag + ': boolean required.')
             integer(port.setdefault('cost', 100), 1, 65535, 'STP port cost')
             value = integer(port.setdefault('priority', 128), 0, 240, 'STP port priority')
             if value % 16:
@@ -101,7 +104,9 @@ def configure_ports(manager, index, node, previous, initial, recreated):
         old = previous.get('spanning_tree', {}).get('ports', {}).get(port)
         if initial or port in recreated or settings != old:
             manager.ns(index, 'bridge', 'link', 'set', 'dev', port, 'cost', str(settings['cost']),
-                       'priority', str(settings['priority'] // 4))
+                       'priority', str(settings['priority'] // 4),
+                       'guard', 'on' if settings.get('bpdu_guard', False) else 'off',
+                       'root_block', 'on' if settings.get('root_guard', False) else 'off')
     if not initial and policy['mode'] == 'stp' and policy != previous.get('spanning_tree'):
         # Explicit path-policy edits invalidate learned MAC destinations on
         # this bridge. Keep static/permanent entries; physical failover alone
@@ -138,6 +143,7 @@ def observe(node, links, bridge_ids=None):
             'root_port': root_port, 'root_port_number': bridge.get('root_port'), 'root_path_cost': bridge.get('root_path_cost'),
             'topology_change': bridge.get('topology_change'), 'local_state_settled': settled,
             'ports': {p: {**{k: data.get(k) for k in ('state', 'cost', 'no', 'designated_cost', 'root_id', 'bridge_id')},
+                          'bpdu_guard': data.get('guard'), 'root_guard': data.get('root_block'),
                           'kernel_priority': data.get('priority'),
                           'priority': data['priority'] * 4 if isinstance(data.get('priority'), int) else None}
                       for p, data in ports.items()}}
@@ -156,6 +162,8 @@ def drift(node, links):
             errors.append(node['name'] + ': spanning-tree bridge parameters differ')
         ports = {r['ifname']: r.get('linkinfo', {}).get('info_slave_data', {}) for r in links}
         for name, settings in policy['ports'].items():
-            if any(ports.get(name, {}).get(k) != (v // 4 if k == 'priority' else v) for k, v in settings.items()):
+            expected = {'cost': settings['cost'], 'priority': settings['priority'] // 4,
+                        'guard': settings.get('bpdu_guard', False), 'root_block': settings.get('root_guard', False)}
+            if any(ports.get(name, {}).get(k) != v for k, v in expected.items()):
                 errors.append(node['name'] + '/' + name + ': spanning-tree port parameters differ')
     return errors
