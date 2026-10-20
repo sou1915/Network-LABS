@@ -122,8 +122,13 @@ def observe(manager, index, node, links):
         members = parse_members(text)
         physical = {r['ifname']: r for r in links}
         for member in members:
-            flags = physical.get(member['name'], {}).get('flags', [])
-            member['operational'] = 'UP' in flags and 'LOWER_UP' in flags
+            link = physical.get(member['name'], {})
+            flags = link.get('flags', [])
+            slave = link.get('linkinfo', {}).get('info_slave_data', {})
+            member['kernel_slave_state'] = slave.get('state')
+            member['operational'] = ('UP' in flags and 'LOWER_UP' in flags
+                                     and slave.get('state') == 'ACTIVE' and slave.get('mii_status') == 'UP'
+                                     and slave.get('ad_aggregator_id') == member['active_aggregator_id'])
             member['collecting_distributing'] = member['collecting_distributing'] and member['operational']
         negotiated = [p['name'] for p in members if p['collecting_distributing']]
         kernel = next((r for r in links if r['ifname'] == name), {})

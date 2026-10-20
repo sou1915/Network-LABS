@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from network_labs.appliances.examples import lacp_lab
 from network_labs.appliances.ios import compile_config
-from network_labs.appliances.lacp import configure, drift, parse_members
+from network_labs.appliances.lacp import configure, drift, observe, parse_members
 from network_labs.appliances.runtime import Manager
 from network_labs.appliances.spec import validate
 
@@ -108,6 +108,21 @@ details partner lacp pdu:
         self.assertEqual(drift(node, {'links': links}), [])
         links[-1]['linkinfo']['info_data']['miimon'] = 200
         self.assertIn('bonding configuration differs', drift(node, {'links': links})[0])
+
+    def test_ready_requires_current_kernel_active_slave_not_stale_port_bits(self):
+        import subprocess
+        from types import SimpleNamespace
+        node = lacp_lab('/rootfs')['nodes'][4]
+        proc = ('Active Aggregator Info:\n    Aggregator ID: 1\nSlave Interface: eth2\n'
+                'MII Status: up\nAggregator ID: 1\ndetails actor lacp pdu:\n    port state: 63\n'
+                'details partner lacp pdu:\n    port state: 63\n')
+        links = [{'ifname': 'bond1', 'flags': ['UP', 'LOWER_UP']},
+                 {'ifname': 'eth2', 'flags': ['UP', 'LOWER_UP'], 'linkinfo': {'info_slave_data': {
+                     'state': 'BACKUP', 'mii_status': 'UP', 'ad_aggregator_id': 1}}}]
+        manager = SimpleNamespace(ns=lambda *args: subprocess.CompletedProcess(args, 0, proc, ''))
+        self.assertFalse(observe(manager, 0, node, links)['bond1']['ready'])
+        links[1]['linkinfo']['info_slave_data']['state'] = 'ACTIVE'
+        self.assertTrue(observe(manager, 0, node, links)['bond1']['ready'])
 
     def test_invalid_configuration_never_applied(self):
         manager = Manager('lacp-lan'); manager.state = {'spec': lacp_lab('/rootfs'), 'phase': 'running'}
