@@ -7,8 +7,10 @@ le switch apprend et commute les adresses MAC dans son propre code invité.
 
 Il s'agit d'une machine d'exécution Wasm, **sans noyau Linux/Windows invité,
 firmware constructeur ni virtualisation matérielle**. L'expérience établit la
-faisabilité de petites appliances réseau autonomes. Elle ne transforme pas encore
-les équipements du projet principal en appliances exécutables.
+faisabilité de petites appliances réseau autonomes. Une première
+[intégration dans le projet principal](WASM_PROJECT.md) est maintenant disponible
+pour les endpoints et switches d'un LAN compatible ; les fonctions avancées
+ne sont pas encore portées.
 
 ## Installation et essai
 
@@ -133,8 +135,9 @@ dans le moteur pédagogique principal ne sont pas automatiquement transférées
 dans ce prototype. La GUI Windows/Linux existante reste une interface du
 simulateur, pas un bureau de système invité.
 
-La prochaine étape est de stabiliser une API de configuration par appliance,
-puis de porter VLAN et routage IPv4, avec des tests de trames avant d'ajouter
+La configuration du projet est maintenant traduite avant chaque test. Les prochaines
+étapes sont de conserver des instances actives pendant l'édition, puis de porter
+VLAN et routage IPv4, avec des tests de trames avant d'ajouter
 le filtrage firewall. WAMR, Unikraft et Firecracker ne sont pas implémentés ni
 comparés par ce benchmark ; aucun gain relatif n'est revendiqué.
 

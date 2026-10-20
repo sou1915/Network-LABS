@@ -8,22 +8,24 @@ from ..layout import fit_dialog
 from ..theme import PANEL,TEXT,MUTED,BLUE,TEAL,RED
 
 class MicroLabWindow:
-    def __init__(self,app):
-        self.app=app;self.fabric=make_lab();self.closed=False;self.link_up=True
+    def __init__(self,app,snapshot=None):
+        self.app=app;self.fabric=snapshot if snapshot is not None else make_lab();self.owns_fabric=snapshot is None;self.closed=False;self.link_up=True
         self.window=win=tk.Toplevel(app.root);win.title('Network LABS · Lab micro-appliances expérimental')
         win.configure(bg=PANEL);fit_dialog(win,1100,760);win.protocol('WM_DELETE_WINDOW',self.close)
         win.bind('<Destroy>',self.destroyed)
-        ttk.Label(win,text='Lab micro-appliances · PC1 — SW1 — PC2',font=('DejaVu Sans',14,'bold'),padding=12).pack(fill='x')
-        caption=ttk.Label(win,text='Exécution Wasm indépendante · ARP / ICMP / TCP · lab séparé du projet courant · aucun OS invité',padding=(12,0,12,10),wraplength=900);caption.pack(fill='x')
+        ttk.Label(win,text='Lab micro-appliances · PC1 — SW1 — PC2' if self.owns_fabric else 'Capture Wasm · topologie du projet',font=('DejaVu Sans',14,'bold'),padding=12).pack(fill='x')
+        caption=ttk.Label(win,text='Exécution Wasm indépendante · ARP / ICMP / TCP · lab séparé du projet courant · aucun OS invité' if self.owns_fabric else 'Instantané du dernier test du projet · ports physiques conservés · nouvelles instances par test · aucun OS invité',padding=(12,0,12,10),wraplength=900);caption.pack(fill='x')
         caption.bind('<Configure>',lambda e:caption.configure(wraplength=max(150,e.width-30)))
         actions=ttk.Frame(win,padding=(12,4));actions.pack(fill='x')
-        for title,action in [('Ping PC1 → PC2',self.ping),('TCP echo / 8080',self.tcp),('Réinitialiser',self.reset),('Exporter PCAP',self.export)]:
+        controls=[('Ping PC1 → PC2',self.ping),('TCP echo / 8080',self.tcp),('Réinitialiser',self.reset)] if self.owns_fabric else []
+        for title,action in controls+[('Exporter PCAP',self.export)]:
             ttk.Button(actions,text=title,command=action).pack(side='left',padx=(0,6))
-        self.link_button=ttk.Button(actions,text='Déconnecter PC2',command=self.toggle_link);self.link_button.pack(side='right')
-        self.status=tk.StringVar(value='Prêt. Chaque équipement dispose de sa mémoire et de son état réseau propres.')
+        if self.owns_fabric:
+            self.link_button=ttk.Button(actions,text='Déconnecter PC2',command=self.toggle_link);self.link_button.pack(side='right')
+        self.status=tk.StringVar(value='Prêt. Chaque équipement dispose de sa mémoire et de son état réseau propres.' if self.owns_fabric else 'Capture figée. Modifier les équipements et relancer un test dans le projet pour produire une nouvelle capture.')
         status=ttk.Label(win,textvariable=self.status,padding=12,wraplength=1000);status.pack(fill='x')
         status.bind('<Configure>',lambda e:status.configure(wraplength=max(120,e.width-30)))
-        self.nodes=ttk.Treeview(win,columns=('role','address','memory','rx','tx','mac'),show='tree headings',height=3)
+        self.nodes=ttk.Treeview(win,columns=('role','address','memory','rx','tx','mac'),show='tree headings',height=min(6,len(self.fabric.stats()['nodes'])))
         self.nodes.heading('#0',text='Instance');self.nodes.column('#0',width=110,stretch=False)
         for key,title,width in [('role','Rôle',100),('address','IPv4',130),('memory','Mémoire linéaire',140),('rx','RX trames',100),('tx','TX trames',100),('mac','MAC apprises',110)]:
             self.nodes.heading(key,text=title);self.nodes.column(key,width=width)
@@ -87,6 +89,8 @@ class MicroLabWindow:
         if not selection:return
         frame=self.fabric.frames[int(selection[0])];packet=describe(frame)
         text=packet.get('explanation',packet['protocol'])+'\n'+frame.source+':'+str(frame.source_port)+' → '+frame.destination+':'+str(frame.destination_port)
+        if not self.owns_fabric:
+            text+='\nPorts du projet : '+self.fabric.port_names[frame.source][frame.source_port]+' → '+self.fabric.port_names[frame.destination][frame.destination_port]
         text+='\nEthernet : '+packet.get('source_mac','')+' → '+packet.get('destination_mac','')
         if 'checksum_ok' in packet:text+='\nChecksum transport : '+('valide' if packet['checksum_ok'] else 'invalide')
         if packet.get('payload'):text+='\nCharge utile (hex) : '+packet['payload']
@@ -100,7 +104,11 @@ class MicroLabWindow:
 
     def close(self):
         if self.closed:return
-        self.closed=True;self.fabric.close();self.window.destroy()
+        self.closed=True
+        if self.owns_fabric:self.fabric.close()
+        self.window.destroy()
 
     def destroyed(self,event):
-        if event.widget==self.window and not self.closed:self.closed=True;self.fabric.close()
+        if event.widget==self.window and not self.closed:
+            self.closed=True
+            if self.owns_fabric:self.fabric.close()

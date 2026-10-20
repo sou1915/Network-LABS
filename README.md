@@ -33,12 +33,26 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 
 ## Essai facultatif : micro-appliances Wasm
 
-Un lab séparé exécute maintenant **PC1, SW1 et PC2 dans des instances Wasm
-indépendantes**, avec pile smoltcp, apprentissage MAC, trames ARP/ICMP, handshake
-et données TCP. La fenêtre affiche les paquets et exporte un PCAP. Aucun OS
-invité ni firmware constructeur ; les nodes du projet principal gardent leur
-moteur pédagogique. Installer le runtime facultatif et ouvrir **Fichier → Lab
-micro-appliances (expérimental)** : [guide, commandes et mesures](docs/MICRO_APPLIANCES.md).
+Le choix **Moteur du projet → Wasm · LAN** exécute les endpoints et switches de
+la topologie courante dans des instances Wasm indépendantes : pile smoltcp,
+apprentissage MAC, octets ARP/ICMP et handshake/données TCP echo. Les adresses,
+câbles et shutdown configurés en GUI/CLI sont utilisés. **Paquets / PCAP** ouvre
+la capture du test. Le moteur pédagogique reste disponible pour les fonctions
+non portées ; aucun repli automatique ne masque une limitation du backend Wasm.
+
+Après installation du runtime facultatif, ouvrir directement le projet LAN éditable :
+
+```bash
+.venv-micro/bin/python -m network_labs --wasm-lan
+```
+
+Périmètre actuel : LAN access VLAN 1 sans boucle active, IPv4 statique /24,
+ICMP et TCP echo/8080. Les instances sont recréées à chaque test ; aucun noyau OS
+invité ni firmware constructeur. Budget cible du programme : **2 Gio RAM**,
+sans garantie de consommation maximale. [Intégration au projet](docs/WASM_PROJECT.md)
+et [installation, sources et mesures](docs/MICRO_APPLIANCES.md).
+
+![Projet exécuté dans Wasm](docs/wasm_project.png)
 
 ## Un espace pour chaque tâche
 
@@ -156,8 +170,8 @@ Les commandes non implémentées sont rejetées.
 
 ## Tests
 
-Validation locale : **142 tests réussis**, dont **23 tests GUI** sous Tk/Xvfb,
-avec Wasmtime installé (130 tests du logiciel et 12 du prototype facultatif).
+Validation locale : **154 tests réussis**, dont **24 tests GUI** sous Tk/Xvfb,
+avec Wasmtime installé (130 tests initiaux et 24 tests d'appliances/intégration).
 Les tests du prototype sont ignorés lorsque son runtime n'est pas installé.
 Le contrôle navigateur facultatif vérifie 23 présentations et leur affichage mobile,
 ainsi que des modifications réelles du modèle via HTTP.

@@ -291,6 +291,14 @@ class App:
         for name in ('Conception','Simulation','Consoles'):
             ttk.Radiobutton(modes,text=name,value=name,variable=self.workspace_mode,command=lambda:self.set_workspace_mode(self.workspace_mode.get())).pack(side='left',padx=(0,18))
         label(modes,'1 · Construire     2 · Tester et comprendre     3 · Configurer en CLI',MUTED,9).pack(side='right')
+        engine_bar=ttk.Frame(root,padding=(14,4));engine_bar.pack(fill='x')
+        ttk.Label(engine_bar,text='Moteur du projet').pack(side='left',padx=(0,8))
+        self.backend_choice=tk.StringVar(value='Pédagogique')
+        self.backend_box=ttk.Combobox(engine_bar,textvariable=self.backend_choice,values=['Pédagogique','Wasm · LAN'],state='readonly',width=18)
+        self.backend_box.pack(side='left');self.backend_box.bind('<<ComboboxSelected>>',self.set_backend)
+        ttk.Button(engine_bar,text='Ouvrir le LAN Wasm',command=self.load_wasm_lab).pack(side='left',padx=8)
+        self.capture_button=ttk.Button(engine_bar,text='Paquets / PCAP',command=self.open_project_capture,state='disabled');self.capture_button.pack(side='left')
+        ttk.Label(engine_bar,text='Budget cible : 2 Gio RAM').pack(side='right',padx=8)
         workspace=self.workspace=ttk.Panedwindow(root,orient='horizontal')
         workspace.pack(fill='both',expand=True,padx=10,pady=(8,0))
         self.sidebar=ScrollPanel(workspace,PANEL)
@@ -322,10 +330,9 @@ class App:
         self.canvas.bind('<Escape>',lambda e:self.set_mode('select'))
         legend=tk.Frame(topology,bg=PANEL,padx=12,pady=7)
         legend.pack(fill='x')
-        label(legend,'● Forwarding',TEAL,9).pack(side='left',padx=6)
-        label(legend,'● STP bloqué',GOLD,9).pack(side='left',padx=6)
-        label(legend,'● Down',RED,9).pack(side='left',padx=6)
-        label(legend,'● Hors VLAN',MUTED,9).pack(side='left',padx=6)
+        self.legend_labels=[]
+        for text,color in [('● Forwarding',TEAL),('● STP bloqué',GOLD),('● Down',RED),('● Hors VLAN',MUTED)]:
+            item=label(legend,text,color,9);item.pack(side='left',padx=6);self.legend_labels.append(item)
         label(legend,'Double-clic : Web / GUI · F10/F11',MUTED,9).pack(side='right')
         self.dock=ttk.Notebook(middle,height=180)
         middle.add(self.dock,weight=2)
@@ -495,7 +502,7 @@ class App:
         self.root.bind('<F11>',lambda e:self.toggle_console_focus())
         self.root.bind('<F10>',lambda e:self.toggle_topology_focus())
         for title,callback in [('Sauvegarder',self.save),('Ouvrir',self.load),('Importer .txt',self.import_text),('Nouveau',self.new)]:
-            button(top,title,callback,title=='Sauvegarder').pack(side='right',padx=4)
+            control=button(top,title,callback,title=='Sauvegarder');control.configure(width=0);control.pack(side='right',padx=4)
 
     def import_text(self,device_mode=False):
         from .text_ui import ImportDialog
@@ -516,6 +523,26 @@ class App:
             return self.micro_lab_window
         except (DependencyMissing,OSError,ValueError) as error:
             messagebox.showinfo('Prototype micro-appliances',str(error)+'\n\nVoir docs/MICRO_APPLIANCES.md pour l’installation facultative.',parent=self.root)
+
+    def set_backend(self,event=None):
+        self.lab.execution_backend='wasm' if self.backend_choice.get()=='Wasm · LAN' else 'model'
+        self.changed('Moteur Wasm : access VLAN 1, IPv4 statique /24, ICMP et TCP echo/8080. Nouvelles instances par test.' if self.lab.execution_backend=='wasm' else 'Moteur pédagogique sélectionné.')
+
+    def load_wasm_lab(self):
+        from .micro_appliances.project import demo
+        if self.replace_lab(demo):
+            self.source.set('PC1');self.destination.set('192.168.50.20');self.test_protocol.set('icmp');self.test_port.set('8080')
+            self.status.set('LAN Wasm chargé dans le projet. Modifier, câbler ou lancer un ping depuis la GUI / CLI.')
+
+    def open_project_capture(self):
+        capture=getattr(self.lab,'last_micro_capture',None)
+        if capture is None:
+            messagebox.showinfo('Capture Wasm','Lancer un test avec le moteur Wasm dans le projet courant.',parent=self.root);return
+        from .micro_appliances.ui import MicroLabWindow
+        previous=getattr(self,'project_capture_window',None)
+        if previous is not None and not previous.closed:previous.close()
+        self.project_capture_window=MicroLabWindow(self,snapshot=capture)
+        return self.project_capture_window
 
     def build_sidebar(self):
         tabs=ttk.Notebook(self.sidebar.inner);tabs.pack(fill='both',expand=True)
@@ -646,8 +673,9 @@ class App:
         ref.pack(fill='both',expand=True)
         ref.insert('1.0',FEATURES+'\n\nEXEMPLE SWITCH\nenable\nconfigure terminal\nvlan 10\nname USERS\nexit\ninterface gi0/1\nswitchport mode access\nswitchport access vlan 10\nno shutdown\nend\nshow vlan brief\n\nEXEMPLE TRUNK\nenable\nconfigure terminal\ninterface gi0/3\nswitchport mode trunk\nswitchport trunk allowed vlan 10,20\nend\nshow interfaces trunk')
         ref.configure(state='disabled')
-        test=self.test_panel=tk.Frame(self.inspector_book,bg=CARD,padx=12,pady=12)
-        self.inspector_book.add(test,text='Simulation')
+        self.test_panel=ScrollPanel(self.inspector_book,CARD)
+        test=self.test_panel.inner;test.configure(padx=12,pady=12)
+        self.inspector_book.add(self.test_panel,text='Simulation')
         label(test,'TEST / VISUALISATION',TEAL,9,True).pack(fill='x',pady=(0,8))
         self.source=tk.StringVar(value='PC1'); self.destination=tk.StringVar(value='192.168.20.10')
         label(test,'Équipement source',MUTED,9).pack(fill='x',pady=(4,0))
@@ -669,9 +697,16 @@ class App:
         self.speed=tk.DoubleVar(value=1.)
         label(test,'Vitesse de lecture',MUTED,8).pack(fill='x',pady=(8,1))
         ttk.Scale(test,from_=0.3,to=3,variable=self.speed).pack(fill='x')
-        label(test,'Parcours calculé • pas de timing réel ARP/ICMP',MUTED,8).pack(fill='x',pady=(7,0))
+        self.test_scope=tk.StringVar()
+        ttk.Label(test,textvariable=self.test_scope,wraplength=270).pack(fill='x',pady=(7,0))
 
     def refresh(self):
+        self.backend_choice.set('Wasm · LAN' if self.lab.execution_backend=='wasm' else 'Pédagogique')
+        self.root.title('Network LABS / '+('Wasm LAN · projet exécuté' if self.lab.execution_backend=='wasm' else 'Switching Studio'))
+        self.test_scope.set('Wasm : access VLAN 1 · IPv4 /24 · trames ARP/ICMP/TCP · horloge virtuelle.' if self.lab.execution_backend=='wasm' else 'Parcours calculé · pas de timing réel ARP/ICMP.')
+        legend=['● Câblé','STP non exécuté','● Down',''] if self.lab.execution_backend=='wasm' else ['● Forwarding','● STP bloqué','● Down','● Hors VLAN']
+        for item,text in zip(self.legend_labels,legend):item.configure(text=text)
+        self.capture_button.configure(state='normal' if getattr(self.lab,'last_micro_capture',None) else 'disabled')
         values=[n.name for n in self.lab.nodes.values() if n.kind=='PC']
         self.source_box['values']=values
         if self.source.get() not in values:
@@ -743,13 +778,17 @@ class App:
                 ports=ttk.Treeview(port_frame,columns=('port','state','vlan'),show='headings',height=12)
                 for col,title,width in [('port','Port',65),('state','État',80),('vlan','VLAN',65)]:
                     ports.heading(col,text=title); ports.column(col,width=width,stretch=True)
-                stp=self.lab.stp(int(self.view_vlan.get())).get(n.name,{}).get('ports',{})
+                stp={} if self.lab.execution_backend=='wasm' else self.lab.stp(int(self.view_vlan.get())).get(n.name,{}).get('ports',{})
                 for name,p in n.ports.items():
                     if '.' in name or name.startswith('po'):
                         continue
                     link=self.lab.link_for(n.name,name)
-                    state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or (link and not link.enabled) else 'AUTH' if not self.lab.access_allowed(n.name,name) else 'BOUND' if link and self.lab.boundary_reason(link) else 'SUSP' if link and not self.lab.channel_state(link)[0] else stp.get(name,('','UP'))[1] if link else 'libre'
-                    operational=self.lab.operational_mode(link,n.name) if link else p.mode
+                    if self.lab.execution_backend=='wasm':
+                        state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or link and not link.enabled else 'câblé' if link else 'libre'
+                        operational=p.mode
+                    else:
+                        state='ERR' if p.errdisabled else 'DOWN' if p.shutdown or (link and not link.enabled) else 'AUTH' if not self.lab.access_allowed(n.name,name) else 'BOUND' if link and self.lab.boundary_reason(link) else 'SUSP' if link and not self.lab.channel_state(link)[0] else stp.get(name,('','UP'))[1] if link else 'libre'
+                        operational=self.lab.operational_mode(link,n.name) if link else p.mode
                     ports.insert('', 'end',iid=name,values=(name,state,'trunk' if operational=='trunk' else p.access_vlan),tags=('bad',) if state in ('ERR','DOWN','BLK','BOUND','SUSP','AUTH') else ())
                 ports.tag_configure('bad',foreground=GOLD)
                 scroll=ttk.Scrollbar(port_frame,command=ports.yview)
@@ -817,12 +856,14 @@ class App:
             for y in range(int(self.pany)%grid,h,grid):
                 c.create_oval(x,y,x+1,y+1,fill='#dce3ed',outline='')
         vlan=int(self.view_vlan.get() or 1)
-        states=self.lab.stp(vlan)
+        wasm=self.lab.execution_backend=='wasm'
+        states={} if wasm else self.lab.stp(vlan)
         for i,l in enumerate(self.lab.links):
             pa,pb=self.lab.ends(l)
-            eligible=self.lab.eligible(l,vlan)
+            eligible=(pa.mode==pb.mode=='access' and pa.access_vlan==pb.access_vlan==1) if wasm else self.lab.eligible(l,vlan)
             blocked=any(states.get(n,{}).get('ports',{}).get(p,('',''))[1]=='BLK' for n,p in ((l.a,l.a_port),(l.b,l.b_port)))
-            physically_down=bool(self.lab.boundary_reason(l)) or not l.enabled or pa.shutdown or pb.shutdown or pa.errdisabled or pb.errdisabled or not self.lab.channel_state(l)[0]
+            physically_down=not l.enabled or pa.shutdown or pb.shutdown or pa.errdisabled or pb.errdisabled
+            if not wasm:physically_down=physically_down or bool(self.lab.boundary_reason(l)) or not self.lab.channel_state(l)[0]
             color=RED if physically_down else GOLD if blocked else TEAL if eligible else '#4b5d77'
             if self.selected_link==i:
                 color=BLUE
@@ -1162,7 +1203,10 @@ class App:
     def changed(self,text):
         self.dirty=True; self.invalidate(); self.refresh(); self.status.set(text)
 
-    def invalidate(self):
+    def invalidate(self,clear_capture=True):
+        if clear_capture:
+            self.lab.last_micro_capture=None
+            self.capture_button.configure(state='disabled')
         self.pause(); self.hops=[]; self.index=0; self.progress=0.; self.result=None
         self.events.delete(*self.events.get_children())
         self.story.show(None)
@@ -1173,7 +1217,9 @@ class App:
         self.animate_result(ok,trace[-1])
 
     def animate_result(self,ok,message=''):
-        self.invalidate(); self.result=ok
+        self.invalidate(clear_capture=False); self.result=ok
+        capture=getattr(self.lab,'last_micro_capture',None)
+        self.capture_button.configure(state='normal' if capture else 'disabled')
         self.story.show(getattr(self.lab,'last_explanation',None))
         request=getattr(self.lab,'last_request',{})
         if request:
@@ -1182,12 +1228,16 @@ class App:
         self.set_workspace_mode('Simulation')
         self.dock.select(self.story)
         for j,hops in enumerate(self.lab.last_hops):
-            phase='Aller' if j==0 else 'Retour'
-            for i,a,b,v in hops:
+            phase='Trames' if capture else 'Aller' if j==0 else 'Retour'
+            for position,(i,a,b,v) in enumerate(hops):
                 l=self.lab.links[i]
                 aport=l.a_port if l.a==a else l.b_port; bport=l.b_port if l.b==b else l.a_port
                 proto=getattr(self.lab,'last_protocol','icmp').upper();port=getattr(self.lab,'last_service_port',0)
                 detail=proto+(('/'+str(port)) if port else '')+' · parcours simulé / MAC'
+                if capture:
+                    from .micro_appliances.packets import describe
+                    frame=capture.frames[position];packet=describe(frame)
+                    detail=f'{frame.time_ms} ms virtuelles · '+packet.get('explanation',packet['protocol'])
                 self.events.insert('', 'end',values=(phase,v,a+'/'+aport,b+'/'+bport,detail))
                 self.hops.append((i,a,b,v,phase))
         if not ok:
@@ -1226,7 +1276,7 @@ class App:
     def finish(self):
         self.pause()
         if self.story.report:self.story.select(len(self.story.report['steps'])-1)
-        self.status.set('✓ Aller / retour accessibles' if self.result else '✗ Parcours interrompu • consulter le diagnostic'); self.draw()
+        self.status.set(('✓ Échange Wasm vérifié' if self.result else '✗ Échange Wasm interrompu') if self.lab.execution_backend=='wasm' else ('✓ Aller / retour accessibles' if self.result else '✗ Parcours interrompu • consulter le diagnostic')); self.draw()
 
     def step(self):
         self.pause()
@@ -1319,4 +1369,10 @@ class App:
             self.root.destroy()
 
 if __name__=='__main__':
-    root=tk.Tk(); App(root); root.mainloop()
+    import argparse
+    parser=argparse.ArgumentParser(description='Network LABS desktop')
+    parser.add_argument('--wasm-lan',action='store_true',help='Open the editable LAN project with the Wasm backend selected.')
+    args=parser.parse_args()
+    root=tk.Tk();app=App(root)
+    if args.wasm_lan:app.load_wasm_lab()
+    root.mainloop()

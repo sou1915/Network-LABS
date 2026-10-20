@@ -180,6 +180,7 @@ class Link:
 
 class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
     def __init__(self):
+        self.execution_backend = 'model'
         self.nodes, self.links = {}, []
         self.last_paths, self.last_hops, self.events = [], [], []
         self.fdb = {}
@@ -202,6 +203,13 @@ class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
     def available_ports(self, name):
         used = {l.a_port if l.a == name else l.b_port for l in self.links if name in (l.a,l.b)}
         return [p for p in self.nodes[name].ports if p not in used and '.' not in p and not p.startswith('po')]
+
+    def display_mac(self,name):
+        if self.execution_backend=='wasm':
+            if self.nodes[name].kind!='PC':return '— (aucune MAC de gestion Wasm)'
+            from .micro_appliances.project import endpoint_mac
+            return endpoint_mac(self,name)
+        return self.nodes[name].mac
 
     def connect(self, a, b, mode='access', vlans=None, a_port='', b_port='', enabled=True, configure=True):
         vlans = [1] if vlans is None else list(vlans)
@@ -447,6 +455,9 @@ class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
 
     @recorded("icmp")
     def ping(self,source,destination):
+        if self.execution_backend == 'wasm':
+            from .micro_appliances.project import execute
+            return execute(self,source,destination)
         try:
             IPv4Address(destination)
         except ValueError:
@@ -531,7 +542,7 @@ class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
             for port in node['ports'].values():
                 if len(port['allowed'])==4094:
                     port['allowed']='all'
-        return json.dumps({'version':2,'nodes':nodes,'links':[asdict(l) for l in self.links],'radius_users':self.radius_users},indent=2)
+        return json.dumps({'version':2,'execution_backend':self.execution_backend,'nodes':nodes,'links':[asdict(l) for l in self.links],'radius_users':self.radius_users},indent=2)
 
     @classmethod
     def loads(cls,text):
@@ -539,6 +550,9 @@ class Lab(Services,Layer2,AccessMulticast,LANServices,Firewall,Transport):
         if data.get('version') not in (1,2):
             raise ValueError('Version de projet incompatible.')
         lab=cls()
+        lab.execution_backend=data.get('execution_backend','model')
+        if lab.execution_backend not in ('model','wasm'):
+            raise ValueError('Moteur de projet inconnu.')
         for node in data['nodes']:
             lab.add(Node(**node))
         lab.radius_users=data.get('radius_users',{}).copy()

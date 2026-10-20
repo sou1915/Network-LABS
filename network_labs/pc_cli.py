@@ -25,7 +25,7 @@ class PCCommands:
             return PROFILES[self.n.profile].model+' — simulation réseau, aucun noyau OS exécuté.'
         if family=='linux':
             if low in ('ip a','ip addr show','ip addr show dev eth0','ip -br addr','ip link show','ip link show dev eth0'):
-                return f'eth0  {"UP" if self.pc_link_up() else "DOWN"}  {self.n.address or "sans IPv4"}  {self.n.mac}'
+                return f'eth0  {"UP" if self.pc_link_up() else "DOWN"}  {self.n.address or "sans IPv4"}  {self.lab.display_mac(self.node)}'
             if low in ('ip route','ip route show'):
                 return (f'default via {self.n.gateway} dev eth0\n' if self.n.gateway else '')+(f'{IPv4Interface(self.n.address).network} dev eth0' if self.n.address else '')
             if low in ('dhclient','sudo dhclient','sudo dhclient eth0'):

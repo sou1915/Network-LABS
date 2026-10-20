@@ -14,9 +14,24 @@ def main():
     demo=commands.add_parser('demo');demo.add_argument('--json',type=Path);demo.add_argument('--pcap',type=Path)
     commands.add_parser('isolation')
     benchmark=commands.add_parser('benchmark');benchmark.add_argument('--sizes',nargs='+',type=int,default=[10,50,100]);benchmark.add_argument('--json',type=Path)
+    project=commands.add_parser('project',help='Execute a saved JSON project in Wasm, without a display.')
+    project.add_argument('path',type=Path);project.add_argument('--source',required=True);project.add_argument('--target',required=True)
+    project.add_argument('--protocol',choices=['icmp','tcp','udp'],default='icmp');project.add_argument('--port',type=int,default=8080)
+    project.add_argument('--json',type=Path);project.add_argument('--pcap',type=Path)
     worker=commands.add_parser('_benchmark-worker');worker.add_argument('--hosts',type=int,required=True)
     args=parser.parse_args()
     try:
+        if args.command=='project':
+            from ..engine import Lab
+            from .packets import describe
+            lab=Lab.loads(args.path.read_text(encoding='utf-8'));lab.execution_backend='wasm'
+            ok,trace=lab.ping(args.source,args.target) if args.protocol=='icmp' else lab.probe(args.source,args.target,args.protocol,args.port)
+            capture=getattr(lab,'last_micro_capture',None)
+            report={'ok':ok,'backend':'wasm','trace':trace,'explanation':lab.last_explanation,
+                    'runtime':capture.stats() if capture else None,'frames':[describe(f) for f in capture.frames] if capture else []}
+            if args.pcap and capture:capture.write_pcap(args.pcap)
+            if args.json:args.json.write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+            print('\n'.join(trace));return 0 if ok else 1
         if args.command=='demo':
             fabric,report=functional_demo()
             if args.pcap:fabric.write_pcap(args.pcap)

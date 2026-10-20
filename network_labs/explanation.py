@@ -9,11 +9,15 @@ def recorded(protocol):
    proto=protocol if protocol!='probe' else (args[0] if args else kwargs.get('protocol','tcp'))
    port=0 if protocol!='probe' else (args[1] if len(args)>1 else kwargs.get('port',0))
    self.last_paths,self.last_hops,self.events=[],[],[]
+   self.last_micro_capture=None
    self.firewall_log=[]
    ok,trace=fn(self,source,destination,*args,**kwargs)
    self.last_request={'source':source,'destination':destination,'protocol':proto,'port':port}
    self.last_trace=list(trace);self.last_outcome=ok
-   self.last_explanation=explain(self,ok,trace)
+   if getattr(self,'execution_backend','model')=='wasm':
+    from .micro_appliances.project import explain as explain_micro
+    self.last_explanation=explain_micro(self,ok,trace)
+   else:self.last_explanation=explain(self,ok,trace)
    return ok,trace
   return run
  return decorate

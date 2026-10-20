@@ -11,6 +11,9 @@ def service_key(protocol,port):
 class Transport:
     @recorded("probe")
     def probe(self,source,destination,protocol,port):
+        if self.execution_backend == 'wasm':
+            from .micro_appliances.project import execute
+            return execute(self,source,destination,protocol,port)
         try:
             key=service_key(protocol,port);port=int(port)
             dns_trace=[]

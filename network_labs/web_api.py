@@ -17,7 +17,7 @@ class DeviceAPI:
 
     def snapshot(self,node):
         n=self.app.lab.nodes[node];p=PROFILES[n.profile]
-        data=asdict(n);data.pop('startup',None);data['mac']=n.mac
+        data=asdict(n);data.pop('startup',None);data['mac']=self.app.lab.display_mac(node)
         for port in data['ports'].values():port['allowed']=Session.compact(port['allowed'])
         links=[]
         for link in self.app.lab.links:

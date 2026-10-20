@@ -10,6 +10,8 @@ def dns_name(value):
 
 class LANServices:
     def resolve_name(self,client,name,server_address=None):
+        if self.execution_backend=='wasm':
+            raise ValueError('Wasm : DNS pas encore exécuté dans les invités. Utiliser une adresse IPv4.')
         name=dns_name(name)
         node=self.nodes[client]
         servers=[str(IPv4Address(server_address))] if server_address else node.dns[:]

@@ -27,6 +27,8 @@ class Services:
 
     def request_dhcp(self,client):
         """Atomic allocation after validating the modeled Offer/ACK return path."""
+        if self.execution_backend=='wasm':
+            raise ValueError('Wasm : DHCP pas encore exécuté dans les invités. Configurer une IPv4 statique /24.')
         node=self.nodes[client]
         if node.kind!='PC':
             raise ValueError('DHCP client disponible sur PC uniquement.')

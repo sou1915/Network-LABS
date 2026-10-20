@@ -15,5 +15,9 @@ jobs:
         run: xvfb-run -a .venv-ci/bin/python -m unittest discover -s tests -v
       - name: Executable guest smoke check
         run: .venv-ci/bin/python -m network_labs.micro_appliances demo --json /tmp/micro-demo.json --pcap /tmp/micro-demo.pcap
+      - name: Execute saved project with Wasm backend
+        run: |
+          .venv-ci/bin/python -m network_labs.micro_appliances project examples/wasm_lan.json --source PC1 --target 192.168.50.20 --json /tmp/project-ping.json --pcap /tmp/project-ping.pcap
+          .venv-ci/bin/python -m network_labs.micro_appliances project examples/wasm_lan.json --source PC1 --target 192.168.50.20 --protocol tcp --port 8080
       - name: Python syntax
         run: /usr/bin/python3 -m compileall -q network_labs

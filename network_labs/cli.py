@@ -150,6 +150,8 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
                 return 'Enter configuration commands, one per line. End with end.'
             if low=='clear mac address-table dynamic':
                 self.require('priv')
+                if self.lab.execution_backend=='wasm':
+                    raise ValueError('Wasm : les instances et leur table MAC sont recréées à chaque test.')
                 self.lab.fdb.pop(self.node,None)
                 self.changed=True
                 return 'Table MAC vidée.'
@@ -581,7 +583,7 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
             self.changed=True
             return 'DHCP lease released.'
         if low=='ipconfig' or low=='ip addr' or low=='show ip interface brief':
-            return f'{self.n.name} / eth0\nMAC {self.n.mac}\nIPv4 {self.n.address or "non configurée"}\nPasserelle {self.n.gateway or "aucune"}\nDNS {', '.join(self.n.dns) or "aucun"}'
+            return f'{self.n.name} / eth0\nMAC {self.lab.display_mac(self.node)}\nIPv4 {self.n.address or "non configurée"}\nPasserelle {self.n.gateway or "aucune"}\nDNS {', '.join(self.n.dns) or "aucun"}'
         if low.startswith('hostname '):
             value=line.split(maxsplit=1)[1]
             if not re.fullmatch('[A-Za-z0-9_-]{1,32}',value):
@@ -604,8 +606,9 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
             try:
                 IPv4Address(destination)
             except ValueError:
-                destination,server=self.lab.resolve_name(self.node,destination)
-                resolved=[f'DNS: {low.split()[-1]} → {destination} via {server}']
+                if self.lab.execution_backend!='wasm':
+                    destination,server=self.lab.resolve_name(self.node,destination)
+                    resolved=[f'DNS: {low.split()[-1]} → {destination} via {server}']
             ok,trace=self.lab.ping(self.node,destination)
             trace=resolved+trace
             return ('SUCCESS\n' if ok else 'FAILED\n')+'\n'.join(trace)
@@ -614,6 +617,13 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
         raise ValueError('Commande PC non implémentée. Utiliser ?. Aucune commande shell réelle n’est exécutée.')
 
     def show(self,low):
+        if self.lab.execution_backend=='wasm':
+            if low in ('show mac address-table','show mac address-table dynamic'):
+                capture=getattr(self.lab,'last_micro_capture',None)
+                row=next((r for r in capture.counters['nodes'] if r['name']==self.node),None) if capture else None
+                return ('Wasm : '+str(row['learned_macs'])+' MAC apprises dans le dernier test.\n' if row and row['learned_macs'] is not None else 'Wasm : aucun état invité disponible.\n')+'La table détaillée n’est pas exportée par le guest ; consulter Paquets / PCAP. Nouvelles instances par test.'
+            if low.startswith(('show spanning-tree','show etherchannel','show vtp','show ip dhcp','show ip igmp','show authentication','show firewall')):
+                return '% Wasm : état de ce protocole non disponible ; il n’est pas encore exécuté dans les invités.'
         feature=self.feature_show(low)
         if feature is not None:
             return feature

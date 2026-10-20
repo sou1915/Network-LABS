@@ -26,6 +26,8 @@ class AccessMulticast:
         return session['mac']==self.nodes[peer].mac
 
     def authenticate(self,client,user,password):
+        if self.execution_backend=='wasm':
+            raise ValueError('Wasm : 802.1X/RADIUS pas encore exécutés dans les invités.')
         pc=self.nodes[client]
         link=next((l for l in self.links if client in (l.a,l.b)),None)
         if pc.kind!='PC' or not link:
@@ -92,6 +94,8 @@ class AccessMulticast:
         return ports,indexes
 
     def multicast(self,source,group):
+        if self.execution_backend=='wasm':
+            raise ValueError('Wasm : multicast/IGMP pas encore exécutés dans les invités.')
         address=IPv4Address(group)
         if not address.is_multicast or group.startswith('224.0.0.'):
             raise ValueError('Groupe multicast non pris en charge.')
