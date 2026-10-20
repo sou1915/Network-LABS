@@ -481,6 +481,8 @@ class App:
         file_menu.add_command(label='Importer un lab texte',command=self.import_text)
         file_menu.add_command(label='Importer CLI sur la sélection',command=lambda:self.import_text(True))
         file_menu.add_command(label='Exporter le lab en texte',command=self.export_text)
+        file_menu.add_separator()
+        file_menu.add_command(label='Lab micro-appliances (expérimental)',command=self.open_micro_lab)
         files.configure(menu=file_menu); files.pack(side='left',padx=4)
         view=tk.Menubutton(top,text='Vue ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=10,pady=6)
         menu=tk.Menu(view,tearoff=False,bg=PANEL,fg=TEXT)
@@ -502,6 +504,18 @@ class App:
     def export_text(self):
         from .text_ui import export_dialog
         export_dialog(self)
+
+    def open_micro_lab(self):
+        from .micro_appliances.runtime import DependencyMissing
+        from .micro_appliances.ui import MicroLabWindow
+        window=getattr(self,'micro_lab_window',None)
+        if window is not None and not window.closed:
+            window.window.lift();return window
+        try:
+            self.micro_lab_window=MicroLabWindow(self)
+            return self.micro_lab_window
+        except (DependencyMissing,OSError,ValueError) as error:
+            messagebox.showinfo('Prototype micro-appliances',str(error)+'\n\nVoir docs/MICRO_APPLIANCES.md pour l’installation facultative.',parent=self.root)
 
     def build_sidebar(self):
         tabs=ttk.Notebook(self.sidebar.inner);tabs.pack(fill='both',expand=True)

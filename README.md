@@ -31,6 +31,15 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+## Essai facultatif : micro-appliances Wasm
+
+Un lab séparé exécute maintenant **PC1, SW1 et PC2 dans des instances Wasm
+indépendantes**, avec pile smoltcp, apprentissage MAC, trames ARP/ICMP, handshake
+et données TCP. La fenêtre affiche les paquets et exporte un PCAP. Aucun OS
+invité ni firmware constructeur ; les nodes du projet principal gardent leur
+moteur pédagogique. Installer le runtime facultatif et ouvrir **Fichier → Lab
+micro-appliances (expérimental)** : [guide, commandes et mesures](docs/MICRO_APPLIANCES.md).
+
 ## Un espace pour chaque tâche
 
 **Conception** affiche le plan et les catégories Nodes/Outils/Labs.
@@ -132,7 +141,7 @@ Le catalogue n'est pas exhaustif. [Détails et sources des profils](docs/MODELS.
 
 ## Limites importantes du modèle
 
-Pas de vrais paquets, stack TCP/UDP, handshakes, retransmissions, délai/débit
+Dans le moteur pédagogique principal : pas de vrais paquets, stack TCP/UDP, handshakes, retransmissions, délai/débit
 mesuré ou OS constructeur. Les services sont des tests de disponibilité, sans
 exécution SMB/HTTP, fichiers, impression, vidéo ou voix. Le port firewall est le
 port de service pour les deux jambes ; état limité à la transaction courante,
@@ -147,7 +156,9 @@ Les commandes non implémentées sont rejetées.
 
 ## Tests
 
-Validation locale : **130 tests réussis**, dont **22 tests GUI** sous Tk/Xvfb.
+Validation locale : **142 tests réussis**, dont **23 tests GUI** sous Tk/Xvfb,
+avec Wasmtime installé (130 tests du logiciel et 12 du prototype facultatif).
+Les tests du prototype sont ignorés lorsque son runtime n'est pas installé.
 Le contrôle navigateur facultatif vérifie 23 présentations et leur affichage mobile,
 ainsi que des modifications réelles du modèle via HTTP.
 
