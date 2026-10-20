@@ -1,7 +1,8 @@
 # Firewalls LAN : types et support réel
 
 Deux ports Ethernet transparents, règles IPv4 source/destination, protocole et
-port de service, ordre par ID, modes stateful/stateless et politique par défaut.
+port de service, séquence native si définie (sinon ordre par ID), modes
+stateful/stateless et politique par défaut.
 La page web et le GUI bureau proposent l'édition et les compteurs du même moteur.
 
 | Type | État | Couverture |
@@ -20,6 +21,40 @@ reproduisent pas leurs systèmes ou fonctions avancées. Des sous-ensembles de
 syntaxe FortiOS et PAN-OS sont disponibles : voir [FIDELITY.md](FIDELITY.md).
 Les autres consoles constructeur ne sont pas implémentées.
 Le catalogue n'est pas exhaustif.
+
+## FortiGate : page et commandes spécialisées
+
+```bash
+.venv-micro/bin/python -m network_labs --fortigate-lab
+```
+
+Le navigateur ouvre directement **Policy & Objects → Firewall Policy**.
+Créer/éditer/supprimer une policy, la déplacer en vue **By Sequence**, gérer les
+objets **Addresses** et lire le bloc CLI équivalent. Le même interpréteur FortiOS
+est utilisé par la console et le formulaire, avec validation atomique côté web.
+Les effets concernent le moteur pédagogique transparent, pas un firewall Wasm.
+Les autres familles ne sont pas encore reconstruites à ce niveau.
+
+![FortiGate, policies et séquence](web_fortios_policy.png)
+
+![Éditeur FortiGate et bloc CLI équivalent](web_fortios_editor.png)
+
+Exemple depuis la console FortiGate, après création des IDs 10 et 50 :
+
+```text
+config firewall policy
+move 50 before 10
+edit 50
+set name "WEB_HTTPS"
+set comments "Acces web du LAN"
+next
+end
+show firewall policy
+```
+
+La première policy correspondante gagne, indépendamment de son ID. Les
+groupes, services custom, NAT/VPN/UTM et interfaces directionnelles ne sont pas
+implémentés. Les commandes hors périmètre sont refusées.
 
 ## Grammaire interne du simulateur
 

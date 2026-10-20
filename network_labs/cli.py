@@ -10,7 +10,7 @@ from .profiles import PROFILES
 from .pc_cli import PCCommands
 from .lan_cli import LANCommands
 from .firewall_cli import FirewallCommands
-from .firewall import is_firewall
+from .firewall import is_firewall,ordered_rules
 
 FEATURES = '''NETWORK LABS / CLI pédagogique (inspirée IOS, pas un IOS réel)
 Modes : enable, configure terminal, vlan, interface, interface range, end, exit
@@ -713,7 +713,9 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
         lines=['! Network LABS — sous-ensemble IOS-like',f'hostname {self.n.hostname or self.n.name}']
         if is_firewall(self.n):
             lines.extend(['firewall mode '+self.n.firewall_mode,'firewall default '+self.n.firewall_default])
-            lines.extend(f'firewall rule {r["id"]} {r["action"]} {r.get("protocol","icmp")} {r["source"]} {r["target"]} {r.get("port",0) or "any"}' for r in sorted(self.n.firewall_rules,key=lambda r:r['id']))
+            lines.extend(f'firewall rule {r["id"]} {r["action"]} {r.get("protocol","icmp")} {r["source"]} {r["target"]} {r.get("port",0) or "any"}' for r in ordered_rules(self.n))
+            if self.n.firewall_rules and self.n.vendor.get('fortios_policy_order'):
+                lines.append('firewall order '+' '.join(str(r['id']) for r in ordered_rules(self.n)))
         if self.n.kind=='Routeur':
             if not self.n.dhcp_service:
                 lines.append('no service dhcp')

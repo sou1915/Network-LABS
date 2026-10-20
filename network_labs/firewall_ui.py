@@ -5,6 +5,7 @@ from tkinter import ttk,messagebox
 from .layout import fit_dialog,ScrollPanel
 from .cli import Session
 from .device_config import apply_device_commands
+from .firewall import ordered_rules
 
 class FirewallEditor:
     def __init__(self,app,node,parent=None,on_change=None,can_apply=None):
@@ -77,7 +78,7 @@ class FirewallEditor:
 
     def refresh(self):
         self.table.delete(*self.table.get_children())
-        for r in sorted(self.app.lab.nodes[self.node].firewall_rules,key=lambda r:r['id']):
+        for r in ordered_rules(self.app.lab.nodes[self.node]):
             self.table.insert('', 'end',iid=str(r['id']),values=(r['id'],r['action'],r.get('protocol','icmp'),r['source'],r['target'],r.get('port',0) or 'any'))
         counts=self.app.lab.firewall_counters.get(self.node,{'allow':0,'deny':0})
         self.report.set(f'Transactions : autorisés {counts["allow"]} · refusés {counts["deny"]}. Compteurs pédagogiques, pas des compteurs de paquets réels.')

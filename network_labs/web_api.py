@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict
 from hashlib import sha256
 from .cli import Session
-from .device_config import apply_device_commands,fingerprint
+from .device_config import apply_device_commands,apply_native_commands,fingerprint
 from .profiles import PROFILES,profile_role
 from .device_identity import identity
 
@@ -18,6 +18,8 @@ class DeviceAPI:
     def snapshot(self,node):
         n=self.app.lab.nodes[node];p=PROFILES[n.profile]
         data=asdict(n);data.pop('startup',None);data['mac']=self.app.lab.display_mac(node)
+        from .firewall import ordered_rules
+        data['firewall_rules']=[r.copy() for r in ordered_rules(n)]
         for port in data['ports'].values():port['allowed']=Session.compact(port['allowed'])
         links=[]
         for link in self.app.lab.links:
@@ -47,13 +49,14 @@ class DeviceAPI:
         if action=='cli':
             self.app.open_cli(node);self.app.root.lift()
             return {'ok':True}
-        if action=='apply':
+        if action in ('apply','native'):
             if payload.get('revision')!=self.revision(self.app.lab.nodes[node]):
                 raise Conflict('Configuration modifiée dans le logiciel ou la CLI. Actualiser avant de réappliquer.')
             commands=payload.get('commands')
             if not isinstance(commands,list) or not 1<=len(commands)<=256 or any(not isinstance(c,str) or len(c)>4096 or '\n' in c or '\r' in c for c in commands):
                 raise ValueError('Liste de commandes invalide.')
-            apply_device_commands(self.app.lab,node,commands)
+            if action=='native':apply_native_commands(self.app.lab,node,commands)
+            else:apply_device_commands(self.app.lab,node,commands)
             self.app.changed('Configuration web appliquée : '+node)
             return self.snapshot(node)
         if action=='test':

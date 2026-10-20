@@ -5,6 +5,21 @@ from .profiles import PROFILES,profile_role
 def is_firewall(node):
     return profile_role(PROFILES[node.profile])=='Firewall'
 
+def ordered_rules(node):
+    """Native sequence when specified; legacy projects retain ascending ID order."""
+    by_id={r['id']:r for r in node.firewall_rules}
+    order=node.vendor.get('fortios_policy_order',[])
+    ordered=[]
+    if isinstance(order,list):
+        for number in order:
+            if type(number) is int and number in by_id:
+                ordered.append(by_id.pop(number))
+    return ordered+[by_id[k] for k in sorted(by_id)]
+
+def forget_native_policy(node,number):
+    if 'fortios_policies' in node.vendor:
+        node.vendor['fortios_policies']=[p for p in node.vendor['fortios_policies'] if p.get('id')!=number]
+
 def firewall_rule(number,action,source,target,protocol='icmp',port=0):
     number=int(number)
     if not 1<=number<=65535 or action not in ('allow','deny'):
@@ -32,7 +47,7 @@ class Firewall:
                 action='allow' if reason else node.firewall_default
                 if not reason:
                     reason='politique par défaut'
-                    for rule in sorted(node.firewall_rules,key=lambda r:r['id']):
+                    for rule in ordered_rules(node):
                         if (rule.get('protocol','icmp') in (protocol,'any') or (rule.get('protocol')=='tcpudp' and protocol in ('tcp','udp'))) and rule.get('port',0) in (0,port) and IPv4Address(source) in IPv4Network(rule['source']) and IPv4Address(target) in IPv4Network(rule['target']):
                             action=rule['action'];reason='règle '+str(rule['id']);break
                 counts=self.firewall_counters.setdefault(name,{'allow':0,'deny':0})

@@ -490,6 +490,7 @@ class App:
         file_menu.add_command(label='Exporter le lab en texte',command=self.export_text)
         file_menu.add_separator()
         file_menu.add_command(label='Lab micro-appliances (expérimental)',command=self.open_micro_lab)
+        file_menu.add_command(label='Lab FortiGate · Firewall Policy',command=self.load_fortigate_lab)
         files.configure(menu=file_menu); files.pack(side='left',padx=4)
         view=tk.Menubutton(top,text='Vue ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=10,pady=6)
         menu=tk.Menu(view,tearoff=False,bg=PANEL,fg=TEXT)
@@ -533,6 +534,10 @@ class App:
         if self.replace_lab(demo):
             self.source.set('PC1');self.destination.set('192.168.50.20');self.test_protocol.set('icmp');self.test_port.set('8080')
             self.status.set('LAN Wasm chargé dans le projet. Modifier, câbler ou lancer un ping depuis la GUI / CLI.')
+
+    def load_fortigate_lab(self):
+        if self.replace_lab(self.service_demo):
+            self.selected='FW1';self.refresh();self.open_web('FW1','firewall')
 
     def open_project_capture(self):
         capture=getattr(self.lab,'last_micro_capture',None)
@@ -1139,13 +1144,13 @@ class App:
                 messagebox.showerror('Câblage',str(e),parent=win)
         button(body,'Créer la liaison',create,True).pack(fill='x',pady=10)
 
-    def open_web(self,node):
+    def open_web(self,node,page='overview'):
         if node not in self.lab.nodes:return
         if getattr(self,'web_portal',None) is None or self.web_portal.closed:
             from .web_portal import WebPortal
             self.web_portal=WebPortal(self)
         self.status.set('Interface web locale prête : '+node)
-        return self.web_portal.open(node)
+        return self.web_portal.open(node,page)
 
     def open_management(self,node):
         if node not in self.lab.nodes:return
@@ -1371,8 +1376,11 @@ class App:
 if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser(description='Network LABS desktop')
-    parser.add_argument('--wasm-lan',action='store_true',help='Open the editable LAN project with the Wasm backend selected.')
+    initial=parser.add_mutually_exclusive_group()
+    initial.add_argument('--wasm-lan',action='store_true',help='Open the editable LAN project with the Wasm backend selected.')
+    initial.add_argument('--fortigate-lab',action='store_true',help='Open the FortiGate policy lab in the local browser (model backend).')
     args=parser.parse_args()
     root=tk.Tk();app=App(root)
     if args.wasm_lan:app.load_wasm_lab()
+    if args.fortigate_lab:app.load_fortigate_lab()
     root.mainloop()

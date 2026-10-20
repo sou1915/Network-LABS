@@ -86,10 +86,23 @@ le moteur IPv4. Une entrée incomplète est refusée à `next`/`end`.
 Les objets et politiques saisis via cette console sont conservés dans le JSON.
 `show firewall policy` affiche les politiques rédigées dans ce dialecte ; les
 règles ajoutées par l'éditeur partagé restent visibles dans le panneau web.
-L'ordre du moteur reste l'ID croissant, pas l'ordre de déplacement FortiOS ;
-`move`, groupes, politiques directionnelles et édition complète d'objets référencés
-ne sont pas implémentés. Après modification d'un objet adresse, réappliquer la
-politique pour reconvertir ses réseaux dans le moteur.
+Les policies natives suivent maintenant leur séquence de création, puis les
+déplacements `move ID before|after ID`. Les IDs restent inchangés. `delete`,
+`set name`, `set comments`, `unset name/comments`, `edit 0` et `show` dans le
+contexte sont disponibles. Modifier le subnet d'un objet reconvertit les règles
+qui le référencent ; supprimer un objet encore utilisé est refusé. Les anciennes
+règles canoniques gardent leur ordre par ID jusqu'à définition d'une séquence.
+Le JSON conserve les objets/métadonnées ; le format texte canonique conserve la
+séquence effective via `firewall order` mais pas les noms d'objets natifs.
+Les groupes, services personnalisés, listes multiples d'objets, politiques
+directionnelles et NAT restent absents. Une règle canonique sans métadonnées
+natives est signalée comme non exportable par `show firewall policy`.
+
+La page **Firewall Policy / Addresses** possède son propre formulaire et transmet
+le bloc FortiOS affiché dans l'aperçu. Les changements web sont atomiques avec
+contrôle de révision. Présentation référencée à FortiOS 7.4, reconstitution
+partielle ; les autres pages de marque conservent encore des formulaires partagés.
+Voir [l'architecture expliquée](ARCHITECTURE_FR.md).
 
 ### Palo Alto : exemple implémenté
 
@@ -135,6 +148,8 @@ conserve les paramètres du moteur, pas les objets/candidates constructeur.
 
 - [FortiOS : hostname](https://docs.fortinet.com/document/fortigate/7.6.0/administration-guide/777334/configuring-basic-settings)
 - [FortiOS : firewall policy](https://docs.fortinet.com/document/fortigate/6.2.8/cli-reference/290620/firewall-policy)
+- [FortiOS 7.4.8 : Firewall Policy, vues et déplacements](https://docs.fortinet.com/document/fortigate/7.4.8/administration-guide/656084/firewall-policy)
+- [FortiOS : champs name/comments de config firewall policy](https://docs.fortinet.com/document/fortigate/7.2.3/cli-reference/323620/config-firewall-policy)
 - [Fortinet : DNS TCP/UDP 53](https://docs.fortinet.com/document/fortiextender/8.0.0/admin-guide-fgt-managed/455640/configure-a-captive-portal-from-fortigate)
 - [PAN-OS : hiérarchie des commandes](https://docs.paloaltonetworks.com/ngfw/pan-os-cli-quick-start/cli-command-hierarchy/pan-os-11-1-configure-cli-command-hierarchy)
 - [PAN-OS : modifier la configuration](https://docs.paloaltonetworks.com/ngfw/pan-os-cli-quick-start/use-the-cli/modify-the-configuration)

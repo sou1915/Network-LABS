@@ -56,6 +56,15 @@ et [installation, sources et mesures](docs/MICRO_APPLIANCES.md).
 
 ## Un espace pour chaque tâche
 
+Pour comprendre le rôle de Python, Rust, Wasm et des commandes natives :
+[architecture et limites expliquées](docs/ARCHITECTURE_FR.md).
+
+Première page de marque spécialisée : **FortiGate → Firewall Policy / Addresses**,
+avec formulaires natifs partiels, aperçu CLI, objets nommés et ordre `move before/after`
+effectif. Lancer `.venv-micro/bin/python -m network_labs --fortigate-lab` ou
+**Fichier → Lab FortiGate · Firewall Policy**. Les autres familles ne sont pas
+encore des répliques fidèles de chaque firmware. [Détails](docs/FIREWALLS.md).
+
 **Conception** affiche le plan et les catégories Nodes/Outils/Labs.
 **Simulation** réunit les tests ICMP/TCP/UDP, l'animation et une explication
 sélectionnable de chaque décision : demande, DNS, sauts aller/retour, filtrage
@@ -120,7 +129,7 @@ Exemples : [inter-VLAN](examples/inter_vlan.lab.txt),
 | IPv4 | Adresses/passerelles, router-on-a-stick 802.1Q et réseaux connectés, DHCP serveur/client et exclusions |
 | DNS | Serveur local A, édition GUI/web, nslookup et ping par nom ; contrôle d'accès UDP/53 |
 | Services | Disponibilité de ports TCP/UDP, sondes et chemins aller-retour ; listes persistantes par endpoint |
-| Firewall | Transparent deux ports, règles IPv4/protocole/port, ordre par ID, stateful/stateless et compteurs |
+| Firewall | Transparent deux ports, règles IPv4/protocole/port, ordre par ID ou séquence native, stateful/stateless et compteurs |
 
 Neuf labs intégrés : inter-VLAN, boucle STP, EtherChannel, DHCP/sécurité, VTP,
 MST, LAN entreprise, firewall LAN et services TCP/UDP.
@@ -170,8 +179,8 @@ Les commandes non implémentées sont rejetées.
 
 ## Tests
 
-Validation locale : **154 tests réussis**, dont **24 tests GUI** sous Tk/Xvfb,
-avec Wasmtime installé (130 tests initiaux et 24 tests d'appliances/intégration).
+Validation locale : **162 tests réussis**, dont **24 tests GUI** sous Tk/Xvfb,
+avec Wasmtime installé, plus le contrôle des pages dans Chrome Headless.
 Les tests du prototype sont ignorés lorsque son runtime n'est pas installé.
 Le contrôle navigateur facultatif vérifie 23 présentations et leur affichage mobile,
 ainsi que des modifications réelles du modèle via HTTP.

@@ -30,7 +30,7 @@ class WebPortal:
                 parsed=urlsplit(self.path)
                 if parsed.path=='/':
                     return self.respond(200,Path(__file__).with_name('device_web.html').read_bytes(),'text/html; charset=utf-8')
-                if parsed.path in ('/device_faces.css','/device_faces.js'):
+                if parsed.path in ('/device_faces.css','/device_faces.js','/fortios_policy.js','/fortios_policy.css'):
                     kind='text/css' if parsed.path.endswith('.css') else 'text/javascript'
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),kind+'; charset=utf-8')
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')
@@ -43,7 +43,7 @@ class WebPortal:
                     return self.respond(403,{'error':'Origine refusée.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})
                 parsed=urlsplit(self.path)
-                if parsed.path not in ('/api/apply','/api/test','/api/cli'):return self.respond(404,{'error':'Action absente.'})
+                if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli'):return self.respond(404,{'error':'Action absente.'})
                 try:
                     length=int(self.headers.get('Content-Length','0'))
                     if not 0<length<=262144:return self.respond(413,{'error':'Requête trop volumineuse.'})
@@ -57,9 +57,9 @@ class WebPortal:
         self.thread=threading.Thread(target=self.server.serve_forever,kwargs={'poll_interval':.1},daemon=True);self.thread.start()
         self.job=app.root.after(20,self.poll)
 
-    def url(self,node):return self.origin+'/#'+urlencode({'node':node,'token':self.token})
-    def open(self,node):
-        url=self.url(node)
+    def url(self,node,page='overview'):return self.origin+'/#'+urlencode({'node':node,'token':self.token,'page':page})
+    def open(self,node,page='overview'):
+        url=self.url(node,page)
         threading.Thread(target=webbrowser.open,args=(url,),daemon=True).start()
         return url
     def submit(self,action,data):

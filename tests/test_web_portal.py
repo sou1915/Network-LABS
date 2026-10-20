@@ -37,7 +37,7 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/../../README.md')['status'],404)
 
     def test_family_assets_are_served_without_arbitrary_files(self):
-        for path,kind in [('/device_faces.css','text/css'),('/device_faces.js','text/javascript')]:
+        for path,kind in [('/device_faces.css','text/css'),('/device_faces.js','text/javascript'),('/fortios_policy.css','text/css'),('/fortios_policy.js','text/javascript')]:
             response=self.request('GET',path)
             self.assertEqual(response['status'],200);self.assertTrue(response['headers']['Content-Type'].startswith(kind))
         self.assertEqual(self.request('GET','/vendor_cli.py')['status'],404)

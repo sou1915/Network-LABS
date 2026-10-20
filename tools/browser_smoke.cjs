@@ -15,8 +15,14 @@ const output=process.env.QA_OUTPUT||process.cwd();
  await p.locator('#inventory').selectOption('NAS1');await p.locator('#page h1').waitFor();await p.locator('#nav [data-page=services]').click();await p.locator('#svcport').fill('443');await p.locator('#svcname').fill('HTTPS');await p.getByRole('button',{name:'Activer le service',exact:true}).click();await p.getByRole('cell',{name:'HTTPS',exact:true}).waitFor();
  await p.locator('#inventory').selectOption('SRV1');await p.locator('#page h1').waitFor();await p.getByRole('button',{name:'DNS local',exact:true}).click();await p.locator('#dname').fill('web-test.lan');await p.locator('#dip').fill('192.168.10.20');await p.getByRole('button',{name:'Ajouter / remplacer un enregistrement',exact:true}).click();await p.getByRole('cell',{name:'web-test.lan',exact:true}).waitFor();
  await p.locator('#inventory').selectOption('FW1');await p.locator('#page h1').waitFor();await p.locator('#nav [data-page=firewall]').click();
- await p.locator('#ruleid').fill('50');await p.locator('#rport').fill('443');await p.locator('#src').fill('192.168.10.10/32');await p.locator('#dst').fill('192.168.10.20/32');await p.getByRole('button',{name:'Ajouter / remplacer la règle',exact:true}).click();await p.getByRole('cell',{name:'50',exact:true}).waitFor();
+ await p.locator('#fg-create').click();await p.locator('#fg-id').fill('50');await p.locator('#fg-name').fill('WEB_HTTPS');await p.locator('#fg-service').selectOption('HTTPS');await p.getByRole('button',{name:'OK',exact:true}).click();await p.getByRole('cell',{name:'WEB_HTTPS (50)',exact:true}).waitFor();
  await p.screenshot({path:path.join(output,'web_firewall.png'),fullPage:true});
+ // FortiGate uses its own policy/object forms and the actual native CLI endpoint.
+ await p.locator('#nav [data-page=addresses]').click();await p.locator('#fg-create').click();await p.locator('#fg-object').fill('WEB_CLIENTS');await p.getByRole('button',{name:'OK',exact:true}).click();await p.getByRole('cell',{name:'WEB_CLIENTS',exact:true}).waitFor();
+ await p.locator('#nav [data-page=firewall]').click();await p.locator('[data-policy="50"]').dblclick();await p.locator('#fg-source').selectOption('WEB_CLIENTS');await p.getByRole('button',{name:'OK',exact:true}).click();await p.locator('[data-policy="50"]').getByRole('cell',{name:'WEB_CLIENTS',exact:true}).waitFor();
+ await p.locator('[data-policy="50"]').click();await p.locator('#fg-move').click();await p.locator('#fg-anchor').selectOption('10');await p.getByRole('button',{name:'OK',exact:true}).click();await p.waitForFunction(()=>document.querySelector('[data-policy]')?.dataset.policy==='50');
+ await p.locator('#fg-create').click();await p.locator('#fg-id').fill('60');await p.locator('#fg-name').fill('DELETE_ME');await p.getByRole('button',{name:'OK',exact:true}).click();await p.locator('[data-policy="60"]').click();await p.locator('#fg-delete').click();await p.getByRole('button',{name:'OK',exact:true}).click();await p.waitForFunction(()=>!document.querySelector('[data-policy="60"]'));
+ await p.screenshot({path:path.join(output,'web_fortios_policy.png'),fullPage:true});
  await p.setViewportSize({width:390,height:844});await p.evaluate(()=>window.scrollTo(0,0));await p.waitForTimeout(100);assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:path.join(output,'web_mobile.png'),fullPage:true});
  // Distinct actual DOM structures, not merely different model labels.
  await p.setViewportSize({width:1440,height:1000});
@@ -30,5 +36,9 @@ const output=process.env.QA_OUTPUT||process.cwd();
   if(!await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)){await p.screenshot({path:path.join(output,'overflow_'+skin+'.png'),fullPage:true});console.log(await p.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right})).slice(0,20)));throw Error(skin+' mobile overflow');}
   await p.setViewportSize({width:1440,height:1000});
  }
- assert.deepEqual(errors,[]);console.log('Browser checks passed: live VLAN, rollback, TCP probe, NAS service, DNS record, firewall rule, differentiated family dashboards, mobile rendering.');await b.close();
+ const direct=new URL(process.env.DEVICE_URL),fragment=new URLSearchParams(direct.hash.slice(1));fragment.set('node','FW1');fragment.set('page','firewall');direct.hash=fragment.toString();
+ await p.goto('about:blank');await p.goto(direct.href);await p.locator('#fg-create').waitFor();await p.locator('[data-policy="50"]').dblclick();await p.locator('.fg-dialog').waitFor();
+ assert(await p.locator('.fg-cli').textContent().then(x=>x.includes('config firewall policy')));await p.screenshot({path:path.join(output,'web_fortios_editor.png'),fullPage:true});
+ await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.deepEqual(errors,[]);console.log('Browser checks passed: live VLAN, rollback, TCP probe, NAS service, DNS record, native FortiOS create/edit/delete/move, objects, deep link, 23 family dashboards, mobile rendering.');await b.close();
 })().catch(e=>{console.error(e);process.exit(1)});

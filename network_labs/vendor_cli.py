@@ -8,7 +8,7 @@ from ipaddress import IPv4Network
 from .cli import Session
 from .device_identity import identity
 from .device_config import fingerprint
-from .firewall import firewall_rule
+from .firewall import firewall_rule,ordered_rules,forget_native_policy
 
 SERVICES={'ALL':('any',0),'PING':('icmp',0),'HTTP':('tcp',80),'HTTPS':('tcp',443),'DNS':('tcpudp',53),'SMB':('tcp',445),'RDP':('tcp',3389)}
 
@@ -32,7 +32,7 @@ class NativeConsole:
  def help(self,prefix=''):
   return '\n'.join(p for p in self.help_patterns() if p.startswith(prefix.strip())) or 'Commande hors du sous-ensemble implémenté.'
  def help_patterns(self):
-  return {'fortios':['get system status','show system interface','show firewall policy','config system global','set hostname <name>','config system interface','edit port1','set status up','set status down','set alias <text>','config firewall address','edit <name>','set subnet <IPv4> <mask>','config firewall policy','edit <id>','set srcintf any','set dstintf any','set srcaddr all','set dstaddr all','set action accept','set action deny','set schedule always','set service HTTPS','next','end'],
+  return {'fortios':['get system status','show system interface','show firewall address','show firewall policy','config system global','set hostname <name>','config system interface','edit port1','set status up','set status down','set alias <text>','unset alias','config firewall address','edit <name>','set subnet <IPv4> <mask>','delete <name>','config firewall policy','edit <id>','set name <text>','set comments <text>','unset name','unset comments','set srcintf any','set dstintf any','set srcaddr all','set dstaddr all','set action accept','set action deny','set schedule always','set service HTTPS','delete <id>','move <id> before <id>','move <id> after <id>','show','next','end'],
    'panos':['show system info','show config running','configure','set deviceconfig system hostname <name>','set rulebase security rules <name> from any to any source any destination any application any service service-https action allow','delete rulebase security rules <name>','show','commit','revert config','exit'],
    'routeros':['/system identity print','/system identity set name=<name>','/interface print','/interface ethernet print','/interface set ether1 disabled=yes','/interface set ether1 disabled=no','/interface set ether1 comment=<text>'],
    'unavailable':['Aucune CLI constructeur implémentée pour ce profil. Utiliser son interface graphique/web.'],
@@ -53,10 +53,10 @@ class NativeConsole:
   if self.base is not None and self.base!=fingerprint(self.n):raise ValueError('Configuration modifiée ailleurs. Quitter/recharger le contexte avant de réappliquer.')
  def touch(self):
   self.changed=True;self.base=fingerprint(self.n);self.lab.firewall_sessions.pop(self.node,None)
- def rule(self,number,entry):
+ def rule(self,number,entry,addresses=None):
   if not {'srcintf','dstintf','srcaddr','dstaddr','action','schedule','service'}<=entry.keys():raise ValueError('Règle incomplète : srcintf/dstintf/srcaddr/dstaddr/action/schedule/service requis.')
   if entry['srcintf']!='any' or entry['dstintf']!='any' or entry['schedule']!='always':raise ValueError('Sous-ensemble transparent : interfaces any et schedule always uniquement.')
-  addresses=self.n.vendor.get('fortios_addresses',{})
+  addresses=self.n.vendor.get('fortios_addresses',{}) if addresses is None else addresses
   def addr(name):
    if name=='all':return 'any'
    if name not in addresses:raise ValueError('Objet adresse absent : '+name)
@@ -68,8 +68,20 @@ class NativeConsole:
  def fortios(self,line):
   words=shlex.split(line)
   if line=='get system status':return 'Hostname: '+(self.n.hostname or self.node)+'\nVirtual transparent LAN model · no FortiOS firmware'
-  if line=='show system interface':return '\n'.join(f'edit "port{i}"\n    set status {"down" if p.shutdown else "up"}\n    set alias {json.dumps(p.description)}\nnext' for i,p in enumerate(self.n.ports.values(),1))
-  if line=='show firewall policy':return '\n'.join(f'edit {r["id"]}\n'+ '\n'.join('    set '+key+' '+shlex.quote(value) for key,value in r.items() if key!='id')+'\nnext' for r in self.n.vendor.get('fortios_policies',[])) or 'No native policy configured.'
+  if line=='show system interface':return 'config system interface\n'+'\n'.join(f'    edit "port{i}"\n        set status {"down" if p.shutdown else "up"}\n        set alias {json.dumps(p.description,ensure_ascii=False)}\n    next' for i,p in enumerate(self.n.ports.values(),1))+'\nend'
+  if line=='show firewall address':
+   entries=[]
+   for name,cidr in self.n.vendor.get('fortios_addresses',{}).items():
+    net=IPv4Network(cidr);entries.append('    edit '+json.dumps(name,ensure_ascii=False)+'\n        set subnet '+str(net.network_address)+' '+str(net.netmask)+'\n    next')
+   return 'config firewall address\n'+'\n'.join(entries)+'\nend'
+  if line=='show firewall policy':
+   by_id={r['id']:r for r in self.n.vendor.get('fortios_policies',[])}
+   entries=[];unmapped=[]
+   for rule in ordered_rules(self.n):
+    r=by_id.get(rule['id'])
+    if r is None:unmapped.append(str(rule['id']));continue
+    entries.append('    edit '+str(r['id'])+'\n'+'\n'.join('        set '+key+' '+(value if key=='action' else json.dumps(value,ensure_ascii=False)) for key,value in r.items() if key!='id')+'\n    next')
+   return 'config firewall policy\n'+'\n'.join(entries)+'\nend'+ ('\nSimulation: politiques sans objets FortiOS natifs non exportées : '+', '.join(unmapped) if unmapped else '')
   if line.startswith('config '):
    if self.context:raise ValueError('Utiliser end avant un nouveau contexte.')
    if line not in ('config system global','config system interface','config firewall address','config firewall policy'):raise ValueError('Contexte FortiOS non implémenté.')
@@ -79,13 +91,46 @@ class NativeConsole:
    self.context='';self.entry=None;self.draft=None;self.base=None;self.mode='user';return ''
   if line=='abort':self.context='';self.entry=None;self.draft=None;self.base=None;self.mode='user';return ''
   if not self.context:raise ValueError('Commande FortiOS non implémentée. Utiliser help.')
+  if line=='show':
+   if self.entry is not None:return 'edit '+json.dumps(self.entry,ensure_ascii=False)+'\n'+'\n'.join('    set '+key+' '+json.dumps(value,ensure_ascii=False) for key,value in self.draft.items())+'\nnext'
+   return self.fortios('show '+self.context[len('config '):]) if self.context!='config system global' else 'config system global\n    set hostname '+json.dumps(self.n.hostname or self.node)+'\nend'
+  if words[0]=='delete' and len(words)==2 and self.entry is None:
+   self.checkpoint()
+   if self.context=='config firewall policy':
+    number=int(words[1])
+    if not any(r['id']==number for r in self.n.firewall_rules):raise ValueError('ID de politique absent.')
+    self.n.firewall_rules=[r for r in self.n.firewall_rules if r['id']!=number];forget_native_policy(self.n,number)
+    self.n.vendor['fortios_policy_order']=[r['id'] for r in ordered_rules(self.n)]
+   elif self.context=='config firewall address':
+    name=words[1];objects=self.n.vendor.get('fortios_addresses',{})
+    if name not in objects:raise ValueError('Objet adresse absent.')
+    if any(name in (r.get('srcaddr'),r.get('dstaddr')) for r in self.n.vendor.get('fortios_policies',[])):raise ValueError('Objet adresse utilisé par une politique.')
+    del objects[name]
+   else:raise ValueError('delete non implémenté dans ce contexte.')
+   self.touch();return ''
+  if words[0]=='move' and len(words)==4 and self.context=='config firewall policy' and self.entry is None:
+   self.checkpoint();number,anchor=int(words[1]),int(words[3])
+   order=[r['id'] for r in ordered_rules(self.n)]
+   if words[2] not in ('before','after') or number==anchor or number not in order or anchor not in order:raise ValueError('move : deux IDs existants distincts et before/after requis.')
+   order.remove(number);order.insert(order.index(anchor)+(words[2]=='after'),number)
+   self.n.vendor['fortios_policy_order']=order;self.touch();return ''
+  if words[0]=='unset' and len(words)==2 and self.entry is not None:
+   key=words[1]
+   if self.context=='config firewall policy' and key in ('name','comments'):self.draft.pop(key,None);return ''
+   if self.context=='config system interface' and key=='alias':self.draft['alias']='';return ''
+   raise ValueError('unset non implémenté pour cette propriété.')
   if words[0]=='edit' and len(words)==2 and self.context!='config system global':
    if self.entry is not None:raise ValueError('Terminer avec next.')
    entry=words[1]
    if self.context.endswith('policy'):
     entry=int(entry)
+    if entry==0:entry=next((i for i in range(1,65536) if all(r['id']!=i for r in self.n.firewall_rules)),0)
     if not 1<=entry<=65535:raise ValueError('ID 1..65535 attendu.')
     self.draft=copy.deepcopy(next((r for r in self.n.vendor.get('fortios_policies',[]) if r['id']==entry),{}));self.draft.pop('id',None)
+   elif self.context=='config firewall address':
+    if not entry or '\n' in entry or '\r' in entry or len(entry)>255:raise ValueError('Nom d’objet non vide, une ligne, 255 caractères maximum dans le lab.')
+    if entry=='all':raise ValueError('Objet intégré all réservé dans ce sous-ensemble.')
+    stored=self.n.vendor.get('fortios_addresses',{}).get(entry);self.draft={'subnet':stored} if stored else {}
    else:self.draft={}
    if self.context=='config system interface' and entry not in ('port1','port2'):raise ValueError('Interfaces disponibles : port1 et port2.')
    self.entry=entry;return ''
@@ -99,7 +144,8 @@ class NativeConsole:
     if key=='status' and value not in ('up','down'):raise ValueError('status up/down attendu.')
     if key not in ('status','alias'):raise ValueError('Options implémentées : status et alias.')
    elif self.context=='config firewall policy':
-    if key not in ('srcintf','dstintf','srcaddr','dstaddr','action','schedule','service'):raise ValueError('Option policy non implémentée.')
+    if key not in ('srcintf','dstintf','srcaddr','dstaddr','action','schedule','service','name','comments'):raise ValueError('Option policy non implémentée.')
+    if key in ('name','comments') and (len(value)>255 or '\n' in value or '\r' in value):raise ValueError('Texte limité à 255 caractères sans retour à la ligne.')
     if key in ('srcintf','dstintf') and value!='any':raise ValueError('Interfaces directionnelles non modélisées : utiliser any.')
     if key=='schedule' and value!='always':raise ValueError('Seul always est implémenté.')
     if key=='action' and value not in ('accept','deny'):raise ValueError('Action accept/deny attendue.')
@@ -118,10 +164,17 @@ class NativeConsole:
    if 'alias' in self.draft:p.description=self.draft['alias']
   elif self.context=='config firewall address':
    if 'subnet' not in self.draft:raise ValueError('Adresse incomplète : subnet requis.')
-   self.n.vendor.setdefault('fortios_addresses',{})[self.entry]=self.draft['subnet']
+   objects={**self.n.vendor.get('fortios_addresses',{}),self.entry:self.draft['subnet']}
+   ids={r['id'] for r in self.n.firewall_rules}
+   updates={r['id']:self.rule(r['id'],r,objects) for r in self.n.vendor.get('fortios_policies',[]) if r['id'] in ids and self.entry in (r.get('srcaddr'),r.get('dstaddr'))}
+   self.n.vendor['fortios_addresses']=objects
+   self.n.firewall_rules=[updates.get(r['id'],r) for r in self.n.firewall_rules]
   elif self.context=='config firewall policy':
    rule=self.rule(self.entry,self.draft)
+   order=[r['id'] for r in ordered_rules(self.n)]
+   if self.entry not in order:order.append(self.entry)
    self.n.firewall_rules=[r for r in self.n.firewall_rules if r['id']!=self.entry]+[rule]
+   self.n.vendor['fortios_policy_order']=order
    policies=self.n.vendor.setdefault('fortios_policies',[])
    self.n.vendor['fortios_policies']=[r for r in policies if r['id']!=self.entry]+[{'id':self.entry,**self.draft}]
   self.touch()
