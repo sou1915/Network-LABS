@@ -632,7 +632,9 @@ La GUI constructeur et un shell IOS complet restent hors de ce backend.
 root_id, `is_root`, root_port, root_path_cost et états/cost/priorité de chaque
 port. `local_state_settled` indique seulement l'absence de listening/learning
 sur les ports locaux opérationnels ; ce n'est pas une preuve globale de
-convergence. Les états ne sont pas déduits du dessin ou d'un résultat de ping.
+convergence. Les IDs sont lus dans sysfs du namespace (certaines versions de JSON iproute2
+répètent l'ID local dans root_id), les états dans netlink. Aucun arbre n'est
+déduit du dessin ou d'un résultat de ping.
 Save/export détectent des différences de contrôleur STP, priorité, timers,
 coûts et priorités de ports. Une réélection ou transition de port ne constitue
 pas une dérive de configuration. Restore relance une nouvelle élection et ne
@@ -641,7 +643,9 @@ sauvegarde pas les MAC temporaires, rôles ou timers en cours.
 Le benchmark générique attend DHCP et les processus, pas la convergence STP.
 Pour mesurer ce scénario accéléré, une phase idle suffisamment longue est
 nécessaire (par exemple `--seconds 20`) ; une phase trop courte peut mesurer
-une perte pendant la convergence. Les tests de panne ne revendiquent ni
+une perte pendant la convergence. Une réélection peut aussi nécessiter l'expiration des anciennes entrées FDB.
+Les tests vérifient la récupération bornée de paquets après convergence.
+Les tests de panne ne revendiquent ni
 bascule instantanée, ni absence de perte sur un flux continu.
 
 ### Pourquoi RSTP n'est pas annoncé comme fonctionnel

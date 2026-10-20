@@ -349,7 +349,13 @@ class RealContainerTests(unittest.TestCase):
                         self.fail('Classic STP did not converge: ' + json.dumps(state))
                     time.sleep(0.2)
             def ping(source, target):
-                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0
+                deadline = time.monotonic() + 10
+                while True:
+                    if manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0:
+                        return True
+                    if time.monotonic() >= deadline:
+                        return False
+                    time.sleep(0.1)
             def apply(node, commands):
                 return manager.configure_ios(node, 'conf t\n' + commands + '\nend')
             with manager.locked():
@@ -415,9 +421,12 @@ class RealContainerTests(unittest.TestCase):
                 deadline = time.monotonic() + 30
                 while True:
                     actual = manager.inspect('SW2')
+                    peer = manager.inspect('SW1')
                     tree = actual['spanning_tree']
                     channel = actual['port_channels']['bond1']
-                    if (tree['root_port'] == ('eth4' if spare else 'bond1') and tree['local_state_settled']
+                    if (peer['spanning_tree']['local_state_settled']
+                            and tree['root_id'] == peer['spanning_tree']['bridge_id']
+                            and tree['root_port'] == ('eth4' if spare else 'bond1') and tree['local_state_settled']
                             and tree['ports']['eth4']['state'] == ('forwarding' if spare else 'blocking')
                             and len(channel['negotiated_members']) == members):
                         return
@@ -426,7 +435,14 @@ class RealContainerTests(unittest.TestCase):
                     time.sleep(0.2)
             def ping():
                 for source, target in (('PC1', '192.0.2.20'), ('PC2', '198.18.0.20')):
-                    self.assertEqual(manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target).returncode, 0)
+                    deadline = time.monotonic() + 10
+                    while True:
+                        probe = manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
+                        if probe.returncode == 0:
+                            break
+                        if time.monotonic() >= deadline:
+                            self.fail('STP packet path did not recover: ' + probe.stdout + probe.stderr)
+                        time.sleep(0.1)
             with manager.locked():
                 try:
                     manager.start(spec); wait_path(False, 2); ping()
@@ -436,6 +452,10 @@ class RealContainerTests(unittest.TestCase):
                     wait_path(True, 0); ping()
                     manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
                     wait_path(False, 2); ping()
+                except BaseException:
+                    if manager.directory.exists():
+                        print('STP/LACP diagnostics:', manager.inspect('SW1'), manager.inspect('SW2'), file=sys.stderr)
+                    raise
                 finally:
                     if manager.directory.exists():
                         manager.stop()

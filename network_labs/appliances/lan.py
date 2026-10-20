@@ -260,8 +260,9 @@ def observe(manager, index, node):
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
     if node['role'] == 'switch':
-        from .spanning_tree import observe as observe_tree
-        result['spanning_tree'] = observe_tree(node, result['links'])
+        from .spanning_tree import kernel_ids, observe as observe_tree
+        ids = kernel_ids(manager, index) if node['spanning_tree']['mode'] == 'stp' else None
+        result['spanning_tree'] = observe_tree(node, result['links'], ids)
         if node['port_channels']:
             from .lacp import observe as observe_channels
             result['port_channels'] = observe_channels(manager, index, node, result['links'])

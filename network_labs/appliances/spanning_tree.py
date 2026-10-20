@@ -6,6 +6,7 @@ implementation in isolated namespaces. Never infer a tree from the topology.
 import copy
 import json
 import os
+import re
 
 from .spec import integer, keys
 
@@ -103,15 +104,30 @@ def configure_ports(manager, index, node, previous, initial, recreated):
                        'priority', str(settings['priority'] // 4))
 
 
-def observe(node, links):
+def kernel_ids(manager, index):
+    # Some iproute2 JSON versions print the local ID in root_id as well.
+    # Read both identifiers directly from this namespace's kernel sysfs.
+    result = {}
+    for field in ('bridge_id', 'root_id'):
+        value = manager.ns(index, 'cat', '/sys/class/net/br0/bridge/' + field).stdout.strip().lower()
+        if not re.fullmatch(r'[0-9a-f]{4}\.[0-9a-f]{12}', value):
+            raise ValueError('Unexpected kernel STP bridge identifier: ' + value)
+        result[field] = value
+    return result
+
+
+def observe(node, links, bridge_ids=None):
     bridge = next((r.get('linkinfo', {}).get('info_data', {}) for r in links if r['ifname'] == 'br0'), {})
-    root, own = bridge.get('root_id'), bridge.get('bridge_id')
+    if node['spanning_tree']['mode'] == 'stp' and bridge_ids is None:
+        raise ValueError('Kernel bridge IDs are required for STP inspection.')
+    ids = bridge_ids or bridge
+    root, own = ids.get('root_id'), ids.get('bridge_id')
     ports = {r['ifname']: r.get('linkinfo', {}).get('info_slave_data', {}) for r in links if r['ifname'] in node['switchports']}
     root_port = next((name for name, data in ports.items() if data.get('no') is not None
                       and int(str(data['no']), 0) == bridge.get('root_port')), None)
     active = [r for r in links if r['ifname'] in ports and 'UP' in r.get('flags', []) and 'LOWER_UP' in r.get('flags', [])]
     settled = bool(active) and all(ports[r['ifname']].get('state') in ('forwarding', 'blocking') for r in active)
-    return {'source': 'Linux kernel bridge netlink; no computed topology tree',
+    return {'source': 'Linux kernel sysfs IDs and netlink state; no computed topology tree',
             'protocol': 'stp' if bridge.get('stp_state') == 1 else 'off' if bridge.get('stp_state') == 0 else 'unmanaged-userspace',
             'bridge_id': own, 'root_id': root, 'is_root': bool(root and own and root == own and bridge.get('stp_state') == 1),
             'root_port': root_port, 'root_port_number': bridge.get('root_port'), 'root_path_cost': bridge.get('root_path_cost'),

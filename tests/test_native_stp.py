@@ -71,7 +71,10 @@ class STPTests(unittest.TestCase):
                     'cost': 100, 'priority': 32, 'state': 'blocking' if p == 'eth3' else 'forwarding', 'no': hex(i+1)}}}
                   for i, p in enumerate(node['switchports'])]
         self.assertEqual(drift(node, links), [])
-        actual = observe(node, links)
+        actual = observe(node, links, {'bridge_id': bridge['bridge_id'], 'root_id': bridge['root_id']})
+        self.assertFalse(actual['is_root'])
+        bridge['root_id'] = bridge['bridge_id']
+        actual = observe(node, links, {'bridge_id': bridge['bridge_id'], 'root_id': '0000.aa:bb:cc:dd:ee:01'})
         self.assertFalse(actual['is_root'])
         self.assertEqual(actual['root_port'], 'eth2')
         self.assertEqual(actual['ports']['eth3']['priority'], 128)
