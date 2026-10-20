@@ -1,0 +1,20 @@
+# LAN transparent : PC autorisé à joindre le NAS, initiation inverse refusée.
+[devices]
+PC1 windows-11 140 220
+FW1 fortigate 410 220
+NAS1 synology-ds224 700 220
+
+[links]
+PC1:eth0 FW1:gi0/1
+FW1:gi0/2 NAS1:eth0
+
+[config PC1]
+ip address 192.168.10.10/24
+
+[config NAS1]
+ip address 192.168.10.20/24
+
+[config FW1]
+firewall mode stateful
+firewall default deny
+firewall rule 10 allow 192.168.10.10/32 192.168.10.20/32

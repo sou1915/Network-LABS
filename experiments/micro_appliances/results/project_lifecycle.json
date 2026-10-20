@@ -1,0 +1,53 @@
+{
+  "note": "100 sequential requests in one process, fresh Wasm instances per request, only the last bounded capture retained; execution environment, no GUI. This is not a 2 GiB hard-cap test.",
+  "rows": [
+    {
+      "requests": 1,
+      "memory": {
+        "rss_bytes": 46129152,
+        "pss_bytes": 36525056,
+        "private_clean_bytes": 4382720,
+        "private_dirty_bytes": 24334336,
+        "virtual_address_bytes": 85749760,
+        "threads": 1
+      },
+      "frames_kept": 8
+    },
+    {
+      "requests": 10,
+      "memory": {
+        "rss_bytes": 45170688,
+        "pss_bytes": 35568640,
+        "private_clean_bytes": 4382720,
+        "private_dirty_bytes": 23375872,
+        "virtual_address_bytes": 83787776,
+        "threads": 1
+      },
+      "frames_kept": 8
+    },
+    {
+      "requests": 50,
+      "memory": {
+        "rss_bytes": 44929024,
+        "pss_bytes": 35326976,
+        "private_clean_bytes": 4382720,
+        "private_dirty_bytes": 23134208,
+        "virtual_address_bytes": 83537920,
+        "threads": 1
+      },
+      "frames_kept": 8
+    },
+    {
+      "requests": 100,
+      "memory": {
+        "rss_bytes": 44396544,
+        "pss_bytes": 34794496,
+        "private_clean_bytes": 4382720,
+        "private_dirty_bytes": 22601728,
+        "virtual_address_bytes": 82993152,
+        "threads": 1
+      },
+      "frames_kept": 8
+    }
+  ]
+}

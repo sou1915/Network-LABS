@@ -1,0 +1,88 @@
+# LAN entreprise : un seul adaptateur Ethernet par endpoint simulé.
+# Imprimante/NAS/VoIP/caméra : connectivité LAN uniquement, pas de service produit.
+[devices]
+PC1 windows-11 140 120
+SRV1 server-linux 140 300
+PRN1 hp-4002dn 360 120
+NAS1 synology-ds224 580 120
+CAM1 axis-p3265 800 120
+TEL1 yealink-t54w 800 320
+IOT1 generic-iot 580 470
+SW1 cisco-2960 460 300
+R1 Routeur 140 470
+
+[links]
+PC1:eth0 SW1:fa0/1
+SRV1:eth0 SW1:fa0/2
+PRN1:eth0 SW1:fa0/3
+NAS1:eth0 SW1:fa0/4
+CAM1:eth0 SW1:fa0/5
+TEL1:eth0 SW1:fa0/6
+IOT1:eth0 SW1:fa0/7
+SW1:gi0/1 R1:gi0/0
+
+[config SW1]
+vlan 10
+name LAN
+exit
+interface range fa0/1 - 7
+switchport mode access
+switchport access vlan 10
+no shutdown
+exit
+interface gi0/1
+switchport mode trunk
+switchport trunk allowed vlan 10
+end
+
+[config R1]
+interface gi0/0.10
+encapsulation dot1Q 10
+ip address 192.168.10.1/24
+exit
+ip dhcp excluded-address 192.168.10.1 192.168.10.99
+ip dhcp pool LAN
+network 192.168.10.0/24
+default-router 192.168.10.1
+dns-server 192.168.10.2
+end
+
+[config PC1]
+ip dhcp
+
+[config SRV1]
+ip address 192.168.10.2/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
+service dns
+dns record dns.lan 192.168.10.2
+dns record printer.lan 192.168.10.20
+dns record nas.lan 192.168.10.30
+dns record camera.lan 192.168.10.40
+dns record phone.lan 192.168.10.50
+dns record sensor.lan 192.168.10.60
+
+[config PRN1]
+ip address 192.168.10.20/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
+
+[config NAS1]
+ip address 192.168.10.30/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
+
+[config CAM1]
+ip address 192.168.10.40/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
+
+[config TEL1]
+ip address 192.168.10.50/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
+
+[config IOT1]
+ip address 192.168.10.60/24
+ip gateway 192.168.10.1
+ip dns 192.168.10.2
