@@ -785,3 +785,96 @@ observations indisponibles, et 1 pour une erreur empêchant de produire le rappo
 Les tests natifs vérifient les explications contre de vrais états Root/BPDU Guard
 et LACP prêt/dégradé/non prêt. Ils continuent à tester séparément les paquets et
 à vérifier la récupération, la persistance et le nettoyage du lab.
+
+
+## Capture PCAP réelle et bornée
+
+`capture LAB NODE INTERFACE` lance le tcpdump de l'hôte dans le **namespace réseau
+possédé par ce node OCI**. Installer les outils sur l'hôte, pas dans chaque rootfs :
+
+```bash
+sudo apt-get install tcpdump util-linux
+python3 -m network_labs.appliances doctor
+```
+
+`doctor` liste `tcpdump` et `nsenter` parmi les outils détectés. Ils sont optionnels
+pour le fonctionnement des labs ; seule la commande capture les exige. Aucun
+fallback vers le réseau hôte et aucune installation automatique.
+
+Terminal 1, avec le lab STP déjà running :
+
+```bash
+cd ~/Network-LABS
+sudo python3 -m network_labs.appliances capture stp-lan PC1 eth0 \
+  --seconds 15 --packets 100 --filter 'arp or icmp' --output pc1-lan.pcap
+```
+
+Attendre le message **Capture active** sur stderr, puis dans le terminal 2 :
+
+```bash
+cd ~/Network-LABS
+sudo python3 -m network_labs.appliances exec stp-lan PC1 -- /bin/ping -c 3 192.0.2.30
+```
+
+La commande libère le verrou du lab pendant l'enregistrement : exec, configure,
+explain et stop restent utilisables. Une fois terminée, le résumé JSON indique
+le nombre de paquets réellement présents, la taille, le linktype, la limite,
+le filtre et la raison d'arrêt. Lire le fichier dans Wireshark, ou avec :
+
+```bash
+tcpdump -nn -r pc1-lan.pcap
+# Des BPDUs STP sur un trunk, sans générer de paquets de test :
+sudo python3 -m network_labs.appliances capture stp-lan SW1 eth2 \
+  --seconds 5 --packets 5 --filter 'ether dst 01:80:c2:00:00:00' --output stp-bpdu.pcap
+```
+
+Les paramètres sont contrôlés avant lancement :
+
+| Option | Défaut | Limite |
+| --- | --- | --- |
+| `--seconds` | 10 | entier 1–60 s, démarrage inclus, puis nettoyage borné |
+| `--packets` | 1000 | entier 1–10000 |
+| `--snaplen` | 2048 | entier 64–65535 octets par paquet |
+| `--filter` | vide | expression BPF de 512 caractères maximum, passée comme argument, jamais au shell |
+| `--output` | obligatoire | nouveau fichier ; existant ou symlink refusé |
+
+Le budget théorique PCAP `24 + packets * (16 + snaplen)` doit rester sous ou égal
+à **16 MiB**. Aucune rotation ni écriture sans limite. Le fichier est créé en 0600 ;
+sous sudo, son propriétaire devient SUDO_UID/SUDO_GID pour permettre la lecture
+par l'utilisateur appelant. Sans ces variables, il reste au propriétaire du processus.
+Une erreur de démarrage peut laisser un fichier vide ou partiel, jamais déclaré
+comme une capture réussie. Choisir un autre nom lors d'un nouvel essai.
+
+Le parent ouvre le descripteur du namespace sous le verrou du lab et le transmet
+à `nsenter --net=/proc/self/fd/...` avant tcpdump. Ce descripteur empêche de capturer
+accidentellement un autre namespace si stop supprime le nom pendant le démarrage.
+Après stop, le namespace peut rester temporairement référencé par le processus
+capture jusqu'à sa terminaison bornée. La suppression du port peut provoquer
+une erreur libpcap et laisser une capture partielle ; aucun basculement vers l'hôte.
+Le délai de fin envoie SIGINT, puis SIGKILL si le processus ne répond pas sous 2 s,
+avec une seconde attente de nettoyage de 2 s. Ctrl-C après démarrage conserve un
+PCAP valide si tcpdump le ferme correctement, avec `stop_reason=interrupted` et
+un code retour CLI 130. Les erreurs retournent 1.
+
+La capture ne demande pas le mode promiscuous (`-p`) et ne modifie pas les adresses,
+VLANs, routes ou policies. Un bridge peut déjà avoir mis un port en promiscuous
+pour son fonctionnement normal. Les interfaces acceptées sont celles déclarées
+et présentes dans le node, ses bonds/sous-interfaces effectifs, lo et br0 pour un
+switch ; `any` et les interfaces de l'hôte ne sont pas acceptées. Les invités VM
+restent sans adaptateur de capture dans ce jalon.
+
+Ce fichier décrit le trafic observé **au point de capture**. Snaplen peut tronquer
+les données, le filtre peut les exclure, les offloads peuvent modifier la visibilité
+des tags/checksums et br0/bond/membre physique peuvent donner des vues différentes.
+Capturer sur un membre physique pour étudier ses trames de contrôle LACP ; ne pas
+supposer qu'un capture point voit tous les échanges. Aucun replay ni analyse de
+chemin globale n'est fourni. tcpdump consomme des ressources hôte hors des cgroups
+des appliances ; le budget total application 2 GiB reste non validé.
+
+Les tests natifs capturent de vrais ICMP request/reply pendant un exec CLI simultané,
+relisent les trames avec tcpdump, capturent une vraie BPDU kernel, vérifient une
+capture vide bornée et un filtre invalide, puis arrêtent un lab pendant capture.
+Ils comparent routes/interfaces hôte et vérifient le maintien du mode promiscuous.
+Références : [tcpdump](https://github.com/the-tcpdump-group/tcpdump/blob/master/tcpdump.1.in),
+[format PCAP](https://github.com/the-tcpdump-group/libpcap/blob/master/pcap-savefile.manfile.in),
+[nsenter](https://man7.org/linux/man-pages/man1/nsenter.1.html).

@@ -1,6 +1,6 @@
 """Opt-in real OCI boot/packet test. Run on a disposable Linux host with sudo.
 
-NETWORK_LABS_NATIVE_TESTS=1 requires crun, iproute2, busybox-static, nftables and conntrack. These
+NETWORK_LABS_NATIVE_TESTS=1 requires crun, iproute2, busybox-static, nftables, conntrack, tcpdump and nsenter. These
 tests are deliberately never replaced with mocks when explicitly requested.
 """
 import os
@@ -20,6 +20,83 @@ from network_labs.appliances.spec import example, namespace
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_capture_real_icmp_concurrent_cli_deadline_invalid_filter_and_stop(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.capture import capture
+        before = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links_before = host_links()
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = example(rootfs); spec['name'] = 'capture-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    switch_before = manager.inspect('SW1')
+                active = threading.Event()
+                output = Path(folder) / 'icmp.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'SW1', 'eth0', output,
+                                     seconds=8, packets=4, expression='icmp', ready=active.set)
+                if not active.wait(5):
+                    future.result(timeout=10)
+                    self.fail('Capture readiness callback missing')
+                # The real CLI must acquire the same lab lock while capture is
+                # active. Holding it for recording would deadlock this command.
+                ping = run([sys.executable, '-m', 'network_labs.appliances', 'exec', spec['name'], 'PC1', '--',
+                            '/bin/ping', '-c', '2', '-i', '0.1', '-W', '1', '192.0.2.20'], timeout=4)
+                self.assertIn('2 packets received', ping.stdout)
+                report = future.result(timeout=10)
+                self.assertEqual(report['captured_packets'], 4)
+                self.assertEqual(report['stop_reason'], 'completed')
+                self.assertEqual(report['linktype'], 1)
+                decoded = run(['tcpdump', '-nn', '-r', str(output)]).stdout
+                self.assertEqual(decoded.count('ICMP echo request'), 2)
+                self.assertEqual(decoded.count('ICMP echo reply'), 2)
+                self.assertIn('192.0.2.10', decoded); self.assertIn('192.0.2.20', decoded)
+                with manager.locked():
+                    switch_after = manager.inspect('SW1')
+                    self.assertEqual(manager.state.get('revision', 0), 0)
+                get_port = lambda data: next(r for r in data['links'] if r['ifname'] == 'eth0')
+                self.assertEqual(get_port(switch_before)['promiscuity'], get_port(switch_after)['promiscuity'])
+                quiet = capture(Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'quiet.pcap',
+                                seconds=1, expression='ether proto 0x88b5')
+                self.assertEqual(quiet['captured_packets'], 0)
+                self.assertEqual(quiet['bytes'], 24)
+                self.assertEqual(quiet['stop_reason'], 'duration')
+                with self.assertRaisesRegex(RuntimeFailure, 'Capture startup failed'):
+                    capture(Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'bad-filter.pcap',
+                            expression='not a valid filter ???')
+                with manager.locked():
+                    manager.configure_spanning_tree('SW1', {'mode': 'stp', 'hello_time': 1, 'max_age': 6, 'forward_delay': 4})
+                bpdu_file = Path(folder) / 'bpdu.pcap'
+                bpdu = capture(Manager(spec['name']), 'PC1', 'eth0', bpdu_file, seconds=3, packets=1,
+                               expression='ether dst 01:80:c2:00:00:00')
+                self.assertEqual(bpdu['captured_packets'], 1)
+                self.assertIn('STP', run(['tcpdump', '-nn', '-r', str(bpdu_file)]).stdout)
+                active.clear()
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'stop.pcap',
+                                     seconds=2, expression='ether proto 0x88b5', ready=active.set)
+                if not active.wait(5):
+                    future.result(timeout=5)
+                    self.fail('Capture readiness callback missing before stop')
+                run([sys.executable, '-m', 'network_labs.appliances', 'stop', spec['name']], timeout=5)
+                try:
+                    stopped = future.result(timeout=7)
+                    self.assertEqual(stopped['captured_packets'], 0)
+                except RuntimeFailure as error:
+                    # libpcap may report the removed interface as an error;
+                    # it must terminate rather than switch namespaces/devices.
+                    self.assertIn('tcpdump failed', str(error))
+                self.assertFalse(manager.directory.exists())
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertEqual(host_links(), links_before)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, before)
+
     def test_campus_vlan_routing_dhcp_live_configuration_and_saved_restore(self):
         from network_labs.appliances.examples import campus
         from network_labs.appliances.persistence import load_startup, startup_path

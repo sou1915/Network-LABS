@@ -43,6 +43,13 @@ def main(arguments=None):
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
+    capture = commands.add_parser('capture', help='Bounded real PCAP capture in an OCI node; other lab commands remain usable.')
+    capture.add_argument('name'); capture.add_argument('node'); capture.add_argument('interface')
+    capture.add_argument('--output', type=Path, required=True, help='New PCAP file; existing files are refused.')
+    capture.add_argument('--seconds', type=int, default=10)
+    capture.add_argument('--packets', type=int, default=1000)
+    capture.add_argument('--snaplen', type=int, default=2048)
+    capture.add_argument('--filter', default='', help='Quoted libpcap BPF expression, never a shell command.')
     configure = commands.add_parser('configure', help='Apply a validated partial IOS-style block to a running node.')
     configure.add_argument('name'); configure.add_argument('node')
     config_source = configure.add_mutually_exclusive_group(required=True)
@@ -86,6 +93,13 @@ def main(arguments=None):
             return 0 if result['assessment']['packet_test_passed'] and result['all_nodes_running_after_load'] and not result['assessment']['oom_kill_observed'] else 1
         elif args.command == 'plan':
             result = plan(load(args.manifest))
+        elif args.command == 'capture':
+            from .capture import capture
+            result = capture(Manager(args.name), args.node, args.interface, args.output, seconds=args.seconds,
+                             packets=args.packets, snaplen=args.snaplen, expression=args.filter,
+                             ready=lambda: print(f'Capture active : {args.node}/{args.interface}. Vous pouvez lancer le trafic dans un autre terminal.', file=sys.stderr, flush=True))
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 130 if result['stop_reason'] == 'interrupted' else 0
         else:
             spec = load(args.manifest) if args.command == 'start' else None
             with Manager(spec['name'] if spec else args.name).locked() as manager:
