@@ -5,12 +5,17 @@ pédagogique et du réseau Wasm. Un manifest décrit chaque node, son runtime, s
 interfaces, ses commandes de démarrage et son budget mémoire. Les nodes restent
 actifs entre les commandes/tests jusqu'à l'arrêt explicite du lab.
 
+Le jalon suivant ajoute un [moteur LAN autonome à huit nodes](NATIVE_LAN_CORE.md) :
+VLAN access/trunk, routage 802.1Q, DHCP réel, blocs `ios-basic` partiels et
+save/restore du manifest startup. Ce guide conserve les instructions du premier
+LAN simple ; les fonctionnalités étendues sont décrites dans le guide dédié.
+
 ## Ce qui est implémenté
 
 | Élément | État et périmètre |
 | --- | --- |
 | OCI / crun | Adaptateur expérimental : start, exec, status, stop ; namespaces réseau/PID/mount/UTS/IPC/cgroup ; overlay privé par node ; limites mémoire/CPU/processus |
-| Fabric Linux | Namespaces et câbles veth ; bridge Linux non tagué pour le rôle switch ; TAP et bridge intermédiaire pour Firecracker |
+| Fabric Linux | Namespaces et câbles veth ; bridge Linux avec VLAN filtering access/trunk ; TAP et bridge intermédiaire pour Firecracker |
 | Firecracker | Adaptateur expérimental : lancement avec kernel/disque locaux, disque copié par node, une NIC Ethernet, console fichier, suivi du VMM et arrêt |
 | GUI | Menu Fichier et `--native-lab` : diagnostic, édition JSON, plan, boutons start/status/stop dans un terminal avec sudo |
 | Wasm | Backend existant conservé ; réseau distinct, pas de pont Wasm ↔ fabric natif |
@@ -95,7 +100,7 @@ vérifier la disponibilité du guest. Le lancement du VMM n'est pas un test de b
 
 - `interfaces` utilise `eth0`..`eth99`, IPv4/CIDR statique ou chaîne vide.
   `gateway` ajoute une route par défaut **dans le node**, jamais dans l'hôte.
-- `role: switch` crée `br0` sans adresse et y attache les ports. STP est désactivé ;
+- `role: switch` crée `br0` sans adresse avec VLAN filtering, access VLAN 1 par défaut. STP est désactivé ;
   les cycles entre switches sont refusés avant création des ressources.
 - `role: router` active le forwarding IPv4 dans son namespace. FRR reste à
   installer/configurer dans le rootfs ; le rôle ne simule pas de daemon OSPF/BGP.
@@ -105,8 +110,9 @@ vérifier la disponibilité du guest. Le lancement du VMM n'est pas un test de b
   `startup` est une liste de tableaux argv exécutés dans le container, par exemple
   `[["/bin/sh", "-c", "...script de configuration..."]]`. Les shells éventuels sont
   explicitement demandés **dans le node**, pas exécutés sur l'hôte.
-- La GUI constructeur, les traductions de CLI, DHCP, VLAN/STP, FRR, nftables et
-  les services nécessitent encore leur intégration dédiée. Les réglages du
+- La GUI constructeur, les CLI complètes, STP, FRR, nftables et les autres
+  services nécessitent encore leur intégration dédiée. VLAN/DHCP et une CLI
+  partielle sont décrits dans [NATIVE_LAN_CORE.md](NATIVE_LAN_CORE.md). Les réglages du
   simulateur pédagogique ne sont pas importés automatiquement.
 - Les rôles/services non portés échouent explicitement. Aucune opération native
   ne retombe sur une réponse pédagogique calculée.
@@ -126,7 +132,8 @@ garanti sans mesure GUI ouverte et trafic actif.
 Chaque container a un overlay privé : une écriture sur PC1 n'apparaît pas sur PC2.
 Chaque VM a sa copie du disque. Ces modifications restent présentes entre les
 commandes, mais **stop supprime les overlays, copies de disques et logs**.
-Exporter ce qui doit être conservé avant stop ; le JSON et les assets de base
+Exporter ce qui doit être conservé avant stop ; `save` conserve maintenant le
+manifest startup dans `/var/lib/network-labs` pour `restore`. Le JSON et les assets de base
 restent intacts. Le prochain start rejoue le manifest depuis ces assets.
 
 Les ressources sont enregistrées dans `/run/network-labs/<lab>` et les namespaces

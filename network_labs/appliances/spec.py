@@ -51,7 +51,11 @@ def validate(data):
     if not isinstance(data.get('nodes'), list) or not data['nodes'] or len(data['nodes']) > 256:
         raise ValueError('1..256 nodes required.')
     names = set()
-    for node in data['nodes']:
+    for node_index, original in enumerate(data['nodes']):
+        # In-memory callers can reuse the same dict in several nodes. Each node
+        # must own its configuration, just as if it had been loaded from JSON.
+        node = copy.deepcopy(original)
+        data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
         keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))

@@ -52,6 +52,22 @@ python3 -m network_labs.appliances doctor
 
 [Guide d'installation, premier ping réel, limites et validation](docs/HYBRID_APPLIANCES.md).
 
+### Premier moteur LAN autonome
+
+Le scénario natif `example --campus` crée **8 nodes** avec VLAN access/trunk,
+sous-interfaces 802.1Q, routage inter-VLAN et DHCP BusyBox réel. Une CLI partielle
+`ios-basic` applique les blocs supportés sur les namespaces Linux ; `inspect`
+lit les interfaces/routes/VLAN du kernel. `save` conserve un manifest startup
+durable et `restore` recrée le lab après arrêt. Ce moteur ne dépend pas de Tk.
+
+```bash
+python3 -m network_labs.appliances example --campus --rootfs "$HOME/network-labs-rootfs" > campus-lan.json
+python3 -m network_labs.appliances plan campus-lan.json
+```
+
+[Lancement, commandes couvertes, sauvegarde et critères de validation](docs/NATIVE_LAN_CORE.md).
+Le jalon 20 nodes / 2 Gio, STP/LACP et firewall/NAT restent à valider/implémenter.
+
 ## Essai facultatif : micro-appliances Wasm
 
 Le choix **Moteur du projet → Wasm · LAN** exécute les endpoints et switches de

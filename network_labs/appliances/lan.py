@@ -4,6 +4,7 @@ No topology path computation is used for packet delivery. All operations target
 an owned node namespace; the kernel makes forwarding and VLAN decisions.
 """
 import ipaddress
+import copy
 import json
 import re
 
@@ -38,7 +39,8 @@ def validate_lan(node):
         if set(ports) - set(node['interfaces']):
             raise ValueError('Unknown switchport.')
         for interface in node['interfaces']:
-            port = ports.setdefault(interface, {'mode': 'access', 'vlan': 1})
+            port = copy.deepcopy(ports.setdefault(interface, {'mode': 'access', 'vlan': 1}))
+            ports[interface] = port
             mode = port.get('mode') if isinstance(port, dict) else None
             if mode == 'access':
                 keys(port, ('mode', 'vlan'), 'Access port')
@@ -151,16 +153,23 @@ def memberships(node, port):
 def configure(manager, index, node, previous=None):
     """Apply one node's managed network state; caller owns rollback and journal."""
     ns = lambda *args, **kwargs: manager.ns(index, *args, **kwargs)
+    initial = previous is None
     previous = previous or node
-    # Close the node's interfaces while replacing its forwarding configuration.
+    # A port edit must not flap unrelated links or flush unrelated addresses.
     for interface in node['interfaces']:
-        ns('ip', 'link', 'set', 'dev', interface, 'down')
+        changed = (node['interfaces'][interface] != previous['interfaces'][interface]
+                   or node['switchports'].get(interface) != previous['switchports'].get(interface)
+                   or (interface in node['shutdown']) != (interface in previous['shutdown']))
+        if initial or changed:
+            ns('ip', 'link', 'set', 'dev', interface, 'down')
     if node['role'] == 'switch':
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
             ns('ip', 'link', 'add', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
         ns('ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
         ns('ip', 'link', 'set', 'dev', 'br0', 'up')
         for interface, port in node['switchports'].items():
+            if not initial and port == previous['switchports'].get(interface):
+                continue
             ns('ip', 'link', 'set', 'dev', interface, 'master', 'br0')
             current = json.loads(ns('bridge', '-j', 'vlan', 'show', 'dev', interface).stdout)
             for record in current:
@@ -184,16 +193,19 @@ def configure(manager, index, node, previous=None):
             continue
         if ns('ip', 'link', 'show', 'dev', name, check=False).returncode:
             ns('ip', 'link', 'add', 'link', sub['parent'], 'name', name, 'type', 'vlan', 'id', str(sub['vlan']))
-    ns('sysctl', '-w', 'net.ipv4.ip_forward=' + str(int(node['forwarding'])))
+    if initial or node['forwarding'] != previous['forwarding']:
+        ns('sysctl', '-w', 'net.ipv4.ip_forward=' + str(int(node['forwarding'])))
     for interface, address in addresses(node).items():
         if interface in node['subinterfaces'] and node['subinterfaces'][interface]['vlan'] is None:
             continue
-        if interface not in node['dhcp_clients']:
+        if interface not in node['dhcp_clients'] and (initial or address != addresses(previous).get(interface)
+                                                     or node['subinterfaces'].get(interface) != previous['subinterfaces'].get(interface)):
             ns('ip', '-4', 'addr', 'flush', 'dev', interface, 'scope', 'global')
             if address:
                 ns('ip', 'addr', 'add', address, 'dev', interface)
         ns('ip', 'link', 'set', 'dev', interface, 'down' if interface in node['shutdown'] else 'up')
-    if not node['dhcp_clients']:
+    if not node['dhcp_clients'] and (initial or node.get('gateway') != previous.get('gateway')
+                                    or addresses(node) != addresses(previous)):
         ns('ip', '-4', 'route', 'flush', 'default')
         if node.get('gateway'):
             ns('ip', 'route', 'add', 'default', 'via', node['gateway'])

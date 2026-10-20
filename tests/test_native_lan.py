@@ -2,13 +2,14 @@
 import copy
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
 from network_labs.appliances.dhcp import CLIENT_SCRIPT, server_config
 from network_labs.appliances.examples import campus
 from network_labs.appliances.ios import compile_config
-from network_labs.appliances.lan import memberships
+from network_labs.appliances.lan import configure, memberships
 from network_labs.appliances.runtime import Manager, RuntimeFailure
 from network_labs.appliances.spec import validate
 
@@ -58,6 +59,14 @@ class LANContracts(unittest.TestCase):
         result = compile_config(result, 'SW1', 'conf t\ninterface fa0/3\nno shutdown\nend')
         self.assertNotIn('eth2', result['nodes'][4]['shutdown'])
 
+    def test_editing_one_trunk_cannot_modify_another_shared_template(self):
+        spec = campus('/rootfs')
+        result = compile_config(spec, 'SW1', 'conf t\ninterface fa0/4\nswitchport trunk allowed vlan 10\nend')
+        self.assertEqual(result['nodes'][4]['switchports']['eth3']['allowed'], [10])
+        self.assertEqual(result['nodes'][4]['switchports']['eth2']['allowed'], [10, 20])
+        self.assertEqual(result['nodes'][5]['switchports']['eth2']['allowed'], [10, 20])
+        self.assertEqual(spec['nodes'][4]['switchports']['eth3']['allowed'], [10, 20])
+
     def test_ios_subinterface_requires_encapsulation_before_address(self):
         spec = campus('/rootfs')
         pending = compile_config(spec, 'R1', 'conf t\ninterface fa0/0.30\nend')
@@ -102,6 +111,20 @@ class LANContracts(unittest.TestCase):
             self.assertEqual(manager.state['revision'], 7)
             self.assertEqual(manager.state['phase'], 'running')
             self.assertNotIn('pending_spec', manager.state)
+
+    def test_trunk_edit_does_not_flap_unrelated_ports(self):
+        previous = campus('/rootfs')['nodes'][4]
+        desired = copy.deepcopy(previous); desired['switchports']['eth3']['allowed'] = [10]
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+            def ns(self, index, *args, **kwargs):
+                self.calls.append(args)
+                return subprocess.CompletedProcess(args, 0, '[]', '')
+        manager = FakeManager(); configure(manager, 4, desired, previous)
+        down = [args[4] for args in manager.calls if args[:4] == ('ip', 'link', 'set', 'dev') and args[-1] == 'down']
+        self.assertEqual(down, ['eth3'])
+        self.assertFalse(any(args[:3] == ('ip', '-4', 'addr') for args in manager.calls))
 
     def test_failed_rollback_retains_recoverable_state(self):
         with tempfile.TemporaryDirectory() as folder:

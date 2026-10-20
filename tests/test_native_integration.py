@@ -4,6 +4,8 @@ NETWORK_LABS_NATIVE_TESTS=1 requires crun, iproute2 and busybox-static. These
 tests are deliberately never replaced with mocks when explicitly requested.
 """
 import os
+import json
+import sys
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,8 +28,11 @@ class RealContainerTests(unittest.TestCase):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = campus(rootfs); spec['name'] = 'campus-test-' + str(os.getpid())
             manager = Manager(spec['name'])
+            last_probe = []
             def ping(source, target):
-                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0
+                probe = manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
+                last_probe[:] = [source, target, probe.returncode, probe.stdout, probe.stderr]
+                return probe.returncode == 0
             def wait_lease():
                 for _ in range(80):
                     observed = manager.inspect('PC1')
@@ -95,6 +100,10 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, before)
                     print('Native campus: real DHCP, VLAN isolation, trunks, routing, shutdown, atomic parse and saved restore verified.')
                 finally:
+                    if sys.exc_info()[0] is not None and manager.directory.exists():
+                        print('Unexpected native failure; last probe:', last_probe)
+                        for name in ('PC2', 'PC4', 'SW1', 'SW2', 'R1'):
+                            print(name, json.dumps(manager.inspect(name)))
                     if manager.directory.exists():
                         manager.stop()
             self.assertFalse(manager.directory.exists())
