@@ -55,14 +55,18 @@ class LACPTests(unittest.TestCase):
 
     def test_parser_requires_actor_and_partner_collecting_distributing(self):
         text = '''Ethernet Channel Bonding Driver: v6
+Active Aggregator Info:
+    Aggregator ID: 1
 Slave Interface: eth2
 MII Status: up
+Aggregator ID: 1
 details actor lacp pdu:
     port state: 63
 details partner lacp pdu:
     port state: 62
 Slave Interface: eth3
 MII Status: up
+Aggregator ID: 1
 details actor lacp pdu:
     port state: 7
 details partner lacp pdu:
@@ -71,6 +75,11 @@ details partner lacp pdu:
         result = parse_members(text)
         self.assertTrue(result[0]['collecting_distributing'])
         self.assertFalse(result[1]['collecting_distributing'])
+        # Linux can retain synchronized port-state bits after carrier loss.
+        down = text.replace('MII Status: up', 'MII Status: down', 1)
+        self.assertFalse(parse_members(down)[0]['collecting_distributing'])
+        inactive = text.replace('Aggregator ID: 1', 'Aggregator ID: 2', 1)
+        self.assertFalse(parse_members(inactive)[0]['collecting_distributing'])
         self.assertFalse(parse_members('Slave Interface: eth2\nMII Status: up\n')[0]['collecting_distributing'])
 
     def test_parameter_update_takes_only_affected_bond_down_before_netlink(self):

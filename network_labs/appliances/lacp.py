@@ -94,6 +94,8 @@ def configure(manager, index, node, previous):
 
 def parse_members(text):
     parts = re.split(r'^Slave Interface: (\S+)\s*$', text, flags=re.MULTILINE)
+    active = re.search(r'Active Aggregator Info:\s*\n\s*Aggregator ID:\s*(\d+)', parts[0])
+    active_id = int(active[1]) if active else None
     result = []
     for index in range(1, len(parts), 2):
         name, block = parts[index], parts[index + 1]
@@ -101,8 +103,14 @@ def parse_members(text):
         partner = re.search(r'details partner lacp pdu:(.*)', block, re.DOTALL | re.IGNORECASE)
         state = lambda match: int(found[1]) if match and (found := re.search(r'port state:\s*(\d+)', match[1], re.IGNORECASE)) else None
         actor_state, partner_state = state(actor), state(partner)
+        mii = re.search(r'^MII Status:\s*(\S+)', block, re.MULTILINE)
+        aggregator = re.search(r'^Aggregator ID:\s*(\d+)', block, re.MULTILINE)
+        member_id = int(aggregator[1]) if aggregator else None
+        up = bool(mii and mii[1] == 'up')
         result.append({'name': name, 'actor_state': actor_state, 'partner_state': partner_state,
-                       'collecting_distributing': actor_state is not None and partner_state is not None
+                       'mii_up': up, 'aggregator_id': member_id, 'active_aggregator_id': active_id,
+                       'collecting_distributing': up and active_id is not None and member_id == active_id
+                       and actor_state is not None and partner_state is not None
                        and actor_state & 56 == 56 and partner_state & 56 == 56})
     return result
 
@@ -112,6 +120,11 @@ def observe(manager, index, node, links):
     for name, channel in node['port_channels'].items():
         text = manager.ns(index, 'cat', '/proc/net/bonding/' + name).stdout
         members = parse_members(text)
+        physical = {r['ifname']: r for r in links}
+        for member in members:
+            flags = physical.get(member['name'], {}).get('flags', [])
+            member['operational'] = 'UP' in flags and 'LOWER_UP' in flags
+            member['collecting_distributing'] = member['collecting_distributing'] and member['operational']
         negotiated = [p['name'] for p in members if p['collecting_distributing']]
         kernel = next((r for r in links if r['ifname'] == name), {})
         result[name] = {'source': 'Linux bonding /proc and netlink', 'members': members, 'kernel': kernel,

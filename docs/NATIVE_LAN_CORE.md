@@ -463,7 +463,9 @@ Le backend configure bonding en mode 802.3ad, miimon 100 ms, lacp_rate fast,
 xmit_hash_policy layer2+3. `inspect` lit `/proc/net/bonding/bond1` et netlink,
 expose les états actor/partner, `negotiated_members`, `ready` et la sortie kernel
 complète. Un membre n'est déclaré négocié que si actor et partner sont tous
-deux synchronisés et en Collecting/Distributing. `ready` demande aussi le seuil
+deux synchronisés et en Collecting/Distributing, avec lien opérationnel/MII up
+et appartenance à l'agrégateur actif. Les anciens bits LACP conservés par le
+kernel sur un lien tombé ne suffisent pas. `ready` demande aussi le seuil
 min-links et le carrier du bond. Ce résultat est lu du kernel, pas inféré d'un
 ping ou des seuls paramètres du manifest. Le démarrage `running` n'attend pas
 la convergence LACP. Le benchmark ICMP générique n'attend que DHCP et les
