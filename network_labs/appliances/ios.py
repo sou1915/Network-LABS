@@ -97,6 +97,12 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    match = re.fullmatch(r'spanning-tree (cost|port-priority) (\d+)', command)
+                    if match:
+                        tree = node['spanning_tree']
+                        if tree['mode'] != 'stp' or interface not in tree['ports']:
+                            raise ValueError('Configure common STP on this logical bridge port first; per-VLAN STP is not implemented.')
+                        tree['ports'][interface]['cost' if match[1] == 'cost' else 'priority'] = int(match[2]); continue
                     match = re.fullmatch(r'channel-group (\d+) mode (active|passive)', command)
                     if match:
                         channel = node['port_channels'].get('bond' + str(int(match[1])))

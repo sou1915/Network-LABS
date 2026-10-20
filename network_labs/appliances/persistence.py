@@ -57,6 +57,8 @@ def drift(manager):
             errors.append(node['name'] + ': static routes differ')
         if node['role'] == 'switch':
             from .lacp import drift as channel_drift
+            from .spanning_tree import drift as tree_drift
+            errors.extend(tree_drift(node, actual['links']))
             errors.extend(channel_drift(node, actual))
             for name, port in node['switchports'].items():
                 if _memberships(actual['vlans'], name) != set(memberships(node, port)):

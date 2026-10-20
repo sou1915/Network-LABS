@@ -326,6 +326,120 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(host_links(), before)
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
+    def test_classic_stp_triangle_election_failover_priority_cost_and_saved_restore(self):
+        from network_labs.appliances.examples import stp_lab
+        from network_labs.appliances.persistence import load_startup
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        before = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = stp_lab(rootfs); spec['name'] = 'stp-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def snapshot():
+                return {n: manager.inspect(n)['spanning_tree'] for n in ('SW1', 'SW2', 'SW3')}
+            def wait_tree(root, blocked=1):
+                deadline = time.monotonic() + 30
+                while True:
+                    state = snapshot(); root_id = state[root]['bridge_id']
+                    states = [s['ports'][p]['state'] for s in state.values() for p in ('eth2', 'eth3')]
+                    if (state[root]['is_root'] and all(s['root_id'] == root_id and s['local_state_settled'] for s in state.values())
+                            and states.count('blocking') == blocked and states.count('forwarding') == (5 if blocked else 4)):
+                        return state
+                    if time.monotonic() >= deadline:
+                        self.fail('Classic STP did not converge: ' + json.dumps(state))
+                    time.sleep(0.2)
+            def ping(source, target):
+                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0
+            def apply(node, commands):
+                return manager.configure_ios(node, 'conf t\n' + commands + '\nend')
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    tree = wait_tree('SW1')
+                    self.assertEqual(tree['SW3']['ports']['eth3']['state'], 'blocking')
+                    self.assertTrue(ping('PC1', '192.0.2.30')); self.assertTrue(ping('PC2', '198.18.0.30'))
+                    # Cutting the direct root link unblocks the alternate path through SW2.
+                    apply('SW1', 'interface fa0/4\nshutdown')
+                    tree = wait_tree('SW1', blocked=0)
+                    self.assertEqual(tree['SW3']['root_port'], 'eth3')
+                    self.assertTrue(ping('PC1', '192.0.2.30')); self.assertTrue(ping('PC2', '198.18.0.30'))
+                    apply('SW1', 'interface fa0/4\nno shutdown')
+                    wait_tree('SW1')
+                    manager.configure_spanning_tree('SW3', priority=0)
+                    wait_tree('SW3')
+                    self.assertTrue(ping('PC3', '192.0.2.30'))
+                    apply('SW2', 'interface fa0/4\nspanning-tree cost 1000\ninterface fa0/3\nspanning-tree port-priority 64')
+                    tree = wait_tree('SW3')
+                    self.assertEqual(tree['SW2']['root_port'], 'eth2')
+                    self.assertEqual(tree['SW2']['root_path_cost'], 200)
+                    self.assertEqual(tree['SW2']['ports']['eth2']['priority'], 64)
+                    self.assertTrue(ping('PC3', '192.0.2.30')); self.assertTrue(ping('PC4', '198.18.0.30'))
+                    revision = manager.state['revision']
+                    with self.assertRaises(ValueError):
+                        manager.configure_spanning_tree('SW1', {'mode': 'off'})
+                    self.assertEqual(manager.state['revision'], revision)
+                    manager.write_startup()
+                    index = next(i for i, n in enumerate(spec['nodes']) if n['name'] == 'SW3')
+                    manager.ns(index, 'ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'priority', '16384')
+                    with self.assertRaisesRegex(RuntimeFailure, 'spanning-tree bridge parameters differ'):
+                        manager.write_startup()
+                    manager.stop(); manager.start(load_startup(spec['name']))
+                    tree = wait_tree('SW3')
+                    self.assertEqual(tree['SW2']['root_port'], 'eth2')
+                    self.assertTrue(ping('PC1', '192.0.2.30')); self.assertTrue(ping('PC2', '198.18.0.30'))
+                except BaseException:
+                    if manager.directory.exists():
+                        print('STP diagnostics:', snapshot(), file=sys.stderr)
+                    raise
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+        self.assertEqual(host_links(), before)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+
+    def test_common_stp_uses_lacp_as_one_port_and_fails_over_to_spare_trunk(self):
+        from network_labs.appliances.examples import lacp_lab
+        from network_labs.appliances.spec import validate
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = lacp_lab(rootfs); spec['name'] = 'stp-lacp-' + str(os.getpid())
+            for i, node in enumerate(spec['nodes'][4:]):
+                node['interfaces']['eth4'] = ''
+                node['interface_aliases']['fa0/5'] = 'eth4'
+                node['switchports']['eth4'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+                node['spanning_tree'] = {'mode': 'stp', 'priority': (i+1)*4096, 'hello_time': 1, 'max_age': 6,
+                                         'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}}
+            spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']]); spec = validate(spec)
+            manager = Manager(spec['name'])
+            def wait_path(spare, members):
+                deadline = time.monotonic() + 30
+                while True:
+                    actual = manager.inspect('SW2')
+                    tree = actual['spanning_tree']
+                    channel = actual['port_channels']['bond1']
+                    if (tree['root_port'] == ('eth4' if spare else 'bond1') and tree['local_state_settled']
+                            and tree['ports']['eth4']['state'] == ('forwarding' if spare else 'blocking')
+                            and len(channel['negotiated_members']) == members):
+                        return
+                    if time.monotonic() >= deadline:
+                        self.fail('STP/LACP did not converge: ' + json.dumps(actual))
+                    time.sleep(0.2)
+            def ping():
+                for source, target in (('PC1', '192.0.2.20'), ('PC2', '198.18.0.20')):
+                    self.assertEqual(manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target).returncode, 0)
+            with manager.locked():
+                try:
+                    manager.start(spec); wait_path(False, 2); ping()
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nshutdown\nend')
+                    wait_path(False, 1); ping()
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
+                    wait_path(True, 0); ping()
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
+                    wait_path(False, 2); ping()
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+
     def test_packets_persistence_namespace_isolation_and_cleanup(self):
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
         for tool in ('crun', 'ip', 'busybox'):

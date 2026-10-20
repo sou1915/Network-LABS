@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--stp', action='store_true', help='Nine-node VLAN LAN on a triangle with real classic STP.')
     sample.add_argument('--lacp', action='store_true', help='Six-node VLAN LAN with a negotiated two-link LACP trunk.')
     sample.add_argument('--enterprise', action='store_true', help='20-node LAN with router, firewall, DHCP and WAN.')
     sample.add_argument('--firewall', action='store_true', help='Three-node stateful firewall and NAT reference lab.')
@@ -44,6 +45,11 @@ def main(arguments=None):
     config_source = configure.add_mutually_exclusive_group(required=True)
     config_source.add_argument('--file', type=Path)
     config_source.add_argument('--text', help='Multiline configuration; quote it in the calling shell.')
+    tree = commands.add_parser('spanning-tree', help='Configure a Linux common STP policy; this is not PVST/RSTP.')
+    tree.add_argument('name'); tree.add_argument('node')
+    tree_source = tree.add_mutually_exclusive_group(required=True)
+    tree_source.add_argument('--file', type=Path)
+    tree_source.add_argument('--priority', type=int, help='Change only this switch bridge priority.')
     firewall = commands.add_parser('firewall', help='Atomically replace a managed IPv4 firewall policy.')
     firewall.add_argument('name'); firewall.add_argument('node')
     firewall.add_argument('--file', type=Path, required=True)
@@ -59,10 +65,10 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus, firewall_lab, enterprise, lacp_lab
-            if sum((args.campus, args.firewall, args.enterprise, args.lacp)) > 1:
-                raise ValueError('Choose --campus, --firewall, --enterprise or --lacp.')
-            result = lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab
+            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp)) > 1:
+                raise ValueError('Choose --campus, --firewall, --enterprise or --lacp/--stp.')
+            result = stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
         elif args.command == 'benchmark':
@@ -96,6 +102,9 @@ def main(arguments=None):
                 elif args.command == 'configure':
                     text = args.file.read_text(encoding='utf-8') if args.file else args.text
                     result = manager.configure_ios(args.node, text)
+                elif args.command == 'spanning-tree':
+                    policy = json.loads(args.file.read_text(encoding='utf-8')) if args.file else None
+                    result = manager.configure_spanning_tree(args.node, policy, priority=args.priority)
                 elif args.command == 'firewall':
                     result = manager.configure_firewall(args.node, json.loads(args.file.read_text(encoding='utf-8')))
                 elif args.command in ('sessions', 'clear-sessions'):

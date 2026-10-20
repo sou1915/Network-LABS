@@ -114,7 +114,7 @@ def plan(data):
             'links': spec['links'],
             'limits': ['Native lab is separate from the model/Wasm canvas.',
                        'No automatic vendor firmware or complete vendor GUI/CLI replication.',
-                       'VLAN access/trunk, dot1Q and Linux LACP port-channels are native; STP/RSTP are not implemented.',
+                       'VLAN access/trunk, dot1Q, LACP and classic kernel STP are native; RSTP/PVST/MSTP are not implemented.',
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
@@ -355,11 +355,31 @@ class Manager:
 
     def configure_ios(self, name, text):
         from .ios import compile_config
-        from .lan import configure
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab must be running before configuration.')
         candidate = compile_config(state['spec'], name, text)
+        return self._configure_network(name, candidate, 'Linux namespaces; partial IOS-style adapter')
+
+    def configure_spanning_tree(self, name, policy=None, *, priority=None):
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before configuration.')
+        candidate = copy.deepcopy(state['spec'])
+        node = next((n for n in candidate['nodes'] if n['name'] == name and n['role'] == 'switch' and n['runtime'] == 'oci'), None)
+        if node is None:
+            raise ValueError('An existing OCI switch is required.')
+        if priority is not None:
+            if policy is not None:
+                raise ValueError('Choose a policy or a priority update.')
+            node['spanning_tree']['priority'] = priority
+        else:
+            node['spanning_tree'] = policy
+        return self._configure_network(name, validate(candidate), 'Linux kernel common spanning tree (IEEE 802.1D)')
+
+    def _configure_network(self, name, candidate, source):
+        from .lan import configure
+        state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
         state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
@@ -375,7 +395,7 @@ class Manager:
             raise RuntimeFailure(f'Configuration failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
         state['phase'] = 'running'; state.pop('pending_spec'); self.save()
-        return {'configured': name, 'revision': state['revision'], 'source': 'Linux namespaces; partial IOS-style adapter'}
+        return {'configured': name, 'revision': state['revision'], 'source': source}
 
     def configure_firewall(self, name, policy):
         from .firewall import apply

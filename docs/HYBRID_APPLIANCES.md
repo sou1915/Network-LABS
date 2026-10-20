@@ -100,8 +100,8 @@ vérifier la disponibilité du guest. Le lancement du VMM n'est pas un test de b
 
 - `interfaces` utilise `eth0`..`eth99`, IPv4/CIDR statique ou chaîne vide.
   `gateway` ajoute une route par défaut **dans le node**, jamais dans l'hôte.
-- `role: switch` crée `br0` sans adresse avec VLAN filtering, access VLAN 1 par défaut. STP est désactivé ;
-  les cycles entre switches sont refusés avant création des ressources.
+- `role: switch` crée `br0` sans adresse avec VLAN filtering, access VLAN 1 par défaut. STP est désactivé par défaut.
+  Les cycles nécessitent STP activé sur tout le composant ; `example --stp` démontre ce cas.
 - `role: router` active le forwarding IPv4 dans son namespace. FRR reste à
   installer/configurer dans le rootfs ; le rôle ne simule pas de daemon OSPF/BGP.
 - `role: firewall` accepte une politique déclarative `firewall` : filtrage IPv4
@@ -111,7 +111,7 @@ vérifier la disponibilité du guest. Le lancement du VMM n'est pas un test de b
   `startup` est une liste de tableaux argv exécutés dans le container, par exemple
   `[["/bin/sh", "-c", "...script de configuration..."]]`. Les shells éventuels sont
   explicitement demandés **dans le node**, pas exécutés sur l'hôte.
-- La GUI constructeur, les CLI complètes, STP, FRR et les autres
+- La GUI constructeur, les CLI complètes, RSTP, FRR et les autres
   services nécessitent encore leur intégration dédiée. VLAN/DHCP, firewall/NAT et une CLI
   partielle sont décrits dans [NATIVE_LAN_CORE.md](NATIVE_LAN_CORE.md). Les réglages du
   simulateur pédagogique ne sont pas importés automatiquement.

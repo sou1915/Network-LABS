@@ -111,12 +111,6 @@ def validate(data):
         raise ValueError('links must be an array with at most 512 entries.')
     ports = {(n['name'], port) for n in data['nodes'] for port in n['interfaces']}
     used = set()
-    switches = {n['name'] for n in data['nodes'] if n['role'] == 'switch'}
-    parent = {name: name for name in switches}
-    def root(name):
-        while parent[name] != name:
-            name = parent[name]
-        return name
     for link in links:
         if not isinstance(link, list) or len(link) != 2:
             raise ValueError('Link requires exactly two [node, interface] endpoints.')
@@ -130,11 +124,8 @@ def validate(data):
         if link[0][0] == link[1][0]:
             raise ValueError('Self links are not supported.')
     from .lacp import validate_links
-    for a, b in validate_links(data):
-        if a in switches and b in switches:
-            if root(a) == root(b):
-                raise ValueError('Layer-2 switch loop: bridge mode has STP disabled.')
-            parent[root(a)] = root(b)
+    from .spanning_tree import validate_components
+    validate_components(data, validate_links(data))
     if sum(n['memory_mib'] for n in data['nodes']) + reserve > budget:
         raise ValueError('Node memory allocations + GUI/host overhead reserve exceed lab budget.')
     return data

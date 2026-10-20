@@ -129,3 +129,31 @@ def lacp_lab(rootfs):
         [['PC3', 'eth0'], ['SW2', 'eth0']], [['PC4', 'eth0'], ['SW2', 'eth1']],
         [['SW1', 'eth2'], ['SW2', 'eth2']], [['SW1', 'eth3'], ['SW2', 'eth3']],
     ]})
+
+
+def stp_lab(rootfs):
+    """Three switches form a triangle; classic STP elects SW1 and blocks a port.
+
+    Lab timers are deliberately shortened within the supported IEEE bounds:
+    forward_delay=4, hello_time=1, max_age=6. This remains classic STP, not RSTP.
+    """
+    rootfs = str(Path(rootfs).resolve())
+    nodes, links = [], []
+    for number in (1, 2, 3):
+        for offset, vlan in ((0, 10), (1, 20)):
+            pc = f'PC{(number - 1) * 2 + offset + 1}'
+            address = f'192.0.2.{number * 10}/24' if vlan == 10 else f'198.18.0.{number * 10}/24'
+            nodes.append({'name': pc, 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': address}})
+            links.append([[pc, 'eth0'], [f'SW{number}', f'eth{offset}']])
+        nodes.append({'name': f'SW{number}', 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs,
+                      'dialect': 'ios-basic', 'interfaces': {f'eth{i}': '' for i in range(4)},
+                      'interface_aliases': {f'fa0/{i+1}': f'eth{i}' for i in range(4)},
+                      'vlans': [1, 10, 20],
+                      'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                                      'eth2': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]},
+                                      'eth3': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}},
+                      'spanning_tree': {'mode': 'stp', 'priority': number * 4096,
+                                        'hello_time': 1, 'max_age': 6, 'forward_delay': 4}})
+    links += [[['SW1', 'eth2'], ['SW2', 'eth2']], [['SW1', 'eth3'], ['SW3', 'eth2']],
+              [['SW2', 'eth3'], ['SW3', 'eth3']]]
+    return validate({'version': 2, 'name': 'stp-lan', 'nodes': nodes, 'links': links})

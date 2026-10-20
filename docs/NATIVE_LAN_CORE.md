@@ -117,9 +117,9 @@ Différences/limites explicites :
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
   ASIC Cisco. L'encodage d'une commande n'est pas une preuve de conformité matérielle.
-- STP/RSTP, DNS et les autres constructeurs restent à porter. LACP Linux est décrit plus bas. Le firewall/NAT
+- RSTP, DNS et les autres constructeurs restent à porter. LACP et STP classique Linux sont décrits plus bas. Le firewall/NAT
   Linux IPv4 est décrit plus bas ; il n’utilise pas la syntaxe IOS.
-  Les boucles entre switches sont encore refusées ; ne pas les activer par commandes brutes.
+  Les boucles avec STP désactivé restent refusées ; les activer via un manifest STP cohérent, jamais par commandes brutes.
 
 ## Manifest étendu
 
@@ -457,7 +457,8 @@ membre doit être relié à un membre du même port-channel voisin ; pas de MLAG
 de membre sans lien ni de paire passive/passive. Les numéros de groupe sont
 locaux et peuvent différer entre les deux switches. Les liens d'un bundle
 complet sont traités comme une seule arête pour le contrôle de cycles. Tout
-autre cycle L2 reste refusé : **STP/RSTP n'est pas encore implémenté**.
+cycle L2 nécessite le STP commun sur tout le composant (section suivante).
+**RSTP reste non implémenté**.
 
 Le backend configure bonding en mode 802.3ad, miimon 100 ms, lacp_rate fast,
 xmit_hash_policy layer2+3. `inspect` lit `/proc/net/bonding/bond1` et netlink,
@@ -516,3 +517,147 @@ prouvent pas un doublement de débit ni une absence totale de perte à la panne.
 
 Références : [Linux bonding](https://docs.kernel.org/networking/bonding.html),
 [Cisco IOS XE 17 : EtherChannel](https://www.cisco.com/c/en/us/td/docs/switches/lan/c9000/lyr2-fwd/etherchannel/etherchannel-configuration-guide/m_ethernetchannel.html).
+
+## STP commun 802.1D du kernel : boucles, root et chemins de secours
+
+`example --stp` crée **6 PC et 3 switches** en triangle, avec les VLAN 10/20.
+Chaque switch porte un PC par VLAN. Un arbre commun s'applique aux deux VLAN,
+avec de vrais BPDUs, l'élection et les états de port du kernel Linux.
+Aucun calcul de chemin dans Python ne décide quel port bloque ou transmet.
+
+| Lien | Ports |
+| --- | --- |
+| SW1 ↔ SW2 | eth2/fa0/3 ↔ eth2/fa0/3 |
+| SW1 ↔ SW3 | eth3/fa0/4 ↔ eth2/fa0/3 |
+| SW2 ↔ SW3 | eth3/fa0/4 ↔ eth3/fa0/4 |
+| PC de chaque switch | eth0/fa0/1 : VLAN 10 ; eth1/fa0/2 : VLAN 20 |
+
+Les priorités 4096/8192/12288 font élire SW1. Avec les coûts égaux, le port
+SW3 eth3 vers SW2 bloque les données. PC1/PC3/PC5 sont respectivement
+192.0.2.10/.20/.30 ; PC2/PC4/PC6 sont 198.18.0.10/.20/.30.
+Le scénario utilise hello=1 s, max_age=6 s et forward_delay=4 s pour raccourcir
+les essais. **Cela reste du STP classique**, avec listening puis learning,
+pas du RSTP. La convergence initiale prend environ deux forward_delay, et une
+panne peut ajouter des délais de détection/expiration. `running` ne garantit
+pas que l'arbre a convergé ; inspecter les états avant les pings.
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+python3 -m network_labs.appliances example --stp \
+  --rootfs "$HOME/network-labs-rootfs" > stp-lan.json
+sudo python3 -m network_labs.appliances start stp-lan.json
+# Attendre environ 10 secondes, puis :
+sudo python3 -m network_labs.appliances inspect stp-lan SW1
+sudo python3 -m network_labs.appliances inspect stp-lan SW3
+sudo python3 -m network_labs.appliances exec stp-lan PC1 -- /bin/ping -c 3 192.0.2.30
+sudo python3 -m network_labs.appliances exec stp-lan PC2 -- /bin/ping -c 3 198.18.0.30
+
+# Couper le chemin direct SW1–SW3 ; SW3 passe ensuite par SW2.
+sudo python3 -m network_labs.appliances configure stp-lan SW1 \
+  --text $'configure terminal\ninterface fa0/4\nshutdown\nend'
+# Attendre la convergence et vérifier les deux VLAN, puis rétablir :
+sudo python3 -m network_labs.appliances configure stp-lan SW1 \
+  --text $'configure terminal\ninterface fa0/4\nno shutdown\nend'
+```
+
+### Manifest, configuration et inspection
+
+```json
+"spanning_tree": {
+  "mode": "stp",
+  "priority": 4096,
+  "hello_time": 1,
+  "max_age": 6,
+  "forward_delay": 4,
+  "ports": {
+    "eth2": {"cost": 100, "priority": 128},
+    "eth3": {"cost": 100, "priority": 128}
+  }
+}
+```
+
+`mode` vaut `off` (défaut) ou `stp`, exclusivement sur les switches OCI.
+Les priorités de bridge sont des multiples de 4096, de 0 à 61440 ; celles des
+ports des multiples de 16, de 0 à 240. Le coût vaut 1..65535. Les ports non
+précisés reçoivent coût=100, priorité=128 lorsque STP est activé ; les membres
+physiques d'un bond n'ont pas de politique propre, seule l'interface logique en a.
+Linux encode la priorité des ports avec 10 bits de numéro de port : le backend
+traduit la priorité proposée en priorité kernel divisée par 4 (128 → 32).
+L'inspection expose la valeur normalisée et `kernel_priority` séparément.
+
+Bornes des timers en secondes : hello=1..10, max_age=6..40, forward_delay=4..30,
+avec `2*(hello+1) <= max_age <= 2*(forward_delay-1)`. Les défauts hors exemple
+sont 2/20/15. Cette première version exige le même mode et les mêmes timers
+sur tous les switches d'un composant connecté, même sans cycle, pour garder
+un domaine de contrôle explicite et des vérifications de timers non ambiguës.
+Un composant cyclique n'est accepté qu'avec STP activé partout. Les arêtes LACP
+restent regroupées en une seule arête logique avant cette validation.
+
+Le bridge est créé sans ports actifs, STP est activé et l'état kernel 1 vérifié
+**avant** d'attacher/activer les ports. Les éditions ne passent pas par un
+`stp_state 0` intermédiaire sur un bridge STP déjà activé. Root, root port et
+blocking/forwarding restent le résultat des échanges et des timers du kernel.
+Le gestionnaire ne démarre pas de service STP dans le namespace de l'hôte et
+n'altère pas `/sbin/bridge-stp`. Aucun nouveau paquet Python n'est requis.
+
+Changer la priorité d'un bridge :
+
+```bash
+sudo python3 -m network_labs.appliances spanning-tree stp-lan SW3 --priority 0
+```
+
+Une politique complète peut être fournie par `--file policy.json` à cette même
+commande, avec validation du composant avant mutation, journal, rollback et
+`recover` communs à la configuration réseau. Changer la priorité peut provoquer
+une réélection ; le retour de la commande confirme l'application, pas la convergence.
+Un changement de mode/timers incompatible avec les autres switches est refusé ;
+modifier le manifest entier et recréer le lab pour changer le domaine complet.
+
+Les commandes d'interface partiellement compatibles IOS sont également couvertes :
+
+```bash
+sudo python3 -m network_labs.appliances configure stp-lan SW2 \
+  --text $'configure terminal\ninterface fa0/4\nspanning-tree cost 1000\ninterface fa0/3\nspanning-tree port-priority 64\nend'
+```
+
+Elles agissent sur ce **common spanning tree Linux**, pas sur une instance PVST
+par VLAN. `spanning-tree mode rapid-pvst`, PVST/MSTP, PortFast, BPDU guard et
+root guard ne sont pas fournis dans ce jalon. Tous les VLAN d'un port bloqué
+partagent son état : des listes VLAN divergentes peuvent rendre un VLAN inaccessible.
+La GUI constructeur et un shell IOS complet restent hors de ce backend.
+
+`inspect` ajoute `spanning_tree` : protocole effectif du kernel, bridge_id,
+root_id, `is_root`, root_port, root_path_cost et états/cost/priorité de chaque
+port. `local_state_settled` indique seulement l'absence de listening/learning
+sur les ports locaux opérationnels ; ce n'est pas une preuve globale de
+convergence. Les états ne sont pas déduits du dessin ou d'un résultat de ping.
+Save/export détectent des différences de contrôleur STP, priorité, timers,
+coûts et priorités de ports. Une réélection ou transition de port ne constitue
+pas une dérive de configuration. Restore relance une nouvelle élection et ne
+sauvegarde pas les MAC temporaires, rôles ou timers en cours.
+
+Le benchmark générique attend DHCP et les processus, pas la convergence STP.
+Pour mesurer ce scénario accéléré, une phase idle suffisamment longue est
+nécessaire (par exemple `--seconds 20`) ; une phase trop courte peut mesurer
+une perte pendant la convergence. Les tests de panne ne revendiquent ni
+bascule instantanée, ni absence de perte sur un flux continu.
+
+### Pourquoi RSTP n'est pas annoncé comme fonctionnel
+
+Le bridge Linux historique implémente STP classique. Un daemon tel que `mstpd`
+implémente RSTP, mais requiert un bridge en mode **userspace STP**, différent
+`stp_state=2` du `stp_state=1` kernel. Le mécanisme traditionnel `/sbin/bridge-stp`
+n'est appelé que dans le namespace réseau initial ; un simple `stp_state 1`
+dans nos namespaces peut donc rester en STP classique malgré la présence de mstpd.
+Les kernels récents proposent `IFLA_BR_STP_MODE=user` pour cette situation.
+Il reste à valider ce support dans les couples kernel/iproute2 ciblés, puis la
+supervision isolée de mstpd, sa défaillance, la mesure de ressources et de vrais
+tests de BPDUs/reconvergence RSTP. Le manifest refuse `mode: rstp` explicitement,
+sans fallback silencieux, sans mise à niveau automatique du kernel de l'utilisateur.
+
+Références primaires : [bridge Linux](https://docs.kernel.org/networking/bridge.html),
+[encodage des priorités de port](https://github.com/torvalds/linux/blob/master/net/bridge/br_stp_if.c),
+[mstpd : utilisation avec VLANs](https://github.com/mstpd/mstpd/blob/master/README.VLANs.md),
+[mstpctl](https://github.com/mstpd/mstpd/blob/master/utils/mstpctl.8).

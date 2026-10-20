@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree')
 
 
 def addresses(node):
@@ -162,6 +162,8 @@ def validate_lan(node):
         if any(address and network == ipaddress.IPv4Interface(address).network for address in all_interfaces.values()):
             raise ValueError('Static route cannot replace a directly connected subnet.')
         route['gateway'] = str(gateway)
+    from .spanning_tree import validate_tree
+    validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -191,7 +193,9 @@ def configure(manager, index, node, previous=None):
         recreated = configure_channels(manager, index, node, previous)
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
             ns('ip', 'link', 'add', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
-        ns('ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
+        from .spanning_tree import bridge_options, configure_ports, verify_kernel
+        ns('ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', *bridge_options(node, previous, initial))
+        verify_kernel(manager, index, node)
         ns('ip', 'link', 'set', 'dev', 'br0', 'up')
         for interface, port in node['switchports'].items():
             if not initial and interface not in recreated and port == previous['switchports'].get(interface):
@@ -207,6 +211,7 @@ def configure(manager, index, node, previous=None):
             for vid, pvid, untagged in memberships(node, port):
                 ns('bridge', 'vlan', 'add', 'dev', interface, 'vid', str(vid),
                    *(['pvid'] if pvid else []), *(['untagged'] if untagged else []))
+        configure_ports(manager, index, node, previous, initial, recreated)
     # Recreate only VLAN devices whose encapsulation changed, preserving others.
     old_subs = previous.get('subinterfaces', {})
     for name, old in old_subs.items():
@@ -255,6 +260,8 @@ def observe(manager, index, node):
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
     if node['role'] == 'switch':
+        from .spanning_tree import observe as observe_tree
+        result['spanning_tree'] = observe_tree(node, result['links'])
         if node['port_channels']:
             from .lacp import observe as observe_channels
             result['port_channels'] = observe_channels(manager, index, node, result['links'])
