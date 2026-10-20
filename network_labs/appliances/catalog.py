@@ -13,11 +13,11 @@ def capabilities():
     tools = {name: shutil.which(name) for name in ('ip', 'bridge', 'sysctl', 'crun', 'firecracker', 'busybox', 'nft', 'conntrack')}
     return {
         'host': {'linux': linux, 'root': os.geteuid() == 0 if linux else False,
-                 'cgroup_v2': cgroup, 'kvm_access': kvm, 'tools': tools},
+                 'bonding_driver_loaded': Path('/sys/module/bonding').exists(), 'cgroup_v2': cgroup, 'kvm_access': kvm, 'tools': tools},
         'runtimes': [
             {'id': 'oci', 'implementation': 'experimental',
              'prerequisites_detected': bool(linux and cgroup and tools['ip'] and tools['bridge'] and tools['sysctl'] and tools['crun']),
-             'scope': 'Persistent Linux containers; VLAN access/trunk, dot1Q routing, BusyBox DHCP, optional nftables IPv4 firewall/NAT, partial IOS-style configuration and saved startup manifests. Shared host kernel.'},
+             'scope': 'Persistent Linux containers; VLAN access/trunk and LACP port-channels, dot1Q routing, BusyBox DHCP, optional nftables IPv4 firewall/NAT, partial IOS-style configuration and saved startup manifests. Shared host kernel.'},
             {'id': 'firecracker', 'implementation': 'experimental',
              'prerequisites_detected': bool(linux and tools['ip'] and tools['firecracker'] and kvm),
              'scope': 'One Ethernet NIC, dedicated guest kernel and disk. Guest console log; no exec agent.'},

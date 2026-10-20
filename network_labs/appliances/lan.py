@@ -11,15 +11,18 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels')
 
 
 def addresses(node):
-    return {**node['interfaces'], **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()}}
+    return {**node['interfaces'], **{name: '' for name in node.get('port_channels', {})}, **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()}}
 
 
 def validate_lan(node):
     role = node['role']
+    from .lacp import validate_channels
+    members = validate_channels(node)
+    bridge_ports = (set(node['interfaces']) - members) | set(node['port_channels'])
     vlans = node.setdefault('vlans', [1] if role == 'switch' else [])
     if not isinstance(vlans, list) or len(vlans) > 256:
         raise ValueError('vlans: array of at most 256 VLAN IDs required.')
@@ -36,9 +39,9 @@ def validate_lan(node):
     if subs and (role not in ('router', 'firewall') or node['runtime'] != 'oci'):
         raise ValueError('802.1Q subinterfaces require an OCI router/firewall.')
     if role == 'switch':
-        if set(ports) - set(node['interfaces']):
+        if set(ports) - bridge_ports:
             raise ValueError('Unknown switchport.')
-        for interface in node['interfaces']:
+        for interface in sorted(bridge_ports):
             port = copy.deepcopy(ports.setdefault(interface, {'mode': 'access', 'vlan': 1}))
             ports[interface] = port
             mode = port.get('mode') if isinstance(port, dict) else None
@@ -184,12 +187,14 @@ def configure(manager, index, node, previous=None):
         if initial or changed:
             ns('ip', 'link', 'set', 'dev', interface, 'down')
     if node['role'] == 'switch':
+        from .lacp import configure as configure_channels
+        recreated = configure_channels(manager, index, node, previous)
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
             ns('ip', 'link', 'add', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
         ns('ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'stp_state', '0', 'vlan_filtering', '1', 'vlan_default_pvid', '0')
         ns('ip', 'link', 'set', 'dev', 'br0', 'up')
         for interface, port in node['switchports'].items():
-            if not initial and port == previous['switchports'].get(interface):
+            if not initial and interface not in recreated and port == previous['switchports'].get(interface):
                 continue
             ns('ip', 'link', 'set', 'dev', interface, 'master', 'br0')
             current = json.loads(ns('bridge', '-j', 'vlan', 'show', 'dev', interface).stdout)
@@ -250,6 +255,9 @@ def observe(manager, index, node):
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
     if node['role'] == 'switch':
+        if node['port_channels']:
+            from .lacp import observe as observe_channels
+            result['port_channels'] = observe_channels(manager, index, node, result['links'])
         result['vlans'] = json.loads(manager.ns(index, 'bridge', '-j', 'vlan', 'show').stdout)
         result['fdb'] = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
     return result

@@ -13,6 +13,11 @@ from .spec import validate
 
 def resolve_interface(node, value):
     alias = port_name(value)
+    if alias.startswith('po'):
+        bond = 'bond' + alias[2:]
+        if bond not in node.get('port_channels', {}):
+            raise ValueError('Declare port-channel membership in the manifest before live configuration.')
+        return bond, None
     if '.' in alias:
         physical, suffix = alias.split('.', 1)
         parent = node['interface_aliases'].get(physical, physical)
@@ -92,6 +97,19 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    match = re.fullmatch(r'channel-group (\d+) mode (active|passive)', command)
+                    if match:
+                        channel = node['port_channels'].get('bond' + str(int(match[1])))
+                        if channel is None or interface not in channel['members']:
+                            raise ValueError('Live channel-group changes apply to existing manifest members only.')
+                        channel['mode'] = match[2]; continue
+                    match = re.fullmatch(r'port-channel min-links (\d+)', command)
+                    if match and interface in node['port_channels']:
+                        node['port_channels'][interface]['min_links'] = int(match[1]); continue
+                    if command == 'no port-channel min-links' and interface in node['port_channels']:
+                        node['port_channels'][interface]['min_links'] = 1; continue
+                    if interface not in node['switchports']:
+                        raise ValueError('Configure switchport settings on the logical port-channel, not its members.')
                     port = node['switchports'][interface]
                     match = re.fullmatch(r'switchport mode (access|trunk)', command)
                     if match:

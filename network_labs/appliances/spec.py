@@ -129,10 +129,11 @@ def validate(data):
             used.add(pair)
         if link[0][0] == link[1][0]:
             raise ValueError('Self links are not supported.')
-        a, b = link[0][0], link[1][0]
+    from .lacp import validate_links
+    for a, b in validate_links(data):
         if a in switches and b in switches:
             if root(a) == root(b):
-                raise ValueError('Layer-2 switch loop: initial bridge mode has STP disabled.')
+                raise ValueError('Layer-2 switch loop: bridge mode has STP disabled.')
             parent[root(a)] = root(b)
     if sum(n['memory_mib'] for n in data['nodes']) + reserve > budget:
         raise ValueError('Node memory allocations + GUI/host overhead reserve exceed lab budget.')

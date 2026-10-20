@@ -56,6 +56,8 @@ def drift(manager):
         if observed != configured:
             errors.append(node['name'] + ': static routes differ')
         if node['role'] == 'switch':
+            from .lacp import drift as channel_drift
+            errors.extend(channel_drift(node, actual))
             for name, port in node['switchports'].items():
                 if _memberships(actual['vlans'], name) != set(memberships(node, port)):
                     errors.append(node['name'] + '/' + name + ': VLAN membership differs')

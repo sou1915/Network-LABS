@@ -248,6 +248,84 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', '-n', 'list', 'ruleset']).stdout)), before)
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
+    def test_lacp_negotiation_vlan_trunk_failover_minlinks_and_restore(self):
+        from network_labs.appliances.examples import lacp_lab
+        from network_labs.appliances.persistence import load_startup
+        spec_name = 'lacp-test-' + str(os.getpid())
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        before = host_links()
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = lacp_lab(rootfs); spec['name'] = spec_name
+            manager = Manager(spec_name)
+            def ping(vlan):
+                source, target = ('PC1', '192.0.2.20') if vlan == 10 else ('PC2', '198.18.0.20')
+                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0
+            def apply(node, text):
+                return manager.configure_ios(node, 'conf t\n' + text + '\nend')
+            def wait_members(count, ready=True, nodes=('SW1', 'SW2')):
+                deadline = time.monotonic() + 20
+                while True:
+                    state = {n: manager.inspect(n)['port_channels']['bond1'] for n in nodes}
+                    if all(len(s['negotiated_members']) == count and s['ready'] == ready for s in state.values()):
+                        return
+                    if time.monotonic() >= deadline:
+                        self.fail('LACP state did not converge: ' + json.dumps(state))
+                    time.sleep(0.2)
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    wait_members(2)
+                    self.assertTrue(ping(10)); self.assertTrue(ping(20))
+                    # Active/passive was negotiated; now exercise active/active.
+                    apply('SW2', 'interface fa0/3\nchannel-group 1 mode active')
+                    wait_members(2)
+                    manager.write_startup()
+                    apply('SW1', 'interface port-channel1\nswitchport trunk allowed vlan 10')
+                    self.assertTrue(ping(10)); self.assertFalse(ping(20))
+                    apply('SW1', 'interface po1\nswitchport trunk allowed vlan 10,20')
+                    self.assertTrue(ping(20))
+                    # A surviving negotiated member carries both VLANs.
+                    apply('SW1', 'interface fa0/3\nshutdown')
+                    wait_members(1)
+                    self.assertTrue(ping(10)); self.assertTrue(ping(20))
+                    # The threshold is a real kernel carrier gate, not a fake ping rule.
+                    apply('SW1', 'interface po1\nport-channel min-links 2')
+                    wait_members(1, ready=False, nodes=('SW1',))
+                    self.assertFalse(ping(10))
+                    apply('SW1', 'interface po1\nno port-channel min-links')
+                    wait_members(1)
+                    self.assertTrue(ping(10))
+                    apply('SW1', 'interface fa0/4\nshutdown')
+                    self.assertFalse(ping(10)); self.assertFalse(ping(20))
+                    apply('SW1', 'interface fa0/3\nno shutdown')
+                    wait_members(1)
+                    self.assertTrue(ping(10))
+                    apply('SW1', 'interface fa0/4\nno shutdown')
+                    wait_members(2)
+                    # Unsupported commands are rejected before changing Linux.
+                    with self.assertRaises(ValueError):
+                        apply('SW1', 'interface po1\nport-channel min-links 3')
+                    self.assertTrue(ping(20))
+                    manager.write_startup()
+                    manager.ns(4, 'ip', 'link', 'set', 'dev', 'bond1', 'type', 'bond', 'miimon', '200')
+                    with self.assertRaisesRegex(RuntimeFailure, 'bonding configuration differs'):
+                        manager.write_startup()
+                    manager.stop()
+                    manager.start(load_startup(spec_name))
+                    wait_members(2)
+                    self.assertTrue(ping(10)); self.assertTrue(ping(20))
+                except BaseException:
+                    if manager.directory.exists():
+                        print('LACP diagnostics:', manager.inspect('SW1'), manager.inspect('SW2'), file=sys.stderr)
+                    raise
+                finally:
+                    if manager.directory.exists():
+                        manager.stop()
+        self.assertEqual(host_links(), before)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+
     def test_packets_persistence_namespace_isolation_and_cleanup(self):
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
         for tool in ('crun', 'ip', 'busybox'):

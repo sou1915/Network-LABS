@@ -117,7 +117,7 @@ Différences/limites explicites :
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
   ASIC Cisco. L'encodage d'une commande n'est pas une preuve de conformité matérielle.
-- STP/RSTP, LACP, DNS et les autres constructeurs restent à porter. Le firewall/NAT
+- STP/RSTP, DNS et les autres constructeurs restent à porter. LACP Linux est décrit plus bas. Le firewall/NAT
   Linux IPv4 est décrit plus bas ; il n’utilise pas la syntaxe IOS.
   Les boucles entre switches sont encore refusées ; ne pas les activer par commandes brutes.
 
@@ -407,3 +407,107 @@ Le delta global de RAM du host est négatif sur ce court essai, ce qui illustre
 le bruit de fond et ne permet aucune attribution de mémoire totale au lab.
 Ces chiffres portent sur BusyBox et une charge faible, sans GUI ni firmware ;
 ils ne prédisent pas la consommation sur le PC de l'utilisateur ni sous charge lourde.
+
+## Port-channels LACP Linux et trunks VLAN
+
+Le scénario `example --lacp` crée **4 PC + 2 switches**. Chaque switch a un
+port access VLAN 10, un port access VLAN 20 et deux liens physiques membres de
+`bond1` (port-channel 1). Les VLAN 10/20 passent sur le trunk logique. Les
+membres ne sont pas attachés individuellement au bridge et n'ont pas de
+configuration `switchports` autonome. SW1 est LACP active, SW2 passive.
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+# Prérequis explicite : charger le driver sans créer bond0 sur l'hôte.
+sudo modprobe bonding max_bonds=0
+python3 -m network_labs.appliances example --lacp \
+  --rootfs "$HOME/network-labs-rootfs" > lacp-lan.json
+sudo python3 -m network_labs.appliances start lacp-lan.json
+# Attendre quelques secondes pour la négociation, puis inspecter.
+sudo python3 -m network_labs.appliances inspect lacp-lan SW1
+sudo python3 -m network_labs.appliances inspect lacp-lan SW2
+sudo python3 -m network_labs.appliances exec lacp-lan PC1 -- /bin/ping -c 3 192.0.2.20
+sudo python3 -m network_labs.appliances exec lacp-lan PC2 -- /bin/ping -c 3 198.18.0.20
+```
+
+Le gestionnaire exige un driver bonding déjà chargé et ne lance pas `modprobe`.
+Il ne décharge pas un module utilisé par d'autres réseaux et ne configure aucun
+bond dans le namespace de l'hôte. Un kernel/iproute2 sans prise en charge des
+options demandées fait échouer le démarrage avec nettoyage, sans substitution.
+Le driver nécessite un support vitesse/duplex des interfaces (veth dans ce lab).
+
+Extrait du manifest d'un switch :
+
+```json
+"port_channels": {
+  "bond1": {"members": ["eth2", "eth3"], "mode": "active", "min_links": 1}
+},
+"switchports": {
+  "eth0": {"mode": "access", "vlan": 10},
+  "eth1": {"mode": "access", "vlan": 20},
+  "bond1": {"mode": "trunk", "native_vlan": 1, "allowed": [10, 20]}
+}
+```
+
+Port-channels : `bond1` à `bond32`, au plus 16 par switch, 2 à 8 membres chacun,
+mode active ou passive, `min_links` entre 1 et le nombre de membres. Chaque
+membre doit être relié à un membre du même port-channel voisin ; pas de MLAG,
+de membre sans lien ni de paire passive/passive. Les numéros de groupe sont
+locaux et peuvent différer entre les deux switches. Les liens d'un bundle
+complet sont traités comme une seule arête pour le contrôle de cycles. Tout
+autre cycle L2 reste refusé : **STP/RSTP n'est pas encore implémenté**.
+
+Le backend configure bonding en mode 802.3ad, miimon 100 ms, lacp_rate fast,
+xmit_hash_policy layer2+3. `inspect` lit `/proc/net/bonding/bond1` et netlink,
+expose les états actor/partner, `negotiated_members`, `ready` et la sortie kernel
+complète. Un membre n'est déclaré négocié que si actor et partner sont tous
+deux synchronisés et en Collecting/Distributing. `ready` demande aussi le seuil
+min-links et le carrier du bond. Ce résultat est lu du kernel, pas inféré d'un
+ping ou des seuls paramètres du manifest. Le démarrage `running` n'attend pas
+la convergence LACP. Le benchmark ICMP générique n'attend que DHCP et les
+processus : inspecter la convergence avant les tests manuels LACP.
+
+### Configuration live partielle
+
+Les membres sont définis dans le manifest au démarrage. La CLI partielle peut
+éditer la politique VLAN et shutdown du port-channel, le shutdown de chaque
+membre, le seuil et le mode d'un bundle existant. Elle ne crée/supprime pas ses
+membres pendant le fonctionnement. `channel-group ... mode` s'applique au mode
+du bundle Linux entier, pas à un mode distinct pour chaque membre.
+
+```bash
+# Couper un membre ; l'autre doit continuer à transporter les deux VLAN.
+sudo python3 -m network_labs.appliances configure lacp-lan SW1 \
+  --text $'configure terminal\ninterface fa0/3\nshutdown\nend'
+
+# Exiger 2 membres : avec un membre coupé, le port-channel perd son carrier.
+sudo python3 -m network_labs.appliances configure lacp-lan SW1 \
+  --text $'configure terminal\ninterface port-channel1\nport-channel min-links 2\nend'
+
+# Revenir au seuil 1 et réactiver le membre.
+sudo python3 -m network_labs.appliances configure lacp-lan SW1 \
+  --text $'configure terminal\ninterface po1\nno port-channel min-links\ninterface fa0/3\nno shutdown\nend'
+sudo python3 -m network_labs.appliances save lacp-lan
+sudo python3 -m network_labs.appliances stop lacp-lan
+sudo python3 -m network_labs.appliances restore lacp-lan
+```
+
+Le mode d'un bundle existant se règle depuis un de ses membres avec
+`channel-group 1 mode active` ou `passive`. Une édition qui créerait
+passive/passive est rejetée avant mutation. Les commandes switchport se font
+sur `interface port-channel1`/`po1`. Save/export vérifient les masters des liens,
+les paramètres bonding, les VLAN et états administratifs ; les états négociés
+et compteurs ne sont pas sauvegardés et peuvent évoluer sans dérive déclarative.
+
+Il s'agit du comportement du bonding Linux, pas d'un ASIC Cisco ni d'un IOS
+complet. PAgP, agrégation statique, hot-standby, priorités LACP, MLAG et garanties
+de débit matériel ne sont pas fournis. Le fallback du driver lorsque son voisin
+ne négocie plus dépend du kernel ; ce jalon ne configure pas `lacp_strict` et
+ne revendique pas la politique Cisco de suspension d'un port individuel.
+Un flux unique n'utilise pas simultanément tous les membres ; les tests ne
+prouvent pas un doublement de débit ni une absence totale de perte à la panne.
+
+Références : [Linux bonding](https://docs.kernel.org/networking/bonding.html),
+[Cisco IOS XE 17 : EtherChannel](https://www.cisco.com/c/en/us/td/docs/switches/lan/c9000/lyr2-fwd/etherchannel/etherchannel-configuration-guide/m_ethernetchannel.html).

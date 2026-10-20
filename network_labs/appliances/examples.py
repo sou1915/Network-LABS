@@ -108,3 +108,24 @@ def enterprise(rootfs):
     links += [[['R1', 'eth1'], ['FW1', 'eth0']], [['FW1', 'eth1'], ['WAN1', 'eth0']]]
     return validate({'version': 2, 'name': 'enterprise-20', 'budget_mib': 2048, 'reserve_mib': 512,
                      'nodes': nodes, 'links': links})
+
+
+def lacp_lab(rootfs):
+    """Four PCs on two VLANs, two switches and one two-member LACP trunk."""
+    rootfs = str(Path(rootfs).resolve())
+    nodes = []
+    for name, address in (('PC1', '192.0.2.10/24'), ('PC2', '198.18.0.10/24'),
+                          ('PC3', '192.0.2.20/24'), ('PC4', '198.18.0.20/24')):
+        nodes.append({'name': name, 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': address}})
+    for number in (1, 2):
+        nodes.append({'name': f'SW{number}', 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs,
+                      'dialect': 'ios-basic', 'interfaces': {f'eth{i}': '' for i in range(4)},
+                      'interface_aliases': {f'fa0/{i+1}': f'eth{i}' for i in range(4)}, 'vlans': [1, 10, 20],
+                      'port_channels': {'bond1': {'members': ['eth2', 'eth3'], 'mode': 'active' if number == 1 else 'passive', 'min_links': 1}},
+                      'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                                      'bond1': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}}})
+    return validate({'version': 2, 'name': 'lacp-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW1', 'eth1']],
+        [['PC3', 'eth0'], ['SW2', 'eth0']], [['PC4', 'eth0'], ['SW2', 'eth1']],
+        [['SW1', 'eth2'], ['SW2', 'eth2']], [['SW1', 'eth3'], ['SW2', 'eth3']],
+    ]})
