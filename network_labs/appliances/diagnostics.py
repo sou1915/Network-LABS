@@ -1,0 +1,187 @@
+"""Passive explanations of observed native state, never a simulated packet path."""
+from collections import Counter
+from datetime import datetime, timezone
+import json
+import subprocess
+
+from .runtime import RuntimeFailure
+
+
+def _add(findings, code, message, evidence, severity='info'):
+    findings.append({'code': code, 'severity': severity, 'message': message, 'evidence': evidence})
+
+
+def explain_node(node, actual):
+    """Interpret one observed snapshot; do not infer events or packet delivery."""
+    findings = []
+    links = {r['ifname']: r for r in actual['links']}
+    for port in node['interfaces'] | node.get('port_channels', {}):
+        link = links.get(port)
+        if link is None:
+            _add(findings, 'INTERFACE_MISSING', f'{port} : interface absente du relevé kernel.', {'port': port}, 'warning')
+            continue
+        flags = link.get('flags', [])
+        if 'UP' not in flags:
+            expected = port in node.get('shutdown', [])
+            _add(findings, 'LINK_ADMIN_DOWN', f'{port} : interface administrativement désactivée' +
+                 (' comme configuré.' if expected else ', alors que la configuration demande UP.'),
+                 {'port': port, 'flags': flags, 'configured_shutdown': expected}, 'info' if expected else 'warning')
+        elif 'LOWER_UP' not in flags:
+            _add(findings, 'LINK_NO_CARRIER', f'{port} : interface UP, sans liaison opérationnelle signalée par le kernel.',
+                 {'port': port, 'flags': flags}, 'warning')
+
+    tree = actual.get('spanning_tree')
+    if tree:
+        protocol = tree.get('protocol')
+        if protocol == 'stp':
+            _add(findings, 'STP_ROOT' if tree['is_root'] else 'STP_ROOT_PATH',
+                 (f"Ce switch est root du STP commun ({tree['bridge_id']})." if tree['is_root'] else
+                  f"Root STP observé : {tree['root_id']}, via {tree['root_port']}, coût {tree['root_path_cost']}."),
+                 {k: tree.get(k) for k in ('protocol', 'bridge_id', 'root_id', 'root_port', 'root_path_cost')})
+            forwarding = []
+            for port, data in tree['ports'].items():
+                state = data.get('state')
+                flags = links.get(port, {}).get('flags', [])
+                evidence = {'port': port, **data, 'link_flags': flags}
+                if state == 'forwarding':
+                    forwarding.append(port)
+                elif state == 'blocking':
+                    _add(findings, 'STP_BLOCKING', f'{port} : données bloquées par STP ; cet état peut être normal sur un lien redondant.', evidence)
+                elif state in ('listening', 'learning'):
+                    protected = data.get('root_guard') is True and state == 'listening'
+                    _add(findings, 'STP_ROOT_GUARD_LISTENING' if protected else 'STP_TRANSITION',
+                         f'{port} : {state}, les données ne sont pas transmises.' +
+                         (' Root Guard actif ; des BPDUs supérieures peuvent maintenir cet état, sans preuve de cause dans ce relevé.'
+                          if protected else ' Transition STP en cours au moment du relevé.'), evidence,
+                         'warning' if protected else 'info')
+                elif state == 'disabled':
+                    operational = 'UP' in flags and 'LOWER_UP' in flags
+                    guarded = operational and data.get('bpdu_guard') is True
+                    _add(findings, 'STP_DISABLED_WITH_BPDU_GUARD' if guarded else 'STP_DISABLED',
+                         f'{port} : moteur STP désactivé sur ce port, sans transmission de données.' +
+                         (' BPDU Guard actif et lien opérationnel : vérifier la source des BPDUs. Après retrait de la protection, cycler le lien pour récupérer.'
+                          if guarded else ''), evidence, 'warning' if operational else 'info')
+                else:
+                    _add(findings, 'STP_PORT_UNKNOWN', f'{port} : état STP non reconnu.', evidence, 'unknown')
+                if data.get('bpdu_guard') is True or data.get('root_guard') is True:
+                    _add(findings, 'STP_PROTECTION', f"{port} : BPDU Guard={'on' if data.get('bpdu_guard') else 'off'}, Root Guard={'on' if data.get('root_guard') else 'off'}.",
+                         {'port': port, 'bpdu_guard': data.get('bpdu_guard'), 'root_guard': data.get('root_guard')})
+            if forwarding:
+                _add(findings, 'STP_FORWARDING', 'Ports en forwarding : ' + ', '.join(forwarding) + '.', {'ports': forwarding})
+        elif protocol == 'off':
+            _add(findings, 'STP_OFF', 'STP désactivé sur ce bridge.', {'protocol': protocol})
+        else:
+            _add(findings, 'STP_CONTROLLER_UNKNOWN', 'Contrôleur STP non géré par ce backend.', {'protocol': protocol}, 'unknown')
+
+    for name, channel in actual.get('port_channels', {}).items():
+        configured = node['port_channels'][name]
+        negotiated = channel['negotiated_members']
+        ready = channel['ready']
+        degraded = ready and len(negotiated) < len(configured['members'])
+        _add(findings, 'LACP_DEGRADED' if degraded else 'LACP_READY' if ready else 'LACP_NOT_READY',
+             f"{name} : {len(negotiated)}/{len(configured['members'])} membres négociés, min-links={configured['min_links']}. " +
+             ('Agrégat opérationnel avec capacité réduite.' if degraded else 'Agrégat opérationnel.' if ready else 'Agrégat non prêt au moment du relevé.'),
+             {'port': name, 'ready': ready, 'negotiated_members': negotiated, 'min_links': configured['min_links'],
+              'members': channel['members']}, 'info' if ready and not degraded else 'warning')
+
+    for record in actual.get('vlans', []):
+        if record['ifname'] not in node.get('switchports', {}):
+            continue
+        entries = record.get('vlans', [])
+        labels = []
+        for entry in entries:
+            label = str(entry['vlan']) + ('-' + str(entry['vlanEnd']) if entry.get('vlanEnd') else '')
+            flags = entry.get('flags', [])
+            if 'PVID' in flags:
+                label += ' PVID'
+            if 'Egress Untagged' in flags:
+                label += ' untagged'
+            labels.append(label)
+        _add(findings, 'VLAN_MEMBERSHIP', f"{record['ifname']} : VLAN kernel " + (', '.join(labels) if labels else 'aucun') + '.',
+             {'port': record['ifname'], 'memberships': entries})
+
+    ipv4 = {}
+    for record in actual['addresses']:
+        values = [f"{a['local']}/{a['prefixlen']}" for a in record.get('addr_info', [])
+                  if a.get('family') == 'inet' and a.get('scope') == 'global']
+        if values:
+            ipv4[record['ifname']] = values
+    if ipv4:
+        _add(findings, 'IPV4_ADDRESSES', 'IPv4 observées : ' + '; '.join(f'{p}={", ".join(v)}' for p, v in ipv4.items()) + '.', ipv4)
+    for port in node.get('dhcp_clients', []):
+        present = bool(ipv4.get(port))
+        _add(findings, 'DHCP_ADDRESS_PRESENT' if present else 'DHCP_ADDRESS_MISSING',
+             f'{port} : client DHCP configuré, ' + ('IPv4 présente ; son origine et le bail ne sont pas vérifiés.' if present else 'aucune IPv4 globale observée ; vérifier le serveur et le chemin VLAN.'),
+             {'port': port, 'addresses': ipv4.get(port, [])}, 'info' if present else 'warning')
+    if node['role'] in ('router', 'firewall'):
+        enabled = actual['forwarding']
+        _add(findings, 'IPV4_FORWARDING', 'Routage IPv4 ' + ('activé.' if enabled else 'désactivé.'),
+             {'enabled': enabled, 'configured': node['forwarding']}, 'warning' if enabled != node['forwarding'] else 'info')
+    if actual['routes']:
+        _add(findings, 'IPV4_ROUTES', f"{len(actual['routes'])} routes IPv4 observées ; leur présence ne prouve pas la joignabilité.", {'routes': actual['routes']})
+    if node.get('firewall') is not None:
+        from .firewall import TABLE
+        chains, counters = [], []
+        for entry in actual.get('firewall', {}).get('nftables', []):
+            chain = entry.get('chain', {})
+            if chain.get('family') == 'ip' and chain.get('table') == TABLE and chain.get('hook') == 'forward':
+                chains.append({'name': chain['name'], 'policy': chain.get('policy')})
+            rule = entry.get('rule', {})
+            if rule.get('family') == 'ip' and rule.get('table') == TABLE:
+                for expr in rule.get('expr', []):
+                    if isinstance(expr, dict) and isinstance(expr.get('counter'), dict):
+                        counters.append({'chain': rule['chain'], 'comment': rule.get('comment'), **expr['counter']})
+        _add(findings, 'FIREWALL_SNAPSHOT' if chains else 'FIREWALL_CHAIN_MISSING',
+             'Firewall IPv4 : ' + (', '.join(f"{c['name']} policy={c['policy']}" for c in chains) if chains else 'chaîne de forwarding gérée absente') +
+             '. Les compteurs sont cumulatifs et ne prouvent pas le résultat d’un ping précis.',
+             {'chains': chains, 'counters': counters}, 'info' if chains else 'warning')
+    return findings
+
+
+def explain(manager, name=None):
+    state = manager.read()
+    selected = [n for n in state['spec']['nodes'] if name is None or n['name'] == name]
+    if not selected:
+        raise ValueError('Unknown node: ' + str(name))
+    report = {'version': 1, 'lab': manager.name, 'phase': state['phase'], 'revision': state.get('revision', 0),
+              'language': 'fr', 'source': 'OCI runtime state and current kernel observations from inspect',
+              'started_at': datetime.now(timezone.utc).isoformat(), 'passive': True, 'packet_delivery': 'not_tested',
+              'scope': 'Sequential current observations; not an event history or a global convergence certificate.', 'nodes': []}
+    for node in selected:
+        item = {'name': node['name'], 'role': node['role'], 'runtime': node['runtime'],
+                'observations_available': False, 'container_status': None, 'findings': []}
+        report['nodes'].append(item)
+        if state['phase'] != 'running' or node['runtime'] != 'oci':
+            _add(item['findings'], 'OBSERVATION_UNAVAILABLE', 'Relevé réseau indisponible : ' +
+                 ('lab hors phase running.' if state['phase'] != 'running' else 'aucun agent invité pour ce runtime.'),
+                 {'phase': state['phase'], 'runtime': node['runtime']}, 'unknown')
+            continue
+        try:
+            result = manager.crun('state', node['name'], check=False)
+            if result.returncode:
+                raise RuntimeFailure(result.stderr.strip() or 'crun state unavailable')
+            item['container_status'] = json.loads(result.stdout)['status']
+            if item['container_status'] != 'running':
+                _add(item['findings'], 'CONTAINER_NOT_RUNNING', 'Le conteneur ne tourne pas ; aucun état réseau prêt n’est affirmé.',
+                     {'status': item['container_status']}, 'warning')
+                continue
+            item['findings'] = explain_node(node, manager.inspect(node['name']))
+            item['observations_available'] = True
+        except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+            _add(item['findings'], 'OBSERVATION_FAILED', 'Lecture incomplète : ' + str(error), {}, 'unknown')
+    report['completed_at'] = datetime.now(timezone.utc).isoformat()
+    report['observation_complete'] = all(n['observations_available'] for n in report['nodes'])
+    report['counts'] = dict(Counter(f['severity'] for n in report['nodes'] for f in n['findings']))
+    return report
+
+
+def render(report):
+    lines = [f"Lab {report['lab']} | phase {report['phase']} | révision {report['revision']}",
+             'Diagnostic passif : relevés successifs, aucun paquet de test envoyé.',
+             f"Relevés disponibles : {sum(n['observations_available'] for n in report['nodes'])}/{len(report['nodes'])} | alertes : {report['counts'].get('warning', 0)} | inconnus : {report['counts'].get('unknown', 0)}"]
+    for node in report['nodes']:
+        lines += ['', f"{node['name']} ({node['role']}, {node['runtime']}) | conteneur : {node['container_status'] or 'non vérifié'}"]
+        for finding in node['findings']:
+            lines.append(f"  [{finding['severity'].upper()}] {finding['message']}")
+    lines += ['', 'La livraison des paquets reste à tester. Ce relevé ne vérifie pas toute la configuration gérée (save/export).']
+    return '\n'.join(lines)

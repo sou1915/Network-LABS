@@ -40,6 +40,9 @@ def main(arguments=None):
             item.add_argument('--startup', action='store_true', help='Export last saved startup configuration.')
     inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
     inspect.add_argument('name'); inspect.add_argument('node')
+    explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
+    explain.add_argument('name'); explain.add_argument('node', nargs='?')
+    explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
     configure = commands.add_parser('configure', help='Apply a validated partial IOS-style block to a running node.')
     configure.add_argument('name'); configure.add_argument('node')
     config_source = configure.add_mutually_exclusive_group(required=True)
@@ -99,6 +102,12 @@ def main(arguments=None):
                     manager.recover(); result = manager.status()
                 elif args.command == 'inspect':
                     result = manager.inspect(args.node)
+                elif args.command == 'explain':
+                    from .diagnostics import explain, render
+                    result = explain(manager, args.node)
+                    if not args.json:
+                        print(render(result))
+                        return 0
                 elif args.command == 'configure':
                     text = args.file.read_text(encoding='utf-8') if args.file else args.text
                     result = manager.configure_ios(args.node, text)

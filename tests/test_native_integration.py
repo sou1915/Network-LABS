@@ -249,6 +249,7 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
     def test_lacp_negotiation_vlan_trunk_failover_minlinks_and_restore(self):
+        from network_labs.appliances.diagnostics import explain
         from network_labs.appliances.examples import lacp_lab
         from network_labs.appliances.persistence import load_startup
         spec_name = 'lacp-test-' + str(os.getpid())
@@ -277,6 +278,8 @@ class RealContainerTests(unittest.TestCase):
                 try:
                     manager.start(spec)
                     wait_members(2)
+                    findings = explain(manager, 'SW1')['nodes'][0]['findings']
+                    self.assertIn('LACP_READY', {f['code'] for f in findings})
                     self.assertTrue(ping(10)); self.assertTrue(ping(20))
                     # Active/passive was negotiated; now exercise active/active.
                     apply('SW2', 'interface fa0/3\nchannel-group 1 mode active')
@@ -289,10 +292,12 @@ class RealContainerTests(unittest.TestCase):
                     # A surviving negotiated member carries both VLANs.
                     apply('SW1', 'interface fa0/3\nshutdown')
                     wait_members(1)
+                    self.assertIn('LACP_DEGRADED', {f['code'] for f in explain(manager, 'SW1')['nodes'][0]['findings']})
                     self.assertTrue(ping(10)); self.assertTrue(ping(20))
                     # The threshold is a real kernel carrier gate, not a fake ping rule.
                     apply('SW1', 'interface po1\nport-channel min-links 2')
                     wait_members(1, ready=False, nodes=('SW1',))
+                    self.assertIn('LACP_NOT_READY', {f['code'] for f in explain(manager, 'SW1')['nodes'][0]['findings']})
                     self.assertFalse(ping(10))
                     apply('SW1', 'interface po1\nno port-channel min-links')
                     wait_members(1)
@@ -412,6 +417,7 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
 
     def test_stp_root_and_bpdu_guards_block_real_traffic_and_recover(self):
+        from network_labs.appliances.diagnostics import explain
         from network_labs.appliances.examples import stp_lab
         from network_labs.appliances.persistence import load_startup
         before = run(['ip', '-j', 'route', 'show']).stdout
@@ -454,6 +460,11 @@ class RealContainerTests(unittest.TestCase):
                     time.sleep(5)
                     self.assertTrue(tree()['is_root'])
                     self.assertTrue(all(tree()['ports'][p]['state'] in ('listening', 'blocking') for p in ('eth2', 'eth3')))
+                    report = explain(manager, 'SW3')
+                    self.assertTrue(report['observation_complete'])
+                    self.assertTrue(report['passive'])
+                    self.assertEqual(report['packet_delivery'], 'not_tested')
+                    self.assertEqual(len([f for f in report['nodes'][0]['findings'] if f['code'] == 'STP_PROTECTION']), 2)
                     self.assertFalse(probe('PC1', '192.0.2.30'))
                     self.assertFalse(probe('PC2', '198.18.0.30'))
                     both('spanning-tree guard none')
@@ -461,6 +472,12 @@ class RealContainerTests(unittest.TestCase):
                     connected()
                     both('spanning-tree bpduguard enable')
                     wait(lambda t: all(t['ports'][p]['state'] == 'disabled' and t['ports'][p]['bpdu_guard'] for p in ('eth2', 'eth3')))
+                    revision = manager.state['revision']
+                    report = explain(manager, 'SW3')
+                    disabled = [f for f in report['nodes'][0]['findings'] if f['code'] == 'STP_DISABLED_WITH_BPDU_GUARD']
+                    self.assertEqual({f['evidence']['port'] for f in disabled}, {'eth2', 'eth3'})
+                    self.assertTrue(all(f['evidence']['state'] == 'disabled' for f in disabled))
+                    self.assertEqual(manager.state['revision'], revision)
                     self.assertFalse(probe('PC1', '192.0.2.30'))
                     self.assertFalse(probe('PC2', '198.18.0.30'))
                     # Disabled protocol state is not administrative drift. Persist

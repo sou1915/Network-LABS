@@ -726,3 +726,62 @@ Références primaires : [bridge Linux](https://docs.kernel.org/networking/bridg
 [encodage des priorités de port](https://github.com/torvalds/linux/blob/master/net/bridge/br_stp_if.c),
 [mstpd : utilisation avec VLANs](https://github.com/mstpd/mstpd/blob/master/README.VLANs.md),
 [mstpctl](https://github.com/mstpd/mstpd/blob/master/utils/mstpctl.8).
+
+
+## Diagnostic passif lisible : explain
+
+Le diagnostic lit les mêmes états réels que `inspect`, plus `crun state` pour
+vérifier que le conteneur tourne. Il ne démarre pas de lab, ne change pas la
+configuration, ne cycle aucun port, n'écrit pas de rapport persistant et n'envoie
+ni ping ni requête applicative. Les protocoles du lab continuent normalement.
+
+```bash
+# Un switch, en français lisible :
+sudo python3 -m network_labs.appliances explain stp-lan SW3
+# Tous les nodes du lab :
+sudo python3 -m network_labs.appliances explain stp-lan
+# Données structurées pour scripts et future interface :
+sudo python3 -m network_labs.appliances explain stp-lan SW3 --json
+sudo python3 -m network_labs.appliances explain lacp-lan SW1
+```
+
+Le texte regroupe les observations par équipement, avec INFO/WARNING/UNKNOWN :
+interfaces manquantes, état administratif et carrier, root/chemin STP observés,
+ports forwarding/blocking/listening/disabled, flags BPDU/root guard, membres
+LACP réellement négociés et min-links, VLAN kernel/PVID/untagged, IPv4, adresses
+présentes/absentes des clients DHCP, forwarding/routes et compteurs nftables.
+Un lien de secours en blocking est informatif, pas automatiquement une panne.
+Un LACP prêt avec moins de membres négociés est signalé comme dégradé.
+Les données nftables se limitent à la table IPv4 gérée `network_labs`.
+
+Ce diagnostic explique un **état courant**, pas une histoire d'événements :
+
+- `bpdu_guard=true` avec `state=disabled` et un lien opérationnel est une
+  corrélation observée, pas un événement de déclenchement certifié.
+- Root Guard actif avec listening peut correspondre à des BPDUs supérieures ;
+  ce seul relevé ne prouve pas la cause de l'état.
+- Une IPv4 sur un client DHCP ne prouve pas son origine ni la validité du bail.
+- Les compteurs firewall sont cumulatifs. Ils ne prouvent pas l'autorisation
+  ou le rejet d'un ping précis ; les routes ne prouvent pas la joignabilité.
+- `running`, des ports forwarding et un LACP prêt ne constituent pas une preuve
+  de livraison. `packet_delivery` reste toujours `not_tested`.
+
+Le JSON version 1 contient des timestamps UTC de début/fin, la révision, la phase,
+`passive=true`, la source et le périmètre, `observation_complete`, les nodes et
+leurs findings `{code, severity, message, evidence}`. Les codes sont destinés aux
+scripts ; les messages sont en français (`language=fr`). Les relevés sont
+successifs, pas atomiques entre équipements, sans certificat global de convergence.
+`observation_complete` signifie seulement que les lectures sélectionnées ont
+abouti, jamais que le réseau est sain ou conforme à toute sa configuration.
+Utiliser save/export pour les contrôles de dérive existants.
+
+Un conteneur arrêté, une lecture en échec ou un runtime sans agent invité reste
+explicitement indisponible ; les autres nodes continuent à être décrits. Un lab
+hors phase running n'est pas inspecté dans ses namespaces. Un nom de node inconnu
+ou l'absence de fichier d'état du lab reste une erreur de commande.
+Le code retour est 0 lorsqu'un rapport est produit, même avec des alertes ou
+observations indisponibles, et 1 pour une erreur empêchant de produire le rapport.
+
+Les tests natifs vérifient les explications contre de vrais états Root/BPDU Guard
+et LACP prêt/dégradé/non prêt. Ils continuent à tester séparément les paquets et
+à vérifier la récupération, la persistance et le nettoyage du lab.
