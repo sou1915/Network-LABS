@@ -117,7 +117,8 @@ Différences/limites explicites :
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
   ASIC Cisco. L'encodage d'une commande n'est pas une preuve de conformité matérielle.
-- STP/RSTP, LACP, firewall/NAT, DNS et les autres constructeurs restent à porter.
+- STP/RSTP, LACP, DNS et les autres constructeurs restent à porter. Le firewall/NAT
+  Linux IPv4 est décrit plus bas ; il n’utilise pas la syntaxe IOS.
   Les boucles entre switches sont encore refusées ; ne pas les activer par commandes brutes.
 
 ## Manifest étendu

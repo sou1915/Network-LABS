@@ -104,14 +104,15 @@ vérifier la disponibilité du guest. Le lancement du VMM n'est pas un test de b
   les cycles entre switches sont refusés avant création des ressources.
 - `role: router` active le forwarding IPv4 dans son namespace. FRR reste à
   installer/configurer dans le rootfs ; le rôle ne simule pas de daemon OSPF/BGP.
-- `role: firewall` exige des commandes `startup` explicites. Il ne génère ni
-  politique ni NAT et ne transforme pas BusyBox en FortiOS.
+- `role: firewall` accepte une politique déclarative `firewall` : filtrage IPv4
+  stateful et NAT via nftables dans le namespace du node. Sans cette politique,
+  des commandes `startup` explicites restent requises. Ce backend ne reproduit pas FortiOS.
 - `command` est le processus persistant du container (par défaut `sleep`).
   `startup` est une liste de tableaux argv exécutés dans le container, par exemple
   `[["/bin/sh", "-c", "...script de configuration..."]]`. Les shells éventuels sont
   explicitement demandés **dans le node**, pas exécutés sur l'hôte.
-- La GUI constructeur, les CLI complètes, STP, FRR, nftables et les autres
-  services nécessitent encore leur intégration dédiée. VLAN/DHCP et une CLI
+- La GUI constructeur, les CLI complètes, STP, FRR et les autres
+  services nécessitent encore leur intégration dédiée. VLAN/DHCP, firewall/NAT et une CLI
   partielle sont décrits dans [NATIVE_LAN_CORE.md](NATIVE_LAN_CORE.md). Les réglages du
   simulateur pédagogique ne sont pas importés automatiquement.
 - Les rôles/services non portés échouent explicitement. Aucune opération native

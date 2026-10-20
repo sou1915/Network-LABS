@@ -1,6 +1,6 @@
 """Opt-in real OCI boot/packet test. Run on a disposable Linux host with sudo.
 
-NETWORK_LABS_NATIVE_TESTS=1 requires crun, iproute2 and busybox-static. These
+NETWORK_LABS_NATIVE_TESTS=1 requires crun, iproute2, busybox-static, nftables and conntrack. These
 tests are deliberately never replaced with mocks when explicitly requested.
 """
 import os
@@ -125,6 +125,11 @@ class RealContainerTests(unittest.TestCase):
                 manager.crun('exec', node, '/bin/sh', '-c', 'mkdir -p /tmp/www; echo ' + node + ' > /tmp/www/index.html')
                 manager.crun('exec', '--detach', node, '/bin/busybox', 'httpd', '-f', '-p', str(port), '-h', '/tmp/www',
                              log=manager.directory / (node + '-' + str(port) + '.http.log'))
+                for _ in range(40):
+                    if get(node, '127.0.0.1:' + str(port)).returncode == 0:
+                        return
+                    time.sleep(0.05)
+                self.fail('HTTP server did not become ready: ' + node + ':' + str(port))
             def get(node, address):
                 return manager.crun('exec', node, '/bin/busybox', 'wget', '-T', '1', '-q', '-O', '-',
                                     'http://' + address + '/', check=False)
