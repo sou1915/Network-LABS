@@ -793,11 +793,11 @@ et LACP prêt/dégradé/non prêt. Ils continuent à tester séparément les paq
 possédé par ce node OCI**. Installer les outils sur l'hôte, pas dans chaque rootfs :
 
 ```bash
-sudo apt-get install tcpdump util-linux
+sudo apt-get install tcpdump util-linux coreutils
 python3 -m network_labs.appliances doctor
 ```
 
-`doctor` liste `tcpdump` et `nsenter` parmi les outils détectés. Ils sont optionnels
+`doctor` liste `tcpdump`, `nsenter` et `timeout` parmi les outils détectés. Ils sont optionnels
 pour le fonctionnement des labs ; seule la commande capture les exige. Aucun
 fallback vers le réseau hôte et aucune installation automatique.
 
@@ -846,13 +846,17 @@ Une erreur de démarrage peut laisser un fichier vide ou partiel, jamais déclar
 comme une capture réussie. Choisir un autre nom lors d'un nouvel essai.
 
 Le parent ouvre le descripteur du namespace sous le verrou du lab et le transmet
-à `nsenter --net=/proc/self/fd/...` avant tcpdump. Ce descripteur empêche de capturer
+à `nsenter --net=/proc/self/fd/...` avant tcpdump, sous un watchdog GNU timeout indépendant. Ce descripteur empêche de capturer
 accidentellement un autre namespace si stop supprime le nom pendant le démarrage.
 Après stop, le namespace peut rester temporairement référencé par le processus
 capture jusqu'à sa terminaison bornée. La suppression du port peut provoquer
 une erreur libpcap et laisser une capture partielle ; aucun basculement vers l'hôte.
-Le délai de fin envoie SIGINT, puis SIGKILL si le processus ne répond pas sous 2 s,
-avec une seconde attente de nettoyage de 2 s. Ctrl-C après démarrage conserve un
+Le délai de fin envoie SIGINT, puis SIGKILL au groupe de capture si le processus
+ne répond pas sous 2 s, avec une seconde attente de nettoyage de 2 s. Le watchdog
+applique aussi le délai si le parent Python est tué ; stderr est conservé dans
+un fichier temporaire anonyme pour éviter un SIGPIPE après cette disparition. Tuer le watchdog lui-même
+est hors de cette garantie. Le code 124 du watchdog est interprété comme une fin
+par durée, après validation du PCAP. Ctrl-C après démarrage conserve un
 PCAP valide si tcpdump le ferme correctement, avec `stop_reason=interrupted` et
 un code retour CLI 130. Les erreurs retournent 1.
 
@@ -873,8 +877,10 @@ des appliances ; le budget total application 2 GiB reste non validé.
 
 Les tests natifs capturent de vrais ICMP request/reply pendant un exec CLI simultané,
 relisent les trames avec tcpdump, capturent une vraie BPDU kernel, vérifient une
-capture vide bornée et un filtre invalide, puis arrêtent un lab pendant capture.
+capture vide bornée et un filtre invalide, tuent le parent CLI pour vérifier le
+watchdog, puis arrêtent un lab pendant capture.
 Ils comparent routes/interfaces hôte et vérifient le maintien du mode promiscuous.
 Références : [tcpdump](https://github.com/the-tcpdump-group/tcpdump/blob/master/tcpdump.1.in),
 [format PCAP](https://github.com/the-tcpdump-group/libpcap/blob/master/pcap-savefile.manfile.in),
-[nsenter](https://man7.org/linux/man-pages/man1/nsenter.1.html).
+[nsenter](https://man7.org/linux/man-pages/man1/nsenter.1.html),
+[GNU timeout](https://www.gnu.org/software/coreutils/manual/html_node/timeout-invocation.html).

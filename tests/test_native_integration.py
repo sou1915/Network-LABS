@@ -75,6 +75,47 @@ class RealContainerTests(unittest.TestCase):
                                expression='ether dst 01:80:c2:00:00:00')
                 self.assertEqual(bpdu['captured_packets'], 1)
                 self.assertIn('STP', run(['tcpdump', '-nn', '-r', str(bpdu_file)]).stdout)
+                # The independent timeout must close capture even if the Python
+                # CLI is killed. Record identities to avoid confusing PID reuse.
+                from network_labs.appliances.runtime import process_identity
+                import select
+                orphan_file = Path(folder) / 'parent-killed.pcap'
+                wrapper = subprocess.Popen([sys.executable, '-m', 'network_labs.appliances', 'capture', spec['name'],
+                                            'PC1', 'eth0', '--seconds', '3', '--filter', 'ether proto 0x88b5',
+                                            '--output', str(orphan_file)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           start_new_session=True, bufsize=0)
+                try:
+                    log = b''; deadline = time.monotonic() + 5
+                    while b'Capture active' not in log and time.monotonic() < deadline:
+                        if select.select([wrapper.stderr], [], [], 0.2)[0]:
+                            part = os.read(wrapper.stderr.fileno(), 4096)
+                            log += part
+                            if not part:
+                                break
+                    self.assertIn(b'Capture active', log)
+                    children = lambda pid: [int(p) for p in Path(f'/proc/{pid}/task/{pid}/children').read_text().split()]
+                    monitor = children(wrapper.pid)
+                    self.assertEqual(len(monitor), 1)
+                    workers = monitor + children(monitor[0])
+                    self.assertEqual(len(workers), 2)
+                    identities = {pid: process_identity(pid) for pid in workers}
+                    wrapper.kill(); wrapper.wait(timeout=2)
+                    def alive(pid):
+                        if process_identity(pid) != identities[pid]:
+                            return False
+                        try:
+                            return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z'
+                        except FileNotFoundError:
+                            return False
+                    deadline = time.monotonic() + 6
+                    while any(alive(pid) for pid in workers) and time.monotonic() < deadline:
+                        time.sleep(0.1)
+                    self.assertFalse(any(alive(pid) for pid in workers), 'Capture worker outlived its independent deadline')
+                    run(['tcpdump', '-nn', '-r', str(orphan_file)])
+                finally:
+                    if wrapper.poll() is None:
+                        wrapper.kill(); wrapper.wait(timeout=2)
+                    wrapper.stdout.close(); wrapper.stderr.close()
                 active.clear()
                 future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'stop.pcap',
                                      seconds=2, expression='ether proto 0x88b5', ready=active.set)

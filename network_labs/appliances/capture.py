@@ -2,11 +2,11 @@
 import json
 import os
 from pathlib import Path
-import select
 import shutil
 import signal
 import struct
 import subprocess
+import tempfile
 import time
 
 from .runtime import RuntimeFailure
@@ -56,34 +56,41 @@ def _finish(process):
     try:
         return process.communicate(timeout=2)[1]
     except subprocess.TimeoutExpired:
-        process.kill()
+        # timeout and tcpdump share this owned process group. Kill the group,
+        # not only the monitor, so an unresponsive child cannot outlive cleanup.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         return process.communicate(timeout=2)[1]
 
 
-def _ready(process, deadline):
+def _log(handle):
+    # Positional reads do not disturb the child's shared write offset. An
+    # anonymous file also avoids SIGPIPE if the Python CLI is killed.
+    return os.pread(handle.fileno(), 8192, 0)
+
+
+def _ready(process, log_handle, deadline):
     """tcpdump uses the C locale; only announce readiness after opening capture."""
-    log = b''
     until = min(deadline, time.monotonic() + 5)
     while time.monotonic() < until:
-        readable, _, _ = select.select([process.stderr], [], [], max(0, until - time.monotonic()))
-        if not readable:
-            break
-        chunk = os.read(process.stderr.fileno(), 4096)
-        log += chunk
+        log = _log(log_handle)
         if b'listening on ' in log:
             return log
-        if not chunk:
+        if process.poll() is not None:
             raise RuntimeFailure('Capture startup failed: ' + log.decode(errors='replace').strip())
+        time.sleep(0.02)
     raise RuntimeFailure('tcpdump did not report capture readiness within the startup deadline.')
 
 
 def capture(manager, name, interface, output, *, seconds=10, packets=1000, snaplen=2048, expression='', ready=None):
     limits(seconds, packets, snaplen, expression)
-    tcpdump, nsenter = shutil.which('tcpdump'), shutil.which('nsenter')
-    if not tcpdump or not nsenter:
-        raise RuntimeFailure('Capture requires host tcpdump and nsenter (util-linux); no fallback is used.')
+    tcpdump, nsenter, watchdog = (shutil.which(tool) for tool in ('tcpdump', 'nsenter', 'timeout'))
+    if not tcpdump or not nsenter or not watchdog:
+        raise RuntimeFailure('Capture requires host tcpdump, nsenter (util-linux) and GNU timeout (coreutils); no fallback is used.')
     output = Path(output).absolute()
-    process = handle = None
+    process = handle = log_handle = None
     try:
         with manager.locked():
             state = manager.read()
@@ -112,29 +119,33 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
                 uid, gid = os.environ.get('SUDO_UID', ''), os.environ.get('SUDO_GID', '')
                 if uid.isdecimal() and gid.isdecimal():
                     os.fchown(handle.fileno(), int(uid), int(gid))
-                command = [nsenter, '--net=/proc/self/fd/' + str(netns.fileno()), '--', tcpdump,
+                command = [watchdog, '--signal=INT', '--kill-after=2s', str(seconds) + 's',
+                           nsenter, '--net=/proc/self/fd/' + str(netns.fileno()), '--', tcpdump,
                            '-p', '-n', '-U', '-i', interface, '-s', str(snaplen), '-c', str(packets), '-w', '-']
                 if expression:
                     command += ['--', expression]
                 started = time.monotonic(); deadline = started + seconds
-                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.PIPE,
+                log_handle = tempfile.TemporaryFile('w+b')
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=handle, stderr=log_handle,
                                            pass_fds=(netns.fileno(),), env={**os.environ, 'LC_ALL': 'C'},
                                            start_new_session=True, bufsize=0)
         # Do not retain the lab lock during recording: exec/configure/stop must
         # remain usable from a second terminal. nsenter never falls back to host.
         reason = 'completed'
         try:
-            log = _ready(process, deadline)
+            _ready(process, log_handle, deadline)
             if ready:
                 ready()
             try:
-                log += process.communicate(timeout=max(0, deadline - time.monotonic()))[1]
+                process.communicate(timeout=max(0, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                reason = 'duration'; log += _finish(process)
+                reason = 'duration'; _finish(process)
         except KeyboardInterrupt:
-            reason = 'interrupted'; log = _finish(process)
-        if process.returncode != 0:
-            raise RuntimeFailure('tcpdump failed: ' + log.decode(errors='replace').strip())
+            reason = 'interrupted'; _finish(process)
+        if process.returncode == 124 and reason != 'interrupted':
+            reason = 'duration'
+        if process.returncode not in (0, 124):
+            raise RuntimeFailure('tcpdump failed: ' + _log(log_handle).decode(errors='replace').strip())
         summary = pcap_summary(handle)
         if summary['captured_packets'] > packets or summary['snapshot_length'] > snaplen:
             raise RuntimeFailure('Capture exceeded its requested packet/snapshot bounds.')
@@ -153,3 +164,5 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
                 process.stderr.close()
             if handle is not None:
                 handle.close()
+            if log_handle is not None:
+                log_handle.close()

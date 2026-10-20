@@ -1,7 +1,5 @@
 """Capture bounds, descriptor isolation, output safety and child cleanup."""
 from contextlib import contextmanager
-import io
-import json
 import os
 from pathlib import Path
 import signal
@@ -60,7 +58,7 @@ class CaptureTests(unittest.TestCase):
                                   ns=Mock())
         class Process:
             def __init__(self, args, **kwargs):
-                self.returncode = None; self.stderr = io.BytesIO()
+                self.returncode = None; self.stderr = None
                 self.args = args; self.options = kwargs
                 self.assert_fd = os.fstat(kwargs['pass_fds'][0])
                 self.active_lock = bool(locked)
@@ -84,12 +82,13 @@ class CaptureTests(unittest.TestCase):
             self.assertTrue(child.active_lock); self.assertEqual(ready, [True])
             self.assertEqual(child.args[-2:], ['--', expression])
             self.assertIn('-p', child.args)
-            self.assertTrue(child.args[1].startswith('--net=/proc/self/fd/'))
+            self.assertTrue(any(a.startswith('--net=/proc/self/fd/') for a in child.args))
+            self.assertEqual(child.args[:4], ['/usr/bin/timeout', '--signal=INT', '--kill-after=2s', '10s'])
             self.assertNotIn('shell', child.options)
             self.assertEqual(child.options['env']['LC_ALL'], 'C')
             self.assertEqual(report['captured_packets'], 1)
             self.assertEqual((root / 'capture.pcap').stat().st_mode & 0o777, 0o600)
-            self.assertTrue(child.stderr.closed)
+            self.assertTrue(child.options['stderr'].closed)
             manager.crun.assert_called_once_with('state', 'PC1', check=False)
             manager.ns.assert_called_once_with(0, 'ip', 'link', 'show', 'dev', 'eth0')
 
@@ -117,11 +116,13 @@ class CaptureTests(unittest.TestCase):
 
     def test_cleanup_interrupts_then_kills_a_stalled_capture(self):
         process = Mock()
+        process.pid = 12345
         process.poll.return_value = None
         process.communicate.side_effect = [subprocess.TimeoutExpired('tcpdump', 2), (None, b'closed')]
-        self.assertEqual(_finish(process), b'closed')
+        with patch('network_labs.appliances.capture.os.killpg') as kill_group:
+            self.assertEqual(_finish(process), b'closed')
+            kill_group.assert_called_once_with(12345, signal.SIGKILL)
         process.send_signal.assert_called_once_with(signal.SIGINT)
-        process.kill.assert_called_once()
 
     def test_missing_capture_tool_has_no_lifecycle_fallback(self):
         manager = Mock()

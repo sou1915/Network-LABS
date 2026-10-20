@@ -10,7 +10,7 @@ def capabilities():
     linux = platform.system() == 'Linux'
     cgroup = Path('/sys/fs/cgroup/cgroup.controllers').is_file()
     kvm = os.access('/dev/kvm', os.R_OK | os.W_OK)
-    tools = {name: shutil.which(name) for name in ('ip', 'bridge', 'sysctl', 'crun', 'firecracker', 'busybox', 'nft', 'conntrack', 'tcpdump', 'nsenter')}
+    tools = {name: shutil.which(name) for name in ('ip', 'bridge', 'sysctl', 'crun', 'firecracker', 'busybox', 'nft', 'conntrack', 'tcpdump', 'nsenter', 'timeout')}
     return {
         'host': {'linux': linux, 'root': os.geteuid() == 0 if linux else False,
                  'bonding_driver_loaded': Path('/sys/module/bonding').exists(), 'cgroup_v2': cgroup, 'kvm_access': kvm, 'tools': tools},
