@@ -74,6 +74,7 @@ parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VL
 avec inspection de négociation et seuil min-links. `example --stp` ajoute une boucle contrôlée par le STP commun 802.1D du kernel, avec protections BPDU Guard/Root Guard optionnelles.
 `explain LAB [NODE]` ajoute un diagnostic passif lisible en français, ou structuré avec `--json`, fondé sur les états réels du kernel.
 `capture LAB NODE INTERFACE --output trace.pcap` enregistre les vraies trames du node avec durée/paquets/taille bornés et filtres BPF (tcpdump/nsenter/timeout optionnels).
+`explain LAB` compare aussi les memberships VLAN observés entre switches (LACP regroupé), et affiche les compteurs RX/TX/errors/drops cumulés sans conclure à la livraison des paquets.
 Le budget total 2 Gio et RSTP restent à valider/implémenter.
 
 ## Essai facultatif : micro-appliances Wasm

@@ -255,7 +255,7 @@ def configure(manager, index, node, previous=None):
 
 def observe(manager, index, node):
     result = {'name': node['name'], 'source': 'Linux kernel, not the educational model',
-              'links': json.loads(manager.ns(index, 'ip', '-j', '-d', 'link', 'show').stdout),
+              'links': json.loads(manager.ns(index, 'ip', '-j', '-s', '-d', 'link', 'show').stdout),
               'addresses': json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show').stdout),
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}

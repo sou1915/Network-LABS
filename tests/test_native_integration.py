@@ -398,6 +398,9 @@ class RealContainerTests(unittest.TestCase):
                     wait_members(2)
                     findings = explain(manager, 'SW1')['nodes'][0]['findings']
                     self.assertIn('LACP_READY', {f['code'] for f in findings})
+                    audit, = explain(manager)['link_checks']
+                    self.assertEqual(audit['status'], 'compatible', audit)
+                    self.assertEqual(len(audit['declared_physical_links']), 2)
                     self.assertTrue(ping(10)); self.assertTrue(ping(20))
                     # Active/passive was negotiated; now exercise active/active.
                     apply('SW2', 'interface fa0/3\nchannel-group 1 mode active')
@@ -405,8 +408,35 @@ class RealContainerTests(unittest.TestCase):
                     manager.write_startup()
                     apply('SW1', 'interface port-channel1\nswitchport trunk allowed vlan 10')
                     self.assertTrue(ping(10)); self.assertFalse(ping(20))
+                    audit, = explain(manager)['link_checks']
+                    self.assertEqual(audit['status'], 'attention', audit)
+                    mismatch, = [f for f in audit['findings'] if f['code'] == 'VLAN_TAGGED_NOT_ADMITTED']
+                    self.assertEqual(mismatch['evidence']['vlans'], [20])
+                    self.assertEqual(mismatch['evidence']['direction'], 'SW2/bond1 → SW1/bond1')
                     apply('SW1', 'interface po1\nswitchport trunk allowed vlan 10,20')
                     self.assertTrue(ping(20))
+                    self.assertEqual(explain(manager)['link_checks'][0]['status'], 'compatible')
+                    counters = [f['evidence'] for f in explain(manager, 'SW1')['nodes'][0]['findings'] if f['code'] == 'PORT_COUNTERS']
+                    bond = next(c for c in counters if c['port'] == 'bond1')
+                    self.assertGreater(bond['counters']['rx_packets'], 0)
+                    self.assertGreater(bond['counters']['tx_packets'], 0)
+                    self.assertTrue(bond['cumulative'])
+                    # Same VID list can still fail when one side sends untagged
+                    # frames and its peer has no ingress PVID.
+                    apply('SW1', 'interface po1\nswitchport trunk native vlan 20')
+                    self.assertTrue(ping(10)); self.assertFalse(ping(20))
+                    audit, = explain(manager)['link_checks']
+                    self.assertIn('VLAN_UNTAGGED_NO_PVID', {f['code'] for f in audit['findings']})
+                    apply('SW2', 'interface po1\nswitchport trunk native vlan 20')
+                    self.assertTrue(ping(20))
+                    self.assertEqual(explain(manager)['link_checks'][0]['status'], 'compatible')
+                    apply('SW2', 'interface po1\nswitchport trunk native vlan 10')
+                    self.assertFalse(ping(20))
+                    audit, = explain(manager)['link_checks']
+                    self.assertIn('VLAN_UNTAGGED_RECLASSIFIED', {f['code'] for f in audit['findings']})
+                    for switch in ('SW1', 'SW2'):
+                        apply(switch, 'interface po1\nswitchport trunk native vlan 1')
+                    self.assertTrue(ping(10)); self.assertTrue(ping(20))
                     # A surviving negotiated member carries both VLANs.
                     apply('SW1', 'interface fa0/3\nshutdown')
                     wait_members(1)

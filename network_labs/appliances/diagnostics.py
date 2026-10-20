@@ -11,10 +11,48 @@ def _add(findings, code, message, evidence, severity='info'):
     findings.append({'code': code, 'severity': severity, 'message': message, 'evidence': evidence})
 
 
+def port_counters(node, links):
+    findings, unavailable = [], []
+    managed = set(node['interfaces']) | set(node.get('port_channels', {}))
+    managed.update(p for p, sub in node.get('subinterfaces', {}).items() if sub['vlan'] is not None)
+    if node['role'] == 'switch':
+        managed.add('br0')
+    for name in sorted(managed):
+        link = links.get(name, {})
+        raw = link.get('stats64')
+        width = 64
+        if not isinstance(raw, dict):
+            raw = link.get('stats'); width = 32
+        if not isinstance(raw, dict):
+            unavailable.append(name); continue
+        values = {}
+        for direction in ('rx', 'tx'):
+            counters = raw.get(direction, {})
+            if not isinstance(counters, dict):
+                counters = {}
+            for metric in ('packets', 'bytes', 'errors', 'dropped'):
+                value = counters.get(metric)
+                values[direction + '_' + metric] = value if type(value) is int and value >= 0 else None
+        evidence = {'port': name, 'ifindex': link.get('ifindex'), 'width_bits': width,
+                    'cumulative': True, 'counters': values}
+        display = lambda field: str(values[field]) if values[field] is not None else '?'
+        _add(findings, 'PORT_COUNTERS', f"{name} : RX={display('rx_packets')} paquets/{display('rx_bytes')} octets, TX={display('tx_packets')} paquets/{display('tx_bytes')} octets (cumulés).", evidence)
+        missing = [k for k, v in values.items() if v is None]
+        if missing:
+            _add(findings, 'PORT_COUNTERS_PARTIAL', f'{name} : certains compteurs ne sont pas disponibles ; ? ne signifie pas zéro.', {'port': name, 'missing': missing}, 'unknown')
+        nonzero = {k: v for k, v in values.items() if k.endswith(('_errors', '_dropped')) and v is not None and v > 0}
+        if nonzero:
+            _add(findings, 'PORT_ERRORS_OR_DROPS', f'{name} : erreur/drop cumulé non nul : ' + ', '.join(f'{k}={v}' for k, v in nonzero.items()) + '. Ces totaux ne déterminent ni la cause ni un flux précis.', evidence, 'warning')
+    if unavailable:
+        _add(findings, 'PORT_COUNTERS_UNAVAILABLE', 'Compteurs indisponibles : ' + ', '.join(unavailable) + '.', {'ports': unavailable}, 'unknown')
+    return findings
+
+
 def explain_node(node, actual):
     """Interpret one observed snapshot; do not infer events or packet delivery."""
     findings = []
     links = {r['ifname']: r for r in actual['links']}
+    findings.extend(port_counters(node, links))
     for port in node['interfaces'] | node.get('port_channels', {}):
         link = links.get(port)
         if link is None:
@@ -143,10 +181,11 @@ def explain(manager, name=None):
     selected = [n for n in state['spec']['nodes'] if name is None or n['name'] == name]
     if not selected:
         raise ValueError('Unknown node: ' + str(name))
-    report = {'version': 1, 'lab': manager.name, 'phase': state['phase'], 'revision': state.get('revision', 0),
+    report = {'version': 1, 'lab': manager.name, 'phase': state['phase'], 'revision': state.get('revision', 0), 'selection': name,
               'language': 'fr', 'source': 'OCI runtime state and current kernel observations from inspect',
               'started_at': datetime.now(timezone.utc).isoformat(), 'passive': True, 'packet_delivery': 'not_tested',
               'scope': 'Sequential current observations; not an event history or a global convergence certificate.', 'nodes': []}
+    snapshots = {}
     for node in selected:
         item = {'name': node['name'], 'role': node['role'], 'runtime': node['runtime'],
                 'observations_available': False, 'container_status': None, 'findings': []}
@@ -165,13 +204,21 @@ def explain(manager, name=None):
                 _add(item['findings'], 'CONTAINER_NOT_RUNNING', 'Le conteneur ne tourne pas ; aucun état réseau prêt n’est affirmé.',
                      {'status': item['container_status']}, 'warning')
                 continue
-            item['findings'] = explain_node(node, manager.inspect(node['name']))
+            actual = manager.inspect(node['name'])
+            item['findings'] = explain_node(node, actual)
+            if node['role'] == 'switch':
+                snapshots[node['name']] = {k: actual[k] for k in ('links', 'vlans', 'spanning_tree') if k in actual}
+                snapshots[node['name']]['port_channels'] = {p: {'ready': c.get('ready')} for p, c in actual.get('port_channels', {}).items()}
             item['observations_available'] = True
         except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
             _add(item['findings'], 'OBSERVATION_FAILED', 'Lecture incomplète : ' + str(error), {}, 'unknown')
+    from .vlan_audit import compare_links
+    report['link_check_scope'] = 'Declared switch-to-switch links; logical LACP ports; full-lab selection only. No cable discovery or delivery proof.'
+    report['link_checks'] = compare_links(state['spec'], snapshots) if name is None else []
+    report['link_checks_complete'] = all(c['status'] != 'unknown' for c in report['link_checks']) if name is None else None
     report['completed_at'] = datetime.now(timezone.utc).isoformat()
     report['observation_complete'] = all(n['observations_available'] for n in report['nodes'])
-    report['counts'] = dict(Counter(f['severity'] for n in report['nodes'] for f in n['findings']))
+    report['counts'] = dict(Counter(f['severity'] for item in report['nodes'] + report['link_checks'] for f in item['findings']))
     return report
 
 
@@ -183,5 +230,12 @@ def render(report):
         lines += ['', f"{node['name']} ({node['role']}, {node['runtime']}) | conteneur : {node['container_status'] or 'non vérifié'}"]
         for finding in node['findings']:
             lines.append(f"  [{finding['severity'].upper()}] {finding['message']}")
+    for check in report.get('link_checks', []):
+        ends = check['endpoints']
+        lines += ['', f"Lien déclaré {ends[0]['node']}/{ends[0]['port']} ↔ {ends[1]['node']}/{ends[1]['port']} | comparaison VLAN : {check['status']}"]
+        for finding in check['findings']:
+            lines.append(f"  [{finding['severity'].upper()}] {finding['message']}")
+    if not report.get('link_checks'):
+        lines.append('\nComparaison VLAN entre switches : ' + ('utiliser explain LAB sans sélection de node.' if report.get('selection') else 'aucun lien switch-switch déclaré à comparer.'))
     lines += ['', 'La livraison des paquets reste à tester. Ce relevé ne vérifie pas toute la configuration gérée (save/export).']
     return '\n'.join(lines)

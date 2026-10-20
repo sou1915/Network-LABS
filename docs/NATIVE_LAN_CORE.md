@@ -887,3 +887,83 @@ Références : [tcpdump](https://github.com/the-tcpdump-group/tcpdump/blob/maste
 [format PCAP](https://github.com/the-tcpdump-group/libpcap/blob/master/pcap-savefile.manfile.in),
 [nsenter](https://man7.org/linux/man-pages/man1/nsenter.1.html),
 [GNU timeout](https://www.gnu.org/software/coreutils/manual/html_node/timeout-invocation.html).
+
+
+## Compteurs de ports et comparaison VLAN entre switches
+
+`inspect` lit maintenant les statistiques standard avec `ip -j -s -d link show`.
+`explain` présente RX/TX paquets et octets, ainsi que les compteurs errors/dropped
+non nuls, pour les interfaces déclarées, bonds, sous-interfaces effectives et br0.
+Les données viennent de `stats64`, avec repli sur `stats` 32 bits s'il est absent.
+Un champ absent/invalide reste `null` dans le JSON et `?` dans le texte ; une
+lecture manquante ne devient jamais un zéro. Aucun compteur n'est réinitialisé.
+
+```bash
+# Compteurs et état d'un équipement :
+sudo python3 -m network_labs.appliances explain stp-lan SW1
+# Tous les équipements + comparaison des deux extrémités des liens switch-switch :
+sudo python3 -m network_labs.appliances explain stp-lan
+sudo python3 -m network_labs.appliances explain lacp-lan --json
+```
+
+Ces totaux sont cumulatifs, sans taux, différence temporelle ou pourcentage de
+perte. Un RX ou TX positif ne certifie pas la réception par l'autre équipement.
+Les drops/errors n'identifient ni leur cause ni un ping précis. Un drop VLAN ou
+STP n'est pas forcément comptabilisé comme rx_dropped par le driver ; comparer
+les paquets avec capture et les règles effectives si nécessaire. Ne pas sommer
+les compteurs d'un bond, de ses membres, de br0 et des sous-interfaces : ils
+peuvent compter les mêmes échanges à différents niveaux. Les totaux d'octets ne
+constituent pas une mesure de consommation RAM ni de débit applicatif.
+
+En sélection complète, `explain LAB` ajoute `link_checks` : une comparaison
+passive des memberships VLAN **observés dans le kernel** aux deux extrémités de
+chaque lien switch-switch déclaré. Les membres LACP sont regroupés sur leurs
+ports logiques ; un bond à deux câbles donne une comparaison et deux liens
+physiques dans l'evidence. La topologie provient du manifest : aucun voisinage
+n'est découvert, aucun câble réel n'est certifié et aucun paquet n'est injecté.
+Les liens vers PC/routeur/firewall, Q-in-Q, vlan_tunnel et la disponibilité globale
+des chemins restent hors du périmètre de cette comparaison.
+
+Pour chaque sens, la comparaison distingue :
+
+| Code | Observation |
+| --- | --- |
+| `VLAN_TAGGED_NOT_ADMITTED` | Un VID envoyé taggé manque dans les memberships du port récepteur. |
+| `VLAN_UNTAGGED_NO_PVID` | La sortie émet sans tag mais aucun PVID d'entrée n'est observé en face. |
+| `VLAN_UNTAGGED_RECLASSIFIED` | Une trame untagged passe d'un VID local au PVID différent du récepteur ; vérifier si c'est intentionnel. |
+| `VLAN_NO_MEMBERSHIP` | Une liste explicitement vide ne fournit aucun VLAN de données au port. |
+| `VLAN_MEMBERSHIPS_COMPATIBLE` | Les memberships et le traitement tag/untagged comparés ne révèlent pas ces différences. |
+| `VLAN_LINK_UNKNOWN` | Relevé absent, port détaché, filtrage désactivé, protocole non supporté ou données contradictoires. |
+
+Un même VID des deux côtés ne suffit pas : egress untagged et ingress PVID sont
+indépendants. Inversement, deux ports access de VID locaux différents peuvent
+échanger des trames sans tag ; le rapport signale cette reclassification à
+vérifier, sans affirmer automatiquement une panne. Une range VLAN est développée
+avec ses flags PVID/untagged. Une absence d'enregistrement n'est pas interprétée
+comme une liste vide connue. Le contrôleur doit confirmer br0, son master, le
+filtrage actif et le protocole 802.1Q avant toute conclusion de compatibilité.
+La comparaison porte sur les trames de données VLAN, pas les BPDUs/LACP réservés.
+
+Le statut `compatible` porte uniquement sur ces memberships : un port STP blocking,
+un bond non prêt, une interface arrêtée ou une autre règle peut toujours empêcher
+le trafic. Les états STP/LACP/carrier observés figurent dans l'evidence pour le
+contexte et restent expliqués séparément. `packet_delivery` demeure `not_tested`.
+Les relevés sont successifs, sans snapshot atomique entre équipements.
+
+Le JSON version 1 est enrichi de manière additive avec `selection`,
+`link_check_scope`, `link_checks` et `link_checks_complete`. Ce dernier signifie
+que toutes les comparaisons du périmètre ont abouti sans unknown, pas qu'elles
+sont toutes compatibles. En sélection d'un node, il vaut `null`, la liste est
+vide et aucun peer supplémentaire n'est lu ; utiliser la commande sans node
+pour comparer les deux côtés. Les compteurs des findings incluent maintenant
+également ceux des liens. Les observations indisponibles restent explicites.
+
+Les tests natifs confrontent ces explications à une vraie perte du VLAN 20 après
+restriction du trunk, à une sortie untagged sans PVID, puis à des PVID divergents.
+Ils vérifient le retour des pings après correction, la réduction d'un LACP en une
+seule comparaison et la présence de compteurs RX/TX réels. Les tests unitaires
+couvrent ranges, reclassification voulue, observations partielles et compteurs
+64/32 bits sans valeurs inventées.
+Références : [statistiques Linux](https://docs.kernel.org/networking/statistics.html),
+[bridge/PVID](https://docs.kernel.org/networking/bridge.html),
+[flags VLAN iproute2](https://man7.org/linux/man-pages/man8/bridge.8.html).

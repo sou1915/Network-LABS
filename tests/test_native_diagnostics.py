@@ -39,7 +39,7 @@ class NativeDiagnosticTests(unittest.TestCase):
         original = copy.deepcopy(actual)
         findings = explain_node(node, actual)
         self.assertEqual(actual, original)
-        self.assertEqual({f['code'] for f in findings}, {'STP_ROOT_PATH', 'STP_BLOCKING', 'STP_FORWARDING'})
+        self.assertEqual({f['code'] for f in findings}, {'STP_ROOT_PATH', 'STP_BLOCKING', 'STP_FORWARDING', 'PORT_COUNTERS_UNAVAILABLE'})
         blocked = next(f for f in findings if f['code'] == 'STP_BLOCKING')
         self.assertEqual(blocked['severity'], 'info')
         self.assertEqual(blocked['evidence']['state'], 'blocking')
