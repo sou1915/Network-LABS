@@ -62,6 +62,11 @@ class PortSecurityTests(unittest.TestCase):
             validate(spec)
         spec = lacp_lab('/rootfs')
         sw = next(n for n in spec['nodes'] if n['name'] == 'SW1')
+        member = next(iter(sw['port_channels'].values()))['members'][0]
+        sw['interface_macs'] = {member: MAC}
+        with self.assertRaisesRegex(ValueError, 'LACP members'):
+            validate(spec)
+        sw['interface_macs'] = {}
         sw['port_security'] = {'bond1': {'mac_addresses': [MAC]}}
         with self.assertRaises(ValueError):
             validate(spec)

@@ -27,6 +27,8 @@ def validate_lan(node):
     node['interface_macs'] = {p: mac_address(value) for p, value in macs.items()}
     from .lacp import validate_channels
     members = validate_channels(node)
+    if set(node['interface_macs']) & members:
+        raise ValueError('Explicit interface MAC addresses are not supported on LACP members; bonding owns their MAC.')
     bridge_ports = (set(node['interfaces']) - members) | set(node['port_channels'])
     vlans = node.setdefault('vlans', [1] if role == 'switch' else [])
     if not isinstance(vlans, list) or len(vlans) > 256:

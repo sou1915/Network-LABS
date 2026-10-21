@@ -1093,7 +1093,8 @@ l'ancienne, utiliser `no switchport port-security mac-address ANCIENNE`, puis
 ```
 
 Sur les nodes OCI, `interface_macs` peut fixer les MAC physiques dès la création,
-par exemple `"interface_macs": {"eth0": "02:00:00:00:01:10"}` sur PC1. Sans ce
+hors membres LACP (leur MAC appartient au bonding), par exemple
+`"interface_macs": {"eth0": "02:00:00:00:01:10"}` sur PC1. Sans ce
 champ, Linux choisit l'adresse ; un redémarrage peut donc la changer. La MAC
 explicite est appliquée avant UP, vérifiée par save/export et réappliquée au
 restore. Elle ne se configure pas dans cette CLI IOS partielle. La suppression
