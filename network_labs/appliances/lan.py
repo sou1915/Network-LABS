@@ -127,7 +127,7 @@ def validate_lan(node):
             raise ValueError('DHCP requires configured dot1Q encapsulation.')
     server = node.setdefault('dhcp_server', None)
     if server is not None:
-        keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds'), 'DHCP server')
+        keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations'), 'DHCP server')
         interface = server.get('interface')
         if interface not in all_interfaces or not all_interfaces[interface] or role == 'switch':
             raise ValueError('DHCP server requires a numbered interface on a host/router/firewall.')
@@ -148,6 +148,8 @@ def validate_lan(node):
         for address in dns:
             ipaddress.IPv4Address(address)
         integer(server.setdefault('lease_seconds', 3600), 60, 604800, 'DHCP lease_seconds')
+        from .dhcp import validate_reservations
+        validate_reservations(node)
     routes = node.setdefault('routes', [])
     if not isinstance(routes, list) or len(routes) > 128:
         raise ValueError('routes: array of at most 128 static IPv4 routes.')
@@ -309,6 +311,9 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('dhcp_server') is not None:
+        from .dhcp import observe_server
+        result['dhcp_server'] = observe_server(manager, node)
     from .snooping import effective, observe as observe_snooping
     if effective(node) is not None:
         result['dhcp_snooping'] = observe_snooping(manager, index, node)

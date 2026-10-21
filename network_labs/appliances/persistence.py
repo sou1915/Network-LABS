@@ -38,6 +38,8 @@ def drift(manager):
         from .source_guard import effective as guard_effective
         if guard_effective(node) is not None and actual.get('ip_source_guard', {}).get('policy_verified') is not True:
             errors.append(node['name'] + ': IP Source Guard rules differ or are unavailable')
+        if node.get('dhcp_server') is not None and actual.get('dhcp_server', {}).get('configuration_verified') is not True:
+            errors.append(node['name'] + ': DHCP server configuration differs or is unavailable')
         expected = addresses(node)
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())

@@ -306,6 +306,101 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
+    def test_dhcp_reservations_real_pool_exclusion_renewal_file_drift_and_restore(self):
+        import copy
+        from network_labs.appliances.examples import dhcp_reservations_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = dhcp_reservations_lab(rootfs); spec['name'] = 'res-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait_clients(reserved='10.10.0.100'):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    installed = {}
+                    for name in ('PRN1', 'PC1', 'PC2'):
+                        observation = manager.inspect(name)
+                        ips = [a['local'] for r in observation['addresses'] if r['ifname'] == 'eth0'
+                               for a in r.get('addr_info', []) if a.get('scope') == 'global']
+                        if len(ips) == 1:
+                            installed[name] = ips[0]
+                    observed = manager.inspect('SW1')['dhcp_snooping']
+                    bindings = {b['mac']: b['address'] for b in observed.get('bindings') or []}
+                    expected = {n['name']: n['interface_macs']['eth0'] for n in manager.state['spec']['nodes'] if n['name'] in ('PRN1', 'PC1', 'PC2')}
+                    if installed.get('PRN1') == reserved and len(installed) == 3 and all(bindings.get(expected[name]) == ip for name, ip in installed.items()):
+                        self.assertEqual(len(set(installed.values())), 3, installed)
+                        for name in ('PC1', 'PC2'):
+                            self.assertIn(installed[name], ('10.10.0.100', '10.10.0.101', '10.10.0.102'))
+                            self.assertNotEqual(installed[name], reserved)
+                        return installed
+                    time.sleep(0.1)
+                self.fail('Real DHCP reservation/client/ACK mismatch: ' + json.dumps({'installed': installed, 'snooping': observed}) +
+                          '\n' + (manager.directory / 'DHCP1' / 'dhcp.log').read_text())
+            def reservation_stamp():
+                bindings = manager.inspect('SW1')['dhcp_snooping'].get('bindings') or []
+                return next((b['until'] for b in bindings if b['mac'] == '02:00:00:00:10:03'), 0)
+            def wait_ack(previous):
+                deadline = time.monotonic() + 8
+                while reservation_stamp() <= previous:
+                    if time.monotonic() >= deadline:
+                        self.fail('No actual trusted DHCPACK observed after client signal.')
+                    time.sleep(0.1)
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    installed = wait_clients()
+                    # PC1 starts before the reserved client. Even then, the
+                    # first pool IP is withheld from dynamic allocation.
+                    self.assertEqual(set(installed.values()), {'10.10.0.100', '10.10.0.101', '10.10.0.102'})
+                    server = manager.inspect('DHCP1')['dhcp_server']
+                    self.assertTrue(server['configuration_verified'])
+                    for name in ('PC1', 'PC2'):
+                        manager.crun('exec', name, '/bin/ping', '-c', '1', '-W', '1', '10.10.0.100')
+                    manager.crun('exec', 'PRN1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2')
+                    acknowledgments = reservation_stamp()
+                    manager.crun('exec', 'PRN1', '/bin/sh', '-c', '/bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait_ack(acknowledgments)
+                    self.assertEqual(wait_clients()['PRN1'], '10.10.0.100')
+                    # Release/reacquire also retains the explicit MAC/IP policy.
+                    acknowledgments = reservation_stamp()
+                    manager.crun('exec', 'PRN1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"; /bin/busybox sleep 0.2; /bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait_ack(acknowledgments)
+                    self.assertEqual(wait_clients()['PRN1'], '10.10.0.100')
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    config = manager.directory / 'DHCP1' / 'files' / 'udhcpd.conf'
+                    original = config.read_text(); config.write_text(original + '# host-side unmanaged change\n')
+                    self.assertFalse(manager.inspect('DHCP1')['dhcp_server']['configuration_verified'])
+                    with self.assertRaisesRegex(RuntimeFailure, 'DHCP server configuration'):
+                        manager.write_startup()
+                    config.write_text(original)
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    self.assertEqual(wait_clients()['PRN1'], '10.10.0.100')
+                    self.assertTrue(manager.inspect('DHCP1')['dhcp_server']['configuration_verified'])
+                    manager.stop()
+                # Explicit reservations outside the dynamic pool are supported
+                # too. A new generation has no old lease-file snapshot.
+                outside = copy.deepcopy(saved)
+                outside['nodes'][2]['dhcp_server']['reservations'][0]['address'] = '10.10.0.50'
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(outside)
+                    self.assertEqual(wait_clients('10.10.0.50')['PRN1'], '10.10.0.50')
+                    manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.50')
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_dhcp_snooping_real_trust_binding_rogue_filter_worker_loss_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

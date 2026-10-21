@@ -223,3 +223,24 @@ def multicast_lab(rootfs):
                               'interfaces': {'eth0': f'192.0.2.{10 + i}/24'}})
         spec['links'].append([[name, 'eth0'], ['SW1', 'eth' + str(i)]])
     return validate(spec)
+
+
+def dhcp_reservations_lab(rootfs):
+    """Reserve the first pool address before the ordinary client starts."""
+    spec = dhcp_snooping_lab(rootfs)
+    spec['name'] = 'dhcp-reservations-lan'
+    server = spec['nodes'][2]['dhcp_server']
+    server.update(end='10.10.0.102', reservations=[{'mac': '02:00:00:00:10:03', 'address': '10.10.0.100'}])
+    printer = spec['nodes'][3]
+    printer.update(name='PRN1', interfaces={'eth0': ''}, dhcp_server=None,
+                   dhcp_clients=['eth0'], interface_macs={'eth0': '02:00:00:00:10:03'})
+    spec['links'][2][0][0] = 'PRN1'
+    switch = spec['nodes'][1]
+    switch['interfaces']['eth3'] = ''
+    switch['switchports']['eth3'] = {'mode': 'access', 'vlan': 10}
+    switch['interface_aliases']['fa0/4'] = 'eth3'
+    spec['nodes'].append({'name': 'PC2', 'runtime': 'oci', 'rootfs': str(rootfs),
+                           'interfaces': {'eth0': ''}, 'dhcp_clients': ['eth0'],
+                           'interface_macs': {'eth0': '02:00:00:00:10:20'}})
+    spec['links'].append([['PC2', 'eth0'], ['SW1', 'eth3']])
+    return validate(spec)

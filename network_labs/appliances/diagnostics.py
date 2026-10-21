@@ -67,6 +67,16 @@ def explain_node(node, actual):
                  '. Compteur de trames, pas un nombre de machines ou un résultat de ping ; pas de shutdown automatique.',
                  {'port': port, **observation, 'policy_verified': verified}, 'warning' if denied is not None and denied > 0 else 'info')
 
+    if node.get('dhcp_server') is not None:
+        server = actual.get('dhcp_server', {})
+        verified = server.get('configuration_verified') is True
+        _add(findings, 'DHCP_SERVER_CONFIG' if verified else 'DHCP_SERVER_CONFIG_UNVERIFIED',
+             'Serveur DHCP : ' + ('fichier de configuration conforme.' if verified else 'fichier absent/modifié/non vérifié.'),
+             {'configuration_verified': verified, 'pool': server.get('pool')}, 'info' if verified else 'warning')
+        _add(findings, 'DHCP_RESERVATIONS',
+             f"{len(node['dhcp_server'].get('reservations', []))} réservations MAC/IP configurées ; ce ne sont pas des baux observés ni une preuve de disponibilité du serveur.",
+             {'declared_reservations': node['dhcp_server'].get('reservations', [])})
+
     from .snooping import effective
     if effective(node) is not None:
         snoop = actual.get('dhcp_snooping', {})

@@ -154,7 +154,7 @@ Un serveur DHCP expose un objet `dhcp_server` : interface numérotée, `start`,
 `end`, `router` optionnel, `dns` optionnel et `lease_seconds`. Un client utilise
 `dhcp_clients: ["eth0"]`, avec adresse vide et sans passerelle statique.
 La première version limite le pool à 256 adresses et le client à une interface.
-Pas de DHCP relay, DHCPv6, réservations ou serveur DNS fourni automatiquement.
+Pas de DHCP relay, DHCPv6 ou serveur DNS fourni automatiquement. Les réservations explicites MAC/IP sont décrites plus bas.
 
 ## Sauvegarder, arrêter et restaurer
 
@@ -1644,3 +1644,90 @@ capture le non-membre (absence de copies d'un groupe connu), les ports routeurs,
 la restriction mrouter-only des groupes inconnus avec querier, le flooding
 autorisé/refusé avec snooping désactivé, le leave, la dérive, restore et
 un stop concurrent. Les liens/routes/règles nft de l'hôte restent inchangés.
+
+## Réservations DHCP : identité MAC et adresse stable
+
+Le serveur BusyBox réel accepte maintenant `dhcp_server.reservations`, une liste
+optionnelle de **1..256 mappings explicites MAC/IPv4** (liste vide par défaut).
+La réservation permet par exemple à un client d'imprimante de retrouver la même
+IP après renouvellement ou recréation du lab ; ce n'est pas une authentification
+et cela n'empêche pas un autre hôte de s'attribuer manuellement cette IP.
+
+```json
+"dhcp_server": {
+  "interface": "eth0",
+  "start": "10.10.0.100",
+  "end": "10.10.0.102",
+  "lease_seconds": 120,
+  "reservations": [
+    {"mac": "02:00:00:00:10:03", "address": "10.10.0.100"}
+  ]
+}
+```
+
+La configuration produit une vraie directive BusyBox
+`static_lease 02:00:00:00:10:03 10.10.0.100`.
+Le serveur réserve cette adresse au client identifié par sa MAC et la retire
+des candidats dynamiques, même avant que ce client rejoigne le LAN.
+L'adresse peut aussi être **hors du pool dynamique**, mais doit être dans le
+sous-réseau du serveur, unicast utilisable, distincte du serveur, de l'adresse
+réseau/broadcast et de la gateway annoncée. La MAC doit être unicast non nulle.
+Les doublons MAC/IP, champs inconnus et textes invalides sont refusés avant
+création des ressources. Les formats MAC colon et Cisco pointé sont normalisés.
+Ne pas réserver une IP déjà occupée ailleurs dans la topologie : le validateur
+ne réalise pas d'inventaire global ni de détection de conflit distribuée.
+
+Le mécanisme repose sur la MAC (`chaddr`), pas sur une identité cryptographique,
+un client-ID arbitraire, un hostname, Option 82 ou des réservations DHCPv6.
+Un clone de MAC ne peut pas être distingué par cette réservation. DHCP snooping,
+DAI et IP Source Guard restent des politiques séparées, à activer explicitement.
+Les clients et serveurs restent de vrais processus BusyBox dans leur cgroup OCI ;
+aucun nouveau worker permanent n'est ajouté pour les réservations.
+
+### Exemple autonome avec allocation dynamique et client réservé
+
+```bash
+python3 -m network_labs.appliances example --dhcp-reservations \
+  --rootfs "$HOME/network-labs-rootfs" > dhcp-reservations-lan.json
+sudo python3 -m network_labs.appliances start dhcp-reservations-lan.json
+# Attendre quelques secondes pour DORA/ARP de BusyBox.
+sudo python3 -m network_labs.appliances inspect dhcp-reservations-lan PRN1
+sudo python3 -m network_labs.appliances inspect dhcp-reservations-lan PC1
+sudo python3 -m network_labs.appliances inspect dhcp-reservations-lan PC2
+sudo python3 -m network_labs.appliances exec dhcp-reservations-lan PC1 -- /bin/ping -c 3 10.10.0.100
+sudo python3 -m network_labs.appliances explain dhcp-reservations-lan DHCP1
+sudo python3 -m network_labs.appliances inspect dhcp-reservations-lan SW1
+```
+
+Le lab comprend 5 nodes : PC1, PC2, PRN1, SW1 et DHCP1. PRN1 est un client Linux
+nommé pour illustrer une imprimante, sans émulation de firmware ni service
+impression. PRN1 reçoit **10.10.0.100** ; PC1 et PC2 reçoivent .101/.102, sans
+promesse sur leur ordre respectif. PC1 démarre avant PRN1 : l'exclusion de .100
+ne dépend pas de l'existence d'un bail préalable du client réservé. SW1 utilise
+le snooping avec un seul port serveur trusted ; les corrélations REQUEST/ACK
+réelles sont comparées séparément aux IP installées sur les clients.
+
+`inspect DHCP1` ajoute `dhcp_server`, avec pool, réservations **déclarées** et
+conformité du fichier monté `/lab/udhcpd.conf`. La lecture bornée à 64 KiB utilise
+`/bin/busybox head` à l'intérieur du container, sans copie/lecture de fichier
+arbitraire de l'hôte. Un fichier manquant, trop grand ou illisible reste non
+vérifié. `explain` distingue cette configuration des baux observés : conformité
+du fichier ne prouve ni que le daemon est vivant ni que sa configuration chargée
+n'a pas été modifiée. La disponibilité doit être vérifiée par du trafic DHCP réel.
+
+`save` et `export` refusent une différence du fichier de serveur géré.
+Les réservations restent dans le manifest startup et sont réappliquées après
+`restore`. **Les baux et fichiers runtime ne sont pas des snapshots** : les
+clients acquièrent de nouveaux baux, avec les mêmes identités MAC déclarées.
+Les options DHCP, y compris réservations, se configurent dans le manifest avant
+`start` ; remplacement à chaud/reload de la politique de serveur et CLI IOS DHCP
+constructeur ne sont pas implémentés. Modifier le manifest puis recréer le lab
+pour changer ces options ; `restore` seul reprend la dernière configuration sauvée.
+
+La validation native vérifie les trois adresses installées, leurs ACKs observés,
+l'exclusion du pool, les pings entre clients, un renouvellement forcé,
+release/réacquisition, refus de sauvegarde sur dérive du fichier, restore avec la
+même réservation et un second démarrage avec une réservation hors pool (.50).
+Elle conserve les liens préexistants/routes/règles nft de l'hôte et ne laisse
+aucun lien virtuel ajouté. Référence primaire :
+[configuration BusyBox udhcpd](https://coral.googlesource.com/busybox/+/refs/heads/master/examples/udhcp/udhcpd.conf).
