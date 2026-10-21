@@ -257,3 +257,9 @@ statiques sur ports access OCI, avec filtrage nftables réel, compteurs,
 configuration IOS partielle et save/restore des MAC déclarées. Dynamic/sticky
 learning et shutdown automatique ne sont pas implémentés.
 Voir [le guide de port security](docs/NATIVE_LAN_CORE.md#port-security-statique-sur-ports-access).
+
+Le scénario natif `example --dhcp-snooping` démarre un vrai client, un serveur
+trusted et un serveur rogue. Il ajoute filtrage DHCPv4 sur ports access et
+bindings volatiles issus des échanges REQUEST/ACK, avec worker supervisé,
+compteurs et save/restore de la politique. Trunks/LACP, relay/Option 82 et DAI
+restent hors périmètre. Voir [le guide DHCP snooping](docs/NATIVE_LAN_CORE.md#dhcp-snooping-ipv4--confiance-et-bindings-observés).

@@ -20,6 +20,128 @@ from network_labs.appliances.spec import example, namespace
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_dhcp_snooping_real_trust_binding_rogue_filter_worker_loss_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        import signal
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.examples import dhcp_snooping_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.snooping import TABLE, alive
+        from test_native_snooping import frame
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        records = []
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = dhcp_snooping_lab(rootfs); spec['name'] = 'snoop-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def binding(address=None):
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    observed = manager.inspect('SW1')['dhcp_snooping']
+                    for entry in observed['bindings'] or []:
+                        if address is None or entry['address'] == address:
+                            return entry
+                    time.sleep(0.1)
+                self.fail('No matching wire binding: ' + json.dumps(observed) + '\n' + (manager.directory / 'SW1.snooping.log').read_text())
+            def inject(index, packet):
+                manager.ns(index, sys.executable, '-c',
+                           'import socket,sys; s=socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(3)); s.bind(("eth0",0)); s.send(bytes.fromhex(sys.argv[1]))', packet.hex())
+            def configure(commands):
+                result = manager.configure_ios('SW1', 'conf t\n' + commands + '\nend')
+                record = manager.state.get('snooping_workers', {}).get('SW1')
+                if record and all(r['token'] != record['token'] for r in records):
+                    records.append(dict(record))
+                return result
+            def captured(name, packets, action):
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', Path(folder) / name,
+                                     seconds=2, packets=packets, expression='ether src 02:00:00:00:10:02', ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('Capture never became ready')
+                with manager.locked():
+                    action()
+                return future.result(timeout=6)['captured_packets']
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    record = dict(manager.state['snooping_workers']['SW1']); records.append(record)
+                    self.assertTrue(alive(record))
+                    lease = binding()
+                    self.assertEqual((lease['port'], lease['vlan'], lease['server_port']), ('eth0', 10, 'eth1'))
+                    self.assertTrue(100 <= int(lease['address'].split('.')[-1]) <= 110)
+                    observed = manager.inspect('PC1')
+                    self.assertIn(lease['address'], [a['local'] for r in observed['addresses'] for a in r.get('addr_info', [])])
+                    self.assertEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2').returncode, 0)
+                    counters = manager.inspect('SW1')['dhcp_snooping']['counters']
+                    self.assertTrue(any(c['rule'] == 'server:eth2' and c['packets'] > 0 for c in counters), counters)
+                    configure('interface fa0/1\nno shutdown')
+                    self.assertEqual(manager.state['snooping_workers']['SW1']['token'], record['token'])
+                    self.assertEqual(binding()['address'], lease['address'])
+                    with self.assertRaises(ValueError):
+                        configure('ip dhcp snooping information option')
+                    manager.write_startup()
+                    configure('interface fa0/2\nshutdown')
+                request = frame(xid=999, requested='10.10.0.77', server='10.10.0.3')
+                ack = frame(5, xid=999, yiaddr='10.10.0.77', server='10.10.0.3')
+                def rogue_packets():
+                    inject(0, request)
+                    inject(3, ack)
+                    inject(3, frame(5, xid=999, yiaddr='10.10.0.77', server='10.10.0.3', sport=68))
+                    inject(3, ack[:12] + b'\x81\x00\x00\x0a' + ack[12:])
+                    inject(3, ack[:12] + b'\x88\xa8\x00\x0a\x81\x00\x00\x0a' + ack[12:])
+                self.assertEqual(captured('rogue.pcap', 100, rogue_packets), 0, 'Untrusted/tagged BOOTREPLY reached client')
+                with manager.locked():
+                    self.assertFalse(any(b['address'] == '10.10.0.77' for b in manager.inspect('SW1')['dhcp_snooping']['bindings'] or []))
+                    configure('interface fa0/3\nip dhcp snooping trust')
+                self.assertEqual(captured('trusted.pcap', 1, lambda: (inject(0, request), inject(3, ack))), 1)
+                with manager.locked():
+                    accepted = binding('10.10.0.77')
+                    self.assertEqual(accepted['server_port'], 'eth2')
+                    configure('interface fa0/3\nno ip dhcp snooping trust\ninterface fa0/2\nno shutdown')
+                    manager.write_startup()
+                    saved = load_startup(spec['name'])
+                    self.assertNotIn('bindings', saved['nodes'][1]['dhcp_snooping'])
+                    manager.stop()
+                    self.assertFalse(alive(record))
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    record = dict(manager.state['snooping_workers']['SW1']); records.append(record)
+                    self.assertNotEqual(record['token'], records[0]['token'])
+                    binding()
+                    os.kill(record['pid'], signal.SIGKILL)
+                    deadline = time.monotonic() + 2
+                    while alive(record) and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    state = manager.inspect('SW1')['dhcp_snooping']
+                    self.assertTrue(state['policy_verified'])
+                    self.assertFalse(state['observer_available']); self.assertIsNone(state['bindings'])
+                    denied = sum(c['packets'] for c in state['counters'] if c['rule'] == 'server:eth2')
+                    inject(3, ack)
+                    after = manager.inspect('SW1')['dhcp_snooping']
+                    self.assertGreater(sum(c['packets'] for c in after['counters'] if c['rule'] == 'server:eth2'), denied)
+                    configure('interface fa0/1\nno shutdown')
+                    record = dict(manager.state['snooping_workers']['SW1']); records.append(record)
+                    self.assertTrue(alive(record))
+                    manager.ns(1, 'nft', 'delete', 'table', 'bridge', TABLE)
+                    self.assertIsNone(manager.inspect('SW1')['dhcp_snooping']['bindings'])
+                    with self.assertRaisesRegex(RuntimeFailure, 'DHCP snooping'):
+                        manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertTrue(all(not alive(r) for r in records))
+        self.assertEqual(host_links(), links)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_static_port_security_real_source_rejection_live_policy_drift_and_restore(self):
         from network_labs.appliances.examples import port_security_lab
         from network_labs.appliances.diagnostics import explain

@@ -171,3 +171,23 @@ def port_security_lab(rootfs):
     switch['interface_aliases'] = {'fa0/1': 'eth0', 'fa0/2': 'eth1'}
     switch['port_security'] = {'eth0': {'maximum': 1, 'mac_addresses': ['02:00:00:00:01:10'], 'violation': 'restrict'}}
     return validate(spec)
+
+
+def dhcp_snooping_lab(rootfs):
+    """One client, trusted DHCP server and actual rogue server on access VLAN 10."""
+    rootfs = str(Path(rootfs).resolve())
+    def server(name, address, start, end):
+        return {'name': name, 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': address},
+                'dhcp_server': {'interface': 'eth0', 'start': start, 'end': end, 'lease_seconds': 120}}
+    return validate({'version': 2, 'name': 'dhcp-snooping-lan', 'nodes': [
+        {'name': 'PC1', 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': ''},
+         'interface_macs': {'eth0': '02:00:00:00:10:10'}, 'dhcp_clients': ['eth0']},
+        {'name': 'SW1', 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs, 'dialect': 'ios-basic',
+         'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''}, 'vlans': [10],
+         'switchports': {p: {'mode': 'access', 'vlan': 10} for p in ('eth0', 'eth1', 'eth2')},
+         'interface_aliases': {'fa0/1': 'eth0', 'fa0/2': 'eth1', 'fa0/3': 'eth2'},
+         'dhcp_snooping': {'enabled': True, 'vlans': [10], 'trusted': ['eth1']}},
+        server('DHCP1', '10.10.0.2/24', '10.10.0.100', '10.10.0.110'),
+        server('ROGUE', '10.10.0.3/24', '10.10.0.200', '10.10.0.210'),
+    ], 'links': [[['PC1', 'eth0'], ['SW1', 'eth0']], [['DHCP1', 'eth0'], ['SW1', 'eth1']],
+                  [['ROGUE', 'eth0'], ['SW1', 'eth2']]]})

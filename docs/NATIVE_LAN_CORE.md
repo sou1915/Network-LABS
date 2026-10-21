@@ -1133,3 +1133,135 @@ Elle vérifie également l'intégrité des liens/routes/règles nft de l'hôte.
 Références : [hook bridge nftables](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering),
 [syntaxe nftables](https://netfilter.org/projects/nftables/manpage.html),
 [port security Cisco, périmètre de comparaison](https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/sec/b_179_sec_9300_cg/port_security.html).
+
+## DHCP snooping IPv4 : confiance et bindings observés
+
+Le premier backend fonctionne sur **un switch OCI à ports access physiques**,
+avec sélection de VLANs. Il combine deux fonctions distinctes :
+
+- Filtre nftables `bridge network_labs_dhcp_snooping`, avant la décision FDB.
+  Un port non déclaré trusted est untrusted. Sur un port untrusted appartenant
+  aux VLANs sélectionnés, les datagrammes UDP source 67 et BOOTREPLY vers 67/68
+  sont rejetés et comptés. Le serveur légitime doit entrer par un port trusted.
+- Un observateur Python persistant par switch activé, dans son namespace, lit
+  les paquets DHCP réels avec AF_PACKET et filtre BPF kernel, sans mode promiscuous
+  demandé. Il corrèle DHCPREQUEST du client sur un port untrusted et DHCPACK sur
+  un port trusted, avec VLAN, xid, chaddr, IP demandée et server identifier.
+
+Les trames taggées 802.1Q/802.1ad sur les ports surveillés sont refusées par ce
+backend access-only. Les fragments IPv4 UDP sur ports untrusted sont également
+refusés pour empêcher le contournement des vérifications de ports ; cela peut
+rejeter **d'autres UDP fragmentés** sur ces ports. Les trames de données non-DHCP
+non concernées continuent de suivre les autres politiques. Trunks, LACP, DHCP
+relay/giaddr, Option 82, option overload, DHCPv6, rate limiting et filtrage complet
+de tous les champs DHCP constructeur restent non implémentés. L'activation sur
+un switch contenant un trunk/LACP est refusée, même si le trunk n'est pas dans
+le VLAN sélectionné. Aucune protection DAI ou IP Source Guard n'est ajoutée ici.
+
+### Essai avec un serveur malveillant réel
+
+```bash
+python3 -m network_labs.appliances example --dhcp-snooping \
+  --rootfs "$HOME/network-labs-rootfs" > dhcp-snooping-lan.json
+sudo python3 -m network_labs.appliances start dhcp-snooping-lan.json
+# Attendre quelques secondes pour DORA / validation ARP de BusyBox.
+sudo python3 -m network_labs.appliances inspect dhcp-snooping-lan PC1
+sudo python3 -m network_labs.appliances explain dhcp-snooping-lan SW1
+sudo python3 -m network_labs.appliances exec dhcp-snooping-lan PC1 -- \
+  /bin/ping -c 3 10.10.0.2
+```
+
+Le lab démarre quatre containers : PC1, SW1, DHCP1 et ROGUE. Les deux serveurs
+BusyBox tournent réellement. DHCP1, sur fa0/2 (=eth1), est trusted et distribue
+10.10.0.100–110 ; ROGUE, sur fa0/3 (=eth2), distribue 10.10.0.200–210 mais ses
+réponses sont bloquées. PC1, sur fa0/1 (=eth0), doit recevoir une IP du serveur
+légitime. `inspect SW1` contient `dhcp_snooping`, la table effective, compteurs
+par règle et bindings. Un binding confirme un échange REQUEST/ACK observé,
+**pas l'installation de l'IP sur le PC** : vérifier aussi `inspect PC1`.
+
+### Configuration IOS partielle et manifest
+
+```text
+configure terminal
+ip dhcp snooping
+ip dhcp snooping vlan 10
+interface fa0/2
+ip dhcp snooping trust
+end
+```
+
+`no ip dhcp snooping trust` remet un port en untrusted. `no ip dhcp snooping`
+désactive la fonction tout en conservant VLANs/trust déclarés pour réactivation.
+`no ip dhcp snooping vlan 10` retire un VLAN. Le bloc entier est validé avant
+mutation ; relay/Option 82/rate limiting et autres commandes non supportées sont
+refusés. Les paramètres du manifest sont :
+
+```json
+{
+  "dhcp_snooping": {
+    "enabled": true,
+    "vlans": [10],
+    "trusted": ["eth1"]
+  }
+}
+```
+
+Il n'y a ni `trusted` implicite pour les nodes de rôle serveur, ni inspection de
+leurs fichiers de baux pour fabriquer les bindings. La confiance est celle du
+**port d'entrée**, pas celle de la marque ou du nom du node. Un serveur sur un
+port trusted peut fournir une mauvaise configuration ; le snooping ne constitue
+pas son authentification.
+
+### Durée de vie et limites des observations
+
+Le tableau est volatile : MAC, IPv4, port, VLAN, serveur, durée de lease et temps
+restant proviennent des paquets. L'expiration utilise le temps monotone. Renewal
+remplace la durée après un nouvel échange corrélé ; RELEASE/DECLINE cohérents et
+NAK corrélés retirent le binding. Des requests ambiguës sur plusieurs ports sont
+refusées. Les messages tronqués, fragments, tags, relay et options ambiguës ne
+créent pas de binding. L'observateur n'effectue pas de validation indépendante des
+checksums UDP offloadés et ne certifie ni admission par toutes les règles, ni
+livraison, ni installation par le client. Il s'agit d'observations destinées au
+diagnostic, pas encore d'une base d'autorisation DAI/IP Source Guard.
+
+L'observateur borne les requests en attente (60 s, 1024) et bindings (1024). Une
+saturation refuse de nouvelles observations plutôt que d'évincer silencieusement
+un binding existant. Les pertes AF_PACKET sont comptées ; une perte signalée
+vide les corrélations/bindings avant reconstruction pour éviter de les conserver
+à travers un trou connu. L'absence de pertes signalées ne prouve pas une capture
+complète. Un port down/missing ou changé invalide les observations concernées.
+Un snapshot est périodique, pas une transaction atomique avec l'état des ports.
+
+Le worker a une identité PID/starttime/token, vérifiée à la lecture, un heartbeat
+et une vérification de propriété du lab/namespace. Il est démarré prêt avant les
+services DHCP, redémarré quand VLANs/trust changent, et arrêté avant la destruction
+des namespaces. Une modification sans changement de périmètre conserve le worker
+et les bindings ; si le worker est mort, une nouvelle configuration réseau le
+relance. Les changements de périmètre réinitialisent bindings et compteurs de la
+table de snooping. Un observateur absent/périmé, un token incorrect ou une politique
+non conforme rend `bindings: null`, jamais une fausse table vide saine. La mort
+du worker ne retire pas les règles de rejet du kernel.
+
+Save/export vérifient la conformité de la table nft gérée en ignorant ses
+compteurs. Save/restore conserve VLANs/trust et recrée le worker ; **aucun binding,
+lease, compteur ou fichier runtime n'est persisté dans startup**. Les journaux et
+snapshots privés du worker restent dans le répertoire runtime du lab et sont
+supprimés au stop. L'application utilise le journal/rollback existant ; une reprise
+peut vider les observations. Les processus Python d'observation vivent côté hôte,
+hors cgroups OCI : leur mémoire/CPU doit être incluse dans une future mesure de
+l'application entière. Aucun résultat global « sous 2 GiB » n'est établi ici.
+
+`explain` distingue `DHCP_SNOOPING_POLICY`, `DHCP_SNOOPING_UNVERIFIED`,
+`DHCP_SNOOPING_BINDINGS`, `DHCP_SNOOPING_OBSERVER_UNAVAILABLE` et
+`DHCP_SNOOPING_DROPS`. Les compteurs sont cumulatifs par règle, pas un nombre de
+serveurs attaquants ou une preuve de résultat d'un ping particulier.
+
+La validation native démarre deux vrais serveurs DHCP concurrents, vérifie le
+bail installé et le binding du serveur trusted, capture les rejets de réponses
+rogue (y compris source UDP modifiée et tags), puis vérifie un vrai passage après
+changement de trust. Elle contrôle stop/restore, perte/redémarrage du worker,
+maintien des rejets sans worker, refus de save après drift et absence de
+modification des liens/routes/règles nft de l'hôte.
+Références : [RFC 2131](https://www.rfc-editor.org/rfc/rfc2131.html),
+[DHCP snooping Cisco](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/sw/4_0/dcnm/security/configuration/guide/sec_dcnm_config/sec_dhcpsnoop.html),
+[bridge nftables](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering).

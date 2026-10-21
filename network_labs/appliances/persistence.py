@@ -29,6 +29,9 @@ def drift(manager):
                 errors.append(node['name'] + ': firewall rules differ')
         if node.get('port_security') and actual.get('port_security', {}).get('fingerprint_matches') is not True:
             errors.append(node['name'] + ': port security rules differ or are unavailable')
+        from .snooping import effective
+        if effective(node) is not None and actual.get('dhcp_snooping', {}).get('policy_verified') is not True:
+            errors.append(node['name'] + ': DHCP snooping rules differ or are unavailable')
         expected = addresses(node)
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())

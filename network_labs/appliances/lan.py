@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping')
 
 
 def addresses(node):
@@ -171,6 +171,8 @@ def validate_lan(node):
         route['gateway'] = str(gateway)
     from .port_security import validate_security
     validate_security(node)
+    from .snooping import validate_snooping
+    validate_snooping(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -204,6 +206,8 @@ def configure(manager, index, node, previous=None):
     if node['role'] == 'switch':
         from .port_security import apply as apply_security
         apply_security(manager, index, node, None if initial else previous)
+        from .snooping import apply as apply_snooping
+        apply_snooping(manager, index, node, None if initial else previous)
         from .lacp import configure as configure_channels
         recreated = configure_channels(manager, index, node, previous)
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
@@ -267,6 +271,10 @@ def configure(manager, index, node, previous=None):
         ns('ip', '-4', 'route', 'replace', route['destination'], 'via', route['gateway'],
            'dev', route['interface'], 'proto', 'static')
 
+    if node.get('dhcp_snooping') is not None or previous.get('dhcp_snooping') is not None:
+        from .snooping import reconcile
+        reconcile(manager, index, node, None if initial else previous)
+
 
 def observe(manager, index, node):
     result = {'name': node['name'], 'source': 'Linux kernel, not the educational model',
@@ -286,4 +294,7 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    from .snooping import effective, observe as observe_snooping
+    if effective(node) is not None:
+        result['dhcp_snooping'] = observe_snooping(manager, index, node)
     return result

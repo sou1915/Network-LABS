@@ -67,6 +67,23 @@ def explain_node(node, actual):
                  '. Compteur de trames, pas un nombre de machines ou un résultat de ping ; pas de shutdown automatique.',
                  {'port': port, **observation, 'policy_verified': verified}, 'warning' if denied is not None and denied > 0 else 'info')
 
+    from .snooping import effective
+    if effective(node) is not None:
+        snoop = actual.get('dhcp_snooping', {})
+        verified = snoop.get('policy_verified') is True
+        _add(findings, 'DHCP_SNOOPING_POLICY' if verified else 'DHCP_SNOOPING_UNVERIFIED',
+             'DHCP snooping IPv4 : ' + ('filtre trusted/untrusted conforme.' if verified else 'filtre absent ou non vérifié.'),
+             {'counters': snoop.get('counters', []), 'policy_verified': verified}, 'info' if verified else 'warning')
+        bindings = snoop.get('bindings')
+        available = snoop.get('observer_available') is True and bindings is not None
+        _add(findings, 'DHCP_SNOOPING_BINDINGS' if available else 'DHCP_SNOOPING_OBSERVER_UNAVAILABLE',
+             (f'{len(bindings)} bindings REQUEST/ACK observés ; ne prouve pas leur installation sur les clients.' if available else
+              'Bindings indisponibles : observateur absent, relevé périmé ou politique non vérifiée.'),
+             {'bindings': bindings, 'capture_drops': snoop.get('capture_drops'), 'events': snoop.get('events')}, 'info' if available else 'unknown')
+        drops = [c for c in snoop.get('counters', []) if c.get('packets', 0) > 0]
+        if drops:
+            _add(findings, 'DHCP_SNOOPING_DROPS', 'Rejets DHCP/tag/fragment cumulés ; examiner chaque règle, sans attribuer un flux précis.', {'counters': drops}, 'warning')
+
     tree = actual.get('spanning_tree')
     if tree:
         protocol = tree.get('protocol')

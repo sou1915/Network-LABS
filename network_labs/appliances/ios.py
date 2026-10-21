@@ -68,6 +68,18 @@ def compile_config(spec, name, text):
                 if vid not in node['vlans']:
                     node['vlans'].append(vid)
                 mode = 'vlan'; interface = None; continue
+            if mode == 'config' and node['role'] == 'switch' and command.startswith(('ip dhcp snooping', 'no ip dhcp snooping')):
+                policy = node.get('dhcp_snooping')
+                if policy is None:
+                    policy = node['dhcp_snooping'] = {'enabled': False, 'vlans': [], 'trusted': []}
+                if command in ('ip dhcp snooping', 'no ip dhcp snooping'):
+                    policy['enabled'] = command == 'ip dhcp snooping'; continue
+                match = re.fullmatch(r'(no )?ip dhcp snooping vlan (\S+)', command)
+                if match:
+                    values = vlan_list(match[2])
+                    policy['vlans'] = sorted(set(policy['vlans']) - set(values) if match[1] else set(policy['vlans']) | set(values))
+                    continue
+                raise ValueError('DHCP snooping supports enable and vlan selection; relay/Option 82/rate limiting are not implemented.')
             if command in ('ip routing', 'no ip routing') and mode == 'config' and node['role'] == 'router':
                 node['forwarding'] = command == 'ip routing'; continue
             if mode == 'interface':
@@ -97,6 +109,17 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    if command in ('ip dhcp snooping trust', 'no ip dhcp snooping trust'):
+                        if interface not in node['switchports']:
+                            raise ValueError('DHCP snooping trust requires a logical switch port.')
+                        if node.get('dhcp_snooping') is None:
+                            node['dhcp_snooping'] = {'enabled': False, 'vlans': [], 'trusted': []}
+                        trusted = node['dhcp_snooping']['trusted']
+                        if command == 'ip dhcp snooping trust' and interface not in trusted:
+                            trusted.append(interface)
+                        elif command == 'no ip dhcp snooping trust' and interface in trusted:
+                            trusted.remove(interface)
+                        continue
                     if command.startswith(('switchport port-security', 'no switchport port-security')):
                         if interface not in node['interfaces'] or node['switchports'].get(interface, {}).get('mode') != 'access':
                             raise ValueError('Port security requires a physical access port.')

@@ -200,8 +200,8 @@ class Manager:
                 asset = Path(node[key])
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
-        if any(n.get('firewall') is not None or n.get('port_security') for n in spec['nodes']) and not shutil.which('nft'):
-            raise RuntimeFailure('Managed firewall/port security requires host nftables (nft).')
+        if any(n.get('firewall') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+            raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
         existing = {line.split()[0] for line in run(['ip', 'netns', 'list']).stdout.splitlines() if line.strip()}
@@ -464,6 +464,9 @@ class Manager:
 
     def stop(self):
         state = self.read(); errors = []
+        from .snooping import stop_worker
+        for name in list(state.get('snooping_workers', {})):
+            stop_worker(self, name)
         for vm in state['vms']:
             if vm['starttime'] and process_identity(vm['pid']) == vm['starttime']:
                 try:
