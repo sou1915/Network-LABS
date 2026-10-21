@@ -198,6 +198,11 @@ def explain_node(node, actual):
                          {'port': port, 'bpdu_guard': data.get('bpdu_guard'), 'root_guard': data.get('root_guard')})
             if forwarding:
                 _add(findings, 'STP_FORWARDING', 'Ports en forwarding : ' + ', '.join(forwarding) + '.', {'ports': forwarding})
+        elif protocol == 'rstp':
+            _add(findings, 'RSTP_STATE', 'RSTP Open vSwitch : root et rôles observés dans le daemon ; livraison non testée.', tree)
+            _add(findings, 'OVS_POLICY' if actual.get('ovs', {}).get('policy_verified') is True else 'OVS_POLICY_UNVERIFIED',
+                 'Politique OVS : ' + ('conforme.' if actual.get('ovs', {}).get('policy_verified') is True else 'modifiée/indisponible.'),
+                 {'verified': actual.get('ovs', {}).get('policy_verified')})
         elif protocol == 'off':
             _add(findings, 'STP_OFF', 'STP désactivé sur ce bridge.', {'protocol': protocol})
         else:

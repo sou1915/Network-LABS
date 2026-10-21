@@ -283,3 +283,17 @@ def lldp_lab(rootfs):
     return validate({'version': 2, 'name': 'lldp-lan', 'nodes': nodes, 'links': [
         [['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['SW2', 'eth1']],
         [['PC2', 'eth0'], ['SW2', 'eth0']]]})
+
+
+def rstp_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = [{'name': 'PC' + str(i), 'runtime': 'oci', 'rootfs': rootfs,
+              'interfaces': {'eth0': f'192.0.2.{i}0/24'}} for i in (1, 2, 3)]
+    for i in (1, 2, 3):
+        nodes.append({'name': 'SW' + str(i), 'role': 'switch', 'runtime': 'oci', 'rootfs': rootfs,
+                      'memory_mib': 128, 'switch_backend': 'ovs', 'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''},
+                      'vlans': [10], 'switchports': {p: {'mode': 'access', 'vlan': 10} for p in ('eth0', 'eth1', 'eth2')},
+                      'spanning_tree': {'mode': 'rstp', 'priority': i * 4096}})
+    links = [[['PC' + str(i), 'eth0'], ['SW' + str(i), 'eth0']] for i in (1, 2, 3)]
+    links += [[['SW1', 'eth1'], ['SW2', 'eth1']], [['SW1', 'eth2'], ['SW3', 'eth1']], [['SW2', 'eth2'], ['SW3', 'eth2']]]
+    return validate({'version': 2, 'name': 'rstp-lan', 'nodes': nodes, 'links': links})

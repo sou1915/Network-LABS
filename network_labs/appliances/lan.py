@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend')
 
 
 def addresses(node):
@@ -187,6 +187,8 @@ def validate_lan(node):
     validate_lldp(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
+    from .ovs import validate_ovs
+    validate_ovs(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -215,7 +217,7 @@ def configure(manager, index, node, previous=None):
     for interface, address in node.get('interface_macs', {}).items():
         if initial or address != previous.get('interface_macs', {}).get(interface):
             ns('ip', 'link', 'set', 'dev', interface, 'address', address)
-    if node['role'] == 'switch':
+    if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
         from .port_security import apply as apply_security
         apply_security(manager, index, node, None if initial else previous)
         from .snooping import apply as apply_snooping
@@ -300,7 +302,7 @@ def observe(manager, index, node):
               'addresses': json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show').stdout),
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
-    if node['role'] == 'switch':
+    if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
         from .spanning_tree import kernel_ids, observe as observe_tree
         ids = kernel_ids(manager, index) if node['spanning_tree']['mode'] == 'stp' else None
         result['spanning_tree'] = observe_tree(node, result['links'], ids)
@@ -315,6 +317,11 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('switch_backend') == 'ovs':
+        from .ovs import observe as observe_ovs, tree as ovs_tree
+        result['ovs'] = observe_ovs(manager, node)
+        result['spanning_tree'] = ovs_tree(result['ovs'])
+        result['vlans'] = []  # Linux bridge audit is unavailable for this backend.
     if node.get('lldp') is not None:
         from .lldp import observe as observe_lldp
         result['lldp'] = observe_lldp(manager, node)

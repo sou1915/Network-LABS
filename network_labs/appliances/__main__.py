@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--rstp', action='store_true', help='Real Open vSwitch RSTP triangle; requires an OVS rootfs and kernel module.')
     sample.add_argument('--lldp', action='store_true', help='Real lldpd neighbor discovery on four isolated OCI nodes.')
     sample.add_argument('--dns', action='store_true', help='Real local dnsmasq DNS, DHCP-supplied resolver, static resolver and HTTP by name.')
     sample.add_argument('--dhcp-reservations', action='store_true', help='Stable DHCP printer reservation and two dynamic clients on a snooped LAN.')
@@ -31,6 +32,7 @@ def main(arguments=None):
     sample.add_argument('--campus', action='store_true', help='Eight-node VLAN/trunk/router/DHCP reference LAN.')
     rootfs = commands.add_parser('rootfs', help='Build an offline minimal rootfs from trusted static BusyBox.')
     rootfs.add_argument('--busybox', type=Path, required=True)
+    rootfs.add_argument('--openvswitch', action='store_true', help='Copy trusted installed OVS executables, ELF libraries and schema.')
     rootfs.add_argument('--lldpd', type=Path, help='Trusted Debian/Ubuntu lldpd executable, paired with --lldpcli.')
     rootfs.add_argument('--lldpcli', type=Path, help='Trusted matching lldpcli executable.')
     rootfs.add_argument('--dnsmasq', type=Path, help='Optional trusted host dnsmasq ELF; copy it and resolved shared libraries offline.')
@@ -100,12 +102,12 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab
-            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp)) > 1:
+            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab, rstp_lab
+            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp)) > 1:
                 raise ValueError('Choose only one reference scenario.')
-            result = lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            result = rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
-            result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli))}
+            result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli, openvswitch=args.openvswitch))}
         elif args.command == 'benchmark':
             from .benchmark import benchmark, summary
             if args.output and (args.output.exists() or args.output.is_symlink()):

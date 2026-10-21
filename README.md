@@ -87,7 +87,9 @@ avec inspection de négociation et seuil min-links. `example --stp` ajoute une b
 `explain LAB [NODE]` ajoute un diagnostic passif lisible en français, ou structuré avec `--json`, fondé sur les états réels du kernel.
 `capture LAB NODE INTERFACE --output trace.pcap` enregistre les vraies trames du node avec durée/paquets/taille bornés et filtres BPF (tcpdump/nsenter/timeout optionnels).
 `explain LAB` compare aussi les memberships VLAN observés entre switches (LACP regroupé), et affiche les compteurs RX/TX/errors/drops cumulés sans conclure à la livraison des paquets.
-Le budget total 2 Gio et RSTP restent à valider/implémenter.
+Le budget total 2 Gio reste à valider. `example --rstp` utilise un backend
+Open vSwitch optionnel dans les containers (rootfs `--openvswitch`, module
+`openvswitch` préchargé), avec ports access et RSTP réel. Voir le guide LAN.
 
 ## Essai facultatif : micro-appliances Wasm
 

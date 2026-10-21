@@ -117,7 +117,7 @@ Différences/limites explicites :
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
   ASIC Cisco. L'encodage d'une commande n'est pas une preuve de conformité matérielle.
-- RSTP et les autres constructeurs restent à porter. DNS local et LLDP sont décrits plus bas. LACP et STP classique Linux sont décrits plus bas. Le firewall/NAT
+- RSTP nécessite le backend OVS optionnel décrit plus bas ; les autres constructeurs restent à porter. DNS local et LLDP sont décrits plus bas. LACP et STP classique Linux sont décrits plus bas. Le firewall/NAT
   Linux IPv4 est décrit plus bas ; il n’utilise pas la syntaxe IOS.
   Les boucles avec STP désactivé restent refusées ; les activer via un manifest STP cohérent, jamais par commandes brutes.
 
@@ -458,7 +458,7 @@ de membre sans lien ni de paire passive/passive. Les numéros de groupe sont
 locaux et peuvent différer entre les deux switches. Les liens d'un bundle
 complet sont traités comme une seule arête pour le contrôle de cycles. Tout
 cycle L2 nécessite le STP commun sur tout le composant (section suivante).
-**RSTP reste non implémenté**.
+**RSTP est disponible uniquement via le backend OVS optionnel décrit plus bas.**
 
 Le backend configure bonding en mode 802.3ad, miimon 100 ms, lacp_rate fast,
 xmit_hash_policy layer2+3. `inspect` lit `/proc/net/bonding/bond1` et netlink,
@@ -709,7 +709,7 @@ Référence : [attributs de ports du bridge Linux](https://docs.kernel.org/netwo
 `IFLA_BRPORT_GUARD` et `IFLA_BRPORT_PROTECT`, et
 [br_root_port_block du kernel](https://github.com/torvalds/linux/blob/master/net/bridge/br_stp.c).
 
-### Pourquoi RSTP n'est pas annoncé comme fonctionnel
+### Limite du backend Linux bridge pour RSTP
 
 Le bridge Linux historique implémente STP classique. Un daemon tel que `mstpd`
 implémente RSTP, mais requiert un bridge en mode **userspace STP**, différent
@@ -719,7 +719,7 @@ dans nos namespaces peut donc rester en STP classique malgré la présence de ms
 Les kernels récents proposent `IFLA_BR_STP_MODE=user` pour cette situation.
 Il reste à valider ce support dans les couples kernel/iproute2 ciblés, puis la
 supervision isolée de mstpd, sa défaillance, la mesure de ressources et de vrais
-tests de BPDUs/reconvergence RSTP. Le manifest refuse `mode: rstp` explicitement,
+tests de BPDUs/reconvergence RSTP. Le backend Linux bridge refuse `mode: rstp` explicitement,
 sans fallback silencieux, sans mise à niveau automatique du kernel de l'utilisateur.
 
 Références primaires : [bridge Linux](https://docs.kernel.org/networking/bridge.html),
@@ -1923,3 +1923,85 @@ des liens/routes/règles nft de l'hôte.
 
 Références primaires : [usage lldpd/lldpcli](https://lldpd.github.io/usage.html),
 [séparation de privilèges](https://github.com/lldpd/lldpd/blob/master/README.md).
+
+## Backend Open vSwitch et RSTP réel
+
+`example --rstp` utilise trois switches Open vSwitch dans trois containers OCI,
+chacun avec sa base OVSDB, son socket de contrôle et son processus ovs-vswitchd.
+Trois PC Linux ferment le scénario. Le datapath **kernel OVS** reste dans le
+namespace réseau de son node ; aucun bridge/port n'est ajouté à l'OVS de l'hôte.
+Ce backend est distinct du Linux bridge classique et ne dépend pas du nouveau
+`stp_mode user` du kernel. Les anciens scénarios gardent leur backend Linux.
+
+```bash
+sudo apt install -y busybox-static openvswitch-switch
+sudo modprobe openvswitch
+python3 -m network_labs.appliances rootfs --busybox /bin/busybox \
+  --openvswitch --output "$HOME/network-labs-ovs-rootfs"
+python3 -m network_labs.appliances example --rstp \
+  --rootfs "$HOME/network-labs-ovs-rootfs" > rstp-lan.json
+sudo python3 -m network_labs.appliances start rstp-lan.json
+sudo python3 -m network_labs.appliances inspect rstp-lan SW3
+sudo python3 -m network_labs.appliances explain rstp-lan SW3
+sudo python3 -m network_labs.appliances exec rstp-lan SW3 -- \
+  /usr/bin/ovs-vsctl --db=unix:/run/ovs/db.sock get Port eth2 rstp_status
+sudo python3 -m network_labs.appliances exec rstp-lan PC1 -- \
+  /bin/ping -c 3 192.0.2.30
+```
+
+Utiliser une nouvelle destination de rootfs. Le builder copie les exécutables
+locaux de confiance ovsdb-server, ovs-vswitchd, ovsdb-tool, ovs-vsctl et
+ovs-appctl, leurs bibliothèques ELF et le schéma Open_vSwitch. Les versions sont
+vérifiées avant création du rootfs. Le paquet système peut gérer son propre
+service hôte ; le moteur de lab ne le pilote pas. Les commandes OVS du moteur
+passent toutes par `crun exec` et le socket déclaré dans le node, sans fallback
+sur une base ou un daemon hôte. Le module kernel doit être préchargé ; le moteur
+ne le charge pas automatiquement.
+
+Le manifest déclare `switch_backend: "ovs"` et `spanning_tree.mode: "rstp"`.
+Le profil initial exige un switch OCI, dialect Linux, ports physiques access,
+au moins 64 Mio alloués (128 Mio par switch dans l'exemple), sans startup non
+suivi ni LACP. Les politiques de sécurité/multicast/LLDP propres au backend
+Linux ne sont pas portées automatiquement. Trunks, MSTP/PVST, guards kernel,
+CLI IOS et modifications à chaud par l'adapter sont refusés. Priorité, coût et
+priorité de port, max_age et forward_delay sont configurés dans OVS. Le hello
+reste à 2 s pour ce profil. Les trois switches d'un composant doivent utiliser
+le même protocole et des timers cohérents.
+
+La création du bridge avec `rstp_enable=true`, STP classique désactivé et ports
+access se fait dans une transaction OVSDB. SW1 a la priorité 4096, SW2 8192 et
+SW3 12288. RSTP échange ses BPDUs, choisit le root et les rôles de port. `inspect`
+retourne les véritables statuts et compteurs OVSDB ; une absence de daemon ou de
+données reste indisponible. L'audit VLAN basé sur netlink Linux bridge reste
+explicitement inconnu pour OVS ; aucune table kernel fictive n'est produite.
+
+Pour couper le chemin direct de SW3 vers SW1 :
+
+```bash
+sudo python3 -m network_labs.appliances exec rstp-lan SW3 -- /bin/ip link set eth1 down
+sudo python3 -m network_labs.appliances exec rstp-lan PC1 -- /bin/ping -c 3 192.0.2.30
+sudo python3 -m network_labs.appliances inspect rstp-lan SW3
+sudo python3 -m network_labs.appliances exec rstp-lan SW3 -- /bin/ip link set eth1 up
+```
+
+SW3 doit utiliser eth2 via SW2 après reconvergence. Le délai dépend du scénario
+et des observations : le premier ping peut perdre des paquets pendant le
+changement. Les statuts OVSDB sont publiés de manière asynchrone ; ils ne sont
+pas une preuve de livraison ni un certificat global de convergence.
+
+`save`/`export` comparent les colonnes gérées de configuration Bridge/Port à leur
+baseline, hors statuts RSTP/compteurs volatils, et exigent le daemon joignable.
+Ils ne constituent pas un export complet des règles OpenFlow ou d'extensions
+non gérées. Un changement de VLAN par ovs-vsctl est détecté. La perte du daemon
+reste une panne, sans reprise automatique ou promesse sur les flows déjà en
+cache ; utiliser stop/restore avec une configuration startup déjà sauvée.
+`restore` recrée base, switches et protocoles, sans snapshot des flows/FDB/timers.
+Les limites et mesures mémoire du benchmark précédent ne s'étendent pas à OVS.
+
+La validation native observe l'élection/rôles d'un triangle, capture et décode
+une vraie BPDU RSTP version/type 2, mesure le retour du ping après coupure d'un
+root port, vérifie l'isolation access VLAN et la détection de dérive, l'absence
+du daemon après SIGKILL, le refus de sauvegarde, puis le restore et nettoyage.
+Les liens/routes/règles nft et la base OVS Bridge de l'hôte sont comparés avant
+et après. Références primaires : [schéma OVS](https://www.openvswitch.org/support/dist-docs/ovs-vswitchd.conf.db.5.html),
+[namespaces OVS](https://docs.openvswitch.org/en/latest/topics/networking-namespaces/).

@@ -50,6 +50,10 @@ def drift(manager):
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())
         links = {item['ifname']: item for item in actual['links']}
+        if node.get('switch_backend') == 'ovs':
+            allowed.add('ovs-system')
+            if actual.get('ovs', {}).get('policy_verified') is not True:
+                errors.append(node['name'] + ': OVS policy differs or is unavailable')
         if set(links) != allowed:
             errors.append(node['name'] + ': unexpected/missing interfaces')
         for interface in active:
@@ -76,7 +80,7 @@ def drift(manager):
                     if r.get('dst') != 'default' and r.get('protocol') != 'kernel'}
         if observed != configured:
             errors.append(node['name'] + ': static routes differ')
-        if node['role'] == 'switch':
+        if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
             from .lacp import drift as channel_drift
             from .spanning_tree import drift as tree_drift
             errors.extend(tree_drift(node, actual['links']))

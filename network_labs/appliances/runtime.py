@@ -122,7 +122,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -146,6 +146,10 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if lldpd is not None:
         from .lldp import rootfs_assets
         lldp_additions = rootfs_assets(lldpd, lldpcli)
+    ovs_additions = []
+    if openvswitch:
+        from .ovs import rootfs_assets as ovs_assets
+        ovs_additions = ovs_assets()
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -154,11 +158,13 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions:
+    for source, destination in additions + lldp_additions + ovs_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
         path.chmod(0o755)
+    if ovs_additions:
+        write_json(target / 'etc/network-labs-ovs-assets.json', {'files': [str(p) for _, p in ovs_additions]})
     if lldp_additions:
         with (target / 'etc/passwd').open('a') as account:
             account.write('_lldpd:x:65534:65534:LLDP:/run/lldpd:/bin/sh\n')
@@ -232,6 +238,12 @@ class Manager:
         for node in spec['nodes']:
             if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
                 raise RuntimeFailure(node['name'] + ': LLDP requires a rootfs built with --lldpd and --lldpcli.')
+        if any(n.get('switch_backend') == 'ovs' for n in spec['nodes']):
+            if not Path('/sys/module/openvswitch').exists():
+                raise RuntimeFailure('OVS requires a preloaded openvswitch module: sudo modprobe openvswitch. No module is auto-loaded.')
+            for node in spec['nodes']:
+                if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
+                    raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
         if any(n.get('firewall') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
@@ -293,6 +305,8 @@ class Manager:
                     self.start_oci(spec, node, i)
                 else:
                     self.start_vm(node, i)
+            from .ovs import start_servers as start_ovs
+            start_ovs(self)
             from .dns import start_servers as start_dns
             start_dns(self)
             from .lldp import start_servers as start_lldp

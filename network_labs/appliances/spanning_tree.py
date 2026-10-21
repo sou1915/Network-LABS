@@ -1,7 +1,7 @@
 """Single common spanning tree, driven by the Linux IEEE 802.1D engine.
 
-RSTP is deliberately rejected: setting stp_state=1 alone is not an RSTP
-implementation in isolated namespaces. Never infer a tree from the topology.
+RSTP is accepted only for the explicit OVS backend. Kernel stp_state=1
+remains classic STP. Never infer a tree from the topology.
 """
 import copy
 import json
@@ -18,8 +18,8 @@ def validate_tree(node):
     policy = node.setdefault('spanning_tree', {})
     keys(policy, ('mode', 'priority', *TIMERS, 'ports'), 'spanning_tree')
     mode = policy.setdefault('mode', 'off')
-    if mode not in ('off', 'stp'):
-        raise ValueError('Native mode supports off or classic STP only; RSTP needs a verified userspace-STP namespace backend, not a renamed kernel STP.')
+    if mode not in ('off', 'stp', 'rstp') or (mode == 'rstp' and node.get('switch_backend') != 'ovs'):
+        raise ValueError('Linux bridge supports off/classic STP; RSTP requires the explicit OVS backend.')
     priority = integer(policy.setdefault('priority', 32768), 0, 61440, 'Bridge priority')
     if priority % 4096:
         raise ValueError('Bridge priority must be a multiple of 4096.')
@@ -35,7 +35,7 @@ def validate_tree(node):
         raise ValueError('Spanning tree requires OCI switch nodes.')
     if mode == 'off' and ports:
         raise ValueError('STP port parameters require enabled STP.')
-    if mode == 'stp':
+    if mode in ('stp', 'rstp'):
         for name in node['switchports']:
             port = copy.deepcopy(ports.setdefault(name, {}))
             ports[name] = port
@@ -70,9 +70,9 @@ def validate_components(spec, edges):
         if len(modes) > 1:
             raise ValueError('Initial common-tree backend requires the same STP mode on every switch in a connected component.')
         count = sum(a in component and b in component for a, b in switch_edges)
-        if count >= len(component) and modes != {'stp'}:
+        if count >= len(component) and modes not in ({'stp'}, {'rstp'}):
             raise ValueError('Layer-2 switch loop requires STP on every switch in the component.')
-        if modes == {'stp'} and len({tuple(p[k] for k in TIMERS) for p in policies}) > 1:
+        if modes in ({'stp'}, {'rstp'}) and len({tuple(p[k] for k in TIMERS) for p in policies}) > 1:
             raise ValueError('Initial common-tree backend requires matching STP timers across connected switches.')
 
 

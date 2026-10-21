@@ -33,6 +33,105 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_ovs_real_rstp_bpdus_failover_vlan_drift_and_restore(self):
+        from network_labs.appliances.examples import rstp_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.ovs import vsctl
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        host_db = run(['ovs-vsctl', '--timeout=2', '--format=json', 'list', 'Bridge'], check=False).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', openvswitch=True)
+            spec = rstp_lab(rootfs); spec['name'] = 'rstp-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait_tree(root_port='eth1', alternate=True):
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    actual = {name: manager.inspect(name)['spanning_tree'] for name in ('SW1', 'SW2', 'SW3')}
+                    root = actual['SW1']['bridge_id']
+                    if root and all(t['protocol'] == 'rstp' and t['root_id'] == root and
+                                    len(t['ports']) == 3 and all(p['state'] in ('forwarding', 'discarding', 'disabled') for p in t['ports'].values()) for t in actual.values()) and actual['SW3']['root_port'] == root_port and (not alternate or any(p['role'] == 'Alternate' and p['state'] == 'discarding' for t in actual.values() for p in t['ports'].values())):
+                        return actual
+                    time.sleep(0.2)
+                self.fail('Actual OVS RSTP status did not settle: ' + repr(actual))
+            def wait_ping():
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '192.0.2.30', check=False)
+                    if result.returncode == 0:
+                        return
+                    time.sleep(0.1)
+                self.fail('RSTP-protected LAN did not deliver actual ICMP')
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    first = wait_tree(); wait_ping()
+                    self.assertTrue(first['SW1']['is_root'])
+                    self.assertFalse(first['SW3']['is_root'])
+                    self.assertEqual(first['SW3']['root_port'], 'eth1')
+                    self.assertTrue(any(p['role'] == 'Alternate' and p['state'] == 'discarding' for t in first.values() for p in t['ports'].values()))
+                cap = capture(Manager(spec['name']), 'SW1', 'eth1', Path(folder) / 'rstp.pcap',
+                              seconds=5, packets=1, expression='ether dst 01:80:c2:00:00:00')
+                self.assertEqual(cap['captured_packets'], 1)
+                decoded = run(['tcpdump', '-n', '-vv', '-r', Path(folder) / 'rstp.pcap']).stdout
+                self.assertIn('802.1w', decoded)
+                payload = (Path(folder) / 'rstp.pcap').read_bytes()[40:]
+                self.assertEqual(payload[14:21], b'\x42\x42\x03\x00\x00\x02\x02')
+                with manager.locked():
+                    start = time.monotonic()
+                    manager.ns(5, 'ip', 'link', 'set', 'eth1', 'down')
+                    wait_ping()
+                    elapsed = time.monotonic() - start
+                    self.assertLess(elapsed, 15)
+                    after = wait_tree('eth2', alternate=False)
+                    self.assertEqual(after['SW3']['root_port'], 'eth2')
+                    print('RSTP_FAILOVER_PING_OBSERVED_SECONDS=' + str(round(elapsed, 3)))
+                    manager.ns(5, 'ip', 'link', 'set', 'eth1', 'up')
+                    wait_tree(); wait_ping()
+                    vsctl(manager, 'SW3', 'set', 'Port', 'eth0', 'tag=20')
+                    deadline = time.monotonic() + 8
+                    while True:
+                        result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '192.0.2.30', check=False)
+                        if result.returncode or time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.1)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(manager.inspect('SW3')['ovs']['policy_verified'])
+                    with self.assertRaisesRegex(RuntimeFailure, 'OVS'):
+                        manager.write_startup()
+                    vsctl(manager, 'SW3', 'set', 'Port', 'eth0', 'tag=10')
+                    wait_ping()
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.crun('exec', 'SW3', '/bin/sh', '-c', '/bin/kill -KILL "$(/bin/cat /run/ovs/vswitchd.pid)"')
+                    self.assertFalse(manager.inspect('SW3')['ovs']['controller_available'])
+                    self.assertEqual(manager.inspect('SW3')['spanning_tree']['protocol'], 'unavailable')
+                    with self.assertRaisesRegex(RuntimeFailure, 'OVS'):
+                        manager.write_startup()
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    restored = wait_tree(); wait_ping()
+                    self.assertTrue(restored['SW1']['is_root'])
+                    self.assertTrue(all(manager.inspect(n)['ovs']['policy_verified'] for n in ('SW1', 'SW2', 'SW3')))
+            except BaseException:
+                for node in ('SW1', 'SW2', 'SW3'):
+                    path = manager.directory / node / 'ovs.log'
+                    if path.exists():
+                        print(node + ' OVS LOG:\n' + path.read_text(errors='replace')[-5000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+        self.assertEqual(run(['ovs-vsctl', '--timeout=2', '--format=json', 'list', 'Bridge'], check=False).stdout, host_db)
+
     def test_appliance_lldp_real_neighbors_pcap_link_loss_daemon_loss_policy_drift_and_restore(self):
         from network_labs.appliances.examples import lldp_lab
         from network_labs.appliances.firewall import fingerprint
