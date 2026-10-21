@@ -33,6 +33,111 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_ab_dhcp_relay_real_dora_renew_loss_drift_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import dhcp_relay_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.dhcp_relay import start_servers
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', dnsmasq=shutil.which('dnsmasq'))
+            spec = dhcp_relay_lab(rootfs); spec['name'] = 'relay-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def addresses(index):
+                return [a['local'] for link in json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
+                        for a in link.get('addr_info', []) if a.get('scope') == 'global']
+            def wait_for(predicate, label, seconds=15):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.1)
+                self.fail('Timed out waiting for ' + label)
+            def ready():
+                wait_for(lambda: addresses(0) == ['192.0.2.100'] and bool(addresses(1)), 'real remote DHCP leases')
+                self.assertNotEqual(addresses(0), addresses(1))
+                self.assertTrue(addresses(1)[0].startswith('192.0.2.'))
+                for index in (0, 1):
+                    default = json.loads(manager.ns(index, 'ip', '-j', 'route', 'show', 'default').stdout)
+                    self.assertTrue(any(row.get('gateway') == '192.0.2.1' for row in default))
+            def signal_client(signal):
+                manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -' + signal + ' "$(/bin/cat /run/udhcpc.pid)"')
+            def release():
+                signal_client('USR2')
+                wait_for(lambda: not addresses(0), 'released address removed')
+            def packets(filename, node, interface, action):
+                event = threading.Event(); path = Path(folder) / filename
+                future = pool.submit(capture, Manager(spec['name']), node, interface, path,
+                                     seconds=4, packets=100, expression='udp and (port 67 or port 68)', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('DHCP capture not ready')
+                with manager.locked():
+                    action()
+                result = future.result(timeout=8)
+                self.assertGreater(result['captured_packets'], 0)
+                return run(['tcpdump', '-nn', '-vvv', '-r', str(path)]).stdout
+            try:
+                with manager.locked():
+                    manager.start(spec); ready()
+                    manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10')
+                    self.assertTrue(manager.inspect('SW1')['dhcp_relay']['configuration_verified'])
+                    release()
+                dora = packets('dora.pcap', 'DHCP1', 'eth0', lambda: signal_client('USR1'))
+                for message in ('Discover', 'Offer', 'Request', 'ACK', 'Gateway-IP 192.0.2.1'):
+                    self.assertIn(message, dora)
+                with manager.locked():
+                    ready()
+                renew = packets('renew.pcap', 'DHCP1', 'eth0', lambda: signal_client('USR1'))
+                self.assertIn('Request', renew); self.assertIn('ACK', renew)
+                with manager.locked():
+                    ready()
+                    manager.crun('exec', 'SW1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/dhcp-relay.pid)"')
+                    wait_for(lambda: manager.inspect('SW1')['dhcp_relay']['listener_snapshot'] == [], 'relay stopped')
+                    self.assertTrue(manager.inspect('SW1')['dhcp_relay']['configuration_verified'])
+                    manager.crun('exec', 'PC2', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10')
+                    release()
+                outage = packets('outage.pcap', 'PC1', 'eth0', lambda: signal_client('USR1'))
+                self.assertIn('Discover', outage)
+                self.assertNotIn('Offer', outage); self.assertNotIn('ACK', outage)
+                with manager.locked():
+                    self.assertEqual(addresses(0), [])
+                    start_servers(manager); ready()
+                    path = manager.directory / 'SW1/files/dhcp-relay.conf'
+                    original = path.read_text()
+                    try:
+                        path.write_text(original + '# external drift\n')
+                        self.assertFalse(manager.inspect('SW1')['dhcp_relay']['configuration_verified'])
+                        with self.assertRaisesRegex(RuntimeFailure, 'DHCP relay'):
+                            manager.write_startup()
+                    finally:
+                        path.write_text(original)
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ready()
+                    manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10')
+            except Exception:
+                for node, filename in (('SW1', 'dhcp-relay.log'), ('DHCP1', 'dhcp.log'), ('PC1', 'dhcp.log')):
+                    path = manager.directory / node / filename
+                    if path.exists():
+                        print(node + ': ' + path.read_text()[-6000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
         from network_labs.appliances.examples import static_routing_lab
         from network_labs.appliances.persistence import load_startup

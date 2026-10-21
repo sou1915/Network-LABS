@@ -31,6 +31,11 @@ esac
 '''
 
 
+def pool_network(node):
+    config = node['dhcp_server']
+    return ipaddress.IPv4Network(config['network'], strict=True) if 'network' in config else ipaddress.IPv4Interface(addresses(node)[config['interface']]).network
+
+
 def validate_reservations(node):
     from .spec import keys
     from .port_security import mac_address
@@ -39,6 +44,7 @@ def validate_reservations(node):
     if not isinstance(reservations, list) or len(reservations) > 256:
         raise ValueError('DHCP reservations must be an array with at most 256 entries.')
     local = ipaddress.IPv4Interface(addresses(node)[config['interface']])
+    network = pool_network(node)
     macs, ips = set(), set()
     for entry in reservations:
         keys(entry, ('mac', 'address'), 'DHCP reservation')
@@ -46,7 +52,7 @@ def validate_reservations(node):
         if not isinstance(entry.get('address'), str):
             raise ValueError('DHCP reservation address must be IPv4 text.')
         address = ipaddress.IPv4Address(entry['address'])
-        if address not in local.network or address in (local.network.network_address, local.network.broadcast_address, local.ip) or str(address) == config['router'] or address.is_multicast or address.is_loopback or address.is_unspecified:
+        if address not in network or address in (network.network_address, network.broadcast_address, local.ip) or str(address) == config['router'] or address.is_multicast or address.is_loopback or address.is_unspecified:
             raise ValueError('DHCP reservation requires a usable address in the server subnet, distinct from server/router.')
         if mac in macs or address in ips:
             raise ValueError('DHCP reservations require unique MAC addresses and unique IPv4 addresses.')
@@ -57,12 +63,12 @@ def validate_reservations(node):
 
 def server_config(node):
     config = node['dhcp_server']
-    address = ipaddress.IPv4Interface(addresses(node)[config['interface']])
+    network = pool_network(node)
     maximum = int(ipaddress.IPv4Address(config['end'])) - int(ipaddress.IPv4Address(config['start'])) + 1
     lines = [f'interface {config["interface"]}', f'start {config["start"]}', f'end {config["end"]}',
              f'max_leases {maximum}', 'remaining yes', 'auto_time 30',
              'lease_file /run/udhcpd.leases', 'pidfile /run/udhcpd.pid',
-             f'option subnet {address.netmask}', f'option lease {config["lease_seconds"]}']
+             f'option subnet {network.netmask}', f'option lease {config["lease_seconds"]}']
     if config['router']:
         lines.append('option router ' + config['router'])
     if config['dns']:
@@ -80,6 +86,7 @@ def observe_server(manager, node):
     return {**observation, 'source': 'Declared BusyBox DHCP policy and bounded container config-file observation',
             'reservations': node['dhcp_server'].get('reservations', []),
             'pool': {key: node['dhcp_server'][key] for key in ('interface', 'start', 'end')},
+            'pool_network': str(pool_network(node)),
             'note': 'Reservations are declared policy, not observed leases or proof the daemon is running/loaded unchanged. Actual client addresses and DHCP snooping ACKs are separate evidence. No runtime lease snapshot.'}
 
 

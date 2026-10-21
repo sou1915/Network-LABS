@@ -102,6 +102,14 @@ def explain_node(node, actual):
         _add(findings, 'DHCP_RESERVATIONS',
              f"{len(node['dhcp_server'].get('reservations', []))} réservations MAC/IP configurées ; ce ne sont pas des baux observés ni une preuve de disponibilité du serveur.",
              {'declared_reservations': node['dhcp_server'].get('reservations', [])})
+    if node.get('dhcp_relay') is not None:
+        relay = actual.get('dhcp_relay', {})
+        verified = relay.get('configuration_verified') is True
+        _add(findings, 'DHCP_RELAY_CONFIG' if verified else 'DHCP_RELAY_CONFIG_UNVERIFIED',
+             'Relais DHCP IPv4 : ' + ('fichier géré conforme.' if verified else 'fichier absent/modifié/non vérifié.'),
+             {'policy': node['dhcp_relay'], 'configuration_verified': verified}, 'info' if verified else 'warning')
+        _add(findings, 'DHCP_RELAY_LISTENERS', 'Sockets UDP/67 observés ; ne prouvent pas une acquisition DHCP réussie.',
+             {'listeners': relay.get('listener_snapshot')}, 'unknown' if relay.get('listener_snapshot') is None else 'info')
 
     from .snooping import effective
     if effective(node) is not None:

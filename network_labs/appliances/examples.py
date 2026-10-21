@@ -339,3 +339,26 @@ def static_routing_lab(rootfs):
     return validate({'version': 2, 'name': 'static-routing-lan', 'nodes': nodes, 'links': [
         [['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['R1', 'eth0']],
         [['R1', 'eth1'], ['PC2', 'eth0']]]})
+
+
+def dhcp_relay_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = [{'name': 'PC' + str(i), 'runtime': 'oci', 'rootfs': rootfs,
+              'interfaces': {'eth0': ''}, 'dhcp_clients': ['eth0'],
+              'interface_macs': {'eth0': f'02:00:00:00:20:0{i}'}} for i in (1, 2)]
+    nodes.append({'name': 'SW1', 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs,
+                  'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''}, 'vlans': [10, 20], 'forwarding': True,
+                  'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 10},
+                                  'eth2': {'mode': 'access', 'vlan': 20}},
+                  'svis': {'vlan10': {'vlan': 10, 'address': '192.0.2.1/24'},
+                           'vlan20': {'vlan': 20, 'address': '198.51.100.1/24'}},
+                  'dhcp_relay': {'interface': 'vlan10', 'upstream_interface': 'vlan20', 'server': '198.51.100.10'}})
+    nodes.append({'name': 'DHCP1', 'runtime': 'oci', 'rootfs': rootfs,
+                  'interfaces': {'eth0': '198.51.100.10/24'},
+                  'routes': [{'destination': '192.0.2.0/24', 'gateway': '198.51.100.1', 'interface': 'eth0'}],
+                  'dhcp_server': {'interface': 'eth0', 'network': '192.0.2.0/24',
+                                  'start': '192.0.2.100', 'end': '192.0.2.110', 'router': '192.0.2.1',
+                                  'reservations': [{'mac': '02:00:00:00:20:01', 'address': '192.0.2.100'}]}})
+    return validate({'version': 2, 'name': 'dhcp-relay-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW1', 'eth1']],
+        [['DHCP1', 'eth0'], ['SW1', 'eth2']]]})

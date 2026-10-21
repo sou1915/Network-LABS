@@ -154,7 +154,7 @@ Un serveur DHCP expose un objet `dhcp_server` : interface numérotée, `start`,
 `end`, `router` optionnel, `dns` optionnel et `lease_seconds`. Un client utilise
 `dhcp_clients: ["eth0"]`, avec adresse vide et sans passerelle statique.
 La première version limite le pool à 256 adresses et le client à une interface.
-Pas de DHCP relay, DHCPv6 ou serveur DNS fourni automatiquement. Les réservations explicites MAC/IP sont décrites plus bas.
+Le relay DHCPv4 limité est décrit plus bas. Pas de DHCPv6 ou serveur DNS fourni automatiquement. Les réservations explicites MAC/IP sont décrites plus bas.
 
 ## Sauvegarder, arrêter et restaurer
 
@@ -2292,3 +2292,69 @@ ARP vers FAILED pour un peer absent, entrée NOARP visible, SVI shutdown puis
 récupération. Les contrats vérifient aussi STALE/DELAY/PROBE, données partielles,
 absence de modification du relevé et sortie texte avec valeurs effectives.
 Référence des états : [ip-neighbour, documentation iproute2](https://man7.org/linux/man-pages/man8/ip-neighbour.8.html).
+
+
+## DHCPv4 relay: remote single-pool server
+
+`example --dhcp-relay` connects two DHCP clients in VLAN 10 to a BusyBox
+DHCP server in VLAN 20 through a Linux L3 switch. A real dnsmasq process
+relays DHCP; it does not provide DNS (`port=0`). Client addresses/default
+routes are installed by real udhcpc events. Acquisition is asynchronous.
+
+```bash
+sudo apt-get install dnsmasq-base
+python3 -m network_labs.appliances rootfs \
+  --busybox "$(command -v busybox)" --dnsmasq "$(command -v dnsmasq)" \
+  --output "$HOME/network-labs-rootfs-relay"
+python3 -m network_labs.appliances example --dhcp-relay \
+  --rootfs "$HOME/network-labs-rootfs-relay" > dhcp-relay-lan.json
+sudo python3 -m network_labs.appliances start dhcp-relay-lan.json
+sudo python3 -m network_labs.appliances inspect dhcp-relay-lan PC1
+sudo python3 -m network_labs.appliances inspect dhcp-relay-lan SW1
+sudo python3 -m network_labs.appliances exec dhcp-relay-lan PC1 -- /bin/ping -c 3 198.51.100.10
+```
+
+Use a fresh output directory for the rootfs. `dnsmasq-base` provides the
+binary copied with its dependencies into the appliance image; the relay
+runs inside SW1, not as a host service.
+
+The relay's manifest policy is:
+
+```json
+"dhcp_relay": {
+  "interface": "vlan10",
+  "upstream_interface": "vlan20",
+  "server": "198.51.100.10"
+}
+```
+
+The first profile requires a forwarding OCI router or Linux L3 switch, two
+distinct UP static interfaces/SVIs, disjoint subnets and one directly attached
+upstream server. The local client-side IP becomes `giaddr`. The upstream
+interface restricts acceptance of server replies. The server uses the explicit
+`dhcp_server.network: "192.0.2.0/24"` for pool boundaries, reservations and the
+DHCP subnet-mask option. Without this optional field, existing servers retain
+their interface-subnet behavior. Remote pools must be disjoint from the server's
+connected subnets. Only one pool is supported; BusyBox is not a multi-subnet
+pool selector. The example includes the server's return route through
+198.51.100.1, also needed for direct client renewal traffic.
+
+PC1 has reservation 192.0.2.100; PC2 receives another address from the pool.
+`inspect`/`explain` distinguish managed config-file conformity from UDP socket
+observations. Neither proves that a daemon loaded the file or delivered a lease.
+External config drift blocks save/export. Restore starts new processes and
+acquires fresh leases; it does not snapshot lease files.
+
+Live network edits on a relay node are refused before journaling. Change the
+manifest and recreate the lab. No `ip helper-address` CLI adapter, DHCPv6,
+Option 82, multiple pools/relays, HA or generic UDP forwarding is implemented.
+This initial relay profile cannot share its node with DHCP/DNS/LLDP services,
+untracked startup commands or DHCP snooping/ARP inspection/IP source guard.
+Other nodes may still run their own services.
+
+The opt-in native case captures DORA and `giaddr` at the server, renewal
+Request/ACK, and unanswered client Discover traffic while the relay is stopped.
+It checks address removal/reacquisition, independent routing of an existing
+lease, configuration drift, save/restore and unchanged host networking.
+
+Reference: [dnsmasq relay options](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).
