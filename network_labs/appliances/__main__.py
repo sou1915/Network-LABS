@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--port-security', action='store_true', help='Three-node LAN with static secure source-MAC admission.')
     sample.add_argument('--stp', action='store_true', help='Nine-node VLAN LAN on a triangle with real classic STP.')
     sample.add_argument('--lacp', action='store_true', help='Six-node VLAN LAN with a negotiated two-link LACP trunk.')
     sample.add_argument('--enterprise', action='store_true', help='20-node LAN with router, firewall, DHCP and WAN.')
@@ -79,10 +80,10 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab
-            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp)) > 1:
-                raise ValueError('Choose --campus, --firewall, --enterprise or --lacp/--stp.')
-            result = stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab
+            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security)) > 1:
+                raise ValueError('Choose only one reference scenario.')
+            result = port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
         elif args.command == 'benchmark':

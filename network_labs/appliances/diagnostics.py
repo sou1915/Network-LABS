@@ -54,6 +54,19 @@ def explain_node(node, actual):
             _add(findings, 'LINK_NO_CARRIER', f'{port} : interface UP, sans liaison opérationnelle signalée par le kernel.',
                  {'port': port, 'flags': flags}, 'warning')
 
+    if node.get('port_security'):
+        security = actual.get('port_security', {})
+        verified = security.get('available') is True and security.get('fingerprint_matches') is True
+        _add(findings, 'PORT_SECURITY_POLICY' if verified else 'PORT_SECURITY_UNVERIFIED',
+             'Port security statique : ' + ('règles gérées observées conformes.' if verified else 'règles absentes, modifiées ou non vérifiées.'),
+             {'available': security.get('available'), 'fingerprint_matches': security.get('fingerprint_matches')}, 'info' if verified else 'warning')
+        for port, observation in security.get('ports', {}).items():
+            denied = observation.get('dropped_packets')
+            _add(findings, 'PORT_SECURITY_DROPS' if denied is not None and denied > 0 else 'PORT_SECURITY_COUNTERS',
+                 f'{port} : paquets refusés cumulés=' + (str(denied) if denied is not None else '?') +
+                 '. Compteur de trames, pas un nombre de machines ou un résultat de ping ; pas de shutdown automatique.',
+                 {'port': port, **observation, 'policy_verified': verified}, 'warning' if denied is not None and denied > 0 else 'info')
+
     tree = actual.get('spanning_tree')
     if tree:
         protocol = tree.get('protocol')

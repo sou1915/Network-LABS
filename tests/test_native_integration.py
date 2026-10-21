@@ -20,6 +20,92 @@ from network_labs.appliances.spec import example, namespace
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_static_port_security_real_source_rejection_live_policy_drift_and_restore(self):
+        from network_labs.appliances.examples import port_security_lab
+        from network_labs.appliances.diagnostics import explain
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.port_security import TABLE
+        before_routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        before_links = host_links()
+        host_policy = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = port_security_lab(rootfs); spec['name'] = 'secure-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            original, extra = '02:00:00:00:01:10', '02:00:00:00:01:99'
+            def ping():
+                return manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '192.0.2.20', check=False).returncode == 0
+            def set_mac(address):
+                manager.crun('exec', 'PC1', '/bin/ip', 'link', 'set', 'dev', 'eth0', 'address', address)
+                for index in (0, 2):
+                    manager.ns(index, 'ip', 'neigh', 'flush', 'dev', 'eth0')
+            def configure(text):
+                return manager.configure_ios('SW1', 'conf t\ninterface fa0/1\n' + text + '\nend')
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    self.assertTrue(ping())
+                    before = manager.inspect('SW1')['port_security']
+                    self.assertTrue(before['fingerprint_matches'])
+                    self.assertGreater(before['ports']['eth0']['accepted_packets'], 0)
+                    self.assertEqual(next(l for l in manager.inspect('PC1')['links'] if l['ifname'] == 'eth0')['address'], original)
+                    set_mac(extra)
+                    self.assertFalse(ping(), 'Unknown source MAC crossed the protected access port')
+                    denied = manager.inspect('SW1')['port_security']
+                    self.assertTrue(denied['fingerprint_matches'])
+                    self.assertGreater(denied['ports']['eth0']['dropped_packets'], before['ports']['eth0']['dropped_packets'])
+                    switch = manager.inspect('SW1')
+                    self.assertTrue('UP' in next(l for l in switch['links'] if l['ifname'] == 'eth0')['flags'])
+                    self.assertNotIn(extra, [entry.get('mac') for entry in switch['fdb']])
+                    findings = explain(manager, 'SW1')['nodes'][0]['findings']
+                    self.assertIn('PORT_SECURITY_DROPS', {f['code'] for f in findings})
+                    revision = manager.state['revision']
+                    with self.assertRaises(ValueError):
+                        configure('shutdown\nswitchport port-security maximum 2')
+                    self.assertEqual(manager.state['revision'], revision)
+                    self.assertFalse(ping())
+                    configure('switchport port-security maximum 2\nswitchport port-security mac-address ' + extra)
+                    self.assertTrue(ping(), 'New explicitly admitted MAC did not recover packet delivery')
+                    counters = manager.inspect('SW1')['port_security']['ports']['eth0']['accepted_packets']
+                    configure('no shutdown')
+                    self.assertGreaterEqual(manager.inspect('SW1')['port_security']['ports']['eth0']['accepted_packets'], counters)
+                    set_mac(original)
+                    self.assertTrue(ping())
+                    manager.write_startup()
+                    manager.ns(1, 'nft', 'delete', 'table', 'bridge', TABLE)
+                    self.assertFalse(manager.inspect('SW1')['port_security']['available'])
+                    self.assertIn('PORT_SECURITY_UNVERIFIED', {f['code'] for f in explain(manager, 'SW1')['nodes'][0]['findings']})
+                    with self.assertRaisesRegex(RuntimeFailure, 'port security'):
+                        manager.write_startup()
+                    # Explicitly remove/recreate policy after out-of-band drift.
+                    configure('no switchport port-security')
+                    configure('switchport port-security\nswitchport port-security mac-address ' + original)
+                    manager.write_startup()
+                    saved = load_startup(spec['name'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    self.assertTrue(ping(), 'Stable client MAC and secure policy did not survive restore')
+                    self.assertTrue(manager.inspect('SW1')['port_security']['fingerprint_matches'])
+                    set_mac(extra)
+                    self.assertFalse(ping(), 'Restored static policy admitted an unlisted MAC')
+                    set_mac(original)
+                    configure('no switchport port-security')
+                    from network_labs.appliances.port_security import read_table
+                    self.assertIsNone(read_table(manager, 1))
+                    set_mac(extra)
+                    self.assertTrue(ping(), 'Removing security left a hidden drop policy')
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertEqual(host_links(), before_links)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, before_routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_policy)
+
     def test_capture_real_icmp_concurrent_cli_deadline_invalid_filter_and_stop(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

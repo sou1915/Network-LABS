@@ -97,6 +97,33 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    if command.startswith(('switchport port-security', 'no switchport port-security')):
+                        if interface not in node['interfaces'] or node['switchports'].get(interface, {}).get('mode') != 'access':
+                            raise ValueError('Port security requires a physical access port.')
+                        policies = node['port_security']
+                        if command == 'no switchport port-security':
+                            policies.pop(interface, None); continue
+                        if interface not in policies:
+                            policies[interface] = {'maximum': 1, 'mac_addresses': [], 'violation': 'restrict'}
+                        policy = policies[interface]
+                        if command == 'switchport port-security':
+                            continue
+                        match = re.fullmatch(r'switchport port-security maximum (\d+)', command)
+                        if match:
+                            policy['maximum'] = int(match[1]); continue
+                        if command == 'switchport port-security violation restrict':
+                            policy['violation'] = 'restrict'; continue
+                        match = re.fullmatch(r'(no )?switchport port-security mac-address (\S+)', command)
+                        if match:
+                            from .port_security import mac_address
+                            address = mac_address(match[2])
+                            if match[1]:
+                                if address in policy['mac_addresses']:
+                                    policy['mac_addresses'].remove(address)
+                            elif address not in policy['mac_addresses']:
+                                policy['mac_addresses'].append(address)
+                            continue
+                        raise ValueError('Static-only port security: maximum, mac-address and violation restrict supported; dynamic/sticky/shutdown are not implemented.')
                     if command in ('spanning-tree bpduguard enable', 'spanning-tree bpduguard disable',
                                    'no spanning-tree bpduguard enable', 'spanning-tree guard root',
                                    'spanning-tree guard none', 'no spanning-tree guard root'):

@@ -27,6 +27,8 @@ def drift(manager):
             from .firewall import fingerprint
             if fingerprint(actual['firewall']) != manager.read().get('firewall_fingerprints', {}).get(node['name']):
                 errors.append(node['name'] + ': firewall rules differ')
+        if node.get('port_security') and actual.get('port_security', {}).get('fingerprint_matches') is not True:
+            errors.append(node['name'] + ': port security rules differ or are unavailable')
         expected = addresses(node)
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())
@@ -36,6 +38,8 @@ def drift(manager):
         for interface in active:
             if interface not in links:
                 continue
+            if interface in node.get('interface_macs', {}) and links[interface].get('address', '').lower() != node['interface_macs'][interface]:
+                errors.append(node['name'] + '/' + interface + ': MAC address differs')
             if ('UP' in links[interface].get('flags', [])) != (interface not in node['shutdown']):
                 errors.append(node['name'] + '/' + interface + ': administrative state differs')
             if interface not in node['dhcp_clients']:

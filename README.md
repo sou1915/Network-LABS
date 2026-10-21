@@ -251,3 +251,9 @@ passivement les différences RX/TX et les débits moyens par port sur deux relev
 Les changements d'identité et diminutions de compteurs détectés rendent les taux
 indisponibles ; aucun test de livraison n'est implicite.
 Voir [le guide LAN](docs/NATIVE_LAN_CORE.md#débits-passifs-sur-un-intervalle).
+
+Le scénario natif `example --port-security` ajoute l'admission de MAC source
+statiques sur ports access OCI, avec filtrage nftables réel, compteurs,
+configuration IOS partielle et save/restore des MAC déclarées. Dynamic/sticky
+learning et shutdown automatique ne sont pas implémentés.
+Voir [le guide de port security](docs/NATIVE_LAN_CORE.md#port-security-statique-sur-ports-access).

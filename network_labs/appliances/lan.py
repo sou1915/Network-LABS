@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs')
 
 
 def addresses(node):
@@ -20,6 +20,11 @@ def addresses(node):
 
 def validate_lan(node):
     role = node['role']
+    from .port_security import mac_address
+    macs = node.setdefault('interface_macs', {})
+    if not isinstance(macs, dict) or set(macs) - set(node['interfaces']) or (macs and node['runtime'] != 'oci'):
+        raise ValueError('interface_macs: object of physical OCI interfaces required.')
+    node['interface_macs'] = {p: mac_address(value) for p, value in macs.items()}
     from .lacp import validate_channels
     members = validate_channels(node)
     bridge_ports = (set(node['interfaces']) - members) | set(node['port_channels'])
@@ -162,6 +167,8 @@ def validate_lan(node):
         if any(address and network == ipaddress.IPv4Interface(address).network for address in all_interfaces.values()):
             raise ValueError('Static route cannot replace a directly connected subnet.')
         route['gateway'] = str(gateway)
+    from .port_security import validate_security
+    validate_security(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -185,10 +192,16 @@ def configure(manager, index, node, previous=None):
     for interface in node['interfaces']:
         changed = (node['interfaces'][interface] != previous['interfaces'][interface]
                    or node['switchports'].get(interface) != previous['switchports'].get(interface)
+                   or node.get('interface_macs', {}).get(interface) != previous.get('interface_macs', {}).get(interface)
                    or (interface in node['shutdown']) != (interface in previous['shutdown']))
         if initial or changed:
             ns('ip', 'link', 'set', 'dev', interface, 'down')
+    for interface, address in node.get('interface_macs', {}).items():
+        if initial or address != previous.get('interface_macs', {}).get(interface):
+            ns('ip', 'link', 'set', 'dev', interface, 'address', address)
     if node['role'] == 'switch':
+        from .port_security import apply as apply_security
+        apply_security(manager, index, node, None if initial else previous)
         from .lacp import configure as configure_channels
         recreated = configure_channels(manager, index, node, previous)
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
@@ -268,4 +281,7 @@ def observe(manager, index, node):
             result['port_channels'] = observe_channels(manager, index, node, result['links'])
         result['vlans'] = json.loads(manager.ns(index, 'bridge', '-j', 'vlan', 'show').stdout)
         result['fdb'] = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+        if node.get('port_security'):
+            from .port_security import observe as observe_security
+            result['port_security'] = observe_security(manager, index, node)
     return result

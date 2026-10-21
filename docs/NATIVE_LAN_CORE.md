@@ -1012,3 +1012,123 @@ La validation native mesure de vrais pings pendant l'attente et arrête le lab
 entre les deux lectures pour vérifier l'indisponibilité explicite. Les tests
 unitaires couvrent les identités modifiées, diminutions, sources 32/64 bits,
 valeurs manquantes, grands entiers et l'absence de verrou pendant l'attente.
+
+## Port security statique sur ports access
+
+Le sous-ensemble natif accepte une liste de **MAC source statiques** par port
+access physique OCI. Il installe une table nftables `bridge
+network_labs_port_security`, dans le namespace du switch, avec hook `prerouting`
+avant la décision FDB. Pour chaque port protégé, une règle compte les trames dont
+la source est autorisée ; la suivante compte et droppe les autres. Aucun filtre
+IP n'est nécessaire : les trames de données ARP, IPv4 et IPv6 traversant ce hook
+sont concernées. Les ports sans politique gardent leur comportement habituel.
+Aucune règle du firewall de l'hôte n'est modifiée.
+
+C'est une admission MAC statique, pas une implémentation complète de Cisco IOS :
+
+- `maximum` vaut 1..64, et **exactement ce nombre de MAC statiques doit être
+  fourni**. Les slots restants ne sont pas appris automatiquement. Un bloc
+  incomplet est refusé avant mutation, même s'il contient `shutdown`.
+- Seul `violation restrict` est implémenté : rejet et compteurs, sans shutdown,
+  err-disable, syslog/SNMP ou timer de récupération synthétique. Ce sous-ensemble
+  choisit restrict par défaut, contrairement au défaut de certains matériels.
+- MAC unicast non nulle, format `aa:bb:cc:dd:ee:ff` ou `aabb.ccdd.eeff` ; une MAC
+  ne peut pas être déclarée sur deux ports protégés du même switch/VLAN.
+- Trunks, port-channels et membres LACP sont refusés. Dynamic learning, sticky,
+  aging, voice VLAN et apprentissage sécurisé/FDB statique ne sont pas ajoutés.
+- La règle contrôle la **source en entrée**, pas les destinations ou l'identité
+  authentifiée d'une machine. Une MAC autorisée peut être usurpée. Les paquets
+  de contrôle réservés que le bridge traite hors de ce hook ne sont pas couverts ;
+  BPDU Guard reste une fonctionnalité séparée.
+
+### Exemple prêt à tester
+
+```bash
+python3 -m network_labs.appliances example --port-security \
+  --rootfs "$HOME/network-labs-rootfs" > port-security-lan.json
+sudo python3 -m network_labs.appliances start port-security-lan.json
+sudo python3 -m network_labs.appliances exec port-security-lan PC1 -- \
+  /bin/ping -c 3 192.0.2.20
+sudo python3 -m network_labs.appliances explain port-security-lan SW1
+```
+
+PC1 porte la MAC explicite `02:00:00:00:01:10`, autorisée sur SW1 fa0/1 (=eth0).
+Changer réellement la source du PC simule une autre identité sur le même câble :
+
+```bash
+sudo python3 -m network_labs.appliances exec port-security-lan PC1 -- \
+  /bin/ip link set dev eth0 address 02:00:00:00:01:99
+sudo python3 -m network_labs.appliances exec port-security-lan PC1 -- \
+  /bin/ping -c 3 -W 1 192.0.2.20
+sudo python3 -m network_labs.appliances explain port-security-lan SW1
+```
+
+Le ping doit échouer et le compteur de rejet augmenter ; le port reste UP.
+Autoriser explicitement cette seconde MAC dans un seul bloc :
+
+```bash
+sudo python3 -m network_labs.appliances configure port-security-lan SW1 \
+  --text $'configure terminal\ninterface fa0/1\nswitchport port-security maximum 2\nswitchport port-security mac-address 0200.0000.0199\nswitchport port-security violation restrict\nend'
+sudo python3 -m network_labs.appliances exec port-security-lan PC1 -- \
+  /bin/ping -c 3 192.0.2.20
+```
+
+Le trafic doit reprendre. Pour retirer la politique : `no switchport
+port-security` dans le contexte interface. Pour remplacer une MAC sans garder
+l'ancienne, utiliser `no switchport port-security mac-address ANCIENNE`, puis
+`switchport port-security mac-address NOUVELLE` dans le même bloc.
+
+### Manifest, observations et persistance
+
+```json
+{
+  "port_security": {
+    "eth0": {
+      "maximum": 1,
+      "mac_addresses": ["02:00:00:00:01:10"],
+      "violation": "restrict"
+    }
+  }
+}
+```
+
+Sur les nodes OCI, `interface_macs` peut fixer les MAC physiques dès la création,
+par exemple `"interface_macs": {"eth0": "02:00:00:00:01:10"}` sur PC1. Sans ce
+champ, Linux choisit l'adresse ; un redémarrage peut donc la changer. La MAC
+explicite est appliquée avant UP, vérifiée par save/export et réappliquée au
+restore. Elle ne se configure pas dans cette CLI IOS partielle. La suppression
+live d'une MAC explicite exige de recréer le lab.
+
+`inspect` fournit la table effective, les compteurs de paquets/octets acceptés
+et rejetés, et `fingerprint_matches`. La conformité compare la table à la
+référence après application, en ignorant compteurs et handles ; des règles
+absentes/modifiées font refuser save/export. L'existence d'une table seule ne
+prouve pas sa conformité. `explain` expose `PORT_SECURITY_POLICY`,
+`PORT_SECURITY_UNVERIFIED`, `PORT_SECURITY_COUNTERS` et `PORT_SECURITY_DROPS`.
+Un compteur représente des trames cumulées, pas des équipements distincts, un
+nombre de violations constructeur ou le résultat d'un ping précis. Les valeurs
+indisponibles restent inconnues.
+
+Une modification de politique remplace **atomiquement toute cette table du
+switch**, et remet donc à zéro ses compteurs de port security. Un changement
+sans modification de politique conserve les compteurs. Les autres tables nft
+restent intactes. L'application participe au journal/rollback réseau existant ;
+un rollback peut également remettre ces compteurs à zéro. Save/restore conserve
+les listes statiques et les MAC déclarées, pas les compteurs. Après un changement
+MAC expérimental hors manifest, remettre PC1 à sa MAC déclarée avant save :
+
+```bash
+sudo python3 -m network_labs.appliances exec port-security-lan PC1 -- \
+  /bin/ip link set dev eth0 address 02:00:00:00:01:10
+sudo python3 -m network_labs.appliances save port-security-lan
+sudo python3 -m network_labs.appliances stop port-security-lan
+sudo python3 -m network_labs.appliances restore port-security-lan
+```
+
+La validation native vérifie pings autorisés/refusés, absence d'apprentissage FDB
+de la source rejetée, ajout d'une deuxième MAC, maintien du port UP, compteurs,
+drift/refus de sauvegarde, retrait de politique et save/restore avec MAC stable.
+Elle vérifie également l'intégrité des liens/routes/règles nft de l'hôte.
+Références : [hook bridge nftables](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering),
+[syntaxe nftables](https://netfilter.org/projects/nftables/manpage.html),
+[port security Cisco, périmètre de comparaison](https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/sec/b_179_sec_9300_cg/port_security.html).

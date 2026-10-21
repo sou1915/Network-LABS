@@ -157,3 +157,17 @@ def stp_lab(rootfs):
     links += [[['SW1', 'eth2'], ['SW2', 'eth2']], [['SW1', 'eth3'], ['SW3', 'eth2']],
               [['SW2', 'eth3'], ['SW3', 'eth3']]]
     return validate({'version': 2, 'name': 'stp-lan', 'nodes': nodes, 'links': links})
+
+
+def port_security_lab(rootfs):
+    """Static secure access port with stable client identities across restore."""
+    from .spec import example
+    spec = example(rootfs)
+    spec['name'] = 'port-security-lan'
+    spec['nodes'][0]['interface_macs'] = {'eth0': '02:00:00:00:01:10'}
+    spec['nodes'][2]['interface_macs'] = {'eth0': '02:00:00:00:02:20'}
+    switch = spec['nodes'][1]
+    switch['dialect'] = 'ios-basic'
+    switch['interface_aliases'] = {'fa0/1': 'eth0', 'fa0/2': 'eth1'}
+    switch['port_security'] = {'eth0': {'maximum': 1, 'mac_addresses': ['02:00:00:00:01:10'], 'violation': 'restrict'}}
+    return validate(spec)

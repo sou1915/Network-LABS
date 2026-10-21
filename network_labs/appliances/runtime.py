@@ -200,8 +200,8 @@ class Manager:
                 asset = Path(node[key])
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
-        if any(n.get('firewall') is not None for n in spec['nodes']) and not shutil.which('nft'):
-            raise RuntimeFailure('Managed firewall requires host nftables (nft).')
+        if any(n.get('firewall') is not None or n.get('port_security') for n in spec['nodes']) and not shutil.which('nft'):
+            raise RuntimeFailure('Managed firewall/port security requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
         existing = {line.split()[0] for line in run(['ip', 'netns', 'list']).stdout.splitlines() if line.strip()}
@@ -382,6 +382,9 @@ class Manager:
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
+        old_macs = previous['nodes'][index].get('interface_macs', {})
+        if set(old_macs) - set(candidate['nodes'][index].get('interface_macs', {})):
+            raise ValueError('Live removal of an explicit interface MAC requires stopping and recreating the lab.')
         state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
         try:
             configure(self, index, candidate['nodes'][index], previous['nodes'][index])
