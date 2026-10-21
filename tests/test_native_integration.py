@@ -262,10 +262,16 @@ class RealContainerTests(unittest.TestCase):
                     self.assertTrue(any(n.get('dst') == '10.10.0.2' and 'PERMANENT' in n.get('state', []) for n in neighbours), neighbours)
                     wait_ping('ROGUE')  # Static source authorization survives.
                     self.assertIsNone(manager.inspect('SW1')['dhcp_snooping']['bindings'])
-                    manager.configure_ios('SW1', 'conf t\ninterface fa0/1\nno shutdown\nend')
+                    manager.configure_ios('SW1', 'conf t\nip arp inspection vlan 10\ninterface fa0/1\nno shutdown\nend')
                     records.append(dict(manager.state['snooping_workers']['SW1']))
                     manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"; /bin/busybox sleep 0.2; /bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
-                    wait_ping(); manager.write_startup(); saved = load_startup(spec['name'])
+                    # The repaired observer now refreshes both ARP and IPv4
+                    # grants. Flush cached neighbours to exercise both filters.
+                    for index in (0, 2):
+                        manager.ns(index, 'ip', 'neigh', 'flush', 'dev', 'eth0', 'nud', 'all')
+                    wait_ping()
+                    self.assertTrue(manager.inspect('SW1')['arp_inspection']['policy_verified'])
+                    manager.write_startup(); saved = load_startup(spec['name'])
                     manager.ns(1, 'nft', 'delete', 'table', 'bridge', TABLE)
                     with self.assertRaisesRegex(RuntimeFailure, 'IP Source Guard'):
                         manager.write_startup()
@@ -275,7 +281,9 @@ class RealContainerTests(unittest.TestCase):
                     manager.start(saved)
                     records.append(dict(manager.state['snooping_workers']['SW1']))
                     wait_ping(); wait_ping('ROGUE')
-                    self.assertTrue(manager.inspect('SW1')['ip_source_guard']['policy_verified'])
+                    restored = manager.inspect('SW1')
+                    self.assertTrue(restored['ip_source_guard']['policy_verified'])
+                    self.assertTrue(restored['arp_inspection']['policy_verified'])
             finally:
                 if manager.directory.exists():
                     with manager.locked():
