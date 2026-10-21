@@ -42,6 +42,14 @@ class DNSTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate(spec)
 
+    def test_many_long_names_cannot_exceed_the_observable_config_budget(self):
+        spec = dns_lab('/rootfs')
+        prefix = ('x' * 60 + '.') * 3
+        spec['nodes'][2]['dns_server']['records'] = {
+            prefix + 'y' * 50 + f'{i:03}.lab.test': f'10.20.{i // 254}.{i % 254 + 1}' for i in range(256)}
+        with self.assertRaisesRegex(ValueError, '64 KiB'):
+            validate(spec)
+
     def test_static_resolver_cannot_compete_with_dhcp_or_untracked_startup(self):
         for resolvers in ('10.10.0.2', ['127.0.0.1'], ['10.10.0.2'] * 2, ['1.1.1.1'] * 4):
             spec = dns_lab('/rootfs'); spec['nodes'][4]['resolvers'] = resolvers

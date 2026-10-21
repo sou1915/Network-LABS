@@ -1800,6 +1800,7 @@ Les noms sont normalisés en minuscules, avec labels ASCII valides. Le profil
 accepte 1 à 256 noms locaux, une seule adresse IPv4 unicast par nom et un seul
 nom par adresse pour garder un PTR déterministe. Les doublons, noms hors zone,
 valeurs injectables et champs inconnus sont refusés avant création des ressources.
+La configuration générée doit tenir dans le budget observable de 64 Kio.
 Le TTL doit être un entier entre 0 et 86400. `resolvers: ["10.10.0.2"]` ajoute
 jusqu'à trois resolvers uniques à un endpoint OCI sans client DHCP. Le resolver
 DHCP reste contrôlé par son ACK ; les deux modes ne peuvent pas se concurrencer.

@@ -67,6 +67,8 @@ def validate_dns(node):
     if len(set(normalized.values())) != len(normalized):
         raise ValueError('Initial DNS profile requires unique IPv4 addresses; CNAME/multiple PTRs are not exposed.')
     policy['records'] = dict(sorted(normalized.items()))
+    if len(server_config(node).encode('utf-8')) > 65536:
+        raise ValueError('DNS configuration exceeds the 64 KiB observable file budget.')
 
 
 def server_config(node):
