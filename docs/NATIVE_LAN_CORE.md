@@ -1540,7 +1540,11 @@ Les ports omis reçoivent `router: auto`, `flood: true`, `fast_leave: false`.
 `router` vaut `off`, `auto` ou `permanent` et pilote le flag kernel du port
 multicast-router. Un port routeur permanent reçoit aussi des flux sans listener
 local. `flood` contrôle la diffusion des **groupes inconnus**, pas une ACL de tous
-les multicasts. `fast_leave` active l'immediate leave ; le réserver à un port
+les multicasts. Avec un querier actif, les données IPv4 non link-local sans
+membership peuvent être dirigées uniquement vers les ports routeurs :
+`flood: true` ne force pas une copie vers tous les non-membres. Le test des flags
+de flooding est donc réalisé séparément avec snooping désactivé.
+`fast_leave` active l'immediate leave ; le réserver à un port
 avec un seul récepteur, jamais un segment partagé/uplink, car plusieurs membres
 peuvent sinon perdre leur flux. Les groupes connus suivent la MDB et les ports
 routeurs, sous réserve de l'état des liens, VLAN et autres politiques.
@@ -1637,5 +1641,6 @@ stop/restore concurrent, ils ne certifient pas la nouvelle génération du lab.
 
 La validation native emploie un vrai join IGMP, vérifie MDB et réception UDP,
 capture le non-membre (absence de copies d'un groupe connu), les ports routeurs,
-le flooding autorisé/refusé d'un groupe inconnu, le leave, la dérive, restore et
+la restriction mrouter-only des groupes inconnus avec querier, le flooding
+autorisé/refusé avec snooping désactivé, le leave, la dérive, restore et
 un stop concurrent. Les liens/routes/règles nft de l'hôte restent inchangés.

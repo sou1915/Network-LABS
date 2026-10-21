@@ -91,4 +91,4 @@ def observe(manager, index, node, links):
             'bridge': next((r.get('linkinfo', {}).get('info_data', {}) for r in links if r.get('ifname') == 'br0'), {}),
             'ports': {r['ifname']: r.get('linkinfo', {}).get('info_slave_data', {}) for r in links if r.get('ifname') in node['switchports']},
             'mdb': json.loads(manager.ns(index, 'bridge', '-j', '-s', '-d', 'mdb', 'show', 'dev', 'br0').stdout),
-            'note': 'Observed memberships, not delivery proof. Unnumbered querier uses 0.0.0.0; convergence and host compatibility matter. Unknown groups may flood according to port flags. Kernel snooping/flood flags also affect IPv6/MLD; no independent IPv6 policy or SSM/PIM is implemented.'}
+            'note': 'Observed memberships, not delivery proof. Unnumbered querier uses 0.0.0.0; convergence and host compatibility matter. Querier/router state governs unknown-group forwarding; flood flags do not force delivery when the kernel uses mrouter-only forwarding. Kernel snooping/flood flags also affect IPv6/MLD; no independent IPv6 policy or SSM/PIM is implemented.'}

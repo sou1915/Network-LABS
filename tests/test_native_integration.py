@@ -529,27 +529,34 @@ class RealContainerTests(unittest.TestCase):
                 policy['ports']['eth2']['router'] = 'off'
                 with manager.locked():
                     manager.configure_multicast('SW1', policy)
-                # Unknown-group flooding is independent from known membership.
+                # With an active querier, unknown non-link-local IPv4
+                # multicast follows mrouter-only forwarding, not a promise
+                # that flood=True forces delivery to every nonmember.
                 unknown = '239.10.10.99'
-                self.assertGreater(captured('unknown-flood.pcap', unknown, 1), 0)
-                restricted = copy.deepcopy(policy); restricted['ports']['eth2']['flood'] = False
+                self.assertEqual(captured('unknown-querier.pcap', unknown), 0)
                 with manager.locked():
-                    manager.configure_multicast('SW1', restricted)
-                self.assertEqual(captured('unknown-deny.pcap', unknown), 0)
-                with manager.locked():
-                    manager.configure_multicast('SW1', policy)
                     manager.write_startup()  # Dynamic MDB is not startup policy drift.
                 result = receiver.result(timeout=32)
                 self.assertGreater(result['received_packets'], 0)
                 self.assertTrue(any(s['source'] == '192.0.2.10' for s in result['samples']))
                 receiver = None
                 membership(False)  # Closing membership socket causes real IGMP leave.
-                self.assertGreater(captured('after-leave.pcap', count=1), 0)  # Now unknown, flooded.
+                self.assertEqual(captured('after-leave.pcap'), 0)  # No member/router on PC1.
                 with manager.locked():
                     manager.configure_ios('SW1', 'conf t\nno ip igmp snooping querier\nno ip igmp snooping\nend')
                     observed = manager.inspect('SW1')['multicast']
                     self.assertTrue(observed['policy_verified'], json.dumps(observed))
-                    manager.configure_ios('SW1', 'conf t\nip igmp snooping\nip igmp snooping querier\nend')
+                # In flooding mode, the per-port unknown multicast flag is
+                # exercised with positive and negative actual captures.
+                self.assertGreater(captured('unknown-flood.pcap', unknown, 1), 0)
+                restricted = copy.deepcopy(policy)
+                restricted.update(snooping=False, querier=False)
+                restricted['ports']['eth2']['flood'] = False
+                with manager.locked():
+                    manager.configure_multicast('SW1', restricted)
+                self.assertEqual(captured('unknown-deny.pcap', unknown), 0)
+                with manager.locked():
+                    manager.configure_multicast('SW1', policy)
                     manager.write_startup(); saved = load_startup(spec['name'])
                     manager.ns(0, 'ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'mcast_querier', '0')
                     with self.assertRaisesRegex(RuntimeFailure, 'multicast'):
