@@ -310,6 +310,8 @@ def observe(manager, index, node):
               'addresses': json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show').stdout),
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
+    from .route_lookup import ipv4_settings
+    result['ipv4_settings'] = ipv4_settings(manager, index, node)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
         from .spanning_tree import kernel_ids, observe as observe_tree
         ids = kernel_ids(manager, index) if node['spanning_tree']['mode'] == 'stp' else None

@@ -55,6 +55,11 @@ def main(arguments=None):
             item.add_argument('--startup', action='store_true', help='Export last saved startup configuration.')
     inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
     inspect.add_argument('name'); inspect.add_argument('node')
+    route = commands.add_parser('route', help='Observe the actual Linux IPv4 route decision; sends no test packets.')
+    route.add_argument('name'); route.add_argument('node'); route.add_argument('destination')
+    route.add_argument('--source', help='Local source, or original remote source with --ingress.')
+    route.add_argument('--ingress', help='Managed Linux ingress interface; requires --source.')
+    route.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
@@ -171,6 +176,11 @@ def main(arguments=None):
                 elif args.command == 'configure':
                     text = args.file.read_text(encoding='utf-8') if args.file else args.text
                     result = manager.configure_ios(args.node, text)
+                elif args.command == 'route':
+                    from .route_lookup import lookup, render
+                    result = lookup(manager, args.node, args.destination, source=args.source, ingress=args.ingress)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0
                 elif args.command == 'multicast-policy':
                     result = manager.configure_multicast(args.node, json.loads(args.file.read_text(encoding='utf-8')))
                 elif args.command == 'spanning-tree':

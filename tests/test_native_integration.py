@@ -135,6 +135,111 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), rules)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_aa_route_lookup_kernel_policy_no_packets_and_forwarding_context(self):
+        from network_labs.appliances.examples import static_routing_lab
+        from network_labs.appliances.route_lookup import lookup
+        from network_labs.appliances.diagnostics import explain_node
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        from concurrent.futures import ThreadPoolExecutor
+        import ipaddress
+        import threading
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', '-4', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        host_settings = run(['sysctl', '-n', 'net.ipv4.ip_forward', 'net.ipv4.conf.all.rp_filter']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = static_routing_lab(rootfs); spec['name'] = 'lookup-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def ping(success=True):
+                result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False)
+                self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+            def query():
+                return lookup(manager, 'SW1', '203.0.113.10', source='192.0.2.10', ingress='vlan10')
+            def prefix(report):
+                return str(ipaddress.IPv4Network(report['fibmatch']['records'][0]['dst'], strict=False))
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    missing = lookup(manager, 'SW1', '203.0.113.10')
+                    self.assertEqual(missing['lookup']['status'], 'command_failed')
+                    self.assertIsNone(missing['selected'])
+                    manager.configure_ios('SW1', 'conf t\nip route 203.0.113.0 255.255.255.0 198.18.0.2\nend')
+                    manager.configure_ios('R1', 'conf t\nip route 192.0.2.0 255.255.255.0 198.18.0.1\nend')
+                    ping()
+                    actual = manager.inspect('SW1')
+                    self.assertTrue(actual['ipv4_settings']['available'])
+                    self.assertEqual(actual['ipv4_settings']['interfaces']['vlan10']['forwarding'], 1)
+                    self.assertIn('IPV4_SOURCE_VALIDATION', {row['code'] for row in explain_node(manager.state['spec']['nodes'][1], actual)})
+                    report = query()
+                    self.assertEqual(report['selected']['gateway'], '198.18.0.2')
+                    self.assertEqual(report['selected']['dev'], 'vlan20')
+                    self.assertEqual(prefix(report), '203.0.113.0/24')
+                    local = lookup(manager, 'SW1', '192.0.2.1')
+                    self.assertEqual(local['selected']['type'], 'local'); self.assertIsNone(local['neighbors'])
+                    # A route lookup must not resolve an empty Ethernet cache
+                    # by sending ARP, nor send an ICMP probe under the hood.
+                    manager.ns(1, 'ip', '-4', 'neigh', 'flush', 'dev', 'vlan20')
+                    self.assertEqual(json.loads(manager.ns(1, 'ip', '-j', '-4', 'neigh', 'show', 'dev', 'vlan20').stdout), [])
+                    revision = manager.state['revision']
+                    before_routes = manager.ns(1, 'ip', '-j', '-4', 'route', 'show', 'table', 'all').stdout
+                    before_rules = manager.ns(1, 'ip', '-j', '-4', 'rule', 'show').stdout
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), 'SW1', 'vlan20', Path(folder) / 'passive-lookup.pcap',
+                                     seconds=2, packets=10, expression='arp or icmp', ready=ready.set)
+                self.assertTrue(ready.wait(5))
+                with manager.locked():
+                    for _ in range(3):
+                        report = query()
+                        self.assertEqual(report['neighbors']['records'], [])
+                        self.assertFalse(report['test_packets_sent'])
+                        self.assertEqual(report['packet_delivery'], 'not_tested')
+                    self.assertEqual(manager.state['revision'], revision)
+                    self.assertEqual(manager.ns(1, 'ip', '-j', '-4', 'route', 'show', 'table', 'all').stdout, before_routes)
+                    self.assertEqual(manager.ns(1, 'ip', '-j', '-4', 'rule', 'show').stdout, before_rules)
+                self.assertEqual(future.result(timeout=6)['captured_packets'], 0)
+                with manager.locked():
+                    ping()
+                    # A local FIB decision can exist while ingress forwarding
+                    # is disabled and actual transit packets are refused.
+                    manager.ns(1, 'sysctl', '-w', 'net.ipv4.conf.vlan10.forwarding=0')
+                    actual = manager.inspect('SW1')
+                    self.assertTrue(actual['forwarding'])
+                    self.assertEqual(actual['ipv4_settings']['interfaces']['vlan10']['forwarding'], 0)
+                    report = lookup(manager, 'SW1', '203.0.113.10')
+                    self.assertIsNotNone(report['selected']); self.assertEqual(report['packet_delivery'], 'not_tested')
+                    ping(False)
+                    manager.ns(1, 'sysctl', '-w', 'net.ipv4.conf.vlan10.forwarding=1'); ping()
+                    # Use an external policy table to prove the observation
+                    # follows the real RPDB, not the declared topology/routes.
+                    manager.ns(1, 'ip', 'route', 'add', 'blackhole', '203.0.113.0/24', 'table', '100')
+                    manager.ns(1, 'ip', 'rule', 'add', 'priority', '100', 'to', '203.0.113.0/24', 'lookup', '100')
+                    report = lookup(manager, 'SW1', '203.0.113.10')
+                    self.assertEqual(report['lookup']['status'], 'command_failed'); self.assertIsNone(report['selected'])
+                    self.assertTrue(any(row.get('priority') == 100 and str(row.get('table')) == '100' for row in report['rules']['records']))
+                    ping(False)
+                    manager.ns(1, 'ip', 'rule', 'del', 'priority', '100', 'to', '203.0.113.0/24', 'lookup', '100')
+                    manager.ns(1, 'ip', 'route', 'del', 'blackhole', '203.0.113.0/24', 'table', '100'); ping()
+                    manager.configure_ios('SW1', 'conf t\nip route 203.0.113.10 255.255.255.255 198.18.0.3\nend')
+                    report = query()
+                    self.assertEqual(prefix(report), '203.0.113.10/32')
+                    self.assertEqual(report['selected']['gateway'], '198.18.0.3')
+                    self.assertEqual(report['neighbors']['records'], [])
+                    ping(False)
+                    manager.configure_ios('SW1', 'conf t\nno ip route 203.0.113.10 255.255.255.255 198.18.0.3\nend')
+                    self.assertEqual(prefix(query()), '203.0.113.0/24'); ping()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', '-4', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward', 'net.ipv4.conf.all.rp_filter']).stdout, host_settings)
+
     def test_appliance_ovs_real_rstp_bpdus_failover_vlan_drift_and_restore(self):
         from network_labs.appliances.examples import rstp_lab
         from network_labs.appliances.capture import capture

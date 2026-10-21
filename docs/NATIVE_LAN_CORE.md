@@ -2177,3 +2177,72 @@ réelle de la /24 vérifie sa recréation par rollback. Save/stop/restore recré
 routes et default route ; les liens/routes/nft et ip_forward de l'hôte restent
 inchangés. Référence de syntaxe :
 [Cisco IOS XE, Basic IP Routing](https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/ip-routing/b-ip-routing/m_iri-iprouting.html).
+
+
+## Lookup de routage réel et validation de source Linux
+
+La commande `route` interroge la pile Linux du node OCI avec `ip -j -4 route
+get`, puis une lecture distincte `get fibmatch`. Elle ne calcule pas un chemin
+à partir du dessin et n’envoie ni ping ni probe ARP. Elle affiche la décision
+kernel (interface/next-hop/source préférée lorsqu’ils sont retournés), l’entrée
+FIB correspondante observée séparément, les règles `ip rule`, les flags du lien
+et les entrées voisines déjà connues pour le prochain saut. Une route locale
+ou broadcast n’est pas présentée comme un voisin Ethernet à résoudre.
+
+Après avoir créé/configuré `static-routing-lan` comme dans la section précédente :
+
+```bash
+sudo python3 -m network_labs.appliances route static-routing-lan SW1 203.0.113.10
+sudo python3 -m network_labs.appliances route static-routing-lan SW1 203.0.113.10 \
+  --source 192.0.2.10 --ingress vlan10
+sudo python3 -m network_labs.appliances route static-routing-lan R1 192.0.2.10 \
+  --source 203.0.113.10 --ingress eth1 --json
+sudo python3 -m network_labs.appliances explain static-routing-lan R1
+```
+
+Sans `--ingress`, c’est un lookup d’émission locale. `--source` désigne alors
+une source locale ; une source non locale peut être refusée par Linux. Avec
+`--ingress`, la source originale est obligatoire et Linux interroge le contexte
+d’un paquet reçu par cette interface. Utiliser les noms Linux réels du node,
+notamment vlan10/vlan20 pour une entrée routée par SVI. Les interfaces inconnues
+ou absentes, nodes arrêtés et VMs sans agent invité sont refusés.
+
+Le résultat JSON conserve séparément `lookup`, `fibmatch`, `rules`, `links`,
+`selected`, `egress_link`, `neighbor_target`, `neighbors` et `ipv4_settings`.
+Chaque lecture JSON a un statut `observed`, `command_failed` ou `unavailable`,
+avec code de retour/erreur. Une sortie absente ou invalide ne devient jamais une
+route calculée depuis le manifest. Le code de sortie CLI 0 signifie que le
+rapport a été produit, même si Linux refuse le lookup ; inspecter ses champs.
+`packet_delivery` reste `not_tested` et `test_packets_sent` reste false.
+
+`inspect` expose désormais `ipv4_settings` : rp_filter global `all`, réglage
+par interface et valeur effective max(all,interface), ainsi que forwarding
+par interface d’entrée. Les noms de sous-interfaces avec point sont lus avec
+des chemins sysctl séparés par slash. Une valeur absente, invalide ou une
+lecture partielle reste inconnue, jamais assimilée à 0. `explain` décrit ces
+faits sans désactiver la validation de source ni affirmer le résultat d’un flux.
+Ces paramètres supplémentaires sont observés ; ils n’introduisent pas un
+nouveau profil géré ni un audit exhaustif des sysctls dans save/export.
+
+rp_filter 0 désactive ce contrôle, 1 demande le meilleur chemin inverse via
+l’interface reçue, 2 exige un chemin inverse disponible. L’état observé ne
+suffit pas à reproduire la validation d’un paquet marqué, soumis à des règles
+avancées ou à d’autres filtres. Une route sélectionnée ne garantit ni résolution
+ARP, ni forwarding, ni passage firewall/NAT, ni retour. Les lectures sont
+successives, non atomiques ; une configuration externe peut changer entre elles.
+Le lookup utilise le contexte UID observé, sans marque ni sélecteurs TOS/L4.
+Il peut créer des entrées de cache internes de routage ; il ne modifie pas les
+routes/règles configurées. Le lock du lab couvre les lectures et chaque commande
+est bornée à 3 s. Aucun fallback vers l’état de l’hôte ou vers le simulateur.
+
+La validation native vérifie une route absente, les routes aller/retour d’un
+vrai LAN, une destination locale, /24 et /32 avec voisin absent. Une capture
+ARP/ICMP sur le transit après vidage du voisinage reste vide pendant les
+lookups, sans remplissage du cache voisin. Le test vérifie aussi qu’une décision
+locale reste observable alors que forwarding est désactivé sur l’entrée et
+que les pings échouent. Une règle externe vers une table blackhole provoque
+un refus réel malgré le manifest inchangé ; retirer cette règle rétablit
+lookup et trafic. Liens/routes/règles/nft et sysctls de l’hôte restent inchangés.
+
+Références : [manuel ip-route du projet iproute2](https://man7.org/linux/man-pages/man8/ip-route.8.html),
+[documentation kernel des sysctls IPv4](https://docs.kernel.org/networking/ip-sysctl.html).
