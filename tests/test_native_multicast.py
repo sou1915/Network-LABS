@@ -58,6 +58,26 @@ class MulticastTests(unittest.TestCase):
         actual = links(node); actual[1]['linkinfo']['info_slave_data']['multicast_router'] = 2
         self.assertTrue(any('eth0' in e for e in drift(node, actual)))
 
+    def test_iproute_fast_leave_aliases_preserve_actual_values_and_refuse_conflict(self):
+        node = multicast_lab('/rootfs')['nodes'][0]
+        node['multicast']['ports']['eth1']['fast_leave'] = True
+        actual = links(node)
+        for row in actual[1:]:
+            info = row['linkinfo']['info_slave_data']
+            info['fastleave'] = info.pop('fast_leave')
+        self.assertFalse(drift(node, actual))
+        actual[2]['linkinfo']['info_slave_data']['fast_leave'] = False
+        self.assertTrue(any('eth1' in e for e in drift(node, actual)))
+
+    def test_host_isolation_rejects_virtual_leaks_and_baseline_changes_but_allows_pci_hotplug(self):
+        from test_native_integration import unexpected_host_link_changes
+        before = {('eth0', 1)}
+        hotplug = ('enP44832s1', 10)
+        self.assertEqual(unexpected_host_link_changes(before, before | {hotplug}, {'enP44832s1'}),
+                         {'removed_or_replaced': set(), 'added_virtual': set()})
+        self.assertTrue(unexpected_host_link_changes(before, before | {('nlab0', 2)})['added_virtual'])
+        self.assertTrue(unexpected_host_link_changes(before, {('eth0', 2)}, {'eth0'})['removed_or_replaced'])
+
     def test_unrelated_edits_do_not_reassert_multicast_or_flush_membership(self):
         from unittest.mock import Mock
         node = multicast_lab('/rootfs')['nodes'][0]; manager = Mock()

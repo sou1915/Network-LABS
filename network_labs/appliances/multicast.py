@@ -72,7 +72,15 @@ def drift(node, links):
     for port, settings in policy['ports'].items():
         # ip -j link differs from bridge -j link and command spellings.
         expected = {'multicast_router': ROUTER[settings['router']], 'mcast_flood': settings['flood'], 'fast_leave': settings['fast_leave']}
-        if any(ports.get(port, {}).get(k) != v for k, v in expected.items()):
+        observed = dict(ports.get(port, {}))
+        # Older iproute2 emits fastleave; newer versions emit fast_leave.
+        # Refuse contradictory aliases instead of treating either as false.
+        if 'fastleave' in observed:
+            if 'fast_leave' in observed and observed['fast_leave'] != observed['fastleave']:
+                observed['fast_leave'] = None
+            else:
+                observed['fast_leave'] = observed['fastleave']
+        if any(observed.get(k) != v for k, v in expected.items()):
             errors.append(node['name'] + '/' + port + ': multicast port settings differ or unavailable')
     return errors
 

@@ -18,8 +18,21 @@ from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static
 from network_labs.appliances.spec import example, namespace
 
 
+def unexpected_host_link_changes(before, after, hardware_names=()):
+    return {'removed_or_replaced': before - after,
+            'added_virtual': {entry for entry in after - before if entry[0] not in hardware_names}}
+
+
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def assertHostLinksUnchanged(self, before, after):
+        # Hosted runners may hotplug a hardware-backed Azure VF mid-job.
+        # Preserve every baseline identity and reject all added virtual links;
+        # the engine cannot create a PCI device. Do not whitelist by name.
+        hardware = {name for name, _ in after - before if (Path('/sys/class/net') / name / 'device').exists()}
+        self.assertEqual(unexpected_host_link_changes(before, after, hardware),
+                         {'removed_or_replaced': set(), 'added_virtual': set()})
+
     def test_arp_inspection_real_dynamic_static_spoofing_timeout_drift_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import signal
@@ -143,7 +156,7 @@ class RealContainerTests(unittest.TestCase):
                     with manager.locked():
                         manager.stop()
         self.assertTrue(all(not alive(r) for r in records))
-        self.assertEqual(host_links(), links)
+        self.assertHostLinksUnchanged(links, host_links())
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
@@ -289,7 +302,7 @@ class RealContainerTests(unittest.TestCase):
                     with manager.locked():
                         manager.stop()
         self.assertTrue(all(not alive(r) for r in records))
-        self.assertEqual(host_links(), links)
+        self.assertHostLinksUnchanged(links, host_links())
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
@@ -420,7 +433,7 @@ class RealContainerTests(unittest.TestCase):
                     with manager.locked():
                         manager.stop()
         self.assertTrue(all(not alive(r) for r in records))
-        self.assertEqual(host_links(), links)
+        self.assertHostLinksUnchanged(links, host_links())
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
@@ -501,7 +514,7 @@ class RealContainerTests(unittest.TestCase):
                 # asserting selective forwarding; no accelerated fake timers.
                 with manager.locked():
                     observed = manager.inspect('SW1')['multicast']['bridge']
-                    response = observed['mcast_query_response_interval'] / os.sysconf('SC_CLK_TCK')
+                    response = observed['mcast_query_response_intvl'] / os.sysconf('SC_CLK_TCK')
                     self.assertLessEqual(response, 12)
                 time.sleep(response + 0.5)
                 self.assertEqual(captured('member-only.pcap'), 0)  # PC1 never joined; flood=True.
@@ -563,7 +576,7 @@ class RealContainerTests(unittest.TestCase):
                         manager.stop()
                 if receiver is not None:
                     receiver.result(timeout=35)
-        self.assertEqual(host_links(), links)
+        self.assertHostLinksUnchanged(links, host_links())
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
