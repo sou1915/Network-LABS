@@ -176,3 +176,23 @@ class SnoopTests(unittest.TestCase):
                 path.write_text(json.dumps(snapshot))
                 state['snooping_fingerprints']['SW1'] = 'modified'
                 self.assertIsNone(observe(manager, 1, node)['bindings'])
+
+    @unittest.skipUnless(__import__('sys').platform == 'linux', 'Linux classic socket filter')
+    def test_actual_kernel_bpf_accepts_dhcp_and_rejects_tags_fragments_and_non_ipv4(self):
+        import socket
+        from network_labs.appliances.snooping_worker import attach_filter
+        first, second = frame(), frame(5)
+        tagged = first[:12] + b'\x81\x00\x00\x0a' + first[12:]
+        fragmented = bytearray(first); fragmented[20:22] = b'\x20\x00'
+        arp = first[:12] + b'\x08\x06' + first[14:]
+        sender, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            attach_filter(receiver); receiver.settimeout(0.02)
+            for packet in (first, tagged, fragmented, arp, second):
+                sender.send(packet)
+            self.assertEqual(receiver.recv(2048), first)
+            self.assertEqual(receiver.recv(2048), second)
+            with self.assertRaises(socket.timeout):
+                receiver.recv(2048)
+        finally:
+            sender.close(); receiver.close()

@@ -20,7 +20,8 @@ def attach_filter(sock):
     class Program(ctypes.Structure):
         _fields_ = [('length', ctypes.c_ushort), ('instructions', ctypes.POINTER(Filter))]
     # Ethernet IPv4 UDP, no fragments, both ports in {67,68}. No promiscuity.
-    rows = [(0x30, 0, 0, 23), (0x15, 0, 10, 17), (0x28, 0, 0, 20), (0x45, 8, 0, 0x3fff),
+    rows = [(0x28, 0, 0, 12), (0x15, 0, 12, 0x0800),
+            (0x30, 0, 0, 23), (0x15, 0, 10, 17), (0x28, 0, 0, 20), (0x45, 8, 0, 0x3fff),
             (0xb1, 0, 0, 14), (0x48, 0, 0, 14), (0x15, 1, 0, 67), (0x15, 0, 4, 68),
             (0x48, 0, 0, 16), (0x15, 1, 0, 67), (0x15, 0, 1, 68), (0x06, 0, 0, 2048), (0x06, 0, 0, 0)]
     instructions = (Filter * len(rows))(*(Filter(*r) for r in rows))
@@ -49,7 +50,7 @@ def serve(config):
         temporary = target.with_suffix('.tmp')
         temporary.write_text(json.dumps(value)); temporary.chmod(0o600); temporary.replace(target)
     try:
-        with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800)) as sock:
+        with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as sock:
             attach_filter(sock)
             sock.setsockopt(263, 8, 1)  # PACKET_AUXDATA: refuse VLAN-offloaded observations
             sock.setblocking(False)

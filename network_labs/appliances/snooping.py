@@ -11,6 +11,7 @@ import uuid
 from .spec import integer, keys, namespace
 
 TABLE = 'network_labs_dhcp_snooping'
+_PROCESSES = {}  # Reap children owned by this invocation; never serialized.
 
 
 def validate_snooping(node):
@@ -119,10 +120,14 @@ def stop_worker(manager, name):
         if alive(record):
             raise RuntimeFailure('DHCP observer still alive; cleanup retained.')
     if record:
-        try:
-            os.waitpid(record['pid'], os.WNOHANG)
-        except ChildProcessError:
-            pass
+        child = _PROCESSES.pop(record['pid'], None)
+        if child is not None:
+            child.wait(timeout=1)
+        else:
+            try:
+                os.waitpid(record['pid'], os.WNOHANG)
+            except ChildProcessError:
+                pass
     manager.state['snooping_workers'].pop(name, None)
     manager.save()
 
@@ -152,6 +157,7 @@ def reconcile(manager, index, node, previous=None):
     if start is None:
         process.kill(); process.wait()
         raise RuntimeFailure('Cannot identify DHCP observer process.')
+    _PROCESSES[process.pid] = process
     record = {'pid': process.pid, 'starttime': start, 'token': token}
     manager.state.setdefault('snooping_workers', {})[node['name']] = record; manager.save()
     deadline = time.monotonic() + 3
@@ -186,7 +192,7 @@ def observe(manager, index, node):
         snapshot = json.loads((manager.directory / (node['name'] + '.snooping.json')).read_text())
         now = time.monotonic()
         if alive(record) and snapshot.get('token') == record['token'] and snapshot.get('status') == 'ready' and 0 <= now - snapshot['observed_monotonic'] <= 2:
-            result.update(observer_available=True, capture_drops=snapshot['capture_drops'], events=snapshot['events'])
+            result.update(observer_available=True, capture_packets=snapshot.get('capture_packets'), capture_drops=snapshot['capture_drops'], events=snapshot['events'])
             if conform:
                 result['bindings'] = [{**b, 'remaining_seconds': b['until'] - now} for b in snapshot['bindings'] if b['until'] > now]
     except (OSError, ValueError, KeyError, TypeError):
