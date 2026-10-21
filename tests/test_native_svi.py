@@ -36,6 +36,12 @@ class SVITests(unittest.TestCase):
             with self.subTest(svis=svis), self.assertRaises(ValueError):
                 validate(spec)
 
+    def test_zero_prefix_cannot_create_an_unmanaged_kernel_default_route(self):
+        spec = svi_lab('/rootfs')
+        spec['nodes'][4]['svis'] = {'vlan20': {'vlan': 20, 'address': '198.51.100.1/0'}}
+        with self.assertRaisesRegex(ValueError, 'prefix length'):
+            validate(spec)
+
     def test_svis_do_not_silently_enable_unsupported_backends_or_roles(self):
         for index in (0, 1):
             spec = svi_lab('/rootfs'); spec['nodes'][index]['svis'] = {'vlan10': {'vlan': 10, 'address': ''}}

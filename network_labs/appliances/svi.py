@@ -28,6 +28,8 @@ def validate_svis(node):
             raise ValueError('SVI address must be IPv4 CIDR text, or empty.')
         if address:
             interface = ipaddress.IPv4Interface(address)
+            if interface.network.prefixlen == 0:
+                raise ValueError('SVI prefix length must be 1..32; use an explicit gateway for a default route.')
             ip = interface.ip
             if ip.is_unspecified or ip.is_multicast or ip.is_loopback or int(ip) == 0xffffffff or (interface.network.prefixlen < 31 and ip in (interface.network.network_address, interface.network.broadcast_address)):
                 raise ValueError('SVI IPv4 requires a usable unicast address.')

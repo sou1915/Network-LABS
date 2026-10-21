@@ -2048,7 +2048,7 @@ Le manifest ajoute, sur un switch OCI avec backend Linux :
 
 Le champ `forwarding` reste false par défaut sur un switch. Jusqu'à 32 SVI,
 nommées canoniquement vlan1..vlan4094, nécessitent un VLAN déclaré et une IPv4
-unicast utilisable ou une adresse vide. Les subnets qui se chevauchent sont
+unicast utilisable avec préfixe 1..32, ou une adresse vide. Les subnets qui se chevauchent sont
 refusés ; VRF, adresses secondaires et IPv6 ne sont pas implémentés ici. Des
 routes IPv4 statiques du manifest peuvent utiliser une SVI numérotée et un
 next-hop dans son subnet. Le profil OVS ne prend pas encore en charge ces SVIs.

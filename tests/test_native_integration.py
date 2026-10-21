@@ -181,6 +181,8 @@ class RealContainerTests(unittest.TestCase):
                     # A gateway in another VLAN must not answer ARP on VLAN10.
                     arp = manager.crun('exec', 'PC1', '/bin/busybox', 'arping', '-I', 'eth0', '-c', '1', '-w', '1', '198.51.100.1', check=False)
                     self.assertNotEqual(arp.returncode, 0)
+                    self.assertIn('Sent 1 probe', arp.stdout)
+                    self.assertIn('Received 0 response', arp.stdout)
                     manager.configure_ios('SW1', 'conf t\nip routing\nend')
                     wait_routed()
                     observed = manager.inspect('SW1')
