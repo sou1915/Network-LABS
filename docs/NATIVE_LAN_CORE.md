@@ -2275,6 +2275,11 @@ Les suggestions ne sont jamais appliquées et aucun succès de ping n’est déd
 | REACHABLE / PERMANENT / NOARP | État voisin observé, sans certifier la livraison |
 | Donnée manquante / état inconnu | Finding unknown, jamais un zéro ou une panne inventée |
 
+Le relevé voisin conserve aussi `query.target` et `query.device`, provenant
+des filtres réellement passés à iproute2. Si le JSON omet `dev` avec un filtre
+explicite, la corrélation utilise cette provenance ; la ligne brute reste intacte.
+Une interface explicitement différente dans la ligne reste non corrélée.
+
 La lecture utilise `ip neigh show nud all` afin d’inclure NOARP et les états
 habituellement masqués par les filtres par défaut. Les destinations locales,
 contextes via/encap non pris en charge et données non corrélées au prochain saut

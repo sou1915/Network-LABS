@@ -64,21 +64,25 @@ def findings(report):
             {'target': report['neighbor_target']}, next_step='Si nécessaire, lancer un test de trafic séparé puis relire le voisinage.')
     else:
         for neighbor in neighbors['records']:
-            if neighbor.get('dst') != report['neighbor_target'] or neighbor.get('dev') != (selected or {}).get('dev'):
+            query = neighbors.get('query', {})
+            queried_device = query.get('device') if query.get('target') == report['neighbor_target'] else None
+            device = neighbor.get('dev', queried_device)
+            evidence = {'record': neighbor, 'query': neighbors.get('query')}
+            if neighbor.get('dst') != report['neighbor_target'] or device != (selected or {}).get('dev'):
                 add('NEIGHBOR_CONTEXT_UNKNOWN', 'Entrée voisine non corrélée au prochain saut demandé.', neighbor, 'unknown')
                 continue
             state = neighbor.get('state')
             if not isinstance(state, list) or not state or any(not isinstance(s, str) for s in state):
-                add('NEIGHBOR_STATE_UNKNOWN', 'État NUD du voisin inconnu.', neighbor, 'unknown')
+                add('NEIGHBOR_STATE_UNKNOWN', 'État NUD du voisin inconnu.', evidence, 'unknown')
             elif 'FAILED' in state:
                 add('NEIGHBOR_FAILED', 'Validation du voisin échouée selon le kernel ; ce relevé ne prouve pas la cause d’un ping précis.',
-                    neighbor, 'warning', 'Vérifier le peer, le VLAN, le lien et les réponses ARP, puis retester séparément.')
+                    evidence, 'warning', 'Vérifier le peer, le VLAN, le lien et les réponses ARP, puis retester séparément.')
             elif 'INCOMPLETE' in state:
-                add('NEIGHBOR_PENDING', 'Voisin INCOMPLETE : résolution pas encore terminée ; cet état peut être transitoire.', neighbor)
+                add('NEIGHBOR_PENDING', 'Voisin INCOMPLETE : résolution pas encore terminée ; cet état peut être transitoire.', evidence)
             elif set(state) <= {'REACHABLE', 'PERMANENT', 'NOARP', 'STALE', 'DELAY', 'PROBE'}:
-                add('NEIGHBOR_CACHED', 'État voisin observé : ' + ', '.join(state) + '. Un cache existant ne certifie pas la livraison ; STALE/DELAY/PROBE ne signifient pas un peer mort.', neighbor)
+                add('NEIGHBOR_CACHED', 'État voisin observé : ' + ', '.join(state) + '. Un cache existant ne certifie pas la livraison ; STALE/DELAY/PROBE ne signifient pas un peer mort.', evidence)
             else:
-                add('NEIGHBOR_STATE_UNKNOWN', 'État NUD non reconnu : ' + ', '.join(state) + '.', neighbor, 'unknown')
+                add('NEIGHBOR_STATE_UNKNOWN', 'État NUD non reconnu : ' + ', '.join(state) + '.', evidence, 'unknown')
     missing = [name for name in ('lookup', 'fibmatch', 'rules', 'links') if report[name]['records'] is None]
     if not report['ipv4_settings'].get('available'):
         missing.append('ipv4_settings')

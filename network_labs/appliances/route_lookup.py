@@ -138,6 +138,9 @@ def lookup(manager, name, destination, *, source=None, ingress=None):
             target = row.get('gateway', destination)
             report['neighbor_target'] = target
             report['neighbors'] = _json_read(manager, index, 'ip', '-j', '-4', 'neigh', 'show', 'nud', 'all', 'to', target, 'dev', device)
+            # iproute2 may omit dev in rows when its dev filter is explicit.
+            # Preserve the raw rows and the actual command's query provenance.
+            report['neighbors']['query'] = {'target': target, 'device': device}
     from .route_findings import findings
     report['findings'] = findings(report)
     report['completed_at'] = datetime.now(timezone.utc).isoformat()

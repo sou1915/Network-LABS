@@ -43,7 +43,14 @@ class RouteFindingTests(unittest.TestCase):
                 self.assertEqual(codes[code]['severity'], severity)
                 self.assertEqual(report, before)
                 self.assertEqual(report['packet_delivery'], 'not_tested')
-        self.assertEqual(self.codes(original)['NEIGHBOR_FAILED']['evidence']['state'], ['FAILED'])
+        self.assertEqual(self.codes(original)['NEIGHBOR_FAILED']['evidence']['record']['state'], ['FAILED'])
+        # iproute2 omits dev when the caller supplied an explicit dev filter.
+        del original['neighbors']['records'][0]['dev']
+        observed = self.codes(original)['NEIGHBOR_FAILED']['evidence']
+        self.assertNotIn('dev', observed['record'])
+        self.assertEqual(observed['query']['device'], 'vlan20')
+        original['neighbors']['query']['target'] = '198.18.0.3'
+        self.assertIn('NEIGHBOR_CONTEXT_UNKNOWN', self.codes(original))
 
     def test_actual_link_flags_and_ingress_forwarding_use_context_and_keep_rpf_uncertain(self):
         report = self.report()
