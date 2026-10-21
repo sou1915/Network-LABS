@@ -103,6 +103,7 @@ class RouteLookupTests(unittest.TestCase):
         report = lookup(manager, 'SW1', '203.0.113.10')
         self.assertIsNotNone(report['selected'])
         self.assertEqual(report['fibmatch']['status'], 'unavailable')
+        self.assertEqual(report['fibmatch']['returncode'], 0)
         self.assertIn('FIB observée : indisponible', render(report))
         for records in ([], [{}], [{'dst': '203.0.113.10'}], [None], {'dst': '203.0.113.10'}):
             def incomplete(index, *args, **kwargs):
@@ -121,6 +122,14 @@ class RouteLookupTests(unittest.TestCase):
         manager.ns.side_effect = ns
         report = lookup(manager, 'SW1', '192.0.2.1')
         self.assertEqual(report['selected']['type'], 'local')
+        self.assertIsNone(report['neighbors']); self.assertIsNone(report['neighbor_target'])
+        def ipv6_via(index, *args, **kwargs):
+            if args[:5] == ('ip', '-j', '-4', 'route', 'get'):
+                return completed([{'dst': '203.0.113.10', 'dev': 'vlan20', 'via': {'family': 'inet6', 'addr': 'fe80::1'}}])
+            return original(index, *args, **kwargs)
+        manager.ns.side_effect = ipv6_via
+        report = lookup(manager, 'SW1', '203.0.113.10')
+        self.assertEqual(report['selected']['via']['addr'], 'fe80::1')
         self.assertIsNone(report['neighbors']); self.assertIsNone(report['neighbor_target'])
 
     def test_invalid_context_stopped_dead_unknown_and_vm_nodes_do_not_query_routes(self):

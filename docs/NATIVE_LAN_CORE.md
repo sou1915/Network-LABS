@@ -2187,7 +2187,9 @@ get`, puis une lecture distincte `get fibmatch`. Elle ne calcule pas un chemin
 kernel (interface/next-hop/source préférée lorsqu’ils sont retournés), l’entrée
 FIB correspondante observée séparément, les règles `ip rule`, les flags du lien
 et les entrées voisines déjà connues pour le prochain saut. Une route locale
-ou broadcast n’est pas présentée comme un voisin Ethernet à résoudre.
+ou broadcast n’est pas présentée comme un voisin Ethernet à résoudre. Les
+contextes via/encap ou objets nexthop non résolus restent dans les relevés bruts
+mais ne déclenchent aucune déduction de voisin IPv4 direct.
 
 Après avoir créé/configuré `static-routing-lan` comme dans la section précédente :
 

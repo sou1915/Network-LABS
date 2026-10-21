@@ -56,8 +56,10 @@ def ipv4_settings(manager, index, node):
 
 
 def _json_read(manager, index, *args):
+    returncode = None
     try:
         result = manager.ns(index, *args, check=False, timeout=READ_TIMEOUT)
+        returncode = result.returncode
         if result.returncode:
             return {'status': 'command_failed', 'records': None, 'returncode': result.returncode,
                     'error': result.stderr.strip()[:1000] or result.stdout.strip()[:1000]}
@@ -66,7 +68,7 @@ def _json_read(manager, index, *args):
             raise ValueError('Expected an array of kernel JSON records.')
         return {'status': 'observed', 'records': records, 'returncode': 0, 'error': None}
     except (OSError, ValueError, RuntimeFailure, subprocess.TimeoutExpired) as exc:
-        return {'status': 'unavailable', 'records': None, 'returncode': None, 'error': str(exc)[:1000]}
+        return {'status': 'unavailable', 'records': None, 'returncode': returncode, 'error': str(exc)[:1000]}
 
 
 def _address(value):
@@ -115,7 +117,8 @@ def lookup(manager, name, destination, *, source=None, ingress=None):
               'fibmatch': _json_read(manager, index, 'ip', '-j', '-4', 'route', 'get', 'fibmatch', *query),
               'rules': _json_read(manager, index, 'ip', '-j', '-4', 'rule', 'show'),
               'ipv4_settings': ipv4_settings(manager, index, node), 'links': links,
-              'selected': None, 'egress_link': None, 'neighbor_target': None, 'neighbors': None}
+              'selected': None, 'egress_link': None, 'neighbor_target': None, 'neighbors': None,
+              'neighbor_scope': 'Only plain IPv4 next-hop/direct neighbors are queried; via/encap contexts and unresolved nexthop objects remain unqueried.'}
     for key in ('lookup', 'fibmatch'):
         observed = report[key]
         rows = observed['records']
@@ -125,12 +128,13 @@ def lookup(manager, name, destination, *, source=None, ingress=None):
     routes = report['lookup']['records']
     if routes:
         row = routes[0]
-        report['selected'] = {key: row.get(key) for key in ('dst', 'type', 'dev', 'gateway', 'prefsrc', 'src', 'table', 'flags')}
+        report['selected'] = {key: row.get(key) for key in ('dst', 'type', 'dev', 'gateway', 'via', 'encap', 'nhid', 'prefsrc', 'src', 'table', 'flags')}
         device = row.get('dev')
         report['egress_link'] = next((r for r in links['records'] or [] if r.get('ifname') == device), None)
         # Only query observed interface names; never pass arbitrary record text
         # as an ip option. Local routes do not need an Ethernet neighbor.
-        if row.get('type') not in ('local', 'broadcast', 'multicast') and isinstance(device, str) and report['egress_link'] is not None:
+        plain = not any(key in row for key in ('via', 'encap', 'nexthops')) and ('nhid' not in row or isinstance(row.get('gateway'), str))
+        if plain and row.get('type') not in ('local', 'broadcast', 'multicast') and isinstance(device, str) and report['egress_link'] is not None:
             target = row.get('gateway', destination)
             report['neighbor_target'] = target
             report['neighbors'] = _json_read(manager, index, 'ip', '-j', '-4', 'neigh', 'show', 'to', target, 'dev', device)
