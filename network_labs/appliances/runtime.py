@@ -452,7 +452,11 @@ class Manager:
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
         if previous['nodes'][index].get('dhcp_relay') is not None or candidate['nodes'][index].get('dhcp_relay') is not None:
-            raise ValueError('DHCP relay live network edits require a service adapter; stop/recreate with the new manifest.')
+            from .dhcp_relay import preflight_change, apply_change
+            preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
+            if candidate['nodes'][index] == previous['nodes'][index]:
+                return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
+            configure = apply_change
         if previous['nodes'][index].get('switch_backend') == 'ovs' or candidate['nodes'][index].get('switch_backend') == 'ovs':
             raise ValueError('OVS live network edits are unsupported by this adapter; use a new manifest and recreate the lab.')
         old_macs = previous['nodes'][index].get('interface_macs', {})
@@ -518,7 +522,12 @@ class Manager:
                 if node.get('firewall') is not None:
                     from .firewall import apply
                     state.setdefault('firewall_fingerprints', {})[node['name']] = apply(self, index, node)
-                configure(self, index, node, state['pending_spec']['nodes'][index])
+                pending = state['pending_spec']['nodes'][index]
+                if node.get('dhcp_relay') is not None or pending.get('dhcp_relay') is not None:
+                    from .dhcp_relay import apply_change
+                    apply_change(self, index, node, pending)
+                else:
+                    configure(self, index, node, pending)
         state.pop('pending_spec'); state['phase'] = 'running'; self.save()
 
     def write_startup(self):

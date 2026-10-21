@@ -109,11 +109,73 @@ class RealContainerTests(unittest.TestCase):
                 with manager.locked():
                     self.assertEqual(addresses(0), [])
                     start_servers(manager); ready()
+                    # CLI removes and restores the real service without touching links.
+                    from network_labs.appliances.dhcp_relay import processes, apply_change
+                    def helper(remove=False):
+                        return manager.configure_ios('SW1', 'conf t\ninterface vlan10\n' +
+                            ('no ' if remove else '') + 'ip helper-address 198.51.100.10\nend')
+                    initial_pids = {n['name']: json.loads(manager.crun('state', n['name']).stdout)['pid'] for n in spec['nodes']}
+                    link_ids = lambda: [(r['ifindex'], r['ifname']) for r in json.loads(manager.ns(2, 'ip', '-j', 'link', 'show').stdout)]
+                    before_links = link_ids()
+                    relay_pids = processes(manager, manager.state['spec']['nodes'][2])
+                    revision = manager.state['revision']
+                    self.assertTrue(helper()['unchanged'])
+                    self.assertEqual(manager.state['revision'], revision)
+                    self.assertEqual(processes(manager, manager.state['spec']['nodes'][2]), relay_pids)
+                    # A forged pidfile must not kill PID 1 or leave the actual daemon alive.
+                    manager.crun('exec', 'SW1', '/bin/sh', '-c', 'echo 1 > /run/dhcp-relay.pid')
+                    helper(True)
+                    self.assertEqual(processes(manager, manager.state['spec']['nodes'][2]), [])
+                    self.assertFalse((manager.directory / 'SW1/files/dhcp-relay.conf').exists())
+                    manager.crun('exec', 'PC2', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10')
+                    release()
+                no_helper = packets('no-helper.pcap', 'PC1', 'eth0', lambda: signal_client('USR1'))
+                self.assertIn('Discover', no_helper); self.assertNotIn('Offer', no_helper)
+                with manager.locked():
+                    self.assertEqual(addresses(0), [])
+                    helper(); ready()
+                    self.assertEqual(link_ids(), before_links)
+                    self.assertEqual({n['name']: json.loads(manager.crun('state', n['name']).stdout)['pid'] for n in spec['nodes']}, initial_pids)
+                    # Fail after actual service removal, then prove real rollback.
+                    calls = []
+                    def fail_removed(*args):
+                        calls.append(True)
+                        apply_change(*args)
+                        if len(calls) == 1:
+                            raise RuntimeFailure('Injected after actual helper removal')
+                    revision = manager.state['revision']
+                    with patch('network_labs.appliances.dhcp_relay.apply_change', side_effect=fail_removed):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                            helper(True)
+                    self.assertEqual(manager.state['revision'], revision)
+                    self.assertEqual(manager.state['phase'], 'running')
+                    self.assertTrue(manager.inspect('SW1')['dhcp_relay']['configuration_verified'])
+                    release(); signal_client('USR1'); ready()
+                    # Failed rollback retains the journal for explicit recovery.
+                    calls.clear()
+                    def fail_rollback(*args):
+                        calls.append(True)
+                        if len(calls) == 1:
+                            apply_change(*args)
+                        raise RuntimeFailure('Injected apply/rollback failure')
+                    with patch('network_labs.appliances.dhcp_relay.apply_change', side_effect=fail_rollback):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                            helper(True)
+                    self.assertEqual(manager.state['phase'], 'configuration-failed')
+                    self.assertIn('pending_spec', manager.state)
+                    manager.recover()
+                    self.assertEqual(manager.state['phase'], 'running')
+                    self.assertNotIn('pending_spec', manager.state)
+                    self.assertEqual(manager.state['revision'], revision)
+                    release(); signal_client('USR1'); ready()
+                    self.assertEqual(link_ids(), before_links)
                     path = manager.directory / 'SW1/files/dhcp-relay.conf'
                     original = path.read_text()
                     try:
                         path.write_text(original + '# external drift\n')
                         self.assertFalse(manager.inspect('SW1')['dhcp_relay']['configuration_verified'])
+                        with self.assertRaisesRegex(RuntimeFailure, 'drift'):
+                            helper(True)
                         with self.assertRaisesRegex(RuntimeFailure, 'DHCP relay'):
                             manager.write_startup()
                     finally:

@@ -67,7 +67,7 @@ class DHCPRelayTests(unittest.TestCase):
     def test_live_cli_cannot_silently_leave_relay_config_stale(self):
         spec = dhcp_relay_lab('/rootfs'); spec['nodes'][2]['dialect'] = 'ios-basic'
         before = copy.deepcopy(spec)
-        with self.assertRaisesRegex(ValueError, 'service nodes'):
+        with self.assertRaisesRegex(ValueError, 'UP static'):
             compile_config(spec, 'SW1', 'conf t\ninterface vlan10\nshutdown\nend')
         self.assertEqual(spec, before)
 
@@ -79,9 +79,50 @@ class DHCPRelayTests(unittest.TestCase):
         before = copy.deepcopy(state)
         manager = Mock()
         manager.read.return_value = state
+        candidate = copy.deepcopy(spec)
+        candidate['nodes'][2]['multicast'] = {'snooping': True, 'querier': True, 'ports': {}}
         with patch('network_labs.appliances.lan.configure') as apply:
             with self.assertRaisesRegex(ValueError, 'service adapter'):
-                Manager._configure_network(manager, 'SW1', copy.deepcopy(spec), 'test')
+                Manager._configure_network(manager, 'SW1', candidate, 'test')
             apply.assert_not_called()
             manager.save.assert_not_called()
         self.assertEqual(state, before)
+
+    def test_helper_add_remove_idempotence_and_upstream_resolution(self):
+        spec = dhcp_relay_lab('/rootfs')
+        spec['nodes'][2]['dhcp_relay'] = None
+        before = copy.deepcopy(spec)
+        added = compile_config(spec, 'SW1', 'conf t\ninterface vlan10\nip helper-address 198.51.100.10\nend')
+        self.assertEqual(added['nodes'][2]['dhcp_relay'], {
+            'interface': 'vlan10', 'upstream_interface': 'vlan20', 'server': '198.51.100.10'})
+        self.assertEqual(spec, before)
+        repeated = compile_config(added, 'SW1', 'conf t\ninterface vlan10\nip helper-address 198.51.100.10\nend')
+        self.assertEqual(repeated, added)
+        wrong = compile_config(added, 'SW1', 'conf t\ninterface vlan10\nno ip helper-address 198.51.100.11\nend')
+        self.assertEqual(wrong, added)
+        removed = compile_config(added, 'SW1', 'conf t\ninterface vlan10\nno ip helper-address 198.51.100.10\nend')
+        self.assertIsNone(removed['nodes'][2]['dhcp_relay'])
+
+    def test_helper_refuses_multiple_offlink_local_or_wrong_context(self):
+        spec = dhcp_relay_lab('/rootfs')
+        for commands in ('interface vlan10\nip helper-address 198.51.100.11',
+                         'ip helper-address 198.51.100.10',
+                         'interface vlan20\nip helper-address 192.0.2.100'):
+            with self.subTest(commands=commands), self.assertRaises(ValueError):
+                compile_config(spec, 'SW1', 'conf t\n' + commands + '\nend')
+        spec['nodes'][2]['dhcp_relay'] = None
+        for address in ('203.0.113.10', '198.51.100.1', '198.51.100.255', '::1', 'nope'):
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                compile_config(spec, 'SW1', 'conf t\ninterface vlan10\nip helper-address ' + address + '\nend')
+
+    def test_live_drift_refusal_happens_before_journal(self):
+        from network_labs.appliances.runtime import Manager, RuntimeFailure
+        spec = dhcp_relay_lab('/rootfs')
+        state = {'spec': spec, 'phase': 'running', 'revision': 0}
+        candidate = copy.deepcopy(spec); candidate['nodes'][2]['dhcp_relay'] = None
+        manager = Mock(); manager.read.return_value = state
+        manager.crun.return_value = subprocess.CompletedProcess([], 0, 'drift', '')
+        with self.assertRaisesRegex(RuntimeFailure, 'drift'):
+            Manager._configure_network(manager, 'SW1', candidate, 'test')
+        manager.save.assert_not_called()
+        self.assertEqual(state['phase'], 'running')

@@ -352,7 +352,7 @@ def dhcp_relay_lab(rootfs):
                                   'eth2': {'mode': 'access', 'vlan': 20}},
                   'svis': {'vlan10': {'vlan': 10, 'address': '192.0.2.1/24'},
                            'vlan20': {'vlan': 20, 'address': '198.51.100.1/24'}},
-                  'dhcp_relay': {'interface': 'vlan10', 'upstream_interface': 'vlan20', 'server': '198.51.100.10'}})
+                  'dialect': 'ios-basic', 'dhcp_relay': {'interface': 'vlan10', 'upstream_interface': 'vlan20', 'server': '198.51.100.10'}})
     nodes.append({'name': 'DHCP1', 'runtime': 'oci', 'rootfs': rootfs,
                   'interfaces': {'eth0': '198.51.100.10/24'},
                   'routes': [{'destination': '192.0.2.0/24', 'gateway': '198.51.100.1', 'interface': 'eth0'}],

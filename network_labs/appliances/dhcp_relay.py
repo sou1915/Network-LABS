@@ -66,4 +66,94 @@ def observe(manager, index, node):
     sockets = manager.ns(index, 'ss', '-H', '-lun', '( sport = :67 )', check=False)
     return {**result, 'source': 'Managed dnsmasq relay config and actual UDP socket snapshot',
             'policy': node['dhcp_relay'], 'listener_snapshot': sockets.stdout.splitlines() if sockets.returncode == 0 else None,
-            'note': 'File/socket observations do not prove a running/loaded relay or successful leases. No DHCPv6, Option 82, multi-pool or live service adapter.'}
+            'note': 'File/socket observations do not prove a running/loaded relay or successful leases. No DHCPv6, Option 82, multi-pool. Live adapter supports helper-only edits.'}
+
+
+def configure_helper(node, interface, server, remove=False):
+    """Resolve this bounded helper profile from directly connected addresses."""
+    from .lan import addresses
+    server = str(ipaddress.IPv4Address(server))
+    current = node.get('dhcp_relay')
+    if remove:
+        if current and current['interface'] == interface and current['server'] == server:
+            node['dhcp_relay'] = None
+        return
+    if current and (current['interface'], current['server']) != (interface, server):
+        raise ValueError('Only one helper is supported; remove the existing helper explicitly first.')
+    upstream = [name for name, address in addresses(node).items()
+                if address and name != interface and ipaddress.IPv4Address(server) in ipaddress.IPv4Interface(address).network
+                and (node['role'] != 'switch' or name in node.get('svis', {}))]
+    if len(upstream) != 1:
+        raise ValueError('Helper requires exactly one directly connected upstream routed interface or SVI.')
+    node['dhcp_relay'] = {'interface': interface, 'server': server, 'upstream_interface': upstream[0]}
+
+
+def validate_change(node, previous):
+    if {k: v for k, v in node.items() if k != 'dhcp_relay'} != {k: v for k, v in previous.items() if k != 'dhcp_relay'}:
+        raise ValueError('DHCP relay service adapter accepts helper-only edits; recreate the lab for other network changes.')
+
+
+# Identify by executable AND exact argv in the container PID namespace. A stale
+# or tampered pidfile must never select an unrelated process, including PID 1.
+PROCESS_SCRIPT = r'''for proc in /proc/[0-9]*; do
+    [ "$(/bin/busybox readlink "$proc/exe" 2>/dev/null)" = /usr/sbin/dnsmasq ] || continue
+    /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox grep -Fxq -- '--conf-file=/lab/dhcp-relay.conf' || continue
+    pid=${proc##*/}
+    [ "$pid" -gt 1 ] || continue
+    if [ "$1" = stop ]; then /bin/busybox kill -TERM "$pid" || exit 1; else echo "$pid"; fi
+done
+'''
+
+
+def processes(manager, node, action='list'):
+    return manager.crun('exec', node['name'], '/bin/sh', '-c', PROCESS_SCRIPT, 'relay-control', action, timeout=3).stdout.splitlines()
+
+
+def preflight_change(manager, node, previous):
+    from .runtime import RuntimeFailure
+    validate_change(node, previous)
+    if previous.get('dhcp_relay') and not observe_config(manager, node['name'], '/lab/dhcp-relay.conf', server_config(previous))['configuration_verified']:
+        raise RuntimeFailure('DHCP relay configuration drift; refusing live change.')
+    if node.get('dhcp_relay'):
+        manager.crun('exec', node['name'], '/bin/busybox', 'test', '-x', BINARY, timeout=3)
+
+
+def start_one(manager, node):
+    from .runtime import RuntimeFailure
+    import time
+    manager.crun('exec', node['name'], BINARY, '--test', '--conf-file=/lab/dhcp-relay.conf', timeout=3)
+    manager.crun('exec', '--detach', node['name'], BINARY, '--keep-in-foreground', '--conf-file=/lab/dhcp-relay.conf',
+                 log=manager.directory / node['name'] / 'dhcp-relay.log')
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        # dnsmasq writes its pidfile after binding sockets. Cross-check it against
+        # the observed executable/argv, never use its contents as a kill target.
+        pids = processes(manager, node)
+        pidfile = manager.crun('exec', node['name'], '/bin/cat', '/run/dhcp-relay.pid', check=False, timeout=3)
+        if len(pids) == 1 and pidfile.returncode == 0 and pidfile.stdout.strip() == pids[0]:
+            return
+        time.sleep(0.05)
+    raise RuntimeFailure('DHCP relay process did not become ready; inspect dhcp-relay.log.')
+
+
+def apply_change(manager, index, node, previous):
+    """Restart only the relay, preserving links, addresses and existing leases."""
+    from .runtime import RuntimeFailure
+    import time
+    validate_change(node, previous)
+    processes(manager, node, 'stop')
+    deadline = time.monotonic() + 3
+    while processes(manager, node):
+        if time.monotonic() >= deadline:
+            raise RuntimeFailure('DHCP relay did not stop.')
+        time.sleep(0.05)
+    # Remove stale pidfiles only after process identity checks/termination.
+    manager.crun('exec', node['name'], '/bin/rm', '-f', '/run/dhcp-relay.pid', timeout=3)
+    path = manager.directory / node['name'] / 'files' / 'dhcp-relay.conf'
+    if node.get('dhcp_relay'):
+        temporary = path.with_suffix('.conf.new')
+        temporary.write_text(server_config(node))
+        temporary.replace(path)
+        start_one(manager, node)
+    else:
+        path.unlink(missing_ok=True)
