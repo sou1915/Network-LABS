@@ -1386,9 +1386,13 @@ sudo python3 -m network_labs.appliances start arp-inspection-lan.json
 sudo python3 -m network_labs.appliances explain arp-inspection-lan SW1
 sudo python3 -m network_labs.appliances exec arp-inspection-lan PC1 -- \
   /bin/ping -c 3 10.10.0.2
-# Le node ROGUE tente d'annoncer l'IP du serveur légitime avec sa propre MAC.
+# BusyBox arping exige une IP source locale : ajout temporaire dans ROGUE.
+sudo python3 -m network_labs.appliances exec arp-inspection-lan ROGUE -- \
+  /bin/ip addr add 10.10.0.2/32 dev eth0
 sudo python3 -m network_labs.appliances exec arp-inspection-lan ROGUE -- \
   /bin/busybox arping -U -c 3 -w 3 -I eth0 -s 10.10.0.2 10.10.0.2
+sudo python3 -m network_labs.appliances exec arp-inspection-lan ROGUE -- \
+  /bin/ip addr del 10.10.0.2/32 dev eth0
 sudo python3 -m network_labs.appliances explain arp-inspection-lan SW1
 ```
 

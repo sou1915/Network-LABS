@@ -78,11 +78,17 @@ class RealContainerTests(unittest.TestCase):
                     inject(3, arp_frame(target_ip=lease))
                     inject(3, arp_frame(target_ip=lease, operation=2, destination='02:00:00:00:10:10', target_mac='02:00:00:00:10:10'))
                     # Real container CLI tool as well as controlled raw frames.
-                    result = manager.crun('exec', 'ROGUE', '/bin/busybox', 'arping', '-U', '-c', '1', '-w', '1',
-                                          '-I', 'eth0', '-s', '10.10.0.2', '10.10.0.2', check=False, timeout=3)
-                    self.assertIn(result.returncode, (0, 1), result.stderr)
-                    self.assertNotIn('applet not found', result.stderr)
-                    self.assertNotIn('invalid option', result.stderr)
+                    # BusyBox arping binds its source IP; give the rogue a
+                    # temporary duplicate address, then remove the test drift.
+                    manager.crun('exec', 'ROGUE', '/bin/ip', 'addr', 'add', '10.10.0.2/32', 'dev', 'eth0')
+                    try:
+                        result = manager.crun('exec', 'ROGUE', '/bin/busybox', 'arping', '-U', '-c', '1', '-w', '1',
+                                              '-I', 'eth0', '-s', '10.10.0.2', '10.10.0.2', check=False, timeout=3)
+                        self.assertIn(result.returncode, (0, 1), result.stderr)
+                        self.assertNotIn('applet not found', result.stderr)
+                        self.assertNotIn('invalid option', result.stderr)
+                    finally:
+                        manager.crun('exec', 'ROGUE', '/bin/ip', 'addr', 'del', '10.10.0.2/32', 'dev', 'eth0')
                 self.assertEqual(captured('spoof.pcap', 'PC1', rogue_filter, 100, spoof), 0)
                 # A source-IP-only check would accept these; both Ethernet and
                 # ARP sender MAC must match the authorized client on eth0.
