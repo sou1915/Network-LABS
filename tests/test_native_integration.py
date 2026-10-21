@@ -37,6 +37,22 @@ class RealContainerTests(unittest.TestCase):
             original, extra = '02:00:00:00:01:10', '02:00:00:00:01:99'
             def ping():
                 return manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '192.0.2.20', check=False).returncode == 0
+            def wait_for_ping(context):
+                # Rejected ARP may leave an outstanding neighbour probe/backoff.
+                # Test eventual actual delivery after admission, without weakening
+                # any of the negative probes or changing policy during retries.
+                deadline = time.monotonic() + 5
+                attempts = 0
+                neighbours = manager.ns(0, 'ip', '-j', 'neigh', 'show', 'dev', 'eth0').stdout
+                while True:
+                    attempts += 1
+                    if ping():
+                        print('Port security admission:', context, 'attempts=', attempts, 'initial_neighbours=', neighbours, flush=True)
+                        return
+                    if time.monotonic() >= deadline:
+                        self.fail(context + ': ' + json.dumps({'security': manager.inspect('SW1').get('port_security'),
+                                  'pc1': manager.inspect('PC1'), 'neighbours': manager.ns(0, 'ip', '-j', 'neigh', 'show').stdout}))
+                    time.sleep(0.1)
             def set_mac(address):
                 manager.crun('exec', 'PC1', '/bin/ip', 'link', 'set', 'dev', 'eth0', 'address', address)
                 for index in (0, 2):
@@ -67,7 +83,8 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(manager.state['revision'], revision)
                     self.assertFalse(ping())
                     configure('switchport port-security maximum 2\nswitchport port-security mac-address ' + extra)
-                    self.assertTrue(ping(), 'New explicitly admitted MAC did not recover packet delivery')
+                    self.assertTrue(manager.inspect('SW1')['port_security']['fingerprint_matches'])
+                    wait_for_ping('New explicitly admitted MAC did not recover packet delivery')
                     counters = manager.inspect('SW1')['port_security']['ports']['eth0']['accepted_packets']
                     configure('no shutdown')
                     self.assertGreaterEqual(manager.inspect('SW1')['port_security']['ports']['eth0']['accepted_packets'], counters)
@@ -97,7 +114,7 @@ class RealContainerTests(unittest.TestCase):
                     from network_labs.appliances.port_security import read_table
                     self.assertIsNone(read_table(manager, 1))
                     set_mac(extra)
-                    self.assertTrue(ping(), 'Removing security left a hidden drop policy')
+                    wait_for_ping('Removing security left a hidden drop policy')
             finally:
                 if manager.directory.exists():
                     with manager.locked():
