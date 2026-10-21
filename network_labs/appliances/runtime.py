@@ -53,6 +53,8 @@ def write_json(path, data):
 def oci_config(spec, node, index, rootfs):
     caps = ['CAP_CHOWN', 'CAP_DAC_OVERRIDE', 'CAP_FOWNER', 'CAP_SETGID', 'CAP_SETUID',
             'CAP_KILL', 'CAP_NET_ADMIN', 'CAP_NET_RAW', 'CAP_NET_BIND_SERVICE']
+    if node.get('lldp') is not None:
+        caps.append('CAP_SYS_CHROOT')
     return {
         'ociVersion': '1.0.2', 'hostname': node['name'],
         'root': {'path': str(rootfs), 'readonly': False},
@@ -120,7 +122,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -138,6 +140,12 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None):
         raise ValueError('Rootfs destination must not already exist.')
     from .dns_rootfs import assets as dns_assets
     additions = dns_assets(dnsmasq) if dnsmasq is not None else []
+    if (lldpd is None) != (lldpcli is None):
+        raise ValueError('Provide both --lldpd and --lldpcli.')
+    lldp_additions = []
+    if lldpd is not None:
+        from .lldp import rootfs_assets
+        lldp_additions = rootfs_assets(lldpd, lldpcli)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -146,11 +154,17 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None):
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions:
+    for source, destination in additions + lldp_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
         path.chmod(0o755)
+    if lldp_additions:
+        with (target / 'etc/passwd').open('a') as account:
+            account.write('_lldpd:x:65534:65534:LLDP:/run/lldpd:/bin/sh\n')
+        with (target / 'etc/group').open('a') as account:
+            account.write('_lldpd:x:65534:\n')
+        write_json(target / 'etc/network-labs-lldp-assets.json', {'files': [str(path) for _, path in lldp_additions]})
     if additions:
         write_json(target / 'etc/network-labs-dns-assets.json', {'binary': '/usr/sbin/dnsmasq', 'files': [str(destination) for _, destination in additions]})
     return target
@@ -215,6 +229,9 @@ class Manager:
         for node in spec['nodes']:
             if node.get('dns_server') is not None and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
+        for node in spec['nodes']:
+            if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
+                raise RuntimeFailure(node['name'] + ': LLDP requires a rootfs built with --lldpd and --lldpcli.')
         if any(n.get('firewall') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
@@ -278,6 +295,8 @@ class Manager:
                     self.start_vm(node, i)
             from .dns import start_servers as start_dns
             start_dns(self)
+            from .lldp import start_servers as start_lldp
+            start_lldp(self)
             from .dhcp import start_clients, start_servers
             start_servers(self)
             start_clients(self)
@@ -293,6 +312,8 @@ class Manager:
         prepare_files(bundle, node)
         from .dns import prepare_files as prepare_dns
         prepare_dns(bundle, node)
+        from .lldp import prepare_files as prepare_lldp
+        prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):
             (bundle / folder).mkdir()
         options = f'lowerdir={Path(node["rootfs"]).resolve()},upperdir={bundle / "upper"},workdir={bundle / "work"}'

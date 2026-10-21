@@ -267,3 +267,19 @@ def dns_lab(rootfs):
                           'interfaces': {'eth0': '10.10.0.30/24'}, 'resolvers': ['10.10.0.2']})
     spec['links'].append([['PC2', 'eth0'], ['SW1', 'eth3']])
     return validate(spec)
+
+
+def lldp_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = []
+    for name, address in (('PC1', '192.0.2.10/24'), ('PC2', '192.0.2.20/24')):
+        nodes.append({'name': name, 'runtime': 'oci', 'rootfs': rootfs,
+                      'interfaces': {'eth0': address}, 'lldp': {'ports': ['eth0']}})
+    for name in ('SW1', 'SW2'):
+        nodes.append({'name': name, 'runtime': 'oci', 'rootfs': rootfs, 'role': 'switch',
+                      'interfaces': {'eth0': '', 'eth1': ''}, 'vlans': [10],
+                      'switchports': {p: {'mode': 'access', 'vlan': 10} for p in ('eth0', 'eth1')},
+                      'lldp': {'ports': ['eth0', 'eth1']}})
+    return validate({'version': 2, 'name': 'lldp-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['SW2', 'eth1']],
+        [['PC2', 'eth0'], ['SW2', 'eth0']]]})

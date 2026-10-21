@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp')
 
 
 def addresses(node):
@@ -183,6 +183,8 @@ def validate_lan(node):
     validate_multicast(node)
     from .dns import validate_dns
     validate_dns(node)
+    from .lldp import validate_lldp
+    validate_lldp(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -313,6 +315,9 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('lldp') is not None:
+        from .lldp import observe as observe_lldp
+        result['lldp'] = observe_lldp(manager, node)
     if node.get('dns_server') is not None:
         from .dns import observe_server as observe_dns
         result['dns_server'] = observe_dns(manager, index, node)

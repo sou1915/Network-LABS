@@ -40,6 +40,8 @@ def drift(manager):
             errors.append(node['name'] + ': IP Source Guard rules differ or are unavailable')
         if node.get('dhcp_server') is not None and actual.get('dhcp_server', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP server configuration differs or is unavailable')
+        if node.get('lldp') is not None and actual.get('lldp', {}).get('policy_verified') is not True:
+            errors.append(node['name'] + ': LLDP policy differs or is unavailable')
         if node.get('dns_server') is not None and actual.get('dns_server', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DNS server configuration differs or is unavailable')
         if node.get('resolvers') and actual.get('resolver', {}).get('configuration_verified') is not True:

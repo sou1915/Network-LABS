@@ -67,6 +67,17 @@ def explain_node(node, actual):
                  '. Compteur de trames, pas un nombre de machines ou un résultat de ping ; pas de shutdown automatique.',
                  {'port': port, **observation, 'policy_verified': verified}, 'warning' if denied is not None and denied > 0 else 'info')
 
+    if node.get('lldp') is not None:
+        lldp = actual.get('lldp', {})
+        _add(findings, 'LLDP_NEIGHBORS',
+             'Voisins annoncés par LLDP ; observation non authentifiée, pas une preuve de livraison.',
+             {'neighbors': lldp.get('neighbors')}, 'info' if lldp.get('neighbors') is not None else 'unknown')
+        _add(findings, 'LLDP_POLICY' if lldp.get('policy_verified') is True else 'LLDP_POLICY_UNVERIFIED',
+             'Configuration LLDP : ' + ('conforme.' if lldp.get('policy_verified') is True else 'modifiée/indisponible/non vérifiée.'),
+             {'configuration_verified': lldp.get('configuration_verified'),
+              'global_configuration_verified': lldp.get('global_configuration_verified'),
+              'port_status': lldp.get('port_status')}, 'info' if lldp.get('policy_verified') is True else 'warning')
+
     if node.get('dns_server') is not None:
         dns = actual.get('dns_server', {})
         verified = dns.get('configuration_verified') is True

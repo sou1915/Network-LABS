@@ -117,7 +117,7 @@ Différences/limites explicites :
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
   ASIC Cisco. L'encodage d'une commande n'est pas une preuve de conformité matérielle.
-- RSTP, DNS et les autres constructeurs restent à porter. LACP et STP classique Linux sont décrits plus bas. Le firewall/NAT
+- RSTP et les autres constructeurs restent à porter. DNS local et LLDP sont décrits plus bas. LACP et STP classique Linux sont décrits plus bas. Le firewall/NAT
   Linux IPv4 est décrit plus bas ; il n’utilise pas la syntaxe IOS.
   Les boucles avec STP désactivé restent refusées ; les activer via un manifest STP cohérent, jamais par commandes brutes.
 
@@ -1842,3 +1842,84 @@ issu d'un vrai DHCP, resolver statique en lecture seule, `nslookup`, `ping` et
 HTTP par nom des deux PC, perte réelle du daemon, continuité par IP, restore,
 refus de sauvegarde sur dérive de chaque fichier et nettoyage des ressources.
 Référence primaire : [manuel dnsmasq](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).
+
+## Découverte LLDP réelle
+
+`example --lldp` relie PC1–SW1–SW2–PC2 sur le VLAN access 10. Chaque node lance
+**lldpd dans son container**, avec un client lldpcli réel. Le rootfs optionnel
+contient les deux exécutables de confiance et leurs dépendances ELF résolues
+localement. Le builder accepte explicitement le profil Debian/Ubuntu avec
+compte/groupe `_lldpd` et chroot `/run/lldpd` ; un profil différent est refusé
+avant création du rootfs. Les nodes LLDP reçoivent seuls `CAP_SYS_CHROOT` pour
+la séparation de privilèges du daemon. Ses processus restent dans le cgroup OCI.
+
+```bash
+sudo apt install -y busybox-static lldpd
+python3 -m network_labs.appliances rootfs \
+  --busybox /bin/busybox --lldpd /usr/sbin/lldpd --lldpcli /usr/sbin/lldpcli \
+  --output "$HOME/network-labs-lldp-rootfs"
+python3 -m network_labs.appliances example --lldp \
+  --rootfs "$HOME/network-labs-lldp-rootfs" > lldp-lan.json
+sudo python3 -m network_labs.appliances start lldp-lan.json
+sudo python3 -m network_labs.appliances exec lldp-lan SW1 -- \
+  /usr/sbin/lldpcli -u /run/lldpd.socket show neighbors details
+sudo python3 -m network_labs.appliances inspect lldp-lan SW1
+sudo python3 -m network_labs.appliances explain lldp-lan SW1
+```
+
+Choisir une nouvelle destination de rootfs. Le moteur n'utilise ni ne pilote
+un éventuel service lldpd de l'hôte. L'installation du paquet reste une opération
+système distincte de l'exécution des daemons du lab. `--dnsmasq` peut être ajouté
+à la même commande rootfs pour disposer des deux services ; seuls les services
+déclarés dans chaque node sont démarrés.
+
+Le manifest ajoute par node :
+
+```json
+{"lldp": {"ports": ["eth0", "eth1"], "tx_interval": 2, "tx_hold": 3}}
+```
+
+Le profil initial accepte 1 à 16 interfaces physiques déclarées, des ports
+switch access, intervalle 1–60 s et hold 2–10. Les ports sont explicitement
+sélectionnés, le nom du node est annoncé, et l'identifiant de port est son nom
+d'interface. Les configurations par défaut de l'hôte ne sont pas importées.
+Les nodes avec startup non suivi ou LACP sont refusés pour ce premier profil.
+Il n'ajoute ni CDP, LLDP-MED, PoE, SNMP, ni configuration constructeur.
+
+`inspect` conserve la sortie JSON0 de `lldpcli show neighbors details`, avec
+ses informations de ports/châssis/annonces. Les voisins ne sont jamais générés
+à partir des liens du manifest. La table peut être vide après démarrage jusqu'à
+réception d'une annonce ; une commande impossible/expirée/invalide reste
+`null`, distincte d'une table vide observée. Les lectures sont bornées à 1 Mio
+et 5 secondes. Ces annonces ne sont pas authentifiées et ne prouvent ni
+livraison des données ni santé du voisin. Un bridge peut continuer à commuter
+normalement quand son daemon LLDP est arrêté.
+
+Pour observer les vraies trames :
+
+```bash
+sudo python3 -m network_labs.appliances capture lldp-lan PC1 eth0 \
+  --seconds 5 --packets 10 --filter 'ether proto 0x88cc' --output lldp.pcap
+```
+
+`save`/`export` vérifient le fichier géré `/lab/lldpd.conf`, le fingerprint de
+configuration globale lu via lldpcli et les statuts administratifs des ports
+présents. Les interfaces absentes/down peuvent ne pas être rapportées par le
+daemon ; les interfaces/admin state du kernel sont contrôlés séparément par le
+mécanisme de sauvegarde existant. Une modification globale ou un port passé en
+`disabled` via la vraie CLI est détecté. Cela ne constitue pas un export complet
+de toutes les extensions/TLV par port offertes par lldpcli. Les options gérées
+se modifient dans le manifest puis par recréation du lab ; l'adapter ios-basic
+refuse les modifications de ces nodes. `restore` redémarre les services et
+réapprend les voisins, sans snapshot du cache ou des timers.
+
+La validation native compare les voisins reçus de chaque node, vérifie qu'un
+PC ne découvre pas à travers les deux bridges, capture/décode une vraie trame,
+coupe/rétablit le lien entre switches avec pings négatif/positif, tue réellement
+lldpd et attend l'expiration des annonces tout en conservant le ping, puis
+recrée le lab depuis startup. Elle couvre aussi les dérives fichier/CLI globale
+et statut de port, leur refus de sauvegarde, et le nettoyage sans modification
+des liens/routes/règles nft de l'hôte.
+
+Références primaires : [usage lldpd/lldpcli](https://lldpd.github.io/usage.html),
+[séparation de privilèges](https://github.com/lldpd/lldpd/blob/master/README.md).

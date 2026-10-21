@@ -78,6 +78,8 @@ deux clients dynamiques et des ACKs observables via DHCP snooping.
 `example --dns` ajoute DNS local dnsmasq réel (UDP/TCP, A/PTR), resolver DHCP ou
 statique et HTTP par nom ; préparer un nouveau rootfs avec `rootfs --dnsmasq`.
 Voir la section DNS du guide LAN pour les commandes et limites.
+`example --lldp` ajoute la découverte réelle des voisins avec lldpd/lldpcli,
+inspection et capture LLDP ; son rootfs optionnel se prépare avec `--lldpd` et `--lldpcli`.
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,

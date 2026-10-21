@@ -33,6 +33,106 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_lldp_real_neighbors_pcap_link_loss_daemon_loss_policy_drift_and_restore(self):
+        from network_labs.appliances.examples import lldp_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.capture import capture
+        self.assertIsNotNone(shutil.which('lldpd'))
+        self.assertIsNotNone(shutil.which('lldpcli'))
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                                          lldpd=shutil.which('lldpd'), lldpcli=shutil.which('lldpcli'))
+            spec = lldp_lab(rootfs); spec['name'] = 'lldp-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def strings(value):
+                if isinstance(value, str):
+                    return [value]
+                if isinstance(value, dict):
+                    return [v for item in value.values() for v in strings(item)]
+                if isinstance(value, list):
+                    return [v for item in value for v in strings(item)]
+                return []
+            def peers(equipment):
+                # Only the received lldpcli output, never topology links.
+                received = manager.inspect(equipment)['lldp']['neighbors']
+                self.assertIsNotNone(received)
+                return set(strings(received)) & {'PC1', 'PC2', 'SW1', 'SW2'}
+            def wait_peers(expected):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    actual = {node: peers(node) for node in expected}
+                    if actual == expected:
+                        return
+                    time.sleep(0.2)
+                self.fail('Received LLDP neighbors did not converge: ' + repr(actual))
+            def ping(check=True):
+                return manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '192.0.2.20', check=check)
+            expected = {'PC1': {'SW1'}, 'PC2': {'SW2'}, 'SW1': {'PC1', 'SW2'}, 'SW2': {'PC2', 'SW1'}}
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    wait_peers(expected); ping()
+                    for name in expected:
+                        self.assertTrue(manager.inspect(name)['lldp']['policy_verified'])
+                # Bounded real LLDP capture with offline tcpdump decoding.
+                cap = capture(Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'lldp.pcap',
+                              seconds=5, packets=1, expression='ether proto 0x88cc')
+                self.assertEqual(cap['captured_packets'], 1)
+                decoded = run(['tcpdump', '-n', '-vv', '-r', Path(folder) / 'lldp.pcap']).stdout
+                self.assertIn('LLDP', decoded)
+                self.assertTrue('SW1' in decoded or 'PC1' in decoded, decoded)
+                with manager.locked():
+                    manager.ns(2, 'ip', 'link', 'set', 'eth1', 'down')
+                    wait_peers({'SW1': {'PC1'}, 'SW2': {'PC2'}})
+                    self.assertNotEqual(ping(check=False).returncode, 0)
+                    manager.ns(2, 'ip', 'link', 'set', 'eth1', 'up')
+                    wait_peers(expected); ping()
+                    # Real control CLI edits are visible and cannot silently
+                    # become saved declarative policy.
+                    manager.crun('exec', 'SW1', '/usr/sbin/lldpcli', 'configure', 'lldp', 'tx-interval', '7')
+                    self.assertFalse(manager.inspect('SW1')['lldp']['policy_verified'])
+                    with self.assertRaisesRegex(RuntimeFailure, 'LLDP'):
+                        manager.write_startup()
+                    manager.crun('exec', 'SW1', '/usr/sbin/lldpcli', 'configure', 'lldp', 'tx-interval', '2')
+                    manager.crun('exec', 'SW1', '/usr/sbin/lldpcli', 'configure', 'ports', 'eth0', 'lldp', 'status', 'disabled')
+                    self.assertFalse(manager.inspect('SW1')['lldp']['policy_verified'])
+                    manager.crun('exec', 'SW1', '/usr/sbin/lldpcli', 'configure', 'ports', 'eth0', 'lldp', 'status', 'rx-and-tx')
+                    wait_peers(expected)
+                    self.assertTrue(manager.inspect('SW1')['lldp']['policy_verified'])
+                    path = manager.directory / 'SW1/files/lldpd.conf'; original = path.read_text()
+                    try:
+                        path.write_text(original + '# drift\n')
+                        with self.assertRaisesRegex(RuntimeFailure, 'LLDP'):
+                            manager.write_startup()
+                    finally:
+                        path.write_text(original)
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.crun('exec', 'SW2', '/bin/busybox', 'killall', '-9', 'lldpd')
+                    wait_peers({'SW1': {'PC1'}})  # Actual advertised TTL expiry.
+                    self.assertIsNone(manager.inspect('SW2')['lldp']['neighbors'])
+                    self.assertFalse(manager.inspect('SW2')['lldp']['policy_verified'])
+                    ping()  # Linux bridging is independent of the LLDP daemon.
+                    with self.assertRaisesRegex(RuntimeFailure, 'LLDP'):
+                        manager.write_startup()
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    wait_peers(expected); ping()
+                    for name in expected:
+                        self.assertTrue(manager.inspect(name)['lldp']['policy_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_dns_real_udp_tcp_dhcp_resolver_http_failure_config_drift_and_restore(self):
         from network_labs.appliances.examples import dns_lab
         from network_labs.appliances.firewall import fingerprint

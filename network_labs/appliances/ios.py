@@ -35,8 +35,8 @@ def compile_config(spec, name, text):
     node = next((node for node in candidate['nodes'] if node['name'] == name), None)
     if node is None or node.get('dialect') != 'ios-basic' or node['runtime'] != 'oci':
         raise ValueError('An OCI node with dialect ios-basic is required. This is not Cisco IOS firmware.')
-    if node.get('dhcp_clients') or node.get('dhcp_server') or node.get('dns_server'):
-        raise ValueError('IOS-style live configuration of DHCP/DNS service nodes is not supported yet.')
+    if node.get('dhcp_clients') or node.get('dhcp_server') or node.get('dns_server') or node.get('lldp') is not None:
+        raise ValueError('IOS-style live configuration of DHCP/DNS/LLDP service nodes is not supported yet.')
     if not isinstance(text, str) or len(text) > 65536:
         raise ValueError('Configuration block must be text, at most 64 KiB.')
     mode, interface = 'priv', None
