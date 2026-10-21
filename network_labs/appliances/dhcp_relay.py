@@ -148,7 +148,7 @@ def apply_change(manager, index, node, previous):
             raise RuntimeFailure('DHCP relay did not stop.')
         time.sleep(0.05)
     # Remove stale pidfiles only after process identity checks/termination.
-    manager.crun('exec', node['name'], '/bin/rm', '-f', '/run/dhcp-relay.pid', timeout=3)
+    manager.crun('exec', node['name'], '/bin/busybox', 'rm', '-f', '/run/dhcp-relay.pid', timeout=3)
     path = manager.directory / node['name'] / 'files' / 'dhcp-relay.conf'
     if node.get('dhcp_relay'):
         temporary = path.with_suffix('.conf.new')
