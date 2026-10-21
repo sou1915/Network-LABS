@@ -12,6 +12,12 @@ from .spec import validate
 
 
 def resolve_interface(node, value):
+    match = re.fullmatch(r'vlan\s*(\d+)', value.strip().lower())
+    if match:
+        if node['role'] != 'switch' or node.get('switch_backend', 'linux') != 'linux':
+            raise ValueError('SVI interfaces require a Linux-bridge switch.')
+        from .spec import integer
+        return 'vlan' + str(integer(int(match[1]), 1, 4094, 'SVI VLAN')), None
     alias = port_name(value)
     if alias.startswith('po'):
         bond = 'bond' + alias[2:]
@@ -56,9 +62,17 @@ def compile_config(spec, name, text):
             if command == 'exit':
                 mode = 'config' if mode in ('interface', 'vlan') else 'priv'
                 interface = None; continue
-            match = re.fullmatch(r'interface (\S+)', command)
+            match = re.fullmatch(r'no interface (vlan\s*\d+)', command)
+            if match and mode == 'config':
+                name, _ = resolve_interface(node, match[1])
+                node.setdefault('svis', {}).pop(name, None)
+                node['shutdown'] = [p for p in node['shutdown'] if p != name]
+                continue
+            match = re.fullmatch(r'interface (vlan\s*\d+|\S+)', command)
             if match and mode in ('config', 'interface', 'vlan'):
                 interface, parent = resolve_interface(node, match[1])
+                if re.fullmatch(r'vlan\d+', interface):
+                    node.setdefault('svis', {}).setdefault(interface, {'vlan': int(interface[4:]), 'address': ''})
                 if parent:
                     if node['role'] != 'router':
                         raise ValueError('Only router dot1Q subinterfaces are supported.')
@@ -111,7 +125,7 @@ def compile_config(spec, name, text):
                     policy['vlans'] = sorted(set(policy['vlans']) - set(values) if match[1] else set(policy['vlans']) | set(values))
                     continue
                 raise ValueError('DHCP snooping supports enable and vlan selection; relay/Option 82/rate limiting are not implemented.')
-            if command in ('ip routing', 'no ip routing') and mode == 'config' and node['role'] == 'router':
+            if command in ('ip routing', 'no ip routing') and mode == 'config' and node['role'] in ('router', 'switch'):
                 node['forwarding'] = command == 'ip routing'; continue
             if mode == 'interface':
                 if command in ('shutdown', 'no shutdown'):
@@ -120,6 +134,15 @@ def compile_config(spec, name, text):
                     elif command == 'no shutdown' and interface in node['shutdown']:
                         node['shutdown'].remove(interface)
                     continue
+                if interface in node.get('svis', {}):
+                    match = re.fullmatch(r'ip address (\S+) (\S+)', command)
+                    if match:
+                        node['svis'][interface]['address'] = str(ipaddress.IPv4Interface(match[1] + '/' + match[2]))
+                        continue
+                    if command == 'no ip address':
+                        node['svis'][interface]['address'] = ''
+                        continue
+                    raise ValueError('SVI supports ip address/no ip address and shutdown/no shutdown only.')
                 if node['role'] == 'router':
                     sub = node['subinterfaces'].get(interface)
                     match = re.fullmatch(r'encapsulation dot1q (\d+)', command)

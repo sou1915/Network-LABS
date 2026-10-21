@@ -84,6 +84,8 @@ def drift(manager):
             from .lacp import drift as channel_drift
             from .spanning_tree import drift as tree_drift
             errors.extend(tree_drift(node, actual['links']))
+            from .svi import drift as svi_drift
+            errors.extend(svi_drift(node, actual))
             from .multicast import drift as multicast_drift
             errors.extend(multicast_drift(node, actual['links']))
             errors.extend(channel_drift(node, actual))

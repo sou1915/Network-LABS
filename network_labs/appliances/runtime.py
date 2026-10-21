@@ -447,6 +447,8 @@ class Manager:
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
+        if previous['nodes'][index].get('switch_backend') == 'ovs' or candidate['nodes'][index].get('switch_backend') == 'ovs':
+            raise ValueError('OVS live network edits are unsupported by this adapter; use a new manifest and recreate the lab.')
         old_macs = previous['nodes'][index].get('interface_macs', {})
         if set(old_macs) - set(candidate['nodes'][index].get('interface_macs', {})):
             raise ValueError('Live removal of an explicit interface MAC requires stopping and recreating the lab.')

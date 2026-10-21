@@ -101,6 +101,7 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
                 raise ValueError('Capture requires an existing OCI node; guest VM capture has no adapter.')
             index, node = match
             allowed = set(node['interfaces']) | set(node['port_channels']) | {'lo'}
+            allowed.update(node.get('svis', {}))
             allowed.update(p for p, sub in node['subinterfaces'].items() if sub['vlan'] is not None)
             if node['role'] == 'switch':
                 allowed.add('br0')

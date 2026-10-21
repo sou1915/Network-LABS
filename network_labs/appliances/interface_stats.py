@@ -4,6 +4,7 @@ FIELDS = tuple(d + '_' + m for d in ('rx', 'tx') for m in ('packets', 'bytes', '
 
 def managed_ports(node):
     ports = set(node['interfaces']) | set(node.get('port_channels', {}))
+    ports.update(node.get('svis', {}))
     ports.update(p for p, sub in node.get('subinterfaces', {}).items() if sub['vlan'] is not None)
     if node['role'] == 'switch':
         ports.add('br0')

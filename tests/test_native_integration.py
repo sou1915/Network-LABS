@@ -132,6 +132,129 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
         self.assertEqual(run(['ovs-vsctl', '--timeout=2', '--format=json', 'list', 'Bridge'], check=False).stdout, host_db)
 
+    def test_appliance_l3_svis_real_gateways_intervlan_trunk_shutdown_rollback_and_restore(self):
+        from network_labs.appliances.examples import svi_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_sysctl = run(['sysctl', '-n', 'net.ipv4.ip_forward', 'net.ipv4.conf.all.arp_ignore', 'net.ipv4.conf.all.arp_announce']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = svi_lab(rootfs); spec['name'] = 'svi-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def ping(client, target, success=True):
+                result = manager.crun('exec', client, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
+                self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+                return result
+            def wait_routed():
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    result = manager.crun('exec', 'PC2', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.20', check=False)
+                    if result.returncode == 0:
+                        self.assertIn('ttl=63', result.stdout)
+                        return
+                    time.sleep(0.1)
+                self.fail('Real routed SVI/trunk traffic did not recover: ' + result.stdout)
+            def captured(interface, filename, expression, count):
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), 'SW1', interface, Path(folder) / filename,
+                                     seconds=5, packets=count, expression=expression, ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('SVI/trunk capture did not become ready')
+                with manager.locked():
+                    ping('PC2', '198.51.100.20')
+                result = future.result(timeout=8)
+                self.assertEqual(result['captured_packets'], count)
+                return run(['tcpdump', '-n', '-e', '-vv', '-r', Path(folder) / filename]).stdout
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    ping('PC1', '192.0.2.20'); ping('PC3', '198.51.100.20')
+                    ping('PC1', '192.0.2.1'); ping('PC3', '198.51.100.1')
+                    ping('PC1', '198.51.100.10', success=False)
+                    # A gateway in another VLAN must not answer ARP on VLAN10.
+                    arp = manager.crun('exec', 'PC1', '/bin/busybox', 'arping', '-I', 'eth0', '-c', '1', '-w', '1', '198.51.100.1', check=False)
+                    self.assertNotEqual(arp.returncode, 0)
+                    manager.configure_ios('SW1', 'conf t\nip routing\nend')
+                    wait_routed()
+                    observed = manager.inspect('SW1')
+                    self.assertTrue(observed['forwarding'])
+                    self.assertTrue(all(r['encapsulation_verified'] and r['arp_verified'] for r in observed['svis'].values()))
+                    connected = {(r.get('dst'), r.get('dev')) for r in observed['routes'] if r.get('protocol') == 'kernel'}
+                    self.assertTrue({('192.0.2.0/24', 'vlan10'), ('198.51.100.0/24', 'vlan20')} <= connected)
+                decoded = captured('eth2', 'svi-trunk.pcap', 'vlan and icmp', 4)
+                self.assertIn('vlan 10', decoded); self.assertIn('vlan 20', decoded); self.assertIn('ttl 63', decoded)
+                self.assertIn('ICMP', captured('vlan10', 'svi-interface.pcap', 'icmp', 2))
+                with manager.locked():
+                    manager.configure_ios('SW1', 'conf t\nno ip routing\nend')
+                    ping('PC1', '198.51.100.10', success=False)
+                    ping('PC1', '192.0.2.20'); ping('PC3', '198.51.100.20')
+                    self.assertTrue(all(r['arp_verified'] for r in manager.inspect('SW1')['svis'].values()))
+                    manager.configure_ios('SW1', 'conf t\nip routing\ninterface vlan 20\nshutdown\nend')
+                    ping('PC1', '198.51.100.10', success=False)
+                    ping('PC3', '198.51.100.20')  # SVI shutdown must preserve L2.
+                    manager.configure_ios('SW1', 'conf t\ninterface Vlan20\nno shutdown\nend')
+                    wait_routed()
+                    # Refuse external changes to CPU/self VLAN membership and ARP settings.
+                    manager.ns(4, 'bridge', 'vlan', 'add', 'dev', 'br0', 'vid', '30', 'self')
+                    with self.assertRaisesRegex(RuntimeFailure, 'SVI'):
+                        manager.write_startup()
+                    manager.ns(4, 'bridge', 'vlan', 'del', 'dev', 'br0', 'vid', '30', 'self')
+                    manager.ns(4, 'sysctl', '-w', 'net.ipv4.conf.vlan10.arp_ignore=0')
+                    with self.assertRaisesRegex(RuntimeFailure, 'SVI'):
+                        manager.write_startup()
+                    manager.ns(4, 'sysctl', '-w', 'net.ipv4.conf.vlan10.arp_ignore=1')
+                    # A failure after deleting vlan20 must recreate its real
+                    # interface, CPU membership, address and forwarding path.
+                    original_ns = manager.ns; armed = [True]
+                    def interrupted(index, *args, **kwargs):
+                        if armed[0] and args[:2] == ('sysctl', '-w') and any('.arp_ignore=' in str(arg) for arg in args):
+                            armed[0] = False
+                            raise RuntimeFailure('Injected failure after actual SVI removal')
+                        return original_ns(index, *args, **kwargs)
+                    revision = manager.state['revision']
+                    with patch.object(manager, 'ns', side_effect=interrupted), self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                        manager.configure_ios('SW1', 'conf t\nno interface vlan20\nend')
+                    self.assertFalse(armed[0]); self.assertEqual(manager.state['phase'], 'running')
+                    self.assertEqual(manager.state['revision'], revision)
+                    wait_routed()
+                    manager.configure_ios('SW1', 'conf t\nno interface vlan 20\nend')
+                    self.assertNotIn('vlan20', {r['ifname'] for r in manager.inspect('SW1')['links']})
+                    ping('PC1', '198.51.100.10', success=False); ping('PC3', '198.51.100.20')
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan20\nip address 198.51.100.1 255.255.255.0\nno shutdown\nend')
+                    wait_routed()
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan20\nshutdown\nend')
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    self.assertNotIn('UP', manager.inspect('SW1')['svis']['vlan20']['flags'])
+                    ping('PC1', '198.51.100.10', success=False); ping('PC3', '198.51.100.20')
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan20\nno shutdown\nend')
+                    wait_routed(); manager.write_startup()
+            except BaseException:
+                if manager.directory.exists():
+                    try:
+                        print('SVI OBSERVATION: ' + json.dumps(manager.inspect('SW1')))
+                    except Exception as exc:
+                        print('SVI observation unavailable: ' + str(exc))
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward', 'net.ipv4.conf.all.arp_ignore', 'net.ipv4.conf.all.arp_announce']).stdout, host_sysctl)
+
     def test_appliance_lldp_real_neighbors_pcap_link_loss_daemon_loss_policy_drift_and_restore(self):
         from network_labs.appliances.examples import lldp_lab
         from network_labs.appliances.firewall import fingerprint

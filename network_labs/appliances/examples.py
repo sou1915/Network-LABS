@@ -297,3 +297,24 @@ def rstp_lab(rootfs):
     links = [[['PC' + str(i), 'eth0'], ['SW' + str(i), 'eth0']] for i in (1, 2, 3)]
     links += [[['SW1', 'eth1'], ['SW2', 'eth1']], [['SW1', 'eth2'], ['SW3', 'eth1']], [['SW2', 'eth2'], ['SW3', 'eth2']]]
     return validate({'version': 2, 'name': 'rstp-lan', 'nodes': nodes, 'links': links})
+
+
+def svi_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = []
+    for name, address, gateway in (('PC1', '192.0.2.10/24', '192.0.2.1'), ('PC2', '192.0.2.20/24', '192.0.2.1'),
+                                    ('PC3', '198.51.100.10/24', '198.51.100.1'), ('PC4', '198.51.100.20/24', '198.51.100.1')):
+        nodes.append({'name': name, 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': address}, 'gateway': gateway})
+    for name in ('SW1', 'SW2'):
+        nodes.append({'name': name, 'runtime': 'oci', 'role': 'switch', 'rootfs': rootfs, 'dialect': 'ios-basic',
+                      'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''}, 'vlans': [10, 20],
+                      'interface_aliases': {'fa0/1': 'eth0', 'fa0/2': 'eth1', 'gi0/1': 'eth2'},
+                      'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                                      'eth2': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}}})
+    nodes[4]['svis'] = {'vlan10': {'vlan': 10, 'address': '192.0.2.1/24'}, 'vlan20': {'vlan': 20, 'address': '198.51.100.1/24'}}
+    # Start with gateway management but no inter-VLAN forwarding; enable it
+    # explicitly with the supported ip routing CLI command.
+    return validate({'version': 2, 'name': 'svi-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC3', 'eth0'], ['SW1', 'eth1']],
+        [['PC2', 'eth0'], ['SW2', 'eth0']], [['PC4', 'eth0'], ['SW2', 'eth1']],
+        [['SW1', 'eth2'], ['SW2', 'eth2']]]})

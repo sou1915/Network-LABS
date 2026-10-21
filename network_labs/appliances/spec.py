@@ -98,8 +98,8 @@ def validate(data):
                 argv(command)
             if role == 'firewall' and not startup and node.get('firewall') is None:
                 raise ValueError('Firewall requires explicit startup rules; no fake firewall or default pass-through.')
-            if role == 'switch' and (any(interfaces.values()) or node.get('gateway')):
-                raise ValueError('Switch is initially an unnumbered bridge; management IP requires explicit startup commands.')
+            if role == 'switch' and (any(interfaces.values()) or (node.get('gateway') and not node['svis'])):
+                raise ValueError('Switch physical ports remain unnumbered; use SVIs for management/routing.')
         else:
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:

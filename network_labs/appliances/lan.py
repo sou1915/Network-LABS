@@ -11,11 +11,12 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis')
 
 
 def addresses(node):
-    return {**node['interfaces'], **{name: '' for name in node.get('port_channels', {})}, **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()}}
+    return {**node['interfaces'], **{name: '' for name in node.get('port_channels', {})}, **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()},
+            **{name: svi['address'] for name, svi in node.get('svis', {}).items()}}
 
 
 def validate_lan(node):
@@ -92,6 +93,8 @@ def validate_lan(node):
             if pair in combinations:
                 raise ValueError('Duplicate parent/VLAN encapsulation.')
             combinations.add(pair)
+    from .svi import validate_svis
+    validate_svis(node)
     shutdown = node.setdefault('shutdown', [])
     all_interfaces = addresses(node)
     if not isinstance(shutdown, list) or any(not isinstance(p, str) or p not in all_interfaces for p in shutdown):
@@ -99,8 +102,8 @@ def validate_lan(node):
     if len(shutdown) != len(set(shutdown)):
         raise ValueError('Duplicate shutdown interface.')
     forwarding = node.setdefault('forwarding', role in ('router', 'firewall'))
-    if type(forwarding) is not bool or (forwarding and role not in ('router', 'firewall')):
-        raise ValueError('Only routers/firewalls can enable IPv4 forwarding.')
+    if type(forwarding) is not bool or (forwarding and role not in ('router', 'firewall') and not node['svis']):
+        raise ValueError('IPv4 forwarding requires a router/firewall or a Linux switch with declared SVIs.')
     dialect = node.setdefault('dialect', 'linux')
     if dialect not in ('linux', 'ios-basic') or (dialect == 'ios-basic' and role not in ('router', 'switch')):
         raise ValueError('ios-basic is a partial CLI for OCI routers/switches only.')
@@ -111,7 +114,7 @@ def validate_lan(node):
     canonical = {}
     for alias, interface in aliases.items():
         alias = port_name(alias)
-        if interface not in node['interfaces'] or alias in canonical or '.' in alias:
+        if interface not in node['interfaces'] or alias in canonical or '.' in alias or re.fullmatch(r'vlan\d+', alias):
             raise ValueError('Interface alias must identify a physical interface uniquely.')
         canonical[alias] = interface
     if len(set(canonical.values())) != len(canonical):
@@ -162,8 +165,8 @@ def validate_lan(node):
             raise ValueError('Static routes must have unique non-default prefixes; use gateway for default.')
         destinations.add(route['destination'])
         interface = route.get('interface')
-        if role == 'switch' or interface not in all_interfaces or not all_interfaces[interface]:
-            raise ValueError('Static route requires a numbered non-switch interface.')
+        if (role == 'switch' and interface not in node['svis']) or interface not in all_interfaces or not all_interfaces[interface]:
+            raise ValueError('Static route requires a numbered routed interface or SVI.')
         local = ipaddress.IPv4Interface(all_interfaces[interface])
         gateway = ipaddress.IPv4Address(route.get('gateway'))
         if gateway not in local.network or gateway == local.ip or (local.network.prefixlen < 31 and gateway in (local.network.network_address, local.network.broadcast_address)):
@@ -204,6 +207,7 @@ def memberships(node, port):
 def configure(manager, index, node, previous=None):
     """Apply one node's managed network state; caller owns rollback and journal."""
     ns = lambda *args, **kwargs: manager.ns(index, *args, **kwargs)
+    created_svis = set()
     initial = previous is None
     previous = previous or node
     # A port edit must not flap unrelated links or flush unrelated addresses.
@@ -251,6 +255,8 @@ def configure(manager, index, node, previous=None):
         configure_ports(manager, index, node, previous, initial, recreated)
         from .multicast import configure as configure_multicast
         configure_multicast(manager, index, node, previous, initial)
+        from .svi import configure as configure_svis
+        created_svis = configure_svis(manager, index, node, {} if initial else previous)
     # Recreate only VLAN devices whose encapsulation changed, preserving others.
     old_subs = previous.get('subinterfaces', {})
     for name, old in old_subs.items():
@@ -268,7 +274,7 @@ def configure(manager, index, node, previous=None):
     for interface, address in addresses(node).items():
         if interface in node['subinterfaces'] and node['subinterfaces'][interface]['vlan'] is None:
             continue
-        if interface not in node['dhcp_clients'] and (initial or address != addresses(previous).get(interface)
+        if interface not in node['dhcp_clients'] and (initial or interface in created_svis or address != addresses(previous).get(interface)
                                                      or node['subinterfaces'].get(interface) != previous['subinterfaces'].get(interface)):
             ns('ip', '-4', 'addr', 'flush', 'dev', interface, 'scope', 'global')
             if address:
@@ -291,6 +297,8 @@ def configure(manager, index, node, previous=None):
         ns('ip', '-4', 'route', 'replace', route['destination'], 'via', route['gateway'],
            'dev', route['interface'], 'proto', 'static')
 
+    from .svi import configure_arp as configure_svi_arp
+    configure_svi_arp(manager, index, node)
     if node.get('dhcp_snooping') is not None or previous.get('dhcp_snooping') is not None:
         from .snooping import reconcile
         reconcile(manager, index, node, None if initial else previous)
@@ -317,6 +325,9 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('svis'):
+        from .svi import observe as observe_svis
+        result['svis'] = observe_svis(manager, index, node, result['links'])
     if node.get('switch_backend') == 'ovs':
         from .ovs import observe as observe_ovs, tree as ovs_tree
         result['ovs'] = observe_ovs(manager, node)

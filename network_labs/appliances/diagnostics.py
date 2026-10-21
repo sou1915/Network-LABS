@@ -248,7 +248,9 @@ def explain_node(node, actual):
         _add(findings, 'DHCP_ADDRESS_PRESENT' if present else 'DHCP_ADDRESS_MISSING',
              f'{port} : client DHCP configuré, ' + ('IPv4 présente ; son origine et le bail ne sont pas vérifiés.' if present else 'aucune IPv4 globale observée ; vérifier le serveur et le chemin VLAN.'),
              {'port': port, 'addresses': ipv4.get(port, [])}, 'info' if present else 'warning')
-    if node['role'] in ('router', 'firewall'):
+    for name, observed in actual.get('svis', {}).items():
+        _add(findings, 'SVI_STATE', name + ' : interface VLAN Linux ; état observé, accessibilité non testée.', observed)
+    if node['role'] in ('router', 'firewall') or node.get('svis'):
         enabled = actual['forwarding']
         _add(findings, 'IPV4_FORWARDING', 'Routage IPv4 ' + ('activé.' if enabled else 'désactivé.'),
              {'enabled': enabled, 'configured': node['forwarding']}, 'warning' if enabled != node['forwarding'] else 'info')

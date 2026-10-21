@@ -111,8 +111,8 @@ Différences/limites explicites :
   fidélité exhaustive des messages `show`, d'authentification console ou de firmware.
 - Passer de access à trunk ou inversement réinitialise ici les attributs propres
   au mode ; les paramètres inactifs conservés par un vrai IOS ne sont pas modélisés.
-- Pas de `allowed vlan add/remove/except`, de `encapsulation ... native`, de SVI,
-  de routes statiques CLI ni de pools DHCP en syntaxe IOS dans ce jalon.
+- Pas de `allowed vlan add/remove/except`, de `encapsulation ... native`,
+  de routes statiques CLI ni de pools DHCP en syntaxe IOS dans ce jalon. Les SVI Linux sont décrites plus bas.
 - DHCP se configure dans le manifest. Le live adapter refuse les nodes qui
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
@@ -2005,3 +2005,100 @@ du daemon après SIGKILL, le refus de sauvegarde, puis le restore et nettoyage.
 Les liens/routes/règles nft et la base OVS Bridge de l'hôte sont comparés avant
 et après. Références primaires : [schéma OVS](https://www.openvswitch.org/support/dist-docs/ovs-vswitchd.conf.db.5.html),
 [namespaces OVS](https://docs.openvswitch.org/en/latest/topics/networking-namespaces/).
+
+## Switch Layer 3 : SVI et routage inter-VLAN
+
+`example --svi` crée quatre PC, un switch Linux L3 SW1 et un switch L2 SW2,
+reliés par un trunk transportant les VLAN 10 et 20 taggés. PC1/PC2 sont en
+192.0.2.0/24, PC3/PC4 en 198.51.100.0/24. SW1 termine les VLANs avec de vrais
+devices `vlan10`/`vlan20` sur son bridge `br0`, les gateways .1 et les memberships
+VLAN `self` nécessaires au port local. Aucun nouveau daemon ni rootfs spécial.
+
+Le scénario démarre **sans routage inter-VLAN**. Chaque groupe communique dans
+son VLAN et peut joindre sa propre gateway. Activer explicitement le forwarding :
+
+```bash
+python3 -m network_labs.appliances example --svi \
+  --rootfs "$HOME/network-labs-rootfs" > svi-lan.json
+sudo python3 -m network_labs.appliances start svi-lan.json
+sudo python3 -m network_labs.appliances configure svi-lan SW1 \
+  --text $'configure terminal\nip routing\nend'
+sudo python3 -m network_labs.appliances exec svi-lan PC1 -- /bin/ping -c 3 198.51.100.10
+sudo python3 -m network_labs.appliances exec svi-lan PC2 -- /bin/ping -c 3 198.51.100.20
+sudo python3 -m network_labs.appliances inspect svi-lan SW1
+sudo python3 -m network_labs.appliances explain svi-lan SW1
+```
+
+Les paquets sont routés par Linux, avec décrément du TTL. PC2→PC4 entre par le
+trunk en VLAN 10 et ressort par ce même trunk en VLAN 20. `no ip routing` coupe
+le forwarding IPv4 tout en conservant les gateways locales et le switching L2.
+Le rôle reste `switch` ; les ports physiques restent sans IP.
+
+Le manifest ajoute, sur un switch OCI avec backend Linux :
+
+```json
+{
+  "svis": {
+    "vlan10": {"vlan": 10, "address": "192.0.2.1/24"},
+    "vlan20": {"vlan": 20, "address": "198.51.100.1/24"}
+  },
+  "forwarding": true
+}
+```
+
+Le champ `forwarding` reste false par défaut sur un switch. Jusqu'à 32 SVI,
+nommées canoniquement vlan1..vlan4094, nécessitent un VLAN déclaré et une IPv4
+unicast utilisable ou une adresse vide. Les subnets qui se chevauchent sont
+refusés ; VRF, adresses secondaires et IPv6 ne sont pas implémentés ici. Des
+routes IPv4 statiques du manifest peuvent utiliser une SVI numérotée et un
+next-hop dans son subnet. Le profil OVS ne prend pas encore en charge ces SVIs.
+Les nodes SVI avec startup non suivi ou client DHCP sont refusés.
+
+La CLI partielle ios-basic accepte les deux écritures `interface vlan 20` et
+`interface Vlan20`, avec `ip address IP MASK`, `no ip address`, `shutdown`,
+`no shutdown` et `no interface vlan 20`. Les commandes switchport appliquées à
+une SVI sont refusées. L'ensemble du bloc est validé avant mutation ; une erreur
+d'application utilise le journal/rollback réseau existant.
+
+```bash
+sudo python3 -m network_labs.appliances configure svi-lan SW1 \
+  --text $'conf t\ninterface vlan 20\nshutdown\nend'
+# PC3 et PC4 peuvent encore communiquer directement dans le VLAN 20.
+sudo python3 -m network_labs.appliances configure svi-lan SW1 \
+  --text $'conf t\ninterface vlan20\nno shutdown\nend'
+```
+
+`inspect` lit le parent, l'encapsulation 802.1Q, le VID, les flags/carrier réels,
+les adresses/routes et les sysctls ARP par SVI. `arp_ignore=1` et `arp_announce=2`
+sont appliqués dans ce node, après les changements d'ip_forward susceptibles de
+réinitialiser des paramètres. Le profil limite ainsi les réponses ARP à
+l'interface portant l'adresse demandée, sans annoncer une politique complète
+d'authentification ou de contrôle d'accès. L'état/carrier Linux **n'est pas**
+l'autostate Catalyst calculé à partir des ports actifs de chaque VLAN ; aucun
+état logiciel fictif n'est ajouté. La présence d'une interface UP ne prouve pas
+la disponibilité de la gateway. Les tests de paquets restent nécessaires.
+
+`capture` et `monitor` acceptent aussi les interfaces SVI. Les compteurs de SVI,
+bridge et trunk représentent des points d'observation distincts et ne doivent
+pas être additionnés comme un total de trafic. L'audit VLAN entre switches
+continue à utiliser leurs memberships physiques/logiques observés.
+
+`save`/`export` vérifient les interfaces/adresses/admin state/forwarding/routes,
+le parent et l'encapsulation des SVIs, les memberships CPU/self et les réglages
+ARP gérés. Une configuration externe différente/inconnue bloque la sauvegarde.
+`restore` recrée les devices et routes, y compris les SVIs shutdown ; les caches
+ARP/FDB et compteurs ne sont pas des snapshots. Les modifications live du
+backend OVS sont désormais refusées au point d'entrée réseau commun aussi,
+afin qu'une priorité modifiée dans un manifest ne puisse être sauvée sans
+avoir été appliquée au daemon.
+
+La validation native vérifie L2/gateways sans routage, refus inter-VLAN puis
+routage avec TTL décrémenté, absence de réponse ARP pour la gateway d'un autre
+VLAN, capture 802.1Q des deux VLANs sur le trunk et ICMP sur une SVI. Elle exerce
+no ip routing, shutdown d'une SVI avec L2 encore disponible, retrait/recréation,
+refus de sauvegarde sur dérive CPU/ARP, rollback après suppression réelle et
+restore avec une SVI initialement down. Les liens/routes/nft et sysctls de
+l'hôte restent inchangés. Références primaires :
+[bridge VLAN](https://docs.kernel.org/networking/bridge.html),
+[sysctls IPv4](https://docs.kernel.org/networking/ip-sysctl.html),
+[interface SVI et autostate Catalyst](https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst3850/software/release/16-12/configuration_guide/int_hw/b_1612_int_and_hw_3850_cg/configuring_interface_characteristics.pdf).
