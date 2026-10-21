@@ -258,13 +258,16 @@ def explain_node(node, actual):
         _add(findings, 'IPV4_ROUTES', f"{len(actual['routes'])} routes IPv4 observées ; leur présence ne prouve pas la joignabilité.", {'routes': actual['routes']})
     if 'ipv4_settings' in actual:
         settings = actual['ipv4_settings']
+        from .route_findings import ipv4_labels
+        rpf, forwarding = ipv4_labels(settings)
         _add(findings, 'IPV4_SOURCE_VALIDATION',
-             'rp_filter Linux : max(all,interface), 0=off, 1=strict, 2=loose. Une source sans route inverse peut être rejetée ; aucun verdict sur un paquet précis.',
+             f"rp_filter all={settings.get('all_rp_filter') if settings.get('all_rp_filter') is not None else '?'} ; effectif : {rpf}. Valeur max(all,interface) ; aucun verdict sur un paquet précis.",
              settings, 'info' if settings.get('available') is True else 'unknown')
         if node['role'] in ('router', 'firewall') or node.get('svis'):
             _add(findings, 'IPV4_INGRESS_FORWARDING',
-                 'Forwarding IPv4 par interface d’entrée observé ; le flag global seul ne certifie pas un chemin routé.',
-                 {'interfaces': {name: values.get('forwarding') for name, values in settings.get('interfaces', {}).items()}})
+                 'Forwarding IPv4 par interface d’entrée : ' + forwarding + '. Le flag global seul ne certifie pas un chemin routé.',
+                 {'interfaces': {name: values.get('forwarding') for name, values in settings.get('interfaces', {}).items()}},
+                 'info' if settings.get('interfaces') and all(row.get('forwarding') is not None for row in settings['interfaces'].values()) else 'unknown')
     if node.get('firewall') is not None:
         from .firewall import TABLE
         chains, counters = [], []

@@ -2248,3 +2248,42 @@ lookup et trafic. Liens/routes/règles/nft et sysctls de l’hôte restent incha
 
 Références : [manuel ip-route du projet iproute2](https://man7.org/linux/man-pages/man8/ip-route.8.html),
 [documentation kernel des sysctls IPv4](https://docs.kernel.org/networking/ip-sysctl.html).
+
+
+### Explications lisibles et états du voisinage
+
+`explain` affiche maintenant les valeurs observées par interface dans son texte,
+par exemple `rp_filter all=2 ; effectif : vlan10=loose(2)` et
+`Forwarding IPv4 ... vlan10=off`. Une valeur inconnue reste `?` ; un zéro lu reste
+explicitement `off(0)` ou `off`, sans être confondu avec une absence de mesure.
+
+`route` ajoute un tableau JSON `findings` avec `code`, `severity`, `message`,
+`evidence` et `next_step`. La sortie texte reprend les messages et les points à
+vérifier, ainsi que la source préférée si le kernel la retourne. Ce traitement
+réutilise le relevé existant : aucune commande ou probe réseau supplémentaire.
+Les suggestions ne sont jamais appliquées et aucun succès de ping n’est déduit.
+
+| Observation | Interprétation bornée |
+| --- | --- |
+| Flags sans UP | Interface administrativement down dans ce relevé |
+| UP sans LOWER_UP | Le kernel ne signale pas LOWER_UP ; examiner le parent/lien |
+| Forwarding d’entrée à 0 | Désactivé pour le trafic à transférer ; destination locale distincte |
+| Cache voisin vide | Aucun voisin observé, sans conclure que le peer est en panne |
+| INCOMPLETE | Résolution non terminée, éventuellement transitoire |
+| FAILED | Échec de validation du voisin signalé par le kernel, sans attribution à un ping précis |
+| STALE / DELAY / PROBE | État de cache/validation, sans annoncer un peer mort |
+| REACHABLE / PERMANENT / NOARP | État voisin observé, sans certifier la livraison |
+| Donnée manquante / état inconnu | Finding unknown, jamais un zéro ou une panne inventée |
+
+La lecture utilise `ip neigh show nud all` afin d’inclure NOARP et les états
+habituellement masqués par les filtres par défaut. Les destinations locales,
+contextes via/encap non pris en charge et données non corrélées au prochain saut
+ne deviennent pas des erreurs de résolution IPv4. Une erreur de commande reste
+une observation indisponible ; sa cause n’est pas automatiquement « route absente ».
+
+La validation native compare ces findings aux pings/captures existants : absence
+de cache sans probe cachée, forwarding d’entrée désactivé, véritable expiration
+ARP vers FAILED pour un peer absent, entrée NOARP visible, SVI shutdown puis
+récupération. Les contrats vérifient aussi STALE/DELAY/PROBE, données partielles,
+absence de modification du relevé et sortie texte avec valeurs effectives.
+Référence des états : [ip-neighbour, documentation iproute2](https://man7.org/linux/man-pages/man8/ip-neighbour.8.html).

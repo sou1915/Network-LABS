@@ -86,7 +86,9 @@ configuration SVI et activation explicite de `ip routing`, sans nouveau daemon.
 les routes aller/retour avec `ip route`/`no ip route`, y compris default route et /32.
 `route LAB NODE IPv4` lit la décision réelle du kernel, l’entrée FIB et le voisinage,
 sans paquet de test ; `--source`/`--ingress` précisent le contexte du lookup.
-`inspect`/`explain` exposent aussi rp_filter et forwarding par interface.
+`inspect`/`explain` exposent aussi rp_filter et forwarding par interface,
+avec les valeurs effectives lisibles en texte. `route` fournit des findings
+structurés et des vérifications suggérées selon les flags et états NUD observés.
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,

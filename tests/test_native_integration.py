@@ -194,6 +194,7 @@ class RealContainerTests(unittest.TestCase):
                     for _ in range(3):
                         report = query()
                         self.assertEqual(report['neighbors']['records'], [])
+                        self.assertIn('NEIGHBOR_NOT_CACHED', {row['code'] for row in report['findings']})
                         self.assertFalse(report['test_packets_sent'])
                         self.assertEqual(report['packet_delivery'], 'not_tested')
                     self.assertEqual(manager.state['revision'], revision)
@@ -208,6 +209,9 @@ class RealContainerTests(unittest.TestCase):
                     actual = manager.inspect('SW1')
                     self.assertTrue(actual['forwarding'])
                     self.assertEqual(actual['ipv4_settings']['interfaces']['vlan10']['forwarding'], 0)
+                    self.assertIn('vlan10=off', next(row for row in explain_node(manager.state['spec']['nodes'][1], actual)
+                                                   if row['code'] == 'IPV4_INGRESS_FORWARDING')['message'])
+                    self.assertIn('INGRESS_FORWARDING_DISABLED', {row['code'] for row in query()['findings']})
                     report = lookup(manager, 'SW1', '203.0.113.10')
                     self.assertIsNotNone(report['selected']); self.assertEqual(report['packet_delivery'], 'not_tested')
                     ping(False)
@@ -228,8 +232,27 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(report['selected']['gateway'], '198.18.0.3')
                     self.assertEqual(report['neighbors']['records'], [])
                     ping(False)
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        report = query()
+                        if any(row['code'] == 'NEIGHBOR_FAILED' for row in report['findings']):
+                            break
+                        time.sleep(0.1)
+                    self.assertIn('NEIGHBOR_FAILED', {row['code'] for row in report['findings']})
+                    # NOARP is normally omitted by ip neigh show's defaults.
+                    # It remains a cached kernel state, never a delivery claim.
+                    manager.ns(1, 'ip', 'neigh', 'replace', '198.18.0.3', 'lladdr', '02:00:00:aa:bb:cc',
+                               'nud', 'noarp', 'dev', 'vlan20')
+                    report = query()
+                    self.assertTrue(any('NOARP' in row.get('state', []) for row in report['neighbors']['records']))
+                    self.assertIn('NEIGHBOR_CACHED', {row['code'] for row in report['findings']})
+                    self.assertEqual(report['packet_delivery'], 'not_tested')
+                    manager.ns(1, 'ip', 'neigh', 'del', '198.18.0.3', 'dev', 'vlan20')
                     manager.configure_ios('SW1', 'conf t\nno ip route 203.0.113.10 255.255.255.255 198.18.0.3\nend')
                     self.assertEqual(prefix(query()), '203.0.113.0/24'); ping()
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan10\nshutdown\nend')
+                    self.assertIn('INGRESS_ADMIN_DOWN', {row['code'] for row in query()['findings']}); ping(False)
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan10\nno shutdown\nend'); ping()
             finally:
                 if manager.directory.exists():
                     with manager.locked():

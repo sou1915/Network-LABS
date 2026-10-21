@@ -36,7 +36,7 @@ def manager_for(spec=None):
             return completed([row])
         if args == ('ip', '-j', '-4', 'rule', 'show'):
             return completed([{'priority': 0, 'table': 'local'}, {'priority': 32766, 'table': 'main'}])
-        if args == ('ip', '-j', '-4', 'neigh', 'show', 'to', '198.18.0.2', 'dev', 'vlan20'):
+        if args == ('ip', '-j', '-4', 'neigh', 'show', 'nud', 'all', 'to', '198.18.0.2', 'dev', 'vlan20'):
             return completed([{'dst': '198.18.0.2', 'dev': 'vlan20', 'state': ['FAILED']}])
         raise AssertionError('Unexpected diagnostic operation: ' + repr(args))
     manager = SimpleNamespace(name=spec['name'], read=lambda: state,

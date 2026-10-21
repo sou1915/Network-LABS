@@ -137,7 +137,9 @@ def lookup(manager, name, destination, *, source=None, ingress=None):
         if plain and row.get('type') not in ('local', 'broadcast', 'multicast') and isinstance(device, str) and report['egress_link'] is not None:
             target = row.get('gateway', destination)
             report['neighbor_target'] = target
-            report['neighbors'] = _json_read(manager, index, 'ip', '-j', '-4', 'neigh', 'show', 'to', target, 'dev', device)
+            report['neighbors'] = _json_read(manager, index, 'ip', '-j', '-4', 'neigh', 'show', 'nud', 'all', 'to', target, 'dev', device)
+    from .route_findings import findings
+    report['findings'] = findings(report)
     report['completed_at'] = datetime.now(timezone.utc).isoformat()
     return report
 
@@ -155,6 +157,8 @@ def render(report):
         lines.append('Décision kernel non disponible : ' + (report['lookup']['error'] or 'aucune entrée retournée') + '.')
     matched = report['fibmatch']['records']
     lines.append('Entrée FIB observée : ' + (str(matched[0].get('dst', '?')) if matched else 'indisponible') + '.')
+    if selected is not None and selected.get('prefsrc'):
+        lines.append('Source préférée retournée par le kernel : ' + str(selected['prefsrc']) + '.')
     if report['egress_link'] is not None:
         link = report['egress_link']
         lines.append('Lien de sortie : flags=' + str(link.get('flags')) + ', operstate=' + str(link.get('operstate')) + '.')
@@ -171,6 +175,10 @@ def render(report):
         missing.append('ipv4_settings')
     if missing:
         lines.append('Relevés incomplets : ' + ', '.join(missing) + '.')
+    for finding in report.get('findings', []):
+        lines.append('[' + finding['severity'].upper() + '] ' + finding['message'])
+        if finding.get('next_step'):
+            lines.append('  À vérifier : ' + finding['next_step'])
     lines += ['Observer les flags de lien, le voisinage et les règles ; tester séparément firewall, NAT et retour.',
               'Relevés successifs, non atomiques ; lookup IPv4 sans marque ni sélecteurs transport/TOS. Aucun verdict firewall/NAT/conntrack ou bout en bout.']
     return '\n'.join(lines)
