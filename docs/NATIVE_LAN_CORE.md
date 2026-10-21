@@ -112,7 +112,7 @@ Différences/limites explicites :
 - Passer de access à trunk ou inversement réinitialise ici les attributs propres
   au mode ; les paramètres inactifs conservés par un vrai IOS ne sont pas modélisés.
 - Pas de `allowed vlan add/remove/except`, de `encapsulation ... native`,
-  de routes statiques CLI ni de pools DHCP en syntaxe IOS dans ce jalon. Les SVI Linux sont décrites plus bas.
+  ni de pools DHCP en syntaxe IOS dans ce jalon. Les routes statiques CLI et les SVI Linux sont décrites plus bas.
 - DHCP se configure dans le manifest. Le live adapter refuse les nodes qui
   portent eux-mêmes un service/client DHCP ; il ne prétend pas reconfigurer ce daemon.
 - Le bridge Linux ne reproduit pas tous les détails d'acceptation des trames d'un
@@ -370,7 +370,7 @@ Le benchmark ne sauvegarde aucune session ni configuration de lab à sa fermetur
 
 ### Routes statiques du manifest
 
-Un node OCI numéroté hors switch peut déclarer jusqu'à 128 routes IPv4 :
+Un node OCI numéroté ou un switch Linux avec SVI peut déclarer jusqu'à 128 routes IPv4 :
 
 ```json
 "routes": [
@@ -382,9 +382,9 @@ Un node OCI numéroté hors switch peut déclarer jusqu'à 128 routes IPv4 :
 La passerelle doit être un voisin utilisable sur l'interface indiquée. Les
 préfixes sont uniques, sans remplacement d'un réseau directement connecté.
 La route par défaut reste le champ `gateway`. Les routes sont appliquées au
-kernel et vérifiées avant `save`/`export`, puis recréées par `restore`. Ce jalon
-ne fournit pas encore `ip route` dans l'adaptateur IOS partiel. Les commandes
-brutes `exec ... ip route` restent possibles, mais ne modifient pas le manifest.
+kernel et vérifiées avant `save`/`export`, puis recréées par `restore`. L’adaptateur
+`ios-basic` fournit maintenant le sous-ensemble `ip route` décrit ci-dessous. Les
+commandes brutes `exec ... ip route` ne modifient pas le manifest.
 
 Références : [cgroup v2 : mémoire et CPU](https://docs.kernel.org/admin-guide/cgroup-v2.html),
 [/proc : MemAvailable, CPU et PSS](https://docs.kernel.org/filesystems/proc.html).
@@ -2102,3 +2102,72 @@ l'hôte restent inchangés. Références primaires :
 [bridge VLAN](https://docs.kernel.org/networking/bridge.html),
 [sysctls IPv4](https://docs.kernel.org/networking/ip-sysctl.html),
 [interface SVI et autostate Catalyst](https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst3850/software/release/16-12/configuration_guide/int_hw/b_1612_int_and_hw_3850_cg/configuring_interface_characteristics.pdf).
+
+
+## Routes statiques via CLI : aller, retour et longest prefix match
+
+`example --static-routing` crée quatre nodes : PC1 (192.0.2.10/24), SW1 L3
+(gateway vlan10 192.0.2.1/24, transit vlan20 198.18.0.1/29), R1 (transit
+198.18.0.2/29 et LAN 203.0.113.1/24), PC2 (203.0.113.10/24). Le forwarding
+est activé sur SW1/R1, mais aucun des deux ne connaît initialement le LAN distant.
+Les clients ont leur gateway locale. Aucun daemon/rootfs supplémentaire.
+
+```bash
+python3 -m network_labs.appliances example --static-routing \
+  --rootfs "$HOME/network-labs-rootfs" > static-routing-lan.json
+sudo python3 -m network_labs.appliances start static-routing-lan.json
+sudo python3 -m network_labs.appliances configure static-routing-lan SW1 \
+  --text $'conf t\nip route 203.0.113.0 255.255.255.0 198.18.0.2\nend'
+# Le chemin aller existe, mais le ping échoue encore : route de retour absente.
+sudo python3 -m network_labs.appliances configure static-routing-lan R1 \
+  --text $'conf t\nip route 192.0.2.0 255.255.255.0 gi0/0 198.18.0.1\nend'
+sudo python3 -m network_labs.appliances exec static-routing-lan PC1 -- \
+  /bin/ping -c 3 203.0.113.10
+sudo python3 -m network_labs.appliances inspect static-routing-lan SW1
+```
+
+Les commandes globales supportées sont :
+
+- `ip route NETWORK NETMASK NEXT_HOP` et la même commande préfixée par `no`.
+- `ip route NETWORK NETMASK INTERFACE NEXT_HOP` pour les routes non-default,
+  avec alias physique, sous-interface dot1Q ou SVI (`vlan20` ou `Vlan 20`).
+- `ip route 0.0.0.0 0.0.0.0 NEXT_HOP` et son `no`, traduits vers le champ
+  existant `gateway`. Une default route avec interface explicite est refusée.
+
+Le masque doit être une netmask IPv4 contiguë en notation pointée ; CIDR,
+wildcard et host bits dans le préfixe sont refusés. Le next-hop doit être un
+peer unicast directement joignable dans un subnet configuré, jamais une adresse
+locale. Sans interface explicite, un seul subnet/interface doit correspondre ;
+une ambiguïté est refusée, sans sélection implicite. La résolution utilise les
+adresses configurées au moment de cette ligne : déclarer les interfaces/adresses
+avant leurs routes. La validation finale du bloc vérifie encore sa cohérence.
+
+Les routes non-default utilisent `ip -4 route replace ... proto static` et une
+interface explicite dans le manifest. Une seule route par préfixe est supportée ;
+changer le next-hop exige `no` puis ajout dans le même bloc. Un ajout identique
+est idempotent et `no` ne retire qu'une entrée identique. Les syntaxes ECMP,
+distance administrative, next-hop récursif, Null0, VRF, track et IPv6 sont refusées.
+Le backend reste Linux et ne reproduit pas les détails RIB/adjacency d'IOS.
+
+Pour observer la priorité d'une route host sur une route moins spécifique :
+
+```bash
+sudo python3 -m network_labs.appliances configure static-routing-lan SW1 \
+  --text $'conf t\nip route 203.0.113.10 255.255.255.255 vlan20 198.18.0.3\nend'
+# .3 est volontairement un peer absent : /32 prend priorité, le ping échoue.
+sudo python3 -m network_labs.appliances exec static-routing-lan PC1 -- \
+  /bin/ping -c 3 -W 1 203.0.113.10
+sudo python3 -m network_labs.appliances configure static-routing-lan SW1 \
+  --text $'conf t\nno ip route 203.0.113.10 255.255.255.255 vlan20 198.18.0.3\nend'
+# Le chemin /24 redevient utilisable.
+```
+
+La validation native capture la requête ICMP réellement arrivée à PC2 quand la
+route de retour manque, puis valide les pings dans les deux sens et TTL 62
+après les deux sauts routés. Elle teste la priorité d'une /32 vers un voisin
+absent, la default route sans /24, les retraits/restaurations et le refus de
+save après ajout externe d'une route. Une panne injectée après suppression
+réelle de la /24 vérifie sa recréation par rollback. Save/stop/restore recrée
+routes et default route ; les liens/routes/nft et ip_forward de l'hôte restent
+inchangés. Référence de syntaxe :
+[Cisco IOS XE, Basic IP Routing](https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/ip-routing/b-ip-routing/m_iri-iprouting.html).

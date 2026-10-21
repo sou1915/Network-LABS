@@ -127,6 +127,10 @@ def compile_config(spec, name, text):
                 raise ValueError('DHCP snooping supports enable and vlan selection; relay/Option 82/rate limiting are not implemented.')
             if command in ('ip routing', 'no ip routing') and mode == 'config' and node['role'] in ('router', 'switch'):
                 node['forwarding'] = command == 'ip routing'; continue
+            if command.startswith(('ip route ', 'no ip route ')) and mode == 'config' and node['role'] in ('router', 'switch'):
+                from .static_routes import configure_route
+                configure_route(node, command, resolve_interface)
+                continue
             if mode == 'interface':
                 if command in ('shutdown', 'no shutdown'):
                     if command == 'shutdown' and interface not in node['shutdown']:

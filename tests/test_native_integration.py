@@ -33,6 +33,97 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
+        from network_labs.appliances.examples import static_routing_lab
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = static_routing_lab(rootfs); spec['name'] = 'routes-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def config(node, text):
+                return manager.configure_ios(node, 'conf t\n' + text + '\nend')
+            def ping(success=True, client='PC1', target='203.0.113.10'):
+                result = manager.crun('exec', client, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
+                self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+                if success:
+                    self.assertIn('ttl=62', result.stdout)
+                return result
+            forward = 'ip route 203.0.113.0 255.255.255.0 198.18.0.2'
+            backward = 'ip route 192.0.2.0 255.255.255.0 gi0/0 198.18.0.1'
+            default = 'ip route 0.0.0.0 0.0.0.0 198.18.0.2'
+            narrow = 'ip route 203.0.113.10 255.255.255.255 vlan20 198.18.0.3'
+            try:
+                with manager.locked():
+                    manager.start(spec); ping(False)
+                    config('SW1', forward)
+                # The request really arrives at PC2; only the return route is missing.
+                ready = threading.Event(); pcap = Path(folder) / 'missing-return.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC2', 'eth0', pcap,
+                                     seconds=5, packets=1, expression='icmp and icmp[0] = 8', ready=ready.set)
+                self.assertTrue(ready.wait(5))
+                with manager.locked():
+                    ping(False)
+                self.assertEqual(future.result(timeout=8)['captured_packets'], 1)
+                decoded = run(['tcpdump', '-n', '-vv', '-r', pcap]).stdout
+                self.assertIn('192.0.2.10 > 203.0.113.10', decoded)
+                self.assertIn('echo request', decoded); self.assertIn('ttl 62', decoded)
+                with manager.locked():
+                    config('R1', backward); ping(); ping(client='PC2', target='192.0.2.10')
+                    actual = manager.inspect('SW1')['routes']
+                    self.assertTrue(any(r.get('dst') == '203.0.113.0/24' and r.get('dev') == 'vlan20' and
+                                        r.get('gateway') == '198.18.0.2' and r.get('protocol') == 'static' for r in actual))
+                    # Failure after the actual /24 deletion must re-create that route.
+                    original_ns = manager.ns; armed = [True]; deleted = [False]
+                    def interrupted(index, *args, **kwargs):
+                        if armed[0] and index == 1 and args[:4] == ('ip', '-4', 'route', 'replace'):
+                            deleted[0] = not any(r.get('dst') == '203.0.113.0/24' for r in
+                                                 json.loads(original_ns(1, 'ip', '-j', '-4', 'route', 'show').stdout))
+                            armed[0] = False
+                            raise RuntimeFailure('Injected route failure after real deletion')
+                        return original_ns(index, *args, **kwargs)
+                    revision = manager.state['revision']
+                    with patch.object(manager, 'ns', side_effect=interrupted), self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                        config('SW1', 'no ' + forward + '\n' + narrow)
+                    self.assertTrue(deleted[0]); self.assertFalse(armed[0])
+                    self.assertEqual(manager.state['revision'], revision); ping()
+                    # An observed extra route must not silently enter a saved manifest.
+                    manager.ns(1, 'ip', 'route', 'add', '203.0.113.10/32', 'via', '198.18.0.3', 'dev', 'vlan20', 'proto', 'static')
+                    with self.assertRaisesRegex(RuntimeFailure, 'static routes'):
+                        manager.write_startup()
+                    manager.ns(1, 'ip', 'route', 'del', '203.0.113.10/32')
+                    config('SW1', default + '\nno ' + forward); ping()
+                    config('SW1', narrow); ping(False)
+                    config('SW1', 'no ' + narrow); ping()
+                    config('SW1', forward + '\nno ' + default); ping()
+                    self.assertFalse(any(r.get('dst') == 'default' for r in manager.inspect('SW1')['routes']))
+                    config('SW1', default)
+                    config('R1', 'no ' + backward); ping(False)
+                    config('R1', backward); ping()
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ping(); ping(client='PC2', target='192.0.2.10')
+                    actual = manager.inspect('SW1')['routes']
+                    self.assertTrue(any(r.get('dst') == 'default' and r.get('gateway') == '198.18.0.2' for r in actual))
+                    manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_ovs_real_rstp_bpdus_failover_vlan_drift_and_restore(self):
         from network_labs.appliances.examples import rstp_lab
         from network_labs.appliances.capture import capture

@@ -318,3 +318,24 @@ def svi_lab(rootfs):
         [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC3', 'eth0'], ['SW1', 'eth1']],
         [['PC2', 'eth0'], ['SW2', 'eth0']], [['PC4', 'eth0'], ['SW2', 'eth1']],
         [['SW1', 'eth2'], ['SW2', 'eth2']]]})
+
+
+def static_routing_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = [
+        {'name': 'PC1', 'runtime': 'oci', 'rootfs': rootfs,
+         'interfaces': {'eth0': '192.0.2.10/24'}, 'gateway': '192.0.2.1'},
+        {'name': 'SW1', 'runtime': 'oci', 'rootfs': rootfs, 'role': 'switch', 'dialect': 'ios-basic',
+         'interfaces': {'eth0': '', 'eth1': ''}, 'vlans': [10, 20], 'forwarding': True,
+         'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20}},
+         'svis': {'vlan10': {'vlan': 10, 'address': '192.0.2.1/24'},
+                  'vlan20': {'vlan': 20, 'address': '198.18.0.1/29'}}},
+        {'name': 'R1', 'runtime': 'oci', 'rootfs': rootfs, 'role': 'router', 'dialect': 'ios-basic',
+         'interfaces': {'eth0': '198.18.0.2/29', 'eth1': '203.0.113.1/24'},
+         'interface_aliases': {'gi0/0': 'eth0', 'gi0/1': 'eth1'}},
+        {'name': 'PC2', 'runtime': 'oci', 'rootfs': rootfs,
+         'interfaces': {'eth0': '203.0.113.10/24'}, 'gateway': '203.0.113.1'}]
+    # Both transit devices start without a route to the remote LAN.
+    return validate({'version': 2, 'name': 'static-routing-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['R1', 'eth0']],
+        [['R1', 'eth1'], ['PC2', 'eth0']]]})

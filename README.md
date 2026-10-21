@@ -82,6 +82,8 @@ Voir la section DNS du guide LAN pour les commandes et limites.
 inspection et capture LLDP ; son rootfs optionnel se prépare avec `--lldpd` et `--lldpcli`.
 `example --svi` ajoute un switch L3 Linux avec gateways sur VLAN 10/20, trunk,
 configuration SVI et activation explicite de `ip routing`, sans nouveau daemon.
+`example --static-routing` ajoute un LAN avec switch L3 et routeur : configurer
+les routes aller/retour avec `ip route`/`no ip route`, y compris default route et /32.
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,
