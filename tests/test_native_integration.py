@@ -75,8 +75,14 @@ class RealContainerTests(unittest.TestCase):
                     lease = binding()
                     self.assertEqual((lease['port'], lease['vlan'], lease['server_port']), ('eth0', 10, 'eth1'))
                     self.assertTrue(100 <= int(lease['address'].split('.')[-1]) <= 110)
-                    observed = manager.inspect('PC1')
-                    self.assertIn(lease['address'], [a['local'] for r in observed['addresses'] for a in r.get('addr_info', [])])
+                    deadline = time.monotonic() + 5
+                    while True:
+                        observed = manager.inspect('PC1')
+                        installed = [a['local'] for r in observed['addresses'] for a in r.get('addr_info', [])]
+                        if lease['address'] in installed or time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.05)
+                    self.assertIn(lease['address'], installed)
                     self.assertEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2').returncode, 0)
                     counters = manager.inspect('SW1')['dhcp_snooping']['counters']
                     self.assertTrue(any(c['rule'] == 'server:eth2' and c['packets'] > 0 for c in counters), counters)
@@ -87,6 +93,9 @@ class RealContainerTests(unittest.TestCase):
                         configure('ip dhcp snooping information option')
                     manager.write_startup()
                     configure('interface fa0/2\nshutdown')
+                    # Both real servers participated above. Isolate crafted packet
+                    # probes from the rogue daemon's own ACK/NAK state machine.
+                    manager.crun('exec', 'ROGUE', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/udhcpd.pid)"')
                 request = frame(xid=999, requested='10.10.0.77', server='10.10.0.3')
                 ack = frame(5, xid=999, yiaddr='10.10.0.77', server='10.10.0.3')
                 def rogue_packets():
