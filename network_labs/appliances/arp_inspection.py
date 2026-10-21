@@ -84,7 +84,8 @@ def render(policy, replace=False):
         lines.append(f'iifname "{port}" ether type arp jump inspect_{port};')
     lines.append('}')
     for port in dynamic_ports(policy):
-        lines += [f'chain inspect_{port} {{', f'meta length < 42 counter drop comment "format:{port}";']
+        # Bridge prerouting skb length excludes the 14-byte Ethernet header.
+        lines += [f'chain inspect_{port} {{', f'meta length < 28 counter drop comment "format:{port}";']
         for field, value in (('htype', '1'), ('ptype', 'ip'), ('hlen', '6'), ('plen', '4')):
             lines.append(f'arp {field} != {value} counter drop comment "format:{port}";')
         lines.append(f'arp operation != {{ request, reply }} counter drop comment "operation:{port}";')

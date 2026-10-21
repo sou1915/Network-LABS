@@ -66,7 +66,7 @@ class ARPInspectionTests(unittest.TestCase):
         self.assertIn('type ether_addr . ether_addr . ipv4_addr', script)
         self.assertIn('ether saddr . arp saddr ether . arp saddr ip @dhcp_eth0', script)
         self.assertIn('timeout 2000ms', script)
-        self.assertIn('meta length < 42', script)
+        self.assertIn('meta length < 28', script)
         self.assertIn('arp operation != { request, reply }', script)
         self.assertIn('arp saddr ip 0.0.0.0 arp operation != request', script)
         self.assertIn('ether type arp jump inspect_eth0', script)
