@@ -196,3 +196,14 @@ class SnoopTests(unittest.TestCase):
                 receiver.recv(2048)
         finally:
             sender.close(); receiver.close()
+
+    def test_server_link_loss_does_not_revoke_a_lease_but_client_link_loss_does(self):
+        t = table(); t.feed('eth0', frame(), 0); t.feed('eth1', frame(5), 1)
+        t.client_port_down('eth1')
+        self.assertEqual(len(t.snapshot(2)['bindings']), 1)
+        t.client_port_down('eth0')
+        self.assertFalse(t.bindings)
+        t.feed('eth0', frame(xid=124), 3)
+        t.client_port_down('eth0')
+        t.feed('eth1', frame(5, xid=124), 4)
+        self.assertFalse(t.bindings)

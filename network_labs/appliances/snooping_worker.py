@@ -90,8 +90,7 @@ def serve(config):
                         raise RuntimeError('Observed interface identity changed')
                     flags = struct.unpack_from('H', fcntl.ioctl(sock, 0x8913, struct.pack('256s', port.encode())), 16)[0]
                     if not flags & 1 or not flags & 0x40:
-                        table.bindings = {k: v for k, v in table.bindings.items() if v['port'] != port and v['server_port'] != port}
-                        table.pending = {k: v for k, v in table.pending.items() if v['port'] != port}
+                        table.client_port_down(port)
                 received, lost = struct.unpack('II', sock.getsockopt(263, 6, 8))  # PACKET_STATISTICS, resets on read
                 packets += received; drops += lost
                 if lost:

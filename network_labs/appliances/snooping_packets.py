@@ -138,6 +138,11 @@ class Bindings:
         self.pending.pop(key, None)
         self.events['acks'] += 1
 
+    def client_port_down(self, port):
+        # A server link going down does not revoke an already assigned lease.
+        self.bindings = {k: v for k, v in self.bindings.items() if v['port'] != port}
+        self.pending = {k: v for k, v in self.pending.items() if v['port'] != port}
+
     def snapshot(self, now=None):
         now = time.monotonic() if now is None else now
         self.expire(now)

@@ -41,10 +41,10 @@ class RealContainerTests(unittest.TestCase):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = arp_inspection_lab(rootfs); spec['name'] = 'arp-test-' + str(os.getpid())
             manager = Manager(spec['name'])
-            def wait_ping(node='PC1'):
+            def wait_ping(node='PC1', target='10.10.0.2'):
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
-                    if manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2', check=False).returncode == 0:
+                    if manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', target, check=False).returncode == 0:
                         return
                     time.sleep(0.1)
                 self.fail('ARP-authorized ping failed: ' + json.dumps(manager.inspect('SW1')) +
@@ -99,6 +99,13 @@ class RealContainerTests(unittest.TestCase):
                     self.assertTrue(any(c['rule'] == 'deny:eth0' and c['packets'] > 0 for c in after['counters']))
                     neighbours = json.loads(manager.ns(0, 'ip', '-j', 'neigh', 'show').stdout)
                     self.assertTrue(any(n.get('dst') == '10.10.0.2' and n.get('lladdr') == '02:00:00:00:10:02' for n in neighbours), neighbours)
+                    # Valid client leases must keep working on the LAN when
+                    # the DHCP server link is lost, until their normal expiry.
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/2\nshutdown\nend')
+                    for index in (0, 3):
+                        manager.ns(index, 'ip', 'neigh', 'flush', 'dev', 'eth0')
+                    wait_ping('PC1', '10.10.0.3')
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/2\nno shutdown\nend')
                     record = dict(manager.state['snooping_workers']['SW1'])
                     os.kill(record['pid'], signal.SIGKILL)
                     time.sleep(2.3)  # Kernel grant lifetime, not a simulated revocation.

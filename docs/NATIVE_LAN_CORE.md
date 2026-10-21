@@ -1230,7 +1230,9 @@ saturation refuse de nouvelles observations plutôt que d'évincer silencieuseme
 un binding existant. Les pertes AF_PACKET sont comptées ; une perte signalée
 vide les corrélations/bindings avant reconstruction pour éviter de les conserver
 à travers un trou connu. L'absence de pertes signalées ne prouve pas une capture
-complète. Un port down/missing ou changé invalide les observations concernées.
+complète. Un port client down invalide ses observations. La perte du lien serveur ne
+révoque pas un lease client déjà observé et non expiré. Une identité d'interface
+changée ou manquante arrête l'observateur.
 Un snapshot est périodique, pas une transaction atomique avec l'état des ports.
 
 Le worker a une identité PID/starttime/token, vérifiée à la lecture, un heartbeat
@@ -1395,7 +1397,7 @@ eth1 est trusted pour DHCP et ARP ; ROGUE sur eth2 est untrusted pour les deux,
 avec une permission ARP statique limitée à sa propre MAC/IP 10.10.0.3. PC1 reçoit
 une autorisation ARP dynamique depuis son bail légitime. Le test natif vérifie
 les pings après résolution ARP, les captures négatives pour requests/replies
-spoofées et MAC Ethernet/ARP incohérentes, un passage statique positif, puis
+spoofées et MAC Ethernet/ARP incohérentes, un passage statique positif, le maintien du LAN après perte du lien DHCP, puis
 l'expiration des permissions dynamiques après SIGKILL du worker avec voisins
 vidés. Il contrôle également la reprise DHCP, le drift/refus de save, restore,
 le nettoyage des processus et l'intégrité des liens/routes/règles nft de l'hôte.
