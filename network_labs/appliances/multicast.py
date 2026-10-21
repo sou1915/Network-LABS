@@ -70,7 +70,8 @@ def drift(node, links):
             errors.append(node['name'] + ': multicast ' + key + ' differs or unavailable')
     ports = {r.get('ifname'): r.get('linkinfo', {}).get('info_slave_data', {}) for r in links}
     for port, settings in policy['ports'].items():
-        expected = {'mcast_router': ROUTER[settings['router']], 'mcast_flood': settings['flood'], 'fastleave': settings['fast_leave']}
+        # ip -j link differs from bridge -j link and command spellings.
+        expected = {'multicast_router': ROUTER[settings['router']], 'mcast_flood': settings['flood'], 'fast_leave': settings['fast_leave']}
         if any(ports.get(port, {}).get(k) != v for k, v in expected.items()):
             errors.append(node['name'] + '/' + port + ': multicast port settings differ or unavailable')
     return errors

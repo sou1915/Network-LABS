@@ -14,8 +14,8 @@ def links(node):
     from network_labs.appliances.multicast import ROUTER
     options = bridge_options(node['multicast'])
     return [{'ifname': 'br0', 'linkinfo': {'info_data': {k: int(v) for k, v in zip(options[::2], options[1::2])}}}] + [
-        {'ifname': p, 'linkinfo': {'info_slave_data': {'mcast_router': ROUTER[s['router']],
-                                                    'mcast_flood': s['flood'], 'fastleave': s['fast_leave']}}}
+        {'ifname': p, 'linkinfo': {'info_slave_data': {'multicast_router': ROUTER[s['router']],
+                                                    'mcast_flood': s['flood'], 'fast_leave': s['fast_leave']}}}
         for p, s in node['multicast']['ports'].items()]
 
 
@@ -55,7 +55,7 @@ class MulticastTests(unittest.TestCase):
         self.assertTrue(any('mcast_querier' in e for e in drift(node, actual)))
         self.assertTrue(drift(node, []))
         self.assertFalse(drift({'multicast': None}, []))
-        actual = links(node); actual[1]['linkinfo']['info_slave_data']['mcast_router'] = 2
+        actual = links(node); actual[1]['linkinfo']['info_slave_data']['multicast_router'] = 2
         self.assertTrue(any('eth0' in e for e in drift(node, actual)))
 
     def test_unrelated_edits_do_not_reassert_multicast_or_flush_membership(self):

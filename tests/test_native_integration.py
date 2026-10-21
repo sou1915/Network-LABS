@@ -442,6 +442,7 @@ class RealContainerTests(unittest.TestCase):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = multicast_lab(rootfs); spec['name'] = 'mcast-test-' + str(os.getpid())
             spec['nodes'][0]['multicast']['ports']['eth1']['fast_leave'] = True  # One host, not an uplink.
+            spec['nodes'][0]['multicast']['querier'] = False
             manager = Manager(spec['name'])
             receiver = None
             def walk(value):
@@ -481,9 +482,18 @@ class RealContainerTests(unittest.TestCase):
             try:
                 with manager.locked():
                     manager.start(spec)
-                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    observed = manager.inspect('SW1')['multicast']
+                    self.assertTrue(observed['policy_verified'], json.dumps(observed))
                     manager.ns(2, 'sysctl', '-w', 'net.ipv4.conf.eth0.force_igmp_version=2')
+                query_ready = threading.Event()
+                queries = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'queries.pcap',
+                                      seconds=3, packets=1, expression='igmp and igmp[0] = 0x11', ready=query_ready.set)
+                if not query_ready.wait(5):
+                    queries.result(timeout=5); self.fail('IGMP query capture readiness missing')
+                with manager.locked():
+                    manager.configure_ios('SW1', 'conf t\nip igmp snooping querier\nend')
                     policy = copy.deepcopy(manager.state['spec']['nodes'][0]['multicast'])
+                self.assertEqual(queries.result(timeout=6)['captured_packets'], 1, json.dumps(manager.inspect('SW1')['multicast']))
                 receiver = receive(30)
                 membership(True)
                 # The Linux querier's initial other-querier delay is its query
@@ -501,6 +511,9 @@ class RealContainerTests(unittest.TestCase):
                 with manager.locked():
                     manager.configure_multicast('SW1', router)
                 self.assertGreater(captured('router.pcap', count=1), 0)
+                # Explicit off removes router forwarding immediately; auto
+                # may legitimately retain recently detected router state.
+                policy['ports']['eth2']['router'] = 'off'
                 with manager.locked():
                     manager.configure_multicast('SW1', policy)
                 # Unknown-group flooding is independent from known membership.
@@ -521,7 +534,8 @@ class RealContainerTests(unittest.TestCase):
                 self.assertGreater(captured('after-leave.pcap', count=1), 0)  # Now unknown, flooded.
                 with manager.locked():
                     manager.configure_ios('SW1', 'conf t\nno ip igmp snooping querier\nno ip igmp snooping\nend')
-                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    observed = manager.inspect('SW1')['multicast']
+                    self.assertTrue(observed['policy_verified'], json.dumps(observed))
                     manager.configure_ios('SW1', 'conf t\nip igmp snooping\nip igmp snooping querier\nend')
                     manager.write_startup(); saved = load_startup(spec['name'])
                     manager.ns(0, 'ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'mcast_querier', '0')
@@ -531,7 +545,8 @@ class RealContainerTests(unittest.TestCase):
                 manager = Manager(spec['name'])
                 with manager.locked():
                     manager.start(saved)
-                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    observed = manager.inspect('SW1')['multicast']
+                    self.assertTrue(observed['policy_verified'], json.dumps(observed))
                     self.assertFalse(has_member())  # Memberships were not snapshotted.
                     manager.ns(2, 'sysctl', '-w', 'net.ipv4.conf.eth0.force_igmp_version=2')
                 receiver = receive(2); membership(True); send()
