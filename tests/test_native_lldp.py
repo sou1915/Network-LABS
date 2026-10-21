@@ -53,7 +53,13 @@ class LLDPTests(unittest.TestCase):
                                         (expected, None, False)):
             with self.subTest(glob=glob, statuses=statuses), patch('network_labs.appliances.lldp.read_cli', side_effect=[glob, statuses, {'lldp': []}]):
                 self.assertEqual(observe(manager, node)['policy_verified'], verified)
-        self.assertEqual(port_status({'lldp.eth0.status': 'RX only', 'lldp.eth0.port.descr': 'host'}), {'eth0': 'RX only'})
+        self.assertEqual(port_status({'lldp.eth0.status': 'RX only', 'lldp.eth0.port.descr': 'host'}, ['eth0']), {'eth0': 'RX only'})
+
+    def test_dotted_physical_names_remain_exact_and_do_not_select_nested_status_keys(self):
+        self.assertEqual(port_status({'lldp.lan.0.status': 'RX and TX',
+                                      'lldp.lan.0.port.status': 'unrelated',
+                                      'lldp.other.status': 'disabled'}, ['lan.0']),
+                         {'lan.0': 'RX and TX'})
 
     def test_bounded_cli_reads_reject_malformed_oversized_empty_and_timeout(self):
         manager = Mock()

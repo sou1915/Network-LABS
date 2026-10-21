@@ -82,11 +82,11 @@ def global_fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest() if value else None
 
 
-def port_status(values):
+def port_status(values, ports):
     if values is None:
         return None
-    return {parts[1]: value for key, value in values.items()
-            if len(parts := key.split('.')) == 3 and parts[0] == 'lldp' and parts[2] == 'status'}
+    return {port: values['lldp.' + port + '.status'] for port in ports
+            if 'lldp.' + port + '.status' in values}
 
 
 def start_servers(manager):
@@ -110,7 +110,7 @@ def start_servers(manager):
         deadline = time.monotonic() + 8
         while True:
             actual = read_cli(manager, node['name'], 'configuration')
-            statuses = port_status(read_cli(manager, node['name'], 'interfaces', 'keyvalue'))
+            statuses = port_status(read_cli(manager, node['name'], 'interfaces', 'keyvalue'), node['lldp']['ports'])
             if actual and statuses and set(statuses) == set(node['lldp']['ports']):
                 break
             if time.monotonic() >= deadline:
@@ -124,7 +124,7 @@ def start_servers(manager):
 def observe(manager, node):
     file = observe_config(manager, node['name'], '/lab/lldpd.conf', config(node))
     actual = read_cli(manager, node['name'], 'configuration')
-    statuses = port_status(read_cli(manager, node['name'], 'interfaces', 'keyvalue'))
+    statuses = port_status(read_cli(manager, node['name'], 'interfaces', 'keyvalue'), node['lldp']['ports'])
     baseline = manager.state.get('lldp_baselines', {}).get(node['name'], {})
     global_ok = actual is not None and global_fingerprint(actual) == baseline.get('global')
     statuses_ok = statuses is not None and all(baseline.get('port_status', {}).get(p) == s for p, s in statuses.items())
