@@ -68,6 +68,29 @@ def compile_config(spec, name, text):
                 if vid not in node['vlans']:
                     node['vlans'].append(vid)
                 mode = 'vlan'; interface = None; continue
+            if mode == 'config' and node['role'] == 'switch' and command.startswith(('ip arp inspection', 'no ip arp inspection', 'ip source binding', 'no ip source binding')):
+                policy = node.get('arp_inspection')
+                if policy is None:
+                    policy = node['arp_inspection'] = {'vlans': [], 'trusted': [], 'bindings': []}
+                match = re.fullmatch(r'(no )?ip arp inspection vlan (\S+)', command)
+                if match:
+                    values = vlan_list(match[2])
+                    policy['vlans'] = sorted(set(policy['vlans']) - set(values) if match[1] else set(policy['vlans']) | set(values))
+                    continue
+                match = re.fullmatch(r'(no )?ip source binding (\S+) vlan (\d+) (\S+) interface (\S+)', command)
+                if match:
+                    from .port_security import mac_address
+                    from .arp_inspection import valid_ip
+                    port, parent = resolve_interface(node, match[5])
+                    if parent:
+                        raise ValueError('Static source binding requires a physical access port.')
+                    entry = {'port': port, 'mac': mac_address(match[2]), 'vlan': int(match[3]), 'address': valid_ip(match[4])}
+                    if match[1]:
+                        policy['bindings'] = [b for b in policy['bindings'] if b != entry]
+                    elif entry not in policy['bindings']:
+                        policy['bindings'].append(entry)
+                    continue
+                raise ValueError('ARP inspection supports vlan selection and static ip source binding; validate/rate limiting/ARP ACL syntax not implemented.')
             if mode == 'config' and node['role'] == 'switch' and command.startswith(('ip dhcp snooping', 'no ip dhcp snooping')):
                 policy = node.get('dhcp_snooping')
                 if policy is None:
@@ -109,6 +132,17 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    if command in ('ip arp inspection trust', 'no ip arp inspection trust'):
+                        if interface not in node['switchports']:
+                            raise ValueError('ARP trust requires a switch port.')
+                        if node.get('arp_inspection') is None:
+                            node['arp_inspection'] = {'vlans': [], 'trusted': [], 'bindings': []}
+                        trusted = node['arp_inspection']['trusted']
+                        if command == 'ip arp inspection trust' and interface not in trusted:
+                            trusted.append(interface)
+                        elif command == 'no ip arp inspection trust' and interface in trusted:
+                            trusted.remove(interface)
+                        continue
                     if command in ('ip dhcp snooping trust', 'no ip dhcp snooping trust'):
                         if interface not in node['switchports']:
                             raise ValueError('DHCP snooping trust requires a logical switch port.')

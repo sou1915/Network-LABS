@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection')
 
 
 def addresses(node):
@@ -173,6 +173,8 @@ def validate_lan(node):
     validate_security(node)
     from .snooping import validate_snooping
     validate_snooping(node)
+    from .arp_inspection import validate_inspection
+    validate_inspection(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -208,6 +210,8 @@ def configure(manager, index, node, previous=None):
         apply_security(manager, index, node, None if initial else previous)
         from .snooping import apply as apply_snooping
         apply_snooping(manager, index, node, None if initial else previous)
+        from .arp_inspection import apply as apply_arp_inspection
+        apply_arp_inspection(manager, index, node, None if initial else previous)
         from .lacp import configure as configure_channels
         recreated = configure_channels(manager, index, node, previous)
         if ns('ip', 'link', 'show', 'dev', 'br0', check=False).returncode:
@@ -297,4 +301,7 @@ def observe(manager, index, node):
     from .snooping import effective, observe as observe_snooping
     if effective(node) is not None:
         result['dhcp_snooping'] = observe_snooping(manager, index, node)
+    from .arp_inspection import effective as arp_effective, observe as observe_arp
+    if arp_effective(node) is not None:
+        result['arp_inspection'] = observe_arp(manager, index, node)
     return result

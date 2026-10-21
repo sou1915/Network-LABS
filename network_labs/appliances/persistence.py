@@ -32,6 +32,9 @@ def drift(manager):
         from .snooping import effective
         if effective(node) is not None and actual.get('dhcp_snooping', {}).get('policy_verified') is not True:
             errors.append(node['name'] + ': DHCP snooping rules differ or are unavailable')
+        from .arp_inspection import effective as arp_effective
+        if arp_effective(node) is not None and actual.get('arp_inspection', {}).get('policy_verified') is not True:
+            errors.append(node['name'] + ': ARP inspection rules differ or are unavailable')
         expected = addresses(node)
         active = {name for name in expected if name not in node['subinterfaces'] or node['subinterfaces'][name]['vlan'] is not None}
         allowed = active | {'lo'} | ({'br0'} if node['role'] == 'switch' else set())

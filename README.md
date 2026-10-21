@@ -261,5 +261,11 @@ Voir [le guide de port security](docs/NATIVE_LAN_CORE.md#port-security-statique-
 Le scénario natif `example --dhcp-snooping` démarre un vrai client, un serveur
 trusted et un serveur rogue. Il ajoute filtrage DHCPv4 sur ports access et
 bindings volatiles issus des échanges REQUEST/ACK, avec worker supervisé,
-compteurs et save/restore de la politique. Trunks/LACP, relay/Option 82 et DAI
-restent hors périmètre. Voir [le guide DHCP snooping](docs/NATIVE_LAN_CORE.md#dhcp-snooping-ipv4--confiance-et-bindings-observés).
+compteurs et save/restore de la politique. Trunks/LACP et relay/Option 82
+restent hors périmètre ; inspection ARP disponible séparément. Voir [le guide DHCP snooping](docs/NATIVE_LAN_CORE.md#dhcp-snooping-ipv4--confiance-et-bindings-observés).
+
+Le scénario natif `example --arp-inspection` ajoute la validation ARP réelle :
+MAC Ethernet + MAC/IP ARP + port/VLAN, depuis bindings statiques explicites ou
+permissions DHCP à timeout kernel court. Les permissions dynamiques expirent
+sans worker ; les paquets IPv4 de données ne sont pas filtrés par cette option.
+Voir [le guide ARP](docs/NATIVE_LAN_CORE.md#inspection-arp-dynamique-sur-ports-access).

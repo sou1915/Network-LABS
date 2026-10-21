@@ -1156,7 +1156,7 @@ non concernées continuent de suivre les autres politiques. Trunks, LACP, DHCP
 relay/giaddr, Option 82, option overload, DHCPv6, rate limiting et filtrage complet
 de tous les champs DHCP constructeur restent non implémentés. L'activation sur
 un switch contenant un trunk/LACP est refusée, même si le trunk n'est pas dans
-le VLAN sélectionné. Aucune protection DAI ou IP Source Guard n'est ajoutée ici.
+le VLAN sélectionné. L'inspection ARP est une option séparée décrite ci-dessous ; IP Source Guard reste absent.
 
 ### Essai avec un serveur malveillant réel
 
@@ -1219,10 +1219,11 @@ restant proviennent des paquets. L'expiration utilise le temps monotone. Renewal
 remplace la durée après un nouvel échange corrélé ; RELEASE/DECLINE cohérents et
 NAK corrélés retirent le binding. Des requests ambiguës sur plusieurs ports sont
 refusées. Les messages tronqués, fragments, tags, relay et options ambiguës ne
-créent pas de binding. L'observateur n'effectue pas de validation indépendante des
-checksums UDP offloadés et ne certifie ni admission par toutes les règles, ni
-livraison, ni installation par le client. Il s'agit d'observations destinées au
-diagnostic, pas encore d'une base d'autorisation DAI/IP Source Guard.
+créent pas de binding. L'observateur vérifie les checksums IPv4 et UDP hors offload ; il s'appuie sur
+les métadonnées kernel pour les checksums UDP offloadés. Il ne certifie ni
+admission par toutes les règles, ni livraison, ni installation par le client.
+L'option d'inspection ARP décrite ci-dessous peut en dériver des permissions
+courtes ; elle n'active pas IP Source Guard.
 
 L'observateur borne les requests en attente (60 s, 1024) et bindings (1024). Une
 saturation refuse de nouvelles observations plutôt que d'évincer silencieusement
@@ -1265,3 +1266,139 @@ modification des liens/routes/règles nft de l'hôte.
 Références : [RFC 2131](https://www.rfc-editor.org/rfc/rfc2131.html),
 [DHCP snooping Cisco](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/sw/4_0/dcnm/security/configuration/guide/sec_dcnm_config/sec_dhcpsnoop.html),
 [bridge nftables](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering).
+
+## Inspection ARP dynamique sur ports access
+
+`example --arp-inspection` étend le lab DHCP snooping avec une politique ARP
+réelle dans `bridge network_labs_arp_inspection`, priorité -290. Elle s'applique
+après les filtres DHCP et port security, sur les VLANs access sélectionnés.
+Les VLANs inspectés doivent déjà avoir DHCP snooping actif ; trunks/LACP restent
+refusés. Les ports **ARP trusted sont indépendants des ports DHCP trusted**.
+Leur trafic ARP n'est pas inspecté. Ne marquer trusted que des liens autorisés à
+émettre librement des annonces ARP.
+
+Sur un port untrusted, le kernel vérifie le format Ethernet/IPv4 ARP, les longueurs
+et les opérations request/reply. Les admissions dynamiques utilisent une clé
+concaténée **MAC Ethernet + MAC sender ARP + IP sender ARP**, dans un set propre
+au port/VLAN. Les deux MAC doivent donc correspondre à la même identité autorisée.
+Une simple correspondance IP seule ou MAC ARP seule ne suffit pas. Les paquets
+non admis sont droppés et comptés. Les règles ne filtrent pas les paquets IPv4 de
+données : **ce n'est pas IP Source Guard**. Une connexion avec une entrée voisin
+encore en cache peut continuer sans générer d'ARP ; vider les voisins pour tester
+la résolution ARP elle-même.
+
+### Origine et durée des autorisations
+
+Le worker DHCP existant ajoute, quand cette option est active, un renouvellement
+atomique des sets ARP depuis les échanges DHCPREQUEST/DHCPACK observés. Il vérifie
+les définitions des politiques DHCP et ARP avant chaque renouvellement. Des
+bindings dynamiques contradictoires pour une même IP/VLAN sont tous refusés ;
+un binding statique explicite ne peut pas être remplacé par un binding dynamique.
+Les bindings DHCP restent des attributions **observées sur un port serveur
+trusted**, pas une preuve d'installation chez le client ni une authentification
+cryptographique du serveur. L'admission ARP ne contourne pas les autres filtres.
+
+Le parseur DHCP vérifie désormais le checksum IPv4, le checksum UDP non nul hors
+offload, et la cohérence IP source/server identifier pour les réponses directes.
+Un checksum UDP IPv4 nul est autorisé ; pour les statuts checksum-offload/valid
+signalés par le kernel AF_PACKET, le worker s'appuie sur ces métadonnées au lieu
+de rejeter un checksum partiel. Les autres restrictions de parsing précédentes
+restent applicables.
+
+Un grant dynamique dure **au plus 2000 ms après son installation kernel**, avec
+renouvellement normalement toutes les 0,5 s. Le calcul réserve 2 s avant la fin
+observée du lease pour le budget d'installation : la fin du bail peut donc
+entraîner un refus anticipé. Si le worker est tué, les grants cessent d'être
+renouvelés et expirent dans le kernel. Un enfant `nft` en cours reçoit aussi un
+signal de mort du parent. Un arrêt normal vide les sets ; une politique absente
+ou modifiée interrompt les renouvellements. Les règles statiques et trusted
+restent actives indépendamment du worker. Les timeouts ne sont pas une garantie
+de planification temps réel de l'hôte.
+
+Les probes ARP source 0.0.0.0 ne sont acceptées que pour une MAC déjà autorisée
+(dynamique ou statique), en request broadcast, avec target hardware nul et
+IP cible non nulle/non multicast. Les probes d'une MAC inconnue avant DHCP ne
+sont pas admises. Les gratuitous ARP revendiquant une IP normale passent par la
+même validation de binding. La validation de la MAC destination des replies,
+les rate limits, ARP ACLs constructeur, IPv6/NDP et IP Source Guard ne sont pas
+implémentés.
+
+### Configuration et adresses statiques
+
+```text
+configure terminal
+ip dhcp snooping
+ip dhcp snooping vlan 10
+ip arp inspection vlan 10
+ip source binding 0200.0000.1003 vlan 10 10.10.0.3 interface fa0/3
+interface fa0/2
+ip dhcp snooping trust
+ip arp inspection trust
+end
+```
+
+`ip source binding` est ici un sous-ensemble pour admission ARP statique, sans
+activation implicite d'IP Source Guard. La MAC/IP/port/VLAN doit être explicite,
+unicast et sans ambiguïté dans le VLAN. Les adresses du manifest des PCs ne sont
+pas automatiquement transformées en permissions. `no ip source binding ...`
+retire l'entrée exacte, `no ip arp inspection trust` retire la confiance ARP et
+`no ip arp inspection vlan 10` désactive ce VLAN. Retirer l'inspection ARP avant
+de désactiver DHCP snooping sur un VLAN dépendant. Tout le bloc est validé avant
+mutation.
+
+```json
+{
+  "arp_inspection": {
+    "vlans": [10],
+    "trusted": ["eth1"],
+    "bindings": [
+      {"port": "eth2", "vlan": 10, "mac": "02:00:00:00:10:03", "address": "10.10.0.3"}
+    ]
+  }
+}
+```
+
+Un changement de politique ARP redémarre le worker et vide les attributions
+volatiles : relancer une acquisition DHCP si les clients ont déjà un bail.
+Aucun binding n'est fabriqué depuis leur IP actuelle pour rétablir le trafic.
+`inspect` affiche les **sets et compteurs du kernel**, plus la conformité des
+définitions. `explain` distingue `ARP_INSPECTION_POLICY`,
+`ARP_INSPECTION_UNVERIFIED`, `ARP_INSPECTION_DYNAMIC_WINDOW` et
+`ARP_INSPECTION_DROPS`. Les compteurs sont cumulatifs ; ils ne certifient pas
+l'absence de spoofing ni le résultat d'un paquet précis.
+
+Save/export vérifient la politique, y compris ses règles statiques, en ignorant
+les éléments DHCP temporaires et leurs expirations. Restore recrée les règles
+et laisse DHCP reconstruire les permissions dynamiques. Les noms/formats des
+sets sont internes ; modifier une table à la main constitue du drift et ne doit
+pas être utilisé comme configuration persistante. Le journal/rollback existant
+s'applique aux politiques ; il peut réinitialiser les grants et observations.
+
+### Test du scénario natif
+
+```bash
+python3 -m network_labs.appliances example --arp-inspection \
+  --rootfs "$HOME/network-labs-rootfs" > arp-inspection-lan.json
+sudo python3 -m network_labs.appliances start arp-inspection-lan.json
+# Attendre DORA et le premier renouvellement des sets ARP.
+sudo python3 -m network_labs.appliances explain arp-inspection-lan SW1
+sudo python3 -m network_labs.appliances exec arp-inspection-lan PC1 -- \
+  /bin/ping -c 3 10.10.0.2
+# Le node ROGUE tente d'annoncer l'IP du serveur légitime avec sa propre MAC.
+sudo python3 -m network_labs.appliances exec arp-inspection-lan ROGUE -- \
+  /bin/busybox arping -U -c 3 -w 3 -I eth0 -s 10.10.0.2 10.10.0.2
+sudo python3 -m network_labs.appliances explain arp-inspection-lan SW1
+```
+
+Le lab conserve les deux serveurs DHCP réels du scénario précédent. DHCP1 sur
+eth1 est trusted pour DHCP et ARP ; ROGUE sur eth2 est untrusted pour les deux,
+avec une permission ARP statique limitée à sa propre MAC/IP 10.10.0.3. PC1 reçoit
+une autorisation ARP dynamique depuis son bail légitime. Le test natif vérifie
+les pings après résolution ARP, les captures négatives pour requests/replies
+spoofées et MAC Ethernet/ARP incohérentes, un passage statique positif, puis
+l'expiration des permissions dynamiques après SIGKILL du worker avec voisins
+vidés. Il contrôle également la reprise DHCP, le drift/refus de save, restore,
+le nettoyage des processus et l'intégrité des liens/routes/règles nft de l'hôte.
+Références : [ARP et concaténations nftables](https://netfilter.org/projects/nftables/manpage.html),
+[principe DAI Cisco](https://www.cisco.com/c/en/us/support/docs/switches/lan-switch-software/222274-troubleshoot-dynamic-arp-inspection-dai.html),
+[RFC 5227 ARP probes](https://www.rfc-editor.org/rfc/rfc5227.html).

@@ -4,20 +4,36 @@ import struct
 import time
 
 
-def decode(frame):
+def checksum(data):
+    if len(data) & 1:
+        data += b'\0'
+    value = sum(struct.unpack('!' + str(len(data) // 2) + 'H', data))
+    while value >> 16:
+        value = (value & 65535) + (value >> 16)
+    return value
+
+
+def decode(frame, *, checksum_offloaded=False):
     if len(frame) < 14 + 20 or frame[12:14] != b'\x08\x00':
         return None
     ip = frame[14:]
     ihl = (ip[0] & 15) * 4
     if ip[0] >> 4 != 4 or ihl < 20 or len(ip) < ihl + 8 or ip[9] != 17:
         return None
-    total, frag = struct.unpack_from('!HH', ip, 2)[0], struct.unpack_from('!H', ip, 6)[0]
+    if checksum(ip[:ihl]) != 65535:
+        return None
+    total, frag = struct.unpack_from('!H', ip, 2)[0], struct.unpack_from('!H', ip, 6)[0]
     if frag & 0x3fff or total > len(ip) or total < ihl + 8:
         return None
     udp = ip[ihl:total]
     sport, dport, size = struct.unpack_from('!HHH', udp)
-    if (sport, dport) not in ((68, 67), (67, 68)) or size > len(udp) or size < 8 + 240:
+    if (sport, dport) not in ((68, 67), (67, 68)) or size != len(udp) or size < 8 + 240:
         return None
+    udp_checksum = struct.unpack_from('!H', udp, 6)[0]
+    if udp_checksum and not checksum_offloaded:
+        pseudo = ip[12:20] + struct.pack('!BBH', 0, 17, size)
+        if checksum(pseudo + udp) != 65535:
+            return None
     data = udp[8:size]
     if data[1:3] != b'\x01\x06' or data[3] or data[24:28] != b'\0' * 4 or data[236:240] != b'\x63\x82\x53\x63':
         return None
@@ -46,9 +62,9 @@ def decode(frame):
     if sport == 68:
         if op != 1 or kind not in (3, 4, 7) or frame[6:12] != mac:
             return None
-    elif op != 2 or kind not in (5, 6) or frame[:6] not in (mac, b'\xff' * 6):
+    elif op != 2 or kind not in (5, 6) or frame[:6] not in (mac, b'\xff' * 6) or options.get(54) != ip[12:16]:
         return None
-    ipv4 = lambda b: str(ipaddress.IPv4Address(b))
+    ipv4 = lambda b: str(ipaddress.IPv4Address(bytes(b)))
     return {'kind': kind, 'xid': struct.unpack_from('!I', data, 4)[0], 'mac': mac.hex(':'),
             'ciaddr': ipv4(data[12:16]), 'yiaddr': ipv4(data[16:20]),
             'requested': ipv4(options[50]) if 50 in options else None,
@@ -71,10 +87,10 @@ class Bindings:
             del self.bindings[key]
         self.events['expired'] += len(expired)
 
-    def feed(self, port, frame, now=None):
+    def feed(self, port, frame, now=None, *, checksum_offloaded=False):
         now = time.monotonic() if now is None else now
         self.expire(now)
-        packet = decode(frame)
+        packet = decode(frame, checksum_offloaded=checksum_offloaded)
         if packet is None or port not in self.ports:
             return
         vlan = self.ports[port]
@@ -95,7 +111,7 @@ class Bindings:
             else:
                 old = self.bindings.get(binding_key)
                 claimed = packet['ciaddr'] if kind == 7 else packet['requested']
-                if old and old['port'] == port and old['address'] == claimed:
+                if old and old['port'] == port and old['address'] == claimed and (packet['server'] is None or packet['server'] == old['server']):
                     del self.bindings[binding_key]
                 self.pending.pop(key, None)
             return

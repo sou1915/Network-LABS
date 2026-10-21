@@ -191,3 +191,13 @@ def dhcp_snooping_lab(rootfs):
         server('ROGUE', '10.10.0.3/24', '10.10.0.200', '10.10.0.210'),
     ], 'links': [[['PC1', 'eth0'], ['SW1', 'eth0']], [['DHCP1', 'eth0'], ['SW1', 'eth1']],
                   [['ROGUE', 'eth0'], ['SW1', 'eth2']]]})
+
+
+def arp_inspection_lab(rootfs):
+    spec = dhcp_snooping_lab(rootfs)
+    spec['name'] = 'arp-inspection-lan'
+    spec['nodes'][2]['interface_macs'] = {'eth0': '02:00:00:00:10:02'}
+    spec['nodes'][3]['interface_macs'] = {'eth0': '02:00:00:00:10:03'}
+    spec['nodes'][1]['arp_inspection'] = {'vlans': [10], 'trusted': ['eth1'], 'bindings': [
+        {'port': 'eth2', 'vlan': 10, 'mac': '02:00:00:00:10:03', 'address': '10.10.0.3'}]}
+    return validate(spec)

@@ -20,6 +20,120 @@ from network_labs.appliances.spec import example, namespace
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_arp_inspection_real_dynamic_static_spoofing_timeout_drift_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import signal
+        import threading
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.examples import arp_inspection_lab
+        from ipaddress import IPv4Address
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.snooping import alive
+        from network_labs.appliances.arp_inspection import TABLE
+        from test_native_arp_inspection import arp_frame
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        records = []
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = arp_inspection_lab(rootfs); spec['name'] = 'arp-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait_ping(node='PC1'):
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2', check=False).returncode == 0:
+                        return
+                    time.sleep(0.1)
+                self.fail('ARP-authorized ping failed: ' + json.dumps(manager.inspect('SW1')) +
+                          '\n' + (manager.directory / 'SW1.snooping.log').read_text())
+            def inject(index, packet):
+                manager.ns(index, sys.executable, '-c',
+                           'import socket,sys; s=socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(3)); s.bind(("eth0",0)); s.send(bytes.fromhex(sys.argv[1]))', packet.hex())
+            def captured(name, node, expression, count, action):
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), node, 'eth0', Path(folder) / name,
+                                     seconds=2, packets=count, expression=expression, ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('ARP capture readiness missing')
+                with manager.locked():
+                    action()
+                return future.result(timeout=6)['captured_packets']
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    wait_ping()
+                    observed = manager.inspect('SW1')
+                    self.assertTrue(observed['arp_inspection']['policy_verified'])
+                    self.assertTrue(any(c['rule'] == 'dynamic:eth0' and c['packets'] > 0 for c in observed['arp_inspection']['counters']))
+                    self.assertTrue(any(r.get('elem') for r in observed['arp_inspection']['dynamic_sets'] if r['name'] == 'dhcp_eth0'))
+                    lease = observed['dhcp_snooping']['bindings'][0]['address']
+                    manager.crun('exec', 'ROGUE', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/udhcpd.pid)"')
+                    manager.write_startup()  # Dynamic set elements must not look like policy drift.
+                rogue_filter = 'arp and ether src 02:00:00:00:10:03 and arp[14:4] = 0x0a0a0002'
+                def spoof():
+                    inject(3, arp_frame(target_ip=lease))
+                    inject(3, arp_frame(target_ip=lease, operation=2, destination='02:00:00:00:10:10', target_mac='02:00:00:00:10:10'))
+                    # Real container CLI tool as well as controlled raw frames.
+                    result = manager.crun('exec', 'ROGUE', '/bin/busybox', 'arping', '-U', '-c', '1', '-w', '1',
+                                          '-I', 'eth0', '-s', '10.10.0.2', '10.10.0.2', check=False, timeout=3)
+                    self.assertIn(result.returncode, (0, 1), result.stderr)
+                    self.assertNotIn('applet not found', result.stderr)
+                    self.assertNotIn('invalid option', result.stderr)
+                self.assertEqual(captured('spoof.pcap', 'PC1', rogue_filter, 100, spoof), 0)
+                # A source-IP-only check would accept these; both Ethernet and
+                # ARP sender MAC must match the authorized client on eth0.
+                client_filter = 'arp and arp[14:4] = 0x' + IPv4Address(lease).packed.hex()
+                def mismatched():
+                    inject(0, arp_frame(source_mac='02:00:00:00:10:03', sender_mac='02:00:00:00:10:10', sender_ip=lease, target_ip='10.10.0.2'))
+                    inject(0, arp_frame(source_mac='02:00:00:00:10:10', sender_mac='02:00:00:00:10:03', sender_ip=lease, target_ip='10.10.0.2'))
+                self.assertEqual(captured('mismatch.pcap', 'DHCP1', client_filter, 100, mismatched), 0)
+                self.assertEqual(captured('static.pcap', 'PC1', 'arp and ether src 02:00:00:00:10:03 and arp[14:4] = 0x0a0a0003', 1,
+                                         lambda: inject(3, arp_frame(sender_ip='10.10.0.3', target_ip=lease))), 1)
+                with manager.locked():
+                    after = manager.inspect('SW1')['arp_inspection']
+                    self.assertTrue(any(c['rule'] == 'deny:eth2' and c['packets'] > 0 for c in after['counters']))
+                    self.assertTrue(any(c['rule'] == 'deny:eth0' and c['packets'] > 0 for c in after['counters']))
+                    neighbours = json.loads(manager.ns(0, 'ip', '-j', 'neigh', 'show').stdout)
+                    self.assertTrue(any(n.get('dst') == '10.10.0.2' and n.get('lladdr') == '02:00:00:00:10:02' for n in neighbours), neighbours)
+                    record = dict(manager.state['snooping_workers']['SW1'])
+                    os.kill(record['pid'], signal.SIGKILL)
+                    time.sleep(2.3)  # Kernel grant lifetime, not a simulated revocation.
+                    self.assertFalse(alive(record))
+                    for index in (0, 2, 3):
+                        manager.ns(index, 'ip', 'neigh', 'flush', 'dev', 'eth0')
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2', check=False).returncode, 0)
+                    wait_ping('ROGUE')  # Explicit static binding remains independent.
+                    state = manager.inspect('SW1')
+                    self.assertTrue(state['arp_inspection']['policy_verified'])
+                    self.assertIsNone(state['dhcp_snooping']['bindings'])
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/1\nno shutdown\nend')
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"; /bin/busybox sleep 0.2; /bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait_ping()
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.ns(1, 'nft', 'delete', 'table', 'bridge', TABLE)
+                    with self.assertRaisesRegex(RuntimeFailure, 'ARP inspection'):
+                        manager.write_startup()
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    wait_ping()
+                    self.assertTrue(manager.inspect('SW1')['arp_inspection']['policy_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertTrue(all(not alive(r) for r in records))
+        self.assertEqual(host_links(), links)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_dhcp_snooping_real_trust_binding_rogue_filter_worker_loss_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

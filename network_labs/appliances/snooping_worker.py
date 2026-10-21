@@ -9,6 +9,7 @@ import signal
 import socket
 import struct
 import sys
+import subprocess
 import time
 
 from .snooping_packets import Bindings
@@ -43,10 +44,11 @@ def serve(config):
     drops, packets = 0, 0
     identity = {p: socket.if_nametoindex(p) for p in config['ports']}
     error = None
+    arp_status = None
     def publish(status):
         value = {'version': 1, 'token': config['token'], 'pid': os.getpid(), 'status': status,
                  'observed_monotonic': time.monotonic(), 'capture_packets': packets,
-                 'capture_drops': drops, 'error': error, **table.snapshot()}
+                 'capture_drops': drops, 'error': error, 'arp_inspection': arp_status, **table.snapshot()}
         temporary = target.with_suffix('.tmp')
         temporary.write_text(json.dumps(value)); temporary.chmod(0o600); temporary.replace(target)
     try:
@@ -54,6 +56,9 @@ def serve(config):
             attach_filter(sock)
             sock.setsockopt(263, 8, 1)  # PACKET_AUXDATA: refuse VLAN-offloaded observations
             sock.setblocking(False)
+            from .arp_inspection import refresh
+            arp_status = refresh(config, [], time.monotonic())
+            next_refresh = time.monotonic() + 0.5
             publish('ready')
             next_publish = time.monotonic()
             while running:
@@ -67,7 +72,9 @@ def serve(config):
                         tagged = any(level == 263 and kind == 8 and len(data) >= 4 and struct.unpack_from('I', data)[0] & 16
                                      for level, kind, data in ancillary)
                         if addr[2] != socket.PACKET_OUTGOING and not tagged and not flags & socket.MSG_TRUNC:
-                            table.feed(addr[0], frame)
+                            offloaded = any(level == 263 and kind == 8 and len(data) >= 4 and struct.unpack_from('I', data)[0] & (8 | 128)
+                                            for level, kind, data in ancillary)
+                            table.feed(addr[0], frame, checksum_offloaded=offloaded)
                 now = time.monotonic()
                 if now < next_publish:
                     continue
@@ -90,12 +97,21 @@ def serve(config):
                 if lost:
                     # Never retain correlations across known capture loss.
                     table.bindings.clear(); table.pending.clear()
+                table.expire(now)
+                if now >= next_refresh:
+                    arp_status = refresh(config, list(table.bindings.values()), now)
+                    next_refresh = time.monotonic() + 0.5
                 publish('ready')
                 next_publish = now + 0.2
-    except (OSError, ValueError, KeyError, RuntimeError) as exc:
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as exc:
         error = str(exc)
     finally:
         table.bindings.clear(); table.pending.clear()
+        try:
+            from .arp_inspection import refresh
+            refresh(config, [], time.monotonic(), clear=True)
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+            pass
         try:
             publish('failed' if error else 'stopped')
         except OSError:

@@ -84,6 +84,19 @@ def explain_node(node, actual):
         if drops:
             _add(findings, 'DHCP_SNOOPING_DROPS', 'Rejets DHCP/tag/fragment cumulés ; examiner chaque règle, sans attribuer un flux précis.', {'counters': drops}, 'warning')
 
+    from .arp_inspection import effective as arp_effective
+    if arp_effective(node) is not None:
+        arp = actual.get('arp_inspection', {})
+        verified = arp.get('policy_verified') is True
+        _add(findings, 'ARP_INSPECTION_POLICY' if verified else 'ARP_INSPECTION_UNVERIFIED',
+             'Inspection ARP : ' + ('politique kernel conforme ; IPv4 Source Guard non activé.' if verified else 'politique absente/modifiée/non vérifiée.'),
+             {'policy_verified': verified, 'counters': arp.get('counters', []), 'dynamic_sets': arp.get('dynamic_sets', [])}, 'info' if verified else 'warning')
+        _add(findings, 'ARP_INSPECTION_DYNAMIC_WINDOW', 'Autorisations DHCP limitées à 2 s après leur dernier renouvellement kernel ; règles statiques et ports trusted indépendants.',
+             {'maximum_dynamic_grant_ms': 2000, 'observer_available': actual.get('dhcp_snooping', {}).get('observer_available')})
+        drops = [c for c in arp.get('counters', []) if c.get('packets', 0) > 0 and not c.get('rule', '').startswith(('static:', 'dynamic:'))]
+        if drops:
+            _add(findings, 'ARP_INSPECTION_DROPS', 'Rejets ARP cumulés ; ces compteurs ne déterminent pas seuls la cause d’un ping.', {'counters': drops}, 'warning')
+
     tree = actual.get('spanning_tree')
     if tree:
         protocol = tree.get('protocol')
