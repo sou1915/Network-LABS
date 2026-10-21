@@ -139,7 +139,7 @@ def apply(manager, index, node, previous=None):
         baselines.pop(node['name'], None)
 
 
-def authorization_script(policy, bindings, now):
+def eligible_bindings(policy, bindings, now):
     """Refuse ambiguous dynamic owners and any conflict with an explicit binding."""
     from collections import defaultdict
     owners = defaultdict(set)
@@ -148,7 +148,7 @@ def authorization_script(policy, bindings, now):
         if b.get('until', now + 1) > now:
             owners[(b['vlan'], b['address'])].add((b['port'], b['mac']))
     entries = {p: [] for p in dynamic_ports(policy)}
-    count = 0
+    result = []
     for binding in bindings:
         port, vlan, mac, address = (binding[k] for k in ('port', 'vlan', 'mac', 'address'))
         remaining = int(min(LIFETIME_MS, (binding['until'] - now - 2) * 1000))
@@ -157,19 +157,28 @@ def authorization_script(policy, bindings, now):
         if len(owners[(vlan, address)]) != 1 or (vlan, mac) in static_macs:
             continue
         mac, address = mac_address(mac), valid_ip(address)
+        result.append(({**binding, 'mac': mac, 'address': address}, remaining))
+    return result
+
+
+def authorization_script(policy, bindings, now):
+    entries = {p: [] for p in dynamic_ports(policy)}
+    authorized = eligible_bindings(policy, bindings, now)
+    for binding, remaining in authorized:
+        port, mac, address = (binding[k] for k in ('port', 'mac', 'address'))
         for ip in (address, '0.0.0.0'):
             entries[port].append(f'{mac} . {mac} . {ip} timeout {remaining}ms')
-        count += 1
     lines = []
     for port, values in entries.items():
         lines.append(f'flush set bridge {TABLE} dhcp_{port}')
         if values:
             lines.append(f'add element bridge {TABLE} dhcp_{port} {{ ' + ', '.join(values) + ' }')
-    return '\n'.join(lines) + '\n', count
+    return '\n'.join(lines) + '\n', len(authorized)
 
 
-def refresh(config, bindings, now, clear=False):
-    policy = config.get('arp_inspection')
+def refresh(config, bindings, now, clear=False, *, policy_key='arp_inspection', table_name=TABLE,
+            fingerprint_key='arp_fingerprint', authorize=authorization_script):
+    policy = config.get(policy_key)
     if policy is None:
         return None
     # Only invoked by the single-threaded observer. Kill an in-flight nft child
@@ -182,17 +191,17 @@ def refresh(config, bindings, now, clear=False):
     def nft(*args, **kwargs):
         result = subprocess.run(['nft', *args], capture_output=True, text=True, timeout=2, preexec_fn=guard_parent, **kwargs)
         if result.returncode:
-            raise RuntimeError('ARP authorization update: ' + result.stderr.strip())
+            raise RuntimeError(policy_key + ' authorization update: ' + result.stderr.strip())
         return result.stdout
     if not clear:
         from .firewall import fingerprint as snoop_fingerprint
         from .snooping import TABLE as SNOOP_TABLE
-        raw = json.loads(nft('-j', '-n', 'list', 'table', 'bridge', TABLE))
+        raw = json.loads(nft('-j', '-n', 'list', 'table', 'bridge', table_name))
         snoop = json.loads(nft('-j', '-n', 'list', 'table', 'bridge', SNOOP_TABLE))
-        if fingerprint(raw) != config['arp_fingerprint'] or snoop_fingerprint(snoop) != config['snoop_fingerprint']:
-            raise RuntimeError('Managed DHCP/ARP policy drift; dynamic authorizations not refreshed.')
+        if fingerprint(raw) != config[fingerprint_key] or snoop_fingerprint(snoop) != config['snoop_fingerprint']:
+            raise RuntimeError('Managed DHCP/source-admission policy drift; dynamic authorizations not refreshed.')
     now = max(now, time.monotonic())
-    script, count = authorization_script(policy, [] if clear else bindings, now)
+    script, count = authorize(policy, [] if clear else bindings, now)
     if script.strip():
         nft('-f', '-', input=script)
     return {'last_refresh_monotonic': now, 'dynamic_bindings': count, 'maximum_grant_ms': LIFETIME_MS}

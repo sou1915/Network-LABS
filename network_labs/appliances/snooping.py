@@ -136,7 +136,8 @@ def observer_scope(node):
     policy = effective(node)
     if policy is not None:
         from .arp_inspection import effective as arp_effective
-        policy = {**policy, 'arp_inspection': arp_effective(node)}
+        from .source_guard import effective as guard_effective
+        policy = {**policy, 'arp_inspection': arp_effective(node), 'ip_source_guard': guard_effective(node)}
     return policy
 
 
@@ -156,6 +157,7 @@ def reconcile(manager, index, node, previous=None):
     config = manager.directory / (node['name'] + '.snooping-config.json')
     config.write_text(json.dumps({**policy, 'node': node['name'], 'token': token, 'namespace': str(ns),
                                  'namespace_inode': ns.stat().st_ino,
+                                 'guard_fingerprint': manager.state.get('source_guard_fingerprints', {}).get(node['name']),
                                  'arp_fingerprint': manager.state.get('arp_inspection_fingerprints', {}).get(node['name']),
                                  'snoop_fingerprint': manager.state.get('snooping_fingerprints', {}).get(node['name']), 'state': str(manager.directory / 'state.json'), 'output': str(output)}))
     config.chmod(0o600)
@@ -192,7 +194,7 @@ def observe(manager, index, node):
     record = manager.state.get('snooping_workers', {}).get(node['name'])
     result = {'source': 'Kernel DHCPv4 trust filter and passive request/ACK correlations',
               'policy_verified': conform, 'ruleset': ruleset, 'observer_available': False, 'bindings': None,
-              'counters': [], 'note': 'Observed leases only; not proof of packet forwarding or endpoint installation. Optional ARP inspection is separate; no IPv4 Source Guard enforcement.'}
+              'counters': [], 'note': 'Observed leases only; not proof of packet forwarding or endpoint installation. ARP inspection and IPv4 Source Guard enforcement are reported separately.'}
     for entry in (ruleset or {}).get('nftables', []):
         rule = entry.get('rule', {})
         for expr in rule.get('expr', []):

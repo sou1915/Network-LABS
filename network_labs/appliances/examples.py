@@ -201,3 +201,10 @@ def arp_inspection_lab(rootfs):
     spec['nodes'][1]['arp_inspection'] = {'vlans': [10], 'trusted': ['eth1'], 'bindings': [
         {'port': 'eth2', 'vlan': 10, 'mac': '02:00:00:00:10:03', 'address': '10.10.0.3'}]}
     return validate(spec)
+
+
+def source_guard_lab(rootfs):
+    spec = arp_inspection_lab(rootfs)
+    spec['name'] = 'source-guard-lan'
+    spec['nodes'][1]['ip_source_guard'] = {'eth0': 'ip-mac', 'eth2': 'ip-mac'}
+    return validate(spec)

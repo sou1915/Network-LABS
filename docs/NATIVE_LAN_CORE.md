@@ -1156,7 +1156,7 @@ non concernées continuent de suivre les autres politiques. Trunks, LACP, DHCP
 relay/giaddr, Option 82, option overload, DHCPv6, rate limiting et filtrage complet
 de tous les champs DHCP constructeur restent non implémentés. L'activation sur
 un switch contenant un trunk/LACP est refusée, même si le trunk n'est pas dans
-le VLAN sélectionné. L'inspection ARP est une option séparée décrite ci-dessous ; IP Source Guard reste absent.
+le VLAN sélectionné. L'inspection ARP et IP Source Guard sont des options séparées décrites ci-dessous.
 
 ### Essai avec un serveur malveillant réel
 
@@ -1322,7 +1322,7 @@ Les probes ARP source 0.0.0.0 ne sont acceptées que pour une MAC déjà autoris
 IP cible non nulle/non multicast. Les probes d'une MAC inconnue avant DHCP ne
 sont pas admises. Les gratuitous ARP revendiquant une IP normale passent par la
 même validation de binding. La validation de la MAC destination des replies,
-les rate limits, ARP ACLs constructeur, IPv6/NDP et IP Source Guard ne sont pas
+les rate limits, ARP ACLs constructeur et IPv6/NDP ne sont pas
 implémentés.
 
 ### Configuration et adresses statiques
@@ -1408,3 +1408,111 @@ le nettoyage des processus et l'intégrité des liens/routes/règles nft de l'h�
 Références : [ARP et concaténations nftables](https://netfilter.org/projects/nftables/manpage.html),
 [principe DAI Cisco](https://www.cisco.com/c/en/us/support/docs/switches/lan-switch-software/222274-troubleshoot-dynamic-arp-inspection-dai.html),
 [RFC 5227 ARP probes](https://www.rfc-editor.org/rfc/rfc5227.html).
+
+## IP Source Guard IPv4 sur ports access
+
+`ip_source_guard` active un filtre **réel de paquets IPv4 entrants** dans le
+namespace du switch, avant l'apprentissage/FDB du bridge. Il complète DAI :
+une entrée ARP déjà connue ne permet plus de contourner la validation de source.
+Il ne faut pas activer DAI pour l'utiliser.
+
+```json
+"ip_source_guard": {"eth0": "ip-mac", "eth2": "ip-mac"}
+```
+
+- `ip` vérifie l'IP source et le port/VLAN du binding ; il ne vérifie pas la MAC.
+- `ip-mac` vérifie ensemble MAC Ethernet, IP source et port/VLAN du binding.
+- Les ports doivent être physiques, access et non trusted DHCP, avec snooping
+  actif sur leur VLAN. Les trunks et LACP restent hors périmètre de ce filtre.
+- Les bindings dynamiques viennent des corrélations REQUEST/ACK du même
+  observateur supervisé de DHCP snooping. Aucun processus supplémentaire par
+  port/node n'est ajouté. Ce worker Python tourne dans le namespace du switch,
+  hors cgroup OCI : son coût doit entrer dans une future mesure de l'application
+  entière, qui reste à faire pour le budget de 2 GiB.
+- Les bindings statiques partagent **`arp_inspection.bindings`**, conservé pour
+  compatibilité des manifests. `arp_inspection.vlans: []` permet de les utiliser
+  sans activer l'inspection ARP. Il n'existe pas deux bases statiques à synchroniser.
+  Les propriétaires statiques du même VLAN empêchent les autorisations dynamiques
+  ambiguës, y compris sur un port non protégé par IPSG.
+
+### DHCP initial et durée des autorisations
+
+Avant le binding, le filtre laisse passer uniquement le bootstrap DHCP IPv4
+source **0.0.0.0**, destination **255.255.255.255**, UDP 68→67, sans fragmentation,
+avec longueur UDP suffisante, en-tête BOOTREQUEST Ethernet/6 octets/hops 0 et
+cookie DHCP. Il ne s'agit pas d'une exemption générale UDP 68→67 : une source
+non nulle non autorisée reste bloquée, même avec un payload DHCP. Ce contrôle
+kernel de forme ne valide pas intégralement les options/checksums DHCP ; le
+parseur de l'observateur les valide séparément avant d'apprendre un binding.
+
+Les données et renouvellements depuis une IP attribuée passent par leur binding.
+Une machine sans autorisation utilisable doit recommencer une acquisition avec
+source 0.0.0.0 ; INIT-REBOOT/renewal non nul sans binding n'est pas exempté.
+Le snooping conserve ses restrictions de tags et fragments UDP non trusted.
+
+Comme pour DAI, les autorisations dynamiques sont des sets nftables avec timeout
+kernel de **2 secondes maximum**, renouvelés par l'observateur. Le calcul réserve
+2 secondes sur la fin du bail pour le budget d'installation et peut refuser
+prématurément une fin de bail. Les conflits IP/port/MAC, une perte de capture ou
+la chute du port client retirent les bindings ; la perte du serveur DHCP ne
+révoque pas un bail client encore valable. Un observateur mort/bloqué ou une
+politique gérée modifiée cesse de renouveler les autorisations, qui expirent ;
+les règles statiques persistent. Un enfant nft reçoit SIGKILL si son parent
+observateur meurt. Ce délai n'est pas une garantie temps réel de l'hôte.
+
+### CLI partielle et vérification
+
+```text
+configure terminal
+ip source binding 0200.0000.1003 vlan 10 10.10.0.3 interface fa0/3
+interface fa0/1
+ip verify source port-security
+interface fa0/3
+ip verify source
+end
+```
+
+`ip verify source` sélectionne le mode IP ; `ip verify source port-security`
+sélectionne IP+MAC. `no ip verify source` et `no ip verify source port-security`
+retirent le filtre du port. Ces syntaxes suivent les deux types de validation
+[décrits par Cisco](https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst2960/software/release/12-2_55_se/configuration/guide/scg_2960/swdhcp82.html),
+mais cet adaptateur est **partiel** : le mode IP+MAC utilise directement le tuple
+nftables et ne reproduit ni Option 82, ni apprentissage secure-MAC constructeur,
+ni toutes les dépendances Port Security du matériel Cisco. Les autres variantes
+sont rejetées avant toute mutation. La port-security statique séparée continue
+à s'appliquer si elle est explicitement configurée.
+
+```bash
+python3 -m network_labs.appliances example --ip-source-guard \
+  --rootfs "$HOME/network-labs-rootfs" > source-guard-lan.json
+sudo python3 -m network_labs.appliances start source-guard-lan.json
+# Attendre l'acquisition DHCP et le renouvellement des sets (quelques secondes).
+sudo python3 -m network_labs.appliances exec source-guard-lan PC1 -- /bin/ping -c 3 10.10.0.2
+sudo python3 -m network_labs.appliances exec source-guard-lan ROGUE -- /bin/ping -c 3 10.10.0.2
+sudo python3 -m network_labs.appliances inspect source-guard-lan SW1
+sudo python3 -m network_labs.appliances explain source-guard-lan SW1
+sudo python3 -m network_labs.appliances save source-guard-lan
+sudo python3 -m network_labs.appliances stop source-guard-lan
+sudo python3 -m network_labs.appliances restore source-guard-lan
+```
+
+Ce scénario combine DAI et IPSG : PC1 est autorisé dynamiquement, ROGUE seulement
+avec sa source statique 10.10.0.3/MAC configurée, DHCP1 est sur le port serveur
+non protégé. Son serveur DHCP rogue reste bloqué par le snooping.
+`inspect.ip_source_guard` rapporte les définitions kernel, sets, compteurs et
+conformité ; `explain` les interprète sans prétendre prouver la livraison d'un
+flux. `save` refuse une table supprimée/modifiée ; les éléments temporaires et
+compteurs ne sont pas une dérive de configuration. Les baux ne sont pas sauvegardés :
+`restore` réapplique la politique puis les clients acquièrent de nouveaux bindings.
+
+Le test natif injecte de vrais paquets et capture sur le destinataire : bonne
+source, mauvais IP, mauvaise MAC, tuple correct sur mauvais port, faux DHCP,
+mode IP sans validation MAC. Des voisins permanents excluent la résolution ARP
+comme cause de l'échec après mort du worker. Il vérifie aussi la source statique,
+la reprise DHCP, la dérive, la sauvegarde/restauration et le nettoyage sans
+modifier routes/liens/firewall de l'hôte.
+
+Périmètre : IPv4 ingress, pas IPv6/NDP, pas authentification des utilisateurs,
+pas vérification de destination ni ACL applicative. Un clone du tuple complet
+IP+MAC sur le même port ne peut pas être distingué de son propriétaire par ce
+filtre. Ce n'est pas un firmware constructeur.

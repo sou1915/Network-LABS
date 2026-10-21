@@ -147,6 +147,144 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
+    def test_ip_source_guard_real_ipv4_spoof_cached_neighbours_modes_timeout_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import signal
+        import struct
+        import threading
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.examples import source_guard_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.snooping import alive
+        from network_labs.appliances.source_guard import TABLE
+        from test_native_source_guard import ipv4_frame
+        from test_native_snooping import frame
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        records = []
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = source_guard_lab(rootfs); spec['name'] = 'ipsg-test-' + str(os.getpid())
+            # Prove IPv4 protection independently of ARP inspection; static
+            # source bindings remain available in the shared manifest store.
+            spec['nodes'][1]['arp_inspection']['vlans'] = []
+            manager = Manager(spec['name'])
+            def wait_ping(node='PC1'):
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2', check=False).returncode == 0:
+                        return
+                    time.sleep(0.1)
+                self.fail('IP Source Guard legitimate ping failed: ' + json.dumps(manager.inspect('SW1')) +
+                          '\n' + (manager.directory / 'SW1.snooping.log').read_text())
+            def inject(index, packet):
+                manager.ns(index, sys.executable, '-c',
+                           'import socket,sys; s=socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(3)); s.bind(("eth0",0)); s.send(bytes.fromhex(sys.argv[1]))', packet.hex())
+            def captured(name, expression, count, action):
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), 'DHCP1', 'eth0', Path(folder) / name,
+                                     seconds=2, packets=count, expression=expression, ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('IPv4 capture readiness missing')
+                with manager.locked():
+                    action()
+                return future.result(timeout=6)['captured_packets']
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    wait_ping(); wait_ping('ROGUE')
+                    observed = manager.inspect('SW1')
+                    self.assertTrue(observed['ip_source_guard']['policy_verified'])
+                    self.assertNotIn('arp_inspection', observed)
+                    lease = observed['dhcp_snooping']['bindings'][0]['address']
+                    manager.crun('exec', 'ROGUE', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/udhcpd.pid)"')
+                    # Permanent neighbours exclude ARP resolution as an
+                    # explanation for either positive or negative delivery.
+                    manager.ns(0, 'ip', 'neigh', 'replace', '10.10.0.2', 'lladdr', '02:00:00:00:10:02', 'nud', 'permanent', 'dev', 'eth0')
+                    manager.ns(2, 'ip', 'neigh', 'replace', lease, 'lladdr', '02:00:00:00:10:10', 'nud', 'permanent', 'dev', 'eth0')
+                    wait_ping(); manager.write_startup()
+                expression = 'icmp and dst host 10.10.0.2 and icmp[4:2] = 0x1234'
+                def spoofed():
+                    inject(0, ipv4_frame(source='10.10.0.99'))  # Correct MAC, wrong IP.
+                    inject(0, ipv4_frame(source=lease, mac='02:00:00:00:10:99'))  # Right IP, wrong MAC.
+                    inject(3, ipv4_frame(source=lease))  # Right IP+MAC, wrong ingress port.
+                    inject(3, ipv4_frame(source='10.10.0.99', mac='02:00:00:00:10:03'))
+                self.assertEqual(captured('spoof.pcap', expression, 100, spoofed), 0)
+                with manager.locked():
+                    counters = manager.inspect('SW1')['ip_source_guard']['counters']
+                    for port in ('eth0', 'eth2'):
+                        self.assertTrue(any(c['rule'] == 'deny:' + port and c['packets'] > 0 for c in counters), counters)
+                self.assertEqual(captured('dynamic.pcap', expression, 1, lambda: inject(0, ipv4_frame(source=lease))), 1)
+                self.assertEqual(captured('static.pcap', expression, 1,
+                                         lambda: inject(3, ipv4_frame(source='10.10.0.3', mac='02:00:00:00:10:03'))), 1)
+                # A broad UDP 68->67 exception would leak spoofed nonzero
+                # sources; both BOOTP-shaped and malformed traffic must fail.
+                def fake_dhcp():
+                    payload = bytearray(frame(3)[34:])
+                    payload[:4] = struct.pack('!HH', 68, 67)
+                    inject(0, ipv4_frame(source='10.10.0.99', destination='255.255.255.255',
+                                        destination_mac='ff:ff:ff:ff:ff:ff', protocol=17, payload=payload))
+                    inject(0, ipv4_frame(source='0.0.0.0', destination='255.255.255.255',
+                                        destination_mac='ff:ff:ff:ff:ff:ff', protocol=17,
+                                        payload=struct.pack('!HHHH', 68, 67, 12, 0) + b'fake'))
+                self.assertEqual(captured('bootstrap-deny.pcap', 'udp src port 68 and udp dst port 67', 100, fake_dhcp), 0)
+                with manager.locked():
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/1\nip verify source\nend')
+                    # Changing policy restarts volatile correlation. Acquire a
+                    # fresh lease before evaluating the new mode.
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"; /bin/busybox sleep 0.2; /bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait_ping()
+                    lease = manager.inspect('SW1')['dhcp_snooping']['bindings'][0]['address']
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                self.assertEqual(captured('ip-only.pcap', expression, 1,
+                                         lambda: inject(0, ipv4_frame(source=lease, mac='02:00:00:00:10:99'))), 1)
+                with manager.locked():
+                    # The forged MAC may move the FDB entry; refresh both
+                    # neighbour entries and legitimate forwarding first.
+                    manager.ns(0, 'ip', 'neigh', 'replace', '10.10.0.2', 'lladdr', '02:00:00:00:10:02', 'nud', 'permanent', 'dev', 'eth0')
+                    manager.ns(2, 'ip', 'neigh', 'replace', lease, 'lladdr', '02:00:00:00:10:10', 'nud', 'permanent', 'dev', 'eth0')
+                    wait_ping()
+                    wait_ping('ROGUE')
+                    state = manager.inspect('SW1')['ip_source_guard']
+                    self.assertTrue(state['policy_verified'])
+                    # eth0 counters reset on the intentional mode change;
+                    # eth2 static traffic still has its own accept counter.
+                    self.assertTrue(any(c['rule'] == 'static:eth2' and c['packets'] > 0 for c in state['counters']))
+                    record = dict(manager.state['snooping_workers']['SW1'])
+                    os.kill(record['pid'], signal.SIGKILL); time.sleep(2.3)
+                    self.assertFalse(alive(record))
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.2', check=False).returncode, 0)
+                    neighbours = json.loads(manager.ns(0, 'ip', '-j', 'neigh', 'show').stdout)
+                    self.assertTrue(any(n.get('dst') == '10.10.0.2' and 'PERMANENT' in n.get('state', []) for n in neighbours), neighbours)
+                    wait_ping('ROGUE')  # Static source authorization survives.
+                    self.assertIsNone(manager.inspect('SW1')['dhcp_snooping']['bindings'])
+                    manager.configure_ios('SW1', 'conf t\ninterface fa0/1\nno shutdown\nend')
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"; /bin/busybox sleep 0.2; /bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait_ping(); manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.ns(1, 'nft', 'delete', 'table', 'bridge', TABLE)
+                    with self.assertRaisesRegex(RuntimeFailure, 'IP Source Guard'):
+                        manager.write_startup()
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    records.append(dict(manager.state['snooping_workers']['SW1']))
+                    wait_ping(); wait_ping('ROGUE')
+                    self.assertTrue(manager.inspect('SW1')['ip_source_guard']['policy_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertTrue(all(not alive(r) for r in records))
+        self.assertEqual(host_links(), links)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_dhcp_snooping_real_trust_binding_rogue_filter_worker_loss_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

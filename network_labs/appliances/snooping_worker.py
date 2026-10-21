@@ -45,10 +45,11 @@ def serve(config):
     identity = {p: socket.if_nametoindex(p) for p in config['ports']}
     error = None
     arp_status = None
+    guard_status = None
     def publish(status):
         value = {'version': 1, 'token': config['token'], 'pid': os.getpid(), 'status': status,
                  'observed_monotonic': time.monotonic(), 'capture_packets': packets,
-                 'capture_drops': drops, 'error': error, 'arp_inspection': arp_status, **table.snapshot()}
+                 'capture_drops': drops, 'error': error, 'arp_inspection': arp_status, 'ip_source_guard': guard_status, **table.snapshot()}
         temporary = target.with_suffix('.tmp')
         temporary.write_text(json.dumps(value)); temporary.chmod(0o600); temporary.replace(target)
     try:
@@ -57,7 +58,9 @@ def serve(config):
             sock.setsockopt(263, 8, 1)  # PACKET_AUXDATA: refuse VLAN-offloaded observations
             sock.setblocking(False)
             from .arp_inspection import refresh
+            from .source_guard import refresh as refresh_guard
             arp_status = refresh(config, [], time.monotonic())
+            guard_status = refresh_guard(config, [], time.monotonic())
             next_refresh = time.monotonic() + 0.5
             publish('ready')
             next_publish = time.monotonic()
@@ -99,6 +102,7 @@ def serve(config):
                 table.expire(now)
                 if now >= next_refresh:
                     arp_status = refresh(config, list(table.bindings.values()), now)
+                    guard_status = refresh_guard(config, list(table.bindings.values()), time.monotonic())
                     next_refresh = time.monotonic() + 0.5
                 publish('ready')
                 next_publish = now + 0.2
@@ -106,11 +110,13 @@ def serve(config):
         error = str(exc)
     finally:
         table.bindings.clear(); table.pending.clear()
-        try:
-            from .arp_inspection import refresh
-            refresh(config, [], time.monotonic(), clear=True)
-        except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
-            pass
+        from .arp_inspection import refresh
+        from .source_guard import refresh as refresh_guard
+        for clear_policy in (refresh, refresh_guard):
+            try:
+                clear_policy(config, [], time.monotonic(), clear=True)
+            except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+                pass
         try:
             publish('failed' if error else 'stopped')
         except OSError:

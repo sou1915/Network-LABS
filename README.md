@@ -68,6 +68,9 @@ python3 -m network_labs.appliances plan campus-lan.json
 [Lancement, commandes couvertes, sauvegarde et critères de validation](docs/NATIVE_LAN_CORE.md).
 Le backend Linux propose aussi un firewall IPv4 stateful et masquerade/SNAT/DNAT
 (`example --firewall`), avec règles, compteurs, sessions et sauvegarde.
+Le filtre IPv4 `example --ip-source-guard` ajoute la validation réelle IP ou
+IP+MAC par port access, basée sur DHCP snooping/bindings statiques, avec DAI
+optionnel et autorisations dynamiques courtes. Voir le guide LAN pour ses limites.
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,

@@ -132,6 +132,14 @@ def compile_config(spec, name, text):
                             node['interfaces'][interface] = ''
                         continue
                 if node['role'] == 'switch':
+                    if command in ('ip verify source', 'ip verify source port-security', 'no ip verify source', 'no ip verify source port-security'):
+                        if node.get('ip_source_guard') is None:
+                            node['ip_source_guard'] = {}
+                        if command.startswith('no '):
+                            node['ip_source_guard'].pop(interface, None)
+                        else:
+                            node['ip_source_guard'][interface] = 'ip-mac' if command.endswith('port-security') else 'ip'
+                        continue
                     if command in ('ip arp inspection trust', 'no ip arp inspection trust'):
                         if interface not in node['switchports']:
                             raise ValueError('ARP trust requires a switch port.')

@@ -89,13 +89,27 @@ def explain_node(node, actual):
         arp = actual.get('arp_inspection', {})
         verified = arp.get('policy_verified') is True
         _add(findings, 'ARP_INSPECTION_POLICY' if verified else 'ARP_INSPECTION_UNVERIFIED',
-             'Inspection ARP : ' + ('politique kernel conforme ; IPv4 Source Guard non activé.' if verified else 'politique absente/modifiée/non vérifiée.'),
+             'Inspection ARP : ' + ('politique ARP kernel conforme ; protection IPv4 évaluée séparément.' if verified else 'politique absente/modifiée/non vérifiée.'),
              {'policy_verified': verified, 'counters': arp.get('counters', []), 'dynamic_sets': arp.get('dynamic_sets', [])}, 'info' if verified else 'warning')
         _add(findings, 'ARP_INSPECTION_DYNAMIC_WINDOW', 'Autorisations DHCP limitées à 2 s après leur dernier renouvellement kernel ; règles statiques et ports trusted indépendants.',
              {'maximum_dynamic_grant_ms': 2000, 'observer_available': actual.get('dhcp_snooping', {}).get('observer_available')})
         drops = [c for c in arp.get('counters', []) if c.get('packets', 0) > 0 and not c.get('rule', '').startswith(('static:', 'dynamic:'))]
         if drops:
             _add(findings, 'ARP_INSPECTION_DROPS', 'Rejets ARP cumulés ; ces compteurs ne déterminent pas seuls la cause d’un ping.', {'counters': drops}, 'warning')
+
+    from .source_guard import effective as guard_effective
+    if guard_effective(node) is not None:
+        guard = actual.get('ip_source_guard', {})
+        verified = guard.get('policy_verified') is True
+        _add(findings, 'IP_SOURCE_GUARD_POLICY' if verified else 'IP_SOURCE_GUARD_UNVERIFIED',
+             'IP Source Guard : ' + ('filtre IPv4 conforme.' if verified else 'politique absente/modifiée/non vérifiée.'),
+             {'ports': guard.get('ports'), 'policy_verified': verified}, 'info' if verified else 'warning')
+        _add(findings, 'IP_SOURCE_GUARD_DYNAMIC_WINDOW',
+             'Bindings DHCP : autorisations kernel limitées à 2 s sans renouvellement ; DHCP initial source 0.0.0.0 autorisé. IPv6 hors périmètre.',
+             {'maximum_dynamic_grant_ms': 2000, 'observer_available': actual.get('dhcp_snooping', {}).get('observer_available')})
+        drops = [c for c in guard.get('counters', []) if c.get('rule', '').startswith('deny:') and c.get('packets', 0) > 0]
+        if drops:
+            _add(findings, 'IP_SOURCE_GUARD_DROPS', 'Rejets IPv4 cumulés ; ne prouvent pas seuls la cause d’un ping.', {'counters': drops}, 'warning')
 
     tree = actual.get('spanning_tree')
     if tree:
