@@ -43,6 +43,10 @@ def main(arguments=None):
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
+    monitor = commands.add_parser('monitor', help='Two passive counter samples with conservative per-interface deltas/rates.')
+    monitor.add_argument('name'); monitor.add_argument('node'); monitor.add_argument('interface', nargs='?')
+    monitor.add_argument('--seconds', type=int, default=5, help='Wait between samples, 1..30 seconds.')
+    monitor.add_argument('--json', action='store_true')
     capture = commands.add_parser('capture', help='Bounded real PCAP capture in an OCI node; other lab commands remain usable.')
     capture.add_argument('name'); capture.add_argument('node'); capture.add_argument('interface')
     capture.add_argument('--output', type=Path, required=True, help='New PCAP file; existing files are refused.')
@@ -93,6 +97,16 @@ def main(arguments=None):
             return 0 if result['assessment']['packet_test_passed'] and result['all_nodes_running_after_load'] and not result['assessment']['oom_kill_observed'] else 1
         elif args.command == 'plan':
             result = plan(load(args.manifest))
+        elif args.command == 'monitor':
+            from .monitor import monitor, render
+            try:
+                result = monitor(args.name, args.node, args.interface, seconds=args.seconds,
+                                 ready=lambda: print('Observation initiale terminée. Vous pouvez lancer le trafic dans un autre terminal.', file=sys.stderr, flush=True))
+            except KeyboardInterrupt:
+                print('Observation interrompue ; aucune différence calculée.', file=sys.stderr)
+                return 130
+            print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+            return 0
         elif args.command == 'capture':
             from .capture import capture
             result = capture(Manager(args.name), args.node, args.interface, args.output, seconds=args.seconds,

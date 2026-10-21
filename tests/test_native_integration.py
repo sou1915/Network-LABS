@@ -24,10 +24,11 @@ class RealContainerTests(unittest.TestCase):
         from concurrent.futures import ThreadPoolExecutor
         import threading
         from network_labs.appliances.capture import capture
+        from network_labs.appliances.monitor import monitor as monitor_ports
         before = run(['ip', '-j', 'route', 'show']).stdout
         host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
         links_before = host_links()
-        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool:
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool:
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = example(rootfs); spec['name'] = 'capture-test-' + str(os.getpid())
             manager = Manager(spec['name'])
@@ -60,6 +61,24 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(manager.state.get('revision', 0), 0)
                 get_port = lambda data: next(r for r in data['links'] if r['ifname'] == 'eth0')
                 self.assertEqual(get_port(switch_before)['promiscuity'], get_port(switch_after)['promiscuity'])
+                sampled = threading.Event()
+                monitoring = pool.submit(monitor_ports, spec['name'], 'PC1', 'eth0', seconds=2, ready=sampled.set)
+                if not sampled.wait(5):
+                    monitoring.result(timeout=5)
+                    self.fail('Monitoring first sample missing')
+                traffic = run([sys.executable, '-m', 'network_labs.appliances', 'exec', spec['name'], 'PC1', '--',
+                               '/bin/ping', '-c', '2', '-i', '0.1', '-W', '1', '192.0.2.20'], timeout=4)
+                self.assertIn('2 packets received', traffic.stdout)
+                measured = monitoring.result(timeout=5)
+                self.assertTrue(measured['second_observation_available'])
+                self.assertTrue(measured['passive'])
+                self.assertEqual(measured['packet_delivery'], 'not_tested')
+                self.assertGreater(measured['elapsed_seconds'], 1.5)
+                port = measured['ports'][0]
+                self.assertEqual(port['status'], 'measured')
+                for direction in ('rx', 'tx'):
+                    self.assertGreaterEqual(port['delta'][direction + '_packets'], 2)
+                    self.assertGreater(port['rates'][direction + '_bits_per_second'], 0)
                 quiet = capture(Manager(spec['name']), 'PC1', 'eth0', Path(folder) / 'quiet.pcap',
                                 seconds=1, expression='ether proto 0x88b5')
                 self.assertEqual(quiet['captured_packets'], 0)
@@ -122,6 +141,11 @@ class RealContainerTests(unittest.TestCase):
                 if not active.wait(5):
                     future.result(timeout=5)
                     self.fail('Capture readiness callback missing before stop')
+                sampled.clear()
+                monitoring = pool.submit(monitor_ports, spec['name'], 'PC1', 'eth0', seconds=2, ready=sampled.set)
+                if not sampled.wait(5):
+                    monitoring.result(timeout=5)
+                    self.fail('Monitoring first sample missing before stop')
                 run([sys.executable, '-m', 'network_labs.appliances', 'stop', spec['name']], timeout=5)
                 try:
                     stopped = future.result(timeout=7)
@@ -130,6 +154,12 @@ class RealContainerTests(unittest.TestCase):
                     # libpcap may report the removed interface as an error;
                     # it must terminate rather than switch namespaces/devices.
                     self.assertIn('tcpdump failed', str(error))
+                stopped_monitor = monitoring.result(timeout=5)
+                self.assertFalse(stopped_monitor['second_observation_available'])
+                self.assertIsNone(stopped_monitor['elapsed_seconds'])
+                for port in stopped_monitor['ports']:
+                    self.assertEqual(port['status'], 'observation_unavailable')
+                    self.assertTrue(all(value is None for value in port['rates'].values()))
                 self.assertFalse(manager.directory.exists())
             finally:
                 if manager.directory.exists():

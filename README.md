@@ -245,3 +245,9 @@ xvfb-run -a python3 -m unittest discover -s tests -v
 Tests API/HTTP locaux, atomicité, persistance, ports, protocoles, politiques et
 synchronisation GUI/CLI inclus. Vérification navigateur facultative avec
 Playwright : voir [WEB.md](docs/WEB.md). La CLI utilisateur n'exige pas Node.
+
+La commande native `monitor LAB NODE [INTERFACE] --seconds 5 [--json]` mesure
+passivement les différences RX/TX et les débits moyens par port sur deux relevés.
+Les changements d'identité et diminutions de compteurs détectés rendent les taux
+indisponibles ; aucun test de livraison n'est implicite.
+Voir [le guide LAN](docs/NATIVE_LAN_CORE.md#débits-passifs-sur-un-intervalle).

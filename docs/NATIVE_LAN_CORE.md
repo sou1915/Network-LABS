@@ -967,3 +967,48 @@ couvrent ranges, reclassification voulue, observations partielles et compteurs
 Références : [statistiques Linux](https://docs.kernel.org/networking/statistics.html),
 [bridge/PVID](https://docs.kernel.org/networking/bridge.html),
 [flags VLAN iproute2](https://man7.org/linux/man-pages/man8/bridge.8.html).
+
+
+## Débits passifs sur un intervalle
+
+```bash
+sudo python3 -m network_labs.appliances monitor stp-lan SW1 --seconds 5
+sudo python3 -m network_labs.appliances monitor stp-lan PC1 eth0 --seconds 10 --json
+```
+
+Après le message de première lecture sur stderr, générer du trafic dans un autre
+terminal avec `exec ... /bin/ping`. La commande lit deux fois les compteurs Linux
+sans injecter de paquets ni modifier la configuration. Elle affiche les différences
+RX/TX (paquets, octets, erreurs et drops) et des moyennes approximatives en pkt/s
+et bit/s pour les ports gérés du node OCI. Sans interface, tous ses ports gérés
+sont présentés séparément ; aucun total bond/membres/bridge n'est calculé.
+
+`--seconds` attend de 1 à 30 secondes entre lectures. Le calcul utilise l'intervalle
+monotone réellement observé entre les milieux des deux lectures, pas la durée
+demandée. Les timestamps UTC, durées de lecture et révisions figurent dans le JSON.
+Les snapshots sont successifs, pas atomiques. Les différences sont soustraites en
+entiers avant le calcul des taux, même au-delà de 2**53. Ce ne sont ni un débit
+applicatif, ni une mesure exacte du trafic sur le câble, ni un pourcentage de perte.
+Une augmentation des erreurs/drops ne fournit pas sa cause ou le flux concerné.
+
+Chaque lecture utilise un nouveau gestionnaire sous verrou ; le verrou est libéré
+pendant l'attente pour laisser passer les commandes `exec`, `configure` et `stop`.
+PID/starttime du conteneur, device/inode du namespace et ifindex/adresse/type/kind
+de l'interface servent à détecter les changements d'identité. Une identité changée,
+un ifindex manquant ou une source de compteurs 32/64 bits différente invalide les
+taux du port. Toute diminution d'un compteur connu invalide toutes ses différences,
+sans inventer une correction de wrap. Une métrique absente reste `null` ; les autres
+peuvent être calculées avec statut `partial`. Deux relevés ne détectent pas un reset
+suivi d'un rattrapage des valeurs, ni toutes les réutilisations d'identité.
+
+Si la seconde lecture échoue, par exemple après `stop`, le rapport indique
+`observation_unavailable` et laisse les différences/taux à `null`, sans remplacer
+l'absence par zéro. Ce rapport reste une observation valide (code de sortie 0) ;
+un démarrage invalide échoue avec code 1. Ctrl+C interrompt avec code 130 sans
+fabriquer de rapport partiel. Aucun daemon, fichier d'historique ou dépendance
+supplémentaire n'est ajouté. `packet_delivery` reste `not_tested`.
+
+La validation native mesure de vrais pings pendant l'attente et arrête le lab
+entre les deux lectures pour vérifier l'indisponibilité explicite. Les tests
+unitaires couvrent les identités modifiées, diminutions, sources 32/64 bits,
+valeurs manquantes, grands entiers et l'absence de verrou pendant l'attente.

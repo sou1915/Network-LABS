@@ -5,6 +5,7 @@ import json
 import subprocess
 
 from .runtime import RuntimeFailure
+from .interface_stats import managed_ports, decode
 
 
 def _add(findings, code, message, evidence, severity='info'):
@@ -13,28 +14,13 @@ def _add(findings, code, message, evidence, severity='info'):
 
 def port_counters(node, links):
     findings, unavailable = [], []
-    managed = set(node['interfaces']) | set(node.get('port_channels', {}))
-    managed.update(p for p, sub in node.get('subinterfaces', {}).items() if sub['vlan'] is not None)
-    if node['role'] == 'switch':
-        managed.add('br0')
-    for name in sorted(managed):
+    for name in sorted(managed_ports(node)):
         link = links.get(name, {})
-        raw = link.get('stats64')
-        width = 64
-        if not isinstance(raw, dict):
-            raw = link.get('stats'); width = 32
-        if not isinstance(raw, dict):
+        observed = decode(link)
+        if observed['width_bits'] is None:
             unavailable.append(name); continue
-        values = {}
-        for direction in ('rx', 'tx'):
-            counters = raw.get(direction, {})
-            if not isinstance(counters, dict):
-                counters = {}
-            for metric in ('packets', 'bytes', 'errors', 'dropped'):
-                value = counters.get(metric)
-                values[direction + '_' + metric] = value if type(value) is int and value >= 0 else None
-        evidence = {'port': name, 'ifindex': link.get('ifindex'), 'width_bits': width,
-                    'cumulative': True, 'counters': values}
+        values = observed['counters']
+        evidence = {'port': name, **observed, 'cumulative': True}
         display = lambda field: str(values[field]) if values[field] is not None else '?'
         _add(findings, 'PORT_COUNTERS', f"{name} : RX={display('rx_packets')} paquets/{display('rx_bytes')} octets, TX={display('tx_packets')} paquets/{display('tx_bytes')} octets (cumulés).", evidence)
         missing = [k for k, v in values.items() if v is None]
