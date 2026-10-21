@@ -60,7 +60,9 @@ def oci_config(spec, node, index, rootfs):
                     'env': ['PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'TERM=xterm'],
                     'cwd': '/', 'noNewPrivileges': True,
                     'capabilities': {key: caps for key in ('bounding', 'effective', 'permitted')}},
-        'mounts': [
+        'mounts': ([{'destination': '/etc/resolv.conf', 'type': 'bind',
+                     'source': str(Path(rootfs).parent / 'files' / 'resolv.conf'),
+                     'options': ['bind', 'ro', 'nosuid', 'nodev']}] if node.get('resolvers') else []) + [
             {'destination': '/lab', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files'),
              'options': ['bind', 'ro', 'nosuid', 'nodev']},
             {'destination': '/proc', 'type': 'proc', 'source': 'proc', 'options': ['nosuid', 'noexec', 'nodev']},
@@ -118,8 +120,8 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target):
-    """Build offline, and reject dynamically linked ELF before copying it."""
+def static_busybox_rootfs(binary, target, *, dnsmasq=None):
+    """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
     if len(raw) < 64 or raw[:4] != b'\x7fELF' or raw[4] not in (1, 2) or raw[5] not in (1, 2):
@@ -134,13 +136,23 @@ def static_busybox_rootfs(binary, target):
         raise ValueError('BusyBox is dynamically linked; install busybox-static.')
     if target.exists():
         raise ValueError('Rootfs destination must not already exist.')
+    from .dns_rootfs import assets as dns_assets
+    additions = dns_assets(dnsmasq) if dnsmasq is not None else []
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root'):
         (target / name).mkdir(parents=True, exist_ok=True)
     shutil.copyfile(binary, target / 'bin/busybox'); (target / 'bin/busybox').chmod(0o755)
-    for applet in ('sh', 'sleep', 'ping', 'ip', 'cat', 'ls', 'ps', 'hostname', 'httpd', 'wget', 'nc', 'echo', 'mkdir', 'kill', 'udhcpc', 'udhcpd', 'ipcalc'):
+    for applet in ('sh', 'sleep', 'ping', 'ip', 'cat', 'ls', 'ps', 'hostname', 'httpd', 'wget', 'nc', 'echo', 'mkdir', 'kill', 'udhcpc', 'udhcpd', 'ipcalc', 'nslookup'):
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
+    (target / 'etc/group').write_text('root:x:0:\n')
+    for source, destination in additions:
+        path = target / str(destination).lstrip('/')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, path)
+        path.chmod(0o755)
+    if additions:
+        write_json(target / 'etc/network-labs-dns-assets.json', {'binary': '/usr/sbin/dnsmasq', 'files': [str(destination) for _, destination in additions]})
     return target
 
 
@@ -200,6 +212,9 @@ class Manager:
                 asset = Path(node[key])
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
+        for node in spec['nodes']:
+            if node.get('dns_server') is not None and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
+                raise RuntimeFailure(node['name'] + ': DNS requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         if any(n.get('firewall') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
@@ -261,6 +276,8 @@ class Manager:
                     self.start_oci(spec, node, i)
                 else:
                     self.start_vm(node, i)
+            from .dns import start_servers as start_dns
+            start_dns(self)
             from .dhcp import start_clients, start_servers
             start_servers(self)
             start_clients(self)
@@ -274,6 +291,8 @@ class Manager:
         bundle = self.directory / node['name']; bundle.mkdir()
         from .dhcp import prepare_files
         prepare_files(bundle, node)
+        from .dns import prepare_files as prepare_dns
+        prepare_dns(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):
             (bundle / folder).mkdir()
         options = f'lowerdir={Path(node["rootfs"]).resolve()},upperdir={bundle / "upper"},workdir={bundle / "work"}'

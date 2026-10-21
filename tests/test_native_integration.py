@@ -33,6 +33,104 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_dns_real_udp_tcp_dhcp_resolver_http_failure_config_drift_and_restore(self):
+        from network_labs.appliances.examples import dns_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.persistence import load_startup
+        from test_native_dns import DNS_QUERY, dns_response
+        self.assertIsNotNone(shutil.which('dnsmasq'), 'Install dnsmasq-base for the explicitly requested native DNS test')
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', dnsmasq=shutil.which('dnsmasq'))
+            spec = dns_lab(rootfs); spec['name'] = 'dns-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def query(host='intranet.lab.test', kind=1, transport='udp', check=True):
+                return manager.ns(0, sys.executable, '-c', DNS_QUERY, host, str(kind), transport, check=check, timeout=5)
+            def ready():
+                deadline = time.monotonic() + 15
+                last = ''
+                while time.monotonic() < deadline:
+                    resolver = manager.crun('exec', 'PC1', '/bin/cat', '/etc/resolv.conf', check=False)
+                    if resolver.returncode == 0 and 'nameserver 10.10.0.2' in resolver.stdout:
+                        result = query(check=False)
+                        last = result.stderr
+                        if result.returncode == 0:
+                            self.assertEqual(dns_response(result.stdout)[1][0][-1], '10.10.0.20')
+                            return
+                    time.sleep(0.1)
+                self.fail('Actual DHCP resolver/DNS not ready: ' + last + '\n' + (manager.directory / 'DNS1' / 'dns.log').read_text())
+            def http_by_name():
+                for client in ('PC1', 'PC2'):
+                    result = manager.crun('exec', client, '/bin/busybox', 'nslookup', '-type=A', 'intranet.lab.test', timeout=10)
+                    self.assertIn('10.10.0.20', result.stdout)
+                    manager.crun('exec', client, '/bin/ping', '-c', '1', '-W', '1', 'intranet.lab.test', timeout=10)
+                    web = manager.crun('exec', client, '/bin/busybox', 'wget', '-T', '3', '-q', '-O', '-', 'http://intranet.lab.test/', timeout=10)
+                    self.assertIn('Network LABS HTTP via DNS', web.stdout)
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    ready(); http_by_name()
+                    self.assertTrue(manager.inspect('PC2')['resolver']['configuration_verified'])
+                    self.assertNotEqual(manager.crun('exec', 'PC2', '/bin/sh', '-c', 'echo changed > /etc/resolv.conf', check=False).returncode, 0)
+                    for transport in ('udp', 'tcp'):
+                        for host, kind, expected_rcode, expected_value in (
+                            ('intranet.lab.test', 1, 0, '10.10.0.20'),
+                            ('20.0.10.10.in-addr.arpa', 12, 0, 'intranet.lab.test'),
+                            ('intranet.lab.test', 28, 0, None),
+                            ('missing.lab.test', 1, 3, None)):
+                            with self.subTest(transport=transport, host=host, kind=kind):
+                                rcode, records = dns_response(query(host, kind, transport).stdout)
+                                self.assertEqual(rcode, expected_rcode)
+                                if expected_value is None:
+                                    self.assertEqual(records, [])
+                                else:
+                                    self.assertEqual(records, [(host, kind, 1, 60, expected_value)])
+                    server = manager.inspect('DNS1')['dns_server']
+                    self.assertTrue(server['configuration_verified'])
+                    self.assertTrue(any('udp' in row for row in server['listener_snapshot']))
+                    self.assertTrue(any('tcp' in row for row in server['listener_snapshot']))
+                    # Policy text conformity must not masquerade as daemon health.
+                    manager.crun('exec', 'DNS1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/dnsmasq.pid)"')
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and manager.inspect('DNS1')['dns_server']['listener_snapshot']:
+                        time.sleep(0.1)
+                    stopped = manager.inspect('DNS1')['dns_server']
+                    self.assertTrue(stopped['configuration_verified'])
+                    self.assertEqual(stopped['listener_snapshot'], [])
+                    for transport in ('udp', 'tcp'):
+                        self.assertNotEqual(query(transport=transport, check=False).returncode, 0)
+                    manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '10.10.0.20')
+                    self.assertIn('Network LABS HTTP via DNS', manager.crun('exec', 'PC1', '/bin/busybox', 'wget', '-T', '3', '-q', '-O', '-', 'http://10.10.0.20/').stdout)
+                    # Save stores declared policy; restore launches new services.
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    ready(); http_by_name()
+                    for relative, equipment, component, message in (
+                        ('DNS1/files/dnsmasq.conf', 'DNS1', 'dns_server', 'DNS server'),
+                        ('PC2/files/resolv.conf', 'PC2', 'resolver', 'DNS resolver')):
+                        path = manager.directory / relative
+                        original = path.read_text()
+                        try:
+                            path.write_text(original + '# external drift\n')
+                            self.assertFalse(manager.inspect(equipment)[component]['configuration_verified'])
+                            with self.assertRaisesRegex(RuntimeFailure, message):
+                                manager.write_startup()
+                        finally:
+                            path.write_text(original)
+                    self.assertEqual(dns_response(query(transport='tcp').stdout)[1][0][-1], '10.10.0.20')
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_arp_inspection_real_dynamic_static_spoofing_timeout_drift_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import signal

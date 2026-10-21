@@ -1,6 +1,5 @@
 """BusyBox DHCP server/client inside OCI nodes, with a real DHCP event hook."""
 import ipaddress
-import subprocess
 from pathlib import Path
 
 from .lan import addresses
@@ -76,21 +75,9 @@ def server_config(node):
 def observe_server(manager, node):
     # Read the config in the container mount namespace. Do not follow a
     # container-controlled /proc/PID/root symlink from the host. Bound output.
-    detail = None
-    content = None
-    try:
-        observed = manager.crun('exec', node['name'], '/bin/busybox', 'head', '-c', '65537',
-                                '/lab/udhcpd.conf', check=False)
-        available = observed.returncode == 0 and len(observed.stdout.encode('utf-8')) <= 65536
-        content = observed.stdout if available else None
-        if not available:
-            detail = 'Config read failed or exceeded 64 KiB.'
-    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        available = False
-        detail = str(exc)[:1024]
-    return {'source': 'Declared BusyBox DHCP policy and bounded container config-file observation',
-            'configuration_verified': available and content == server_config(node),
-            'configuration_available': available, 'detail': detail,
+    from .service_config import observe_config
+    observation = observe_config(manager, node['name'], '/lab/udhcpd.conf', server_config(node))
+    return {**observation, 'source': 'Declared BusyBox DHCP policy and bounded container config-file observation',
             'reservations': node['dhcp_server'].get('reservations', []),
             'pool': {key: node['dhcp_server'][key] for key in ('interface', 'start', 'end')},
             'note': 'Reservations are declared policy, not observed leases or proof the daemon is running/loaded unchanged. Actual client addresses and DHCP snooping ACKs are separate evidence. No runtime lease snapshot.'}

@@ -67,6 +67,21 @@ def explain_node(node, actual):
                  '. Compteur de trames, pas un nombre de machines ou un résultat de ping ; pas de shutdown automatique.',
                  {'port': port, **observation, 'policy_verified': verified}, 'warning' if denied is not None and denied > 0 else 'info')
 
+    if node.get('dns_server') is not None:
+        dns = actual.get('dns_server', {})
+        verified = dns.get('configuration_verified') is True
+        _add(findings, 'DNS_SERVER_CONFIG' if verified else 'DNS_SERVER_CONFIG_UNVERIFIED',
+             'DNS local : ' + ('fichier dnsmasq conforme.' if verified else 'fichier absent/modifié/non vérifié.'),
+             {'configuration_verified': verified, 'zone': node['dns_server']['zone'], 'records': node['dns_server']['records']}, 'info' if verified else 'warning')
+        _add(findings, 'DNS_LISTENERS', 'Sockets DNS observés ; leur présence ne prouve pas une résolution réussie.',
+             {'listener_snapshot': dns.get('listener_snapshot')}, 'info' if dns.get('listener_snapshot') is not None else 'unknown')
+    if node.get('resolvers'):
+        resolver = actual.get('resolver', {})
+        verified = resolver.get('configuration_verified') is True
+        _add(findings, 'DNS_RESOLVER_CONFIG' if verified else 'DNS_RESOLVER_UNVERIFIED',
+             'Résolveurs statiques : ' + ('fichier conforme.' if verified else 'fichier absent/modifié/non vérifié.'),
+             {'nameservers': node['resolvers'], 'configuration_verified': verified}, 'info' if verified else 'warning')
+
     if node.get('dhcp_server') is not None:
         server = actual.get('dhcp_server', {})
         verified = server.get('configuration_verified') is True

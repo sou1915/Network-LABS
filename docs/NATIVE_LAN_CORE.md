@@ -1731,3 +1731,113 @@ même réservation et un second démarrage avec une réservation hors pool (.50)
 Elle conserve les liens préexistants/routes/règles nft de l'hôte et ne laisse
 aucun lien virtuel ajouté. Référence primaire :
 [configuration BusyBox udhcpd](https://coral.googlesource.com/busybox/+/refs/heads/master/examples/udhcp/udhcpd.conf).
+
+## DNS local réel, DHCP et HTTP par nom
+
+`example --dns` démarre **5 nodes OCI** : PC1 (DHCP), PC2 (adresse et resolver
+statiques), SW1 (VLAN 10 avec DHCP snooping), DNS1 (.2, DNS et DHCP) et WEB1
+(.20, HTTP BusyBox). Le responder DNS est un vrai **dnsmasq** dans DNS1, avec
+sockets UDP/TCP 53. BusyBox conserve la responsabilité DHCP et fournit l'option
+DNS à PC1 ; son hook écrit `/etc/resolv.conf` après ACK. PC2 reçoit un fichier
+resolver géré monté en lecture seule, distinct des fichiers de l'hôte.
+
+### Préparer un nouveau rootfs avec DNS
+
+Sur Ubuntu/Debian, installer le paquet binaire `dnsmasq-base` ; le moteur
+n'utilise pas de service DNS de l'hôte. Garder le rootfs BusyBox précédent et
+choisir **une nouvelle destination qui n'existe pas encore** :
+
+```bash
+sudo apt update
+sudo apt install -y busybox-static dnsmasq-base
+python3 -m network_labs.appliances rootfs \
+  --busybox /bin/busybox --dnsmasq /usr/sbin/dnsmasq \
+  --output "$HOME/network-labs-dns-rootfs"
+python3 -m network_labs.appliances example --dns \
+  --rootfs "$HOME/network-labs-dns-rootfs" > dns-lan.json
+sudo python3 -m network_labs.appliances start dns-lan.json
+# Attendre quelques secondes pour l'acquisition DHCP.
+sudo python3 -m network_labs.appliances exec dns-lan PC1 -- \
+  /bin/busybox nslookup -type=A intranet.lab.test
+sudo python3 -m network_labs.appliances exec dns-lan PC1 -- \
+  /bin/ping -c 3 intranet.lab.test
+sudo python3 -m network_labs.appliances exec dns-lan PC2 -- \
+  /bin/busybox wget -T 3 -q -O - http://intranet.lab.test/
+sudo python3 -m network_labs.appliances inspect dns-lan DNS1
+sudo python3 -m network_labs.appliances explain dns-lan DNS1
+```
+
+La réponse HTTP attendue est `Network LABS HTTP via DNS`. Le DNS fournit
+`intranet.lab.test → 10.10.0.20` et `dns.lab.test → 10.10.0.2`, avec PTR inverse
+et TTL 60 s. Les noms inconnus dans `lab.test` donnent NXDOMAIN ; un type AAAA
+pour un nom IPv4 existant donne NOERROR sans réponse AAAA.
+
+Le builder copie **un binaire local de confiance**, son interpréteur ELF et les
+bibliothèques résolues par `ldd`, sans téléchargement automatique. Il exécute
+ce binaire pour vérifier son identité : ne pas lui donner un exécutable inconnu.
+Les chemins copiés sont listés dans `/etc/network-labs-dns-assets.json` du
+rootfs. Construire pour la même architecture/ABI que l'hôte d'exécution. Les
+copies ne sont pas mises à jour automatiquement avec les paquets de l'hôte ;
+reconstruire un nouveau rootfs après une mise à jour nécessaire. Sans `--dnsmasq`,
+le builder conserve le profil BusyBox statique précédent. Un node DNS dont le
+rootfs n'a pas `/usr/sbin/dnsmasq` est refusé au preflight.
+
+### Politique déclarative
+
+```json
+{
+  "dns_server": {
+    "interface": "eth0",
+    "zone": "lab.test",
+    "ttl": 60,
+    "records": {"intranet.lab.test": "10.10.0.20"}
+  }
+}
+```
+
+Ce fragment s'ajoute à un endpoint OCI avec interface statique numérotée.
+Les noms sont normalisés en minuscules, avec labels ASCII valides. Le profil
+accepte 1 à 256 noms locaux, une seule adresse IPv4 unicast par nom et un seul
+nom par adresse pour garder un PTR déterministe. Les doublons, noms hors zone,
+valeurs injectables et champs inconnus sont refusés avant création des ressources.
+Le TTL doit être un entier entre 0 et 86400. `resolvers: ["10.10.0.2"]` ajoute
+jusqu'à trois resolvers uniques à un endpoint OCI sans client DHCP. Le resolver
+DHCP reste contrôlé par son ACK ; les deux modes ne peuvent pas se concurrencer.
+Les nodes avec DNS ou resolver statique ne peuvent pas avoir de commandes
+`startup` non suivies. HTTP dans WEB1 reste une commande startup explicite.
+
+### Panne et recréation
+
+```bash
+sudo python3 -m network_labs.appliances exec dns-lan DNS1 -- \
+  /bin/sh -c '/bin/kill -TERM "$(/bin/cat /run/dnsmasq.pid)"'
+# La résolution n'est plus disponible ; le chemin IP/HTTP reste utilisable.
+sudo python3 -m network_labs.appliances exec dns-lan PC1 -- \
+  /bin/busybox wget -T 3 -q -O - http://10.10.0.20/
+sudo python3 -m network_labs.appliances save dns-lan
+sudo python3 -m network_labs.appliances stop dns-lan
+sudo python3 -m network_labs.appliances restore dns-lan
+# Après le nouveau DHCP, reprendre les tests par nom ci-dessus.
+```
+
+`inspect DNS1` montre la conformité du fichier `/lab/dnsmasq.conf` et un snapshot
+brut des sockets DNS du kernel. `inspect PC2` montre la conformité de son
+resolver géré. **Ces observations ne prouvent pas une réponse DNS correcte** ;
+les requêtes et HTTP par nom constituent la preuve active. Même après arrêt du
+daemon, le fichier peut rester conforme. `save`/`export` refusent une dérive ou
+une lecture impossible d'un de ces fichiers gérés. Ils conservent la politique
+déclarative ; `restore` relance DNS/DHCP/HTTP, sans snapshot de processus, cache,
+sessions, filesystem runtime ou baux.
+
+Le profil n'utilise aucun upstream : `no-resolv`, `no-hosts` et une configuration
+explicite évitent l'héritage du DNS et des hosts de l'hôte. Il ne fournit ni
+résolution Internet, DNSSEC, CNAME, enregistrement dynamique des noms DHCP,
+zone transfer ni reload/CLI constructeur. Changer le manifest puis recréer le
+lab pour modifier cette politique. Le processus DNS est dans le cgroup OCI de
+son node ; le budget global de l'application reste non vérifié.
+
+La validation native exerce A/PTR/NODATA/NXDOMAIN via **UDP et TCP**, resolver
+issu d'un vrai DHCP, resolver statique en lecture seule, `nslookup`, `ping` et
+HTTP par nom des deux PC, perte réelle du daemon, continuité par IP, restore,
+refus de sauvegarde sur dérive de chaque fichier et nettoyage des ressources.
+Référence primaire : [manuel dnsmasq](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).

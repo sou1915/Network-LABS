@@ -244,3 +244,26 @@ def dhcp_reservations_lab(rootfs):
                            'interface_macs': {'eth0': '02:00:00:00:10:20'}})
     spec['links'].append([['PC2', 'eth0'], ['SW1', 'eth3']])
     return validate(spec)
+
+
+def dns_lab(rootfs):
+    spec = dhcp_snooping_lab(rootfs)
+    spec['name'] = 'dns-lan'
+    server = spec['nodes'][2]
+    server['name'] = 'DNS1'
+    server['dhcp_server']['dns'] = ['10.10.0.2']
+    server['dns_server'] = {'interface': 'eth0', 'zone': 'lab.test', 'ttl': 60,
+                            'records': {'intranet.lab.test': '10.10.0.20', 'dns.lab.test': '10.10.0.2'}}
+    spec['links'][1][0][0] = 'DNS1'
+    web = spec['nodes'][3]
+    web.update(name='WEB1', interfaces={'eth0': '10.10.0.20/24'}, dhcp_server=None,
+               startup=[['/bin/sh', '-c', 'mkdir -p /tmp/www; echo "Network LABS HTTP via DNS" > /tmp/www/index.html; /bin/busybox httpd -p 80 -h /tmp/www']])
+    spec['links'][2][0][0] = 'WEB1'
+    switch = spec['nodes'][1]
+    switch['interfaces']['eth3'] = ''
+    switch['switchports']['eth3'] = {'mode': 'access', 'vlan': 10}
+    switch['interface_aliases']['fa0/4'] = 'eth3'
+    spec['nodes'].append({'name': 'PC2', 'runtime': 'oci', 'rootfs': str(rootfs),
+                          'interfaces': {'eth0': '10.10.0.30/24'}, 'resolvers': ['10.10.0.2']})
+    spec['links'].append([['PC2', 'eth0'], ['SW1', 'eth3']])
+    return validate(spec)
