@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools')
 
 
 def addresses(node):
@@ -130,39 +130,8 @@ def validate_lan(node):
             raise ValueError('DHCP requires configured dot1Q encapsulation.')
     server = node.setdefault('dhcp_server', None)
     if server is not None:
-        keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network'), 'DHCP server')
-        interface = server.get('interface')
-        if interface not in all_interfaces or not all_interfaces[interface] or role == 'switch':
-            raise ValueError('DHCP server requires a numbered interface on a host/router/firewall.')
-        network = ipaddress.IPv4Interface(all_interfaces[interface])
-        if 'network' in server and not isinstance(server['network'], str):
-            raise ValueError('DHCP network must be canonical IPv4 CIDR text.')
-        from .dhcp import pool_network
-        pool = pool_network(node)
-        if 'network' in server:
-            if pool.prefixlen == 0 or pool.prefixlen > 30 or any(pool.overlaps(ipaddress.IPv4Network(block)) for block in ('0.0.0.0/8', '127.0.0.0/8', '224.0.0.0/4', '240.0.0.0/4')):
-                raise ValueError('DHCP network requires a canonical broadcast IPv4 subnet with prefix 1..30.')
-            if pool != network.network and any(address and pool.overlaps(ipaddress.IPv4Interface(address).network) for address in all_interfaces.values()):
-                raise ValueError('A remote DHCP network must be disjoint from the server interface networks.')
-            server['network'] = str(pool)
-        start, end = ipaddress.IPv4Address(server.get('start')), ipaddress.IPv4Address(server.get('end'))
-        if not (pool.network_address < start <= end < pool.broadcast_address) or int(end) - int(start) >= 256:
-            raise ValueError('DHCP pool: 1..256 usable addresses in the server subnet.')
-        if start <= network.ip <= end:
-            raise ValueError('DHCP pool overlaps its server address.')
-        router = server.setdefault('router', '')
-        if router:
-            gateway = ipaddress.IPv4Address(router)
-            if gateway not in pool or gateway in (pool.network_address, pool.broadcast_address) or start <= gateway <= end:
-                raise ValueError('DHCP router must be usable, in subnet and outside the pool.')
-        dns = server.setdefault('dns', [])
-        if not isinstance(dns, list) or len(dns) > 3:
-            raise ValueError('DHCP dns: array of up to three IPv4 addresses.')
-        for address in dns:
-            ipaddress.IPv4Address(address)
-        integer(server.setdefault('lease_seconds', 3600), 60, 604800, 'DHCP lease_seconds')
-        from .dhcp import validate_reservations
-        validate_reservations(node)
+        from .dhcp import validate_server
+        validate_server(node)
     routes = node.setdefault('routes', [])
     if not isinstance(routes, list) or len(routes) > 128:
         raise ValueError('routes: array of at most 128 static IPv4 routes.')
@@ -200,6 +169,8 @@ def validate_lan(node):
     validate_lldp(node)
     from .dhcp_relay import validate_relay
     validate_relay(node)
+    from .dhcp_multi import validate_pools
+    validate_pools(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     from .ovs import validate_ovs
@@ -359,6 +330,9 @@ def observe(manager, index, node):
     if node.get('dhcp_server') is not None:
         from .dhcp import observe_server
         result['dhcp_server'] = observe_server(manager, node)
+    if node.get('dhcp_pools') is not None:
+        from .dhcp_multi import observe as observe_pools
+        result['dhcp_pools'] = observe_pools(manager, index, node)
     if node.get('dhcp_relay') is not None:
         from .dhcp_relay import observe as observe_relay
         result['dhcp_relay'] = observe_relay(manager, index, node)

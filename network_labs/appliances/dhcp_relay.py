@@ -1,4 +1,4 @@
-"""One IPv4 client LAN relayed by a real in-container dnsmasq process."""
+"""IPv4 client LANs relayed by a real in-container dnsmasq process."""
 import ipaddress
 from pathlib import Path
 
@@ -8,15 +8,36 @@ from .service_config import observe_config
 BINARY = '/usr/sbin/dnsmasq'
 
 
+def rules(node):
+    policy = node.get('dhcp_relay')
+    return [] if policy is None else (policy if isinstance(policy, list) else [policy])
+
+
 def validate_relay(node):
     policy = node.setdefault('dhcp_relay', None)
     if policy is None:
         return
+    entries = rules(node)
+    if not 1 <= len(entries) <= 32:
+        raise ValueError('DHCP relay requires 1..32 client-interface policies.')
+    clients = set()
+    for entry in entries:
+        _validate_rule(node, entry)
+        if entry['interface'] in clients:
+            raise ValueError('Only one helper per client interface is supported.')
+        clients.add(entry['interface'])
+    if clients.intersection(entry['upstream_interface'] for entry in entries):
+        raise ValueError('Relay client and upstream interfaces must be disjoint across policies.')
+    if isinstance(policy, list):
+        node['dhcp_relay'] = entries[0] if len(entries) == 1 else sorted(entries, key=lambda entry: entry['interface'])
+
+
+def _validate_rule(node, policy):
     from .lan import addresses
     keys(policy, ('interface', 'server', 'upstream_interface'), 'DHCP relay')
     if node['runtime'] != 'oci' or node['role'] not in ('router', 'switch') or node.get('switch_backend', 'linux') != 'linux' or not node['forwarding']:
         raise ValueError('DHCP relay requires a forwarding OCI router or Linux L3 switch.')
-    if any((node.get('startup'), node.get('dhcp_server'), node.get('dhcp_clients'), node.get('dns_server'),
+    if any((node.get('startup'), node.get('dhcp_server'), node.get('dhcp_pools'), node.get('dhcp_clients'), node.get('dns_server'),
             node.get('lldp'), (node.get('dhcp_snooping') or {}).get('enabled'), node.get('arp_inspection'), node.get('ip_source_guard'))):
         raise ValueError('Initial DHCP relay profile excludes untracked startup, DHCP/DNS/LLDP services and DHCP snooping/ARP/IP source guards on the relay node.')
     local = addresses(node)
@@ -39,12 +60,13 @@ def validate_relay(node):
 
 def server_config(node):
     from .lan import addresses
-    policy = node['dhcp_relay']
-    local = str(ipaddress.IPv4Interface(addresses(node)[policy['interface']]).ip)
-    return '\n'.join(['port=0', 'no-resolv', 'no-hosts', 'bind-interfaces',
-        'interface=' + policy['interface'], 'interface=' + policy['upstream_interface'],
-        f'dhcp-relay={local},{policy["server"]},{policy["upstream_interface"]}',
-        'pid-file=/run/dhcp-relay.pid', 'user=root', 'group=root', 'log-facility=-', 'log-dhcp']) + '\n'
+    lines = ['port=0', 'no-resolv', 'no-hosts', 'bind-interfaces']
+    interfaces = sorted({entry[key] for entry in rules(node) for key in ('interface', 'upstream_interface')})
+    lines += ['interface=' + name for name in interfaces]
+    for policy in rules(node):
+        local = str(ipaddress.IPv4Interface(addresses(node)[policy['interface']]).ip)
+        lines.append(f'dhcp-relay={local},{policy["server"]},{policy["upstream_interface"]}')
+    return '\n'.join(lines + ['pid-file=/run/dhcp-relay.pid', 'user=root', 'group=root', 'log-facility=-', 'log-dhcp']) + '\n'
 
 
 def prepare_files(bundle, node):
@@ -66,26 +88,29 @@ def observe(manager, index, node):
     sockets = manager.ns(index, 'ss', '-H', '-lun', '( sport = :67 )', check=False)
     return {**result, 'source': 'Managed dnsmasq relay config and actual UDP socket snapshot',
             'policy': node['dhcp_relay'], 'listener_snapshot': sockets.stdout.splitlines() if sockets.returncode == 0 else None,
-            'note': 'File/socket observations do not prove a running/loaded relay or successful leases. No DHCPv6, Option 82, multi-pool. Live adapter supports helper-only edits.'}
+            'note': 'File/socket observations do not prove a running/loaded relay or successful leases. No DHCPv6, Option 82 or multiple servers per client interface. Live adapter supports helper-only edits.'}
 
 
 def configure_helper(node, interface, server, remove=False):
     """Resolve this bounded helper profile from directly connected addresses."""
     from .lan import addresses
     server = str(ipaddress.IPv4Address(server))
-    current = node.get('dhcp_relay')
+    entries = rules(node)
+    current = next((entry for entry in entries if entry['interface'] == interface), None)
     if remove:
-        if current and current['interface'] == interface and current['server'] == server:
-            node['dhcp_relay'] = None
+        entries = [entry for entry in entries if not (entry['interface'] == interface and entry['server'] == server)]
+        node['dhcp_relay'] = entries[0] if len(entries) == 1 else (entries or None)
         return
-    if current and (current['interface'], current['server']) != (interface, server):
-        raise ValueError('Only one helper is supported; remove the existing helper explicitly first.')
+    if current and current['server'] != server:
+        raise ValueError('Only one helper per interface is supported; remove the existing helper explicitly first.')
     upstream = [name for name, address in addresses(node).items()
                 if address and name != interface and ipaddress.IPv4Address(server) in ipaddress.IPv4Interface(address).network
                 and (node['role'] != 'switch' or name in node.get('svis', {}))]
     if len(upstream) != 1:
         raise ValueError('Helper requires exactly one directly connected upstream routed interface or SVI.')
-    node['dhcp_relay'] = {'interface': interface, 'server': server, 'upstream_interface': upstream[0]}
+    entries = [entry for entry in entries if entry['interface'] != interface]
+    entries.append({'interface': interface, 'server': server, 'upstream_interface': upstream[0]})
+    node['dhcp_relay'] = entries[0] if len(entries) == 1 else sorted(entries, key=lambda entry: entry['interface'])
 
 
 def validate_change(node, previous):

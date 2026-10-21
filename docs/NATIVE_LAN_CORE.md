@@ -2346,8 +2346,8 @@ External config drift blocks save/export. Restore starts new processes and
 acquires fresh leases; it does not snapshot lease files.
 
 The partial IOS adapter accepts `ip helper-address ADDRESS` and
-`no ip helper-address ADDRESS` under a routed interface/SVI. Only one helper
-is supported. Its upstream interface must be uniquely directly connected;
+`no ip helper-address ADDRESS` under a routed interface/SVI. One helper per client interface
+is supported (up to 32 client interfaces). Its upstream interface must be uniquely directly connected;
 removal matches both the client interface and server address. To replace it,
 explicitly remove the old helper before adding the new one. This implements
 DHCPv4 relay only, not IOS forwarding of other UDP services.
@@ -2377,7 +2377,7 @@ Existing leased clients can keep routing and can renew directly to the server
 even with the helper removed. A fresh DHCP acquisition is the relevant negative
 test; a ping with an existing lease does not establish relay availability.
 
-No DHCPv6, Option 82, multiple pools/relays, HA or generic UDP forwarding is implemented.
+No DHCPv6, Option 82, multiple servers per client interface, HA or generic UDP forwarding is implemented. Multiple remote pools are described below.
 This initial relay profile cannot share its node with DHCP/DNS/LLDP services,
 untracked startup commands or DHCP snooping/ARP inspection/IP source guard.
 Other nodes may still run their own services.
@@ -2391,3 +2391,62 @@ proves rollback after actual service removal and exercises failed rollback/recov
 A forged PID 1 pidfile must not prevent stopping the real relay or kill the node.
 
 Reference: [dnsmasq relay options](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).
+
+
+## Multiple DHCP VLANs and remote pools
+
+`example --dhcp-multi` adds a central dnsmasq DHCPv4 server with separate
+remote pools. The older BusyBox `dhcp_server` profile remains supported and
+keeps its single-pool behavior. Both relay and multi-pool server require the
+rootfs built with `--dnsmasq`; reuse `network-labs-rootfs-relay` from above.
+
+```bash
+python3 -m network_labs.appliances example --dhcp-multi \
+  --rootfs "$HOME/network-labs-rootfs-relay" > dhcp-multi-lan.json
+sudo python3 -m network_labs.appliances start dhcp-multi-lan.json
+sudo python3 -m network_labs.appliances inspect dhcp-multi-lan PC1
+sudo python3 -m network_labs.appliances inspect dhcp-multi-lan PC2
+sudo python3 -m network_labs.appliances inspect dhcp-multi-lan DHCP1
+```
+
+| Node | VLAN | Address/pool | Gateway | DHCP DNS option |
+|---|---|---|---|---|
+| PC1 | 10 | Reserved 192.0.2.100/24 | 192.0.2.1 | 192.0.2.53 |
+| PC2 | 20 | 198.18.0.100–110/24 | 198.18.0.1 | 198.18.0.53 |
+| DHCP1 | 30 | Static 198.51.100.10/24 | Explicit return routes through SW1 | DNS disabled |
+
+The two DNS addresses demonstrate distinct DHCP option values; this example
+does not run DNS servers at those addresses. Use numeric targets for ping.
+SW1 routes between VLANs: broadcast isolation does not imply an inter-VLAN
+firewall. DHCP server selection uses real relay `giaddr` and dnsmasq ranges.
+Each pool supplies explicit subnet mask, gateway and resolver options; empty
+router/DNS lists suppress dnsmasq defaults rather than inheriting the host's DNS.
+
+The manifest uses `dhcp_pools: {"interface": "eth0", "pools": [...]}` on DHCP1.
+Each pool has an explicit `network`, `start`, `end`, and optional `router`, `dns`,
+`lease_seconds`, `reservations`. Limits: 1..16 disjoint remote IPv4 subnets,
+1..256 dynamic addresses and up to 256 reservations per pool. Reservation MACs
+must be globally unique across pools. Pool subnets cannot overlap any connected
+server subnet. The server requires explicit return routes to the client networks.
+`dhcp_pools` cannot coexist on its node with the older DHCP server/client,
+DNS/LLDP/relay services or untracked startup. Pool-server live editing is refused;
+change the manifest and recreate the lab. This is not HA or lease replication.
+
+`dhcp_relay` accepts the original single object or a list of up to 32 policies,
+one per client interface. Client and upstream interfaces must be disjoint across
+the list. The existing CLI supports adding/removing the helper of each VLAN:
+
+```bash
+sudo python3 -m network_labs.appliances configure dhcp-multi-lan SW1 \
+  --text $'conf t\ninterface vlan10\nno ip helper-address 198.51.100.10\nend'
+sudo python3 -m network_labs.appliances configure dhcp-multi-lan SW1 \
+  --text $'conf t\ninterface vlan10\nip helper-address 198.51.100.10\nend'
+```
+
+Changing a helper restarts the shared relay process briefly and then restores
+all remaining policies; it does not restart node containers. The native case
+captures DORA/giaddr and Request/ACK renewal for both VLANs, checks distinct
+addresses/masks/gateways/resolver options, captures zero client DHCP broadcast
+leakage across VLANs, and tests fresh VLAN20 acquisition while VLAN10's helper
+is removed. It verifies reacquisition after re-add, drift/save refusal, restore
+and unchanged host networking. Save stores declarations, not lease files.

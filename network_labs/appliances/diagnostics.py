@@ -102,6 +102,12 @@ def explain_node(node, actual):
         _add(findings, 'DHCP_RESERVATIONS',
              f"{len(node['dhcp_server'].get('reservations', []))} réservations MAC/IP configurées ; ce ne sont pas des baux observés ni une preuve de disponibilité du serveur.",
              {'declared_reservations': node['dhcp_server'].get('reservations', [])})
+    if node.get('dhcp_pools') is not None:
+        observed = actual.get('dhcp_pools', {})
+        verified = observed.get('configuration_verified') is True
+        _add(findings, 'DHCP_POOLS_CONFIG' if verified else 'DHCP_POOLS_UNVERIFIED',
+             'Pools DHCP déclarés ; conformité du fichier et sockets observés ne prouvent pas une attribution de bail.',
+             observed, 'info' if verified else 'warning')
     if node.get('dhcp_relay') is not None:
         relay = actual.get('dhcp_relay', {})
         verified = relay.get('configuration_verified') is True

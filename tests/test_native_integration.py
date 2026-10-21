@@ -200,6 +200,130 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), rules)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_ac_dhcp_multiple_vlan_pools_real_packets_and_helper_isolation(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        import ipaddress
+        from network_labs.appliances.examples import dhcp_multi_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        baseline_links = links(); baseline_routes = run(['ip', '-j', 'route', 'show']).stdout
+        baseline_nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        baseline_forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', dnsmasq=shutil.which('dnsmasq'))
+            spec = dhcp_multi_lab(rootfs); spec['name'] = 'pools-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def addresses(index):
+                return [a for link in json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
+                        for a in link.get('addr_info', []) if a.get('scope') == 'global']
+            def wait(predicate, label):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.1)
+                self.fail('Timed out: ' + label)
+            def signal(index, value):
+                manager.crun('exec', 'PC' + str(index + 1), '/bin/sh', '-c', '/bin/kill -' + value + ' "$(/bin/cat /run/udhcpc.pid)"')
+            def release(index):
+                signal(index, 'USR2'); wait(lambda: not addresses(index), 'DHCP release')
+            def ready(index):
+                wait(lambda: bool(addresses(index)), 'DHCP pool acquisition')
+                address = addresses(index)[0]
+                prefix = ('192.0.2.', '198.18.0.')[index]
+                self.assertEqual(address['prefixlen'], 24)
+                self.assertTrue(ipaddress.IPv4Address(prefix + '100') <= ipaddress.IPv4Address(address['local']) <= ipaddress.IPv4Address(prefix + '110'))
+                if index == 0:
+                    self.assertEqual(address['local'], '192.0.2.100')
+                default = json.loads(manager.ns(index, 'ip', '-j', 'route', 'show', 'default').stdout)
+                self.assertTrue(any(row.get('gateway') == prefix + '1' for row in default))
+                resolver = manager.crun('exec', 'PC' + str(index + 1), '/bin/cat', '/etc/resolv.conf').stdout
+                self.assertEqual(resolver, 'nameserver ' + prefix + '53\n')
+            def recorded(filename, node, action):
+                event = threading.Event(); path = Path(folder) / filename
+                future = pool.submit(capture, Manager(spec['name']), node, 'eth0', path,
+                                     seconds=4, packets=100, expression='udp and (port 67 or port 68)', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('DHCP capture not ready')
+                with manager.locked():
+                    action()
+                result = future.result(timeout=8)
+                return result['captured_packets'], run(['tcpdump', '-nn', '-vvv', '-r', str(path)]).stdout
+            def helper(remove=False):
+                manager.configure_ios('SW1', 'conf t\ninterface vlan10\n' + ('no ' if remove else '') + 'ip helper-address 198.51.100.10\nend')
+            try:
+                with manager.locked():
+                    manager.start(spec); ready(0); ready(1)
+                for index, gateway in ((0, '192.0.2.1'), (1, '198.18.0.1')):
+                    with manager.locked():
+                        release(index)
+                    count, packets = recorded('pool' + str(index) + '.pcap', 'DHCP1', lambda: signal(index, 'USR1'))
+                    self.assertGreater(count, 0)
+                    for expected in ('Discover', 'Offer', 'Request', 'ACK', 'Gateway-IP ' + gateway):
+                        self.assertIn(expected, packets)
+                    with manager.locked():
+                        ready(index)
+                # Client broadcasts from VLAN10 must not leak onto VLAN20.
+                with manager.locked():
+                    release(0)
+                count, _ = recorded('isolated.pcap', 'PC2', lambda: signal(0, 'USR1'))
+                self.assertEqual(count, 0)
+                with manager.locked():
+                    ready(0); ready(1)
+                    helper(True); release(0)
+                count, packets = recorded('removed.pcap', 'PC1', lambda: signal(0, 'USR1'))
+                self.assertGreater(count, 0); self.assertIn('Discover', packets)
+                self.assertNotIn('Offer', packets); self.assertNotIn('ACK', packets)
+                with manager.locked():
+                    self.assertEqual(addresses(0), [])
+                    release(1); signal(1, 'USR1'); ready(1)
+                    self.assertEqual(addresses(0), [])
+                    helper(); ready(0)
+                    for node in ('PC1', 'PC2'):
+                        manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10')
+                # Capture real Request/ACK for each client's renewal, not just
+                # the existing address left behind by its prior lease.
+                for index in (0, 1):
+                    count, packets = recorded('renew-pool' + str(index) + '.pcap', 'DHCP1', lambda: signal(index, 'USR1'))
+                    self.assertGreater(count, 0)
+                    for expected in ('Request', 'ACK', '02:00:00:00:20:0' + str(index + 1)):
+                        self.assertIn(expected, packets)
+                    with manager.locked():
+                        ready(index)
+                with manager.locked():
+                    config = manager.directory / 'DHCP1/files/dhcp-pools.conf'
+                    original = config.read_text()
+                    try:
+                        config.write_text(original + '# drift\n')
+                        self.assertFalse(manager.inspect('DHCP1')['dhcp_pools']['configuration_verified'])
+                        with self.assertRaisesRegex(RuntimeFailure, 'DHCP pools'):
+                            manager.write_startup()
+                    finally:
+                        config.write_text(original)
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ready(0); ready(1)
+                    self.assertTrue(manager.inspect('DHCP1')['dhcp_pools']['configuration_verified'])
+            except Exception:
+                for node, filename in (('SW1', 'dhcp-relay.log'), ('DHCP1', 'dhcp-pools.log'), ('PC1', 'dhcp.log'), ('PC2', 'dhcp.log')):
+                    path = manager.directory / node / filename
+                    if path.exists():
+                        print(node + ': ' + path.read_text()[-6000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(baseline_links, links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, baseline_routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), baseline_nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, baseline_forwarding)
+
     def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
         from network_labs.appliances.examples import static_routing_lab
         from network_labs.appliances.persistence import load_startup

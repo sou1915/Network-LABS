@@ -362,3 +362,24 @@ def dhcp_relay_lab(rootfs):
     return validate({'version': 2, 'name': 'dhcp-relay-lan', 'nodes': nodes, 'links': [
         [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW1', 'eth1']],
         [['DHCP1', 'eth0'], ['SW1', 'eth2']]]})
+
+
+def dhcp_multi_lab(rootfs):
+    spec = dhcp_relay_lab(rootfs)
+    spec['name'] = 'dhcp-multi-lan'
+    switch, server = spec['nodes'][2:]
+    switch['vlans'] = [10, 20, 30]
+    switch['switchports']['eth1']['vlan'] = 20
+    switch['switchports']['eth2']['vlan'] = 30
+    switch['svis']['vlan20']['address'] = '198.18.0.1/24'
+    switch['svis']['vlan30'] = {'vlan': 30, 'address': '198.51.100.1/24'}
+    switch['dhcp_relay'] = [
+        {'interface': name, 'upstream_interface': 'vlan30', 'server': '198.51.100.10'}
+        for name in ('vlan10', 'vlan20')]
+    first = server.pop('dhcp_server'); first.pop('interface')
+    first['dns'] = ['192.0.2.53']
+    server['dhcp_pools'] = {'interface': 'eth0', 'pools': [first,
+        {'network': '198.18.0.0/24', 'start': '198.18.0.100', 'end': '198.18.0.110',
+         'router': '198.18.0.1', 'dns': ['198.18.0.53']}]}
+    server['routes'].append({'destination': '198.18.0.0/24', 'gateway': '198.51.100.1', 'interface': 'eth0'})
+    return validate(spec)

@@ -294,3 +294,5 @@ sans worker ; les paquets IPv4 de données ne sont pas filtrés par cette option
 Voir [le guide ARP](docs/NATIVE_LAN_CORE.md#inspection-arp-dynamique-sur-ports-access).
 
 Native DHCPv4 relay: `example --dhcp-relay` connects a client VLAN to a remote single-pool DHCP server through a real dnsmasq relay. Setup and limits: [Native LAN core](docs/NATIVE_LAN_CORE.md#dhcpv4-relay-remote-single-pool-server).
+
+Native multi-VLAN DHCP: `example --dhcp-multi` uses per-VLAN helpers and a central dnsmasq server with disjoint remote pools; see the native LAN guide for limits and setup.

@@ -233,7 +233,7 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
-            if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
+            if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS/DHCP relay requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
             if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
@@ -313,6 +313,8 @@ class Manager:
             start_lldp(self)
             from .dhcp import start_clients, start_servers
             start_servers(self)
+            from .dhcp_multi import start_servers as start_pools
+            start_pools(self)
             from .dhcp_relay import start_servers as start_relays
             start_relays(self)
             start_clients(self)
@@ -330,6 +332,8 @@ class Manager:
         prepare_dns(bundle, node)
         from .dhcp_relay import prepare_files as prepare_relay
         prepare_relay(bundle, node)
+        from .dhcp_multi import prepare_files as prepare_pools
+        prepare_pools(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):
@@ -451,6 +455,8 @@ class Manager:
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
+        if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
+            raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('dhcp_relay') is not None or candidate['nodes'][index].get('dhcp_relay') is not None:
             from .dhcp_relay import preflight_change, apply_change
             preflight_change(self, candidate['nodes'][index], previous['nodes'][index])

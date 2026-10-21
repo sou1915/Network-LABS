@@ -40,6 +40,8 @@ def drift(manager):
             errors.append(node['name'] + ': IP Source Guard rules differ or are unavailable')
         if node.get('dhcp_server') is not None and actual.get('dhcp_server', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP server configuration differs or is unavailable')
+        if node.get('dhcp_pools') is not None and actual.get('dhcp_pools', {}).get('configuration_verified') is not True:
+            errors.append(node['name'] + ': DHCP pools configuration differs or is unavailable')
         if node.get('dhcp_relay') is not None and actual.get('dhcp_relay', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP relay configuration differs or is unavailable')
         if node.get('lldp') is not None and actual.get('lldp', {}).get('policy_verified') is not True:
