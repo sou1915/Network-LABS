@@ -424,6 +424,134 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
 
+    def test_multicast_real_igmp_membership_forwarding_router_flood_leave_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import copy
+        import threading
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.examples import multicast_lab
+        from network_labs.appliances.firewall import fingerprint
+        from network_labs.appliances.multicast_probe import probe
+        from network_labs.appliances.persistence import load_startup
+        routes = run(['ip', '-j', 'route', 'show']).stdout
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); host_rules = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        group = '239.10.10.10'
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = multicast_lab(rootfs); spec['name'] = 'mcast-test-' + str(os.getpid())
+            spec['nodes'][0]['multicast']['ports']['eth1']['fast_leave'] = True  # One host, not an uplink.
+            manager = Manager(spec['name'])
+            receiver = None
+            def walk(value):
+                if isinstance(value, dict):
+                    yield value
+                    for child in value.values():
+                        yield from walk(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        yield from walk(child)
+            def has_member():
+                return any(r.get('grp') == group and r.get('port') == 'eth1' for r in walk(manager.inspect('SW1')['multicast']['mdb']))
+            def membership(expected):
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    with manager.locked():
+                        if has_member() is expected:
+                            return
+                    time.sleep(0.1)
+                self.fail('Actual MDB membership mismatch: ' + json.dumps(manager.inspect('SW1')))
+            def receive(seconds):
+                ready = threading.Event()
+                future = pool.submit(probe, Manager(spec['name']), 'RX1', group=group, seconds=seconds, ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('Multicast socket readiness missing')
+                return future
+            def send(selected=group):
+                return probe(Manager(spec['name']), 'TX1', group=selected, text='Network LABS multicast', count=3)
+            def captured(filename, selected=group, count=100):
+                ready = threading.Event()
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', Path(folder) / filename,
+                                     seconds=2, packets=count, expression='udp and dst host ' + selected + ' and dst port 5000', ready=ready.set)
+                if not ready.wait(5):
+                    future.result(timeout=5); self.fail('Multicast PCAP readiness missing')
+                self.assertEqual(send(selected)['sent_packets'], 3)
+                return future.result(timeout=6)['captured_packets']
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    manager.ns(2, 'sysctl', '-w', 'net.ipv4.conf.eth0.force_igmp_version=2')
+                    policy = copy.deepcopy(manager.state['spec']['nodes'][0]['multicast'])
+                receiver = receive(30)
+                membership(True)
+                # The Linux querier's initial other-querier delay is its query
+                # response interval. Let the actual default 10 s elapse before
+                # asserting selective forwarding; no accelerated fake timers.
+                with manager.locked():
+                    observed = manager.inspect('SW1')['multicast']['bridge']
+                    response = observed['mcast_query_response_interval'] / os.sysconf('SC_CLK_TCK')
+                    self.assertLessEqual(response, 12)
+                time.sleep(response + 0.5)
+                self.assertEqual(captured('member-only.pcap'), 0)  # PC1 never joined; flood=True.
+                # Router ports deliberately receive known multicast even
+                # without a local listener; test the actual egress behaviour.
+                router = copy.deepcopy(policy); router['ports']['eth2']['router'] = 'permanent'
+                with manager.locked():
+                    manager.configure_multicast('SW1', router)
+                self.assertGreater(captured('router.pcap', count=1), 0)
+                with manager.locked():
+                    manager.configure_multicast('SW1', policy)
+                # Unknown-group flooding is independent from known membership.
+                unknown = '239.10.10.99'
+                self.assertGreater(captured('unknown-flood.pcap', unknown, 1), 0)
+                restricted = copy.deepcopy(policy); restricted['ports']['eth2']['flood'] = False
+                with manager.locked():
+                    manager.configure_multicast('SW1', restricted)
+                self.assertEqual(captured('unknown-deny.pcap', unknown), 0)
+                with manager.locked():
+                    manager.configure_multicast('SW1', policy)
+                    manager.write_startup()  # Dynamic MDB is not startup policy drift.
+                result = receiver.result(timeout=32)
+                self.assertGreater(result['received_packets'], 0)
+                self.assertTrue(any(s['source'] == '192.0.2.10' for s in result['samples']))
+                receiver = None
+                membership(False)  # Closing membership socket causes real IGMP leave.
+                self.assertGreater(captured('after-leave.pcap', count=1), 0)  # Now unknown, flooded.
+                with manager.locked():
+                    manager.configure_ios('SW1', 'conf t\nno ip igmp snooping querier\nno ip igmp snooping\nend')
+                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    manager.configure_ios('SW1', 'conf t\nip igmp snooping\nip igmp snooping querier\nend')
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    manager.ns(0, 'ip', 'link', 'set', 'dev', 'br0', 'type', 'bridge', 'mcast_querier', '0')
+                    with self.assertRaisesRegex(RuntimeFailure, 'multicast'):
+                        manager.write_startup()
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved)
+                    self.assertTrue(manager.inspect('SW1')['multicast']['policy_verified'])
+                    self.assertFalse(has_member())  # Memberships were not snapshotted.
+                    manager.ns(2, 'sysctl', '-w', 'net.ipv4.conf.eth0.force_igmp_version=2')
+                receiver = receive(2); membership(True); send()
+                self.assertGreater(receiver.result(timeout=5)['received_packets'], 0); receiver = None
+                # Stop can acquire the lock while a bounded receiver is alive;
+                # a pinned namespace never falls back to the host namespace.
+                receiver = receive(2)
+                with manager.locked():
+                    manager.stop()
+                self.assertEqual(receiver.result(timeout=5)['received_packets'], 0); receiver = None
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+                if receiver is not None:
+                    receiver.result(timeout=35)
+        self.assertEqual(host_links(), links)
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), host_rules)
+
     def test_static_port_security_real_source_rejection_live_policy_drift_and_restore(self):
         from network_labs.appliances.examples import port_security_lab
         from network_labs.appliances.diagnostics import explain

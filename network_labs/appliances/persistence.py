@@ -72,6 +72,8 @@ def drift(manager):
             from .lacp import drift as channel_drift
             from .spanning_tree import drift as tree_drift
             errors.extend(tree_drift(node, actual['links']))
+            from .multicast import drift as multicast_drift
+            errors.extend(multicast_drift(node, actual['links']))
             errors.extend(channel_drift(node, actual))
             for name, port in node['switchports'].items():
                 if _memberships(actual['vlans'], name) != set(memberships(node, port)):

@@ -68,6 +68,12 @@ def compile_config(spec, name, text):
                 if vid not in node['vlans']:
                     node['vlans'].append(vid)
                 mode = 'vlan'; interface = None; continue
+            if mode == 'config' and node['role'] == 'switch' and command in ('ip igmp snooping', 'no ip igmp snooping', 'ip igmp snooping querier', 'no ip igmp snooping querier'):
+                if node.get('multicast') is None:
+                    node['multicast'] = {'snooping': True, 'querier': False, 'ports': {}}
+                policy = node['multicast']
+                policy['querier' if command.endswith('querier') else 'snooping'] = not command.startswith('no ')
+                continue
             if mode == 'config' and node['role'] == 'switch' and command.startswith(('ip arp inspection', 'no ip arp inspection', 'ip source binding', 'no ip source binding')):
                 policy = node.get('arp_inspection')
                 if policy is None:

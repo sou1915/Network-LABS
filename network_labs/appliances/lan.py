@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
 
 
 def addresses(node):
@@ -177,6 +177,8 @@ def validate_lan(node):
     validate_inspection(node)
     from .source_guard import validate_guard
     validate_guard(node)
+    from .multicast import validate_multicast
+    validate_multicast(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -239,6 +241,8 @@ def configure(manager, index, node, previous=None):
                 ns('bridge', 'vlan', 'add', 'dev', interface, 'vid', str(vid),
                    *(['pvid'] if pvid else []), *(['untagged'] if untagged else []))
         configure_ports(manager, index, node, previous, initial, recreated)
+        from .multicast import configure as configure_multicast
+        configure_multicast(manager, index, node, previous, initial)
     # Recreate only VLAN devices whose encapsulation changed, preserving others.
     old_subs = previous.get('subinterfaces', {})
     for name, old in old_subs.items():
@@ -299,6 +303,9 @@ def observe(manager, index, node):
             result['port_channels'] = observe_channels(manager, index, node, result['links'])
         result['vlans'] = json.loads(manager.ns(index, 'bridge', '-j', 'vlan', 'show').stdout)
         result['fdb'] = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+        if node.get('multicast') is not None:
+            from .multicast import observe as observe_multicast
+            result['multicast'] = observe_multicast(manager, index, node, result['links'])
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)

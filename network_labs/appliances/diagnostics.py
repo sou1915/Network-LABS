@@ -111,6 +111,19 @@ def explain_node(node, actual):
         if drops:
             _add(findings, 'IP_SOURCE_GUARD_DROPS', 'Rejets IPv4 cumulés ; ne prouvent pas seuls la cause d’un ping.', {'counters': drops}, 'warning')
 
+    if node.get('multicast') is not None:
+        multicast = actual.get('multicast', {})
+        verified = multicast.get('policy_verified') is True
+        _add(findings, 'MULTICAST_POLICY' if verified else 'MULTICAST_UNVERIFIED',
+             'Multicast : ' + ('paramètres kernel conformes.' if verified else 'paramètres absents/modifiés/non vérifiés.'),
+             {'policy_verified': verified, 'bridge': multicast.get('bridge'), 'ports': multicast.get('ports')}, 'info' if verified else 'warning')
+        _add(findings, 'MULTICAST_MEMBERSHIPS',
+             'MDB observée : les memberships ne prouvent pas la livraison ; groupes inconnus et ports routeurs suivent la politique kernel.',
+             {'mdb': multicast.get('mdb')}, 'info' if multicast.get('mdb') is not None else 'unknown')
+        if node['multicast']['querier']:
+            _add(findings, 'MULTICAST_QUERIER', 'Querier local non numéroté : queries source 0.0.0.0, convergence et compatibilité des hôtes à vérifier.',
+                 {'source_address': '0.0.0.0', 'igmp_version': 2})
+
     tree = actual.get('spanning_tree')
     if tree:
         protocol = tree.get('protocol')

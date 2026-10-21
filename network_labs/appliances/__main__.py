@@ -16,6 +16,7 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
+    sample.add_argument('--multicast', action='store_true', help='IGMPv2 snooping and local querier on one access VLAN.')
     sample.add_argument('--ip-source-guard', action='store_true', help='IPv4 source admission with DHCP/static bindings, plus ARP inspection.')
     sample.add_argument('--arp-inspection', action='store_true', help='DHCP-derived and explicit static ARP admission on access ports.')
     sample.add_argument('--dhcp-snooping', action='store_true', help='Trusted DHCP server and blocked rogue server with observed bindings.')
@@ -51,6 +52,13 @@ def main(arguments=None):
     monitor.add_argument('name'); monitor.add_argument('node'); monitor.add_argument('interface', nargs='?')
     monitor.add_argument('--seconds', type=int, default=5, help='Wait between samples, 1..30 seconds.')
     monitor.add_argument('--json', action='store_true')
+    multicast = commands.add_parser('multicast', help='Bounded real IPv4 multicast send or membership/receive probe; releases lab lock.')
+    multicast.add_argument('name'); multicast.add_argument('node'); multicast.add_argument('interface', nargs='?', default='eth0')
+    multicast.add_argument('--group', default='239.10.10.10')
+    multicast.add_argument('--port', type=int, default=5000)
+    multicast.add_argument('--seconds', type=int, default=10)
+    multicast.add_argument('--count', type=int, default=3)
+    multicast.add_argument('--send', help='Send this UTF-8 payload; omit to join and receive.')
     capture = commands.add_parser('capture', help='Bounded real PCAP capture in an OCI node; other lab commands remain usable.')
     capture.add_argument('name'); capture.add_argument('node'); capture.add_argument('interface')
     capture.add_argument('--output', type=Path, required=True, help='New PCAP file; existing files are refused.')
@@ -63,6 +71,9 @@ def main(arguments=None):
     config_source = configure.add_mutually_exclusive_group(required=True)
     config_source.add_argument('--file', type=Path)
     config_source.add_argument('--text', help='Multiline configuration; quote it in the calling shell.')
+    multicast_policy = commands.add_parser('multicast-policy', help='Apply a validated single-access-VLAN Linux multicast policy.')
+    multicast_policy.add_argument('name'); multicast_policy.add_argument('node')
+    multicast_policy.add_argument('--file', type=Path, required=True)
     tree = commands.add_parser('spanning-tree', help='Configure a Linux common STP policy; this is not PVST/RSTP.')
     tree.add_argument('name'); tree.add_argument('node')
     tree_source = tree.add_mutually_exclusive_group(required=True)
@@ -83,10 +94,10 @@ def main(arguments=None):
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'example':
-            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab
-            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard)) > 1:
+            from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab
+            if sum((args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast)) > 1:
                 raise ValueError('Choose only one reference scenario.')
-            result = source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            result = multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output))}
         elif args.command == 'benchmark':
@@ -101,6 +112,13 @@ def main(arguments=None):
             return 0 if result['assessment']['packet_test_passed'] and result['all_nodes_running_after_load'] and not result['assessment']['oom_kill_observed'] else 1
         elif args.command == 'plan':
             result = plan(load(args.manifest))
+        elif args.command == 'multicast':
+            from .multicast_probe import probe
+            try:
+                result = probe(Manager(args.name), args.node, args.interface, group=args.group, port=args.port,
+                               seconds=args.seconds, count=args.count, text=args.send)
+            except KeyboardInterrupt:
+                return 130
         elif args.command == 'monitor':
             from .monitor import monitor, render
             try:
@@ -143,6 +161,8 @@ def main(arguments=None):
                 elif args.command == 'configure':
                     text = args.file.read_text(encoding='utf-8') if args.file else args.text
                     result = manager.configure_ios(args.node, text)
+                elif args.command == 'multicast-policy':
+                    result = manager.configure_multicast(args.node, json.loads(args.file.read_text(encoding='utf-8')))
                 elif args.command == 'spanning-tree':
                     policy = json.loads(args.file.read_text(encoding='utf-8')) if args.file else None
                     result = manager.configure_spanning_tree(args.node, policy, priority=args.priority)

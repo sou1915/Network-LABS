@@ -71,6 +71,8 @@ Le backend Linux propose aussi un firewall IPv4 stateful et masquerade/SNAT/DNAT
 Le filtre IPv4 `example --ip-source-guard` ajoute la validation réelle IP ou
 IP+MAC par port access, basée sur DHCP snooping/bindings statiques, avec DAI
 optionnel et autorisations dynamiques courtes. Voir le guide LAN pour ses limites.
+Le scénario `example --multicast` ajoute IGMPv2 snooping/querier Linux sur un
+VLAN access, une MDB réelle et des probes UDP bornées via la commande `multicast`.
 Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
 routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
 parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,

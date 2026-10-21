@@ -208,3 +208,18 @@ def source_guard_lab(rootfs):
     spec['name'] = 'source-guard-lan'
     spec['nodes'][1]['ip_source_guard'] = {'eth0': 'ip-mac', 'eth2': 'ip-mac'}
     return validate(spec)
+
+
+def multicast_lab(rootfs):
+    spec = {'version': 2, 'name': 'multicast-lan', 'nodes': [
+        {'name': 'SW1', 'runtime': 'oci', 'role': 'switch', 'rootfs': str(rootfs), 'dialect': 'ios-basic',
+         'interfaces': {p: '' for p in ('eth0', 'eth1', 'eth2')}, 'vlans': [10],
+         'switchports': {p: {'mode': 'access', 'vlan': 10} for p in ('eth0', 'eth1', 'eth2')},
+         'interface_aliases': {'fa0/1': 'eth0', 'fa0/2': 'eth1', 'fa0/3': 'eth2'},
+         'multicast': {'snooping': True, 'querier': True}},
+    ], 'links': []}
+    for i, name in enumerate(('TX1', 'RX1', 'PC1')):
+        spec['nodes'].append({'name': name, 'runtime': 'oci', 'rootfs': str(rootfs),
+                              'interfaces': {'eth0': f'192.0.2.{10 + i}/24'}})
+        spec['links'].append([[name, 'eth0'], ['SW1', 'eth' + str(i)]])
+    return validate(spec)

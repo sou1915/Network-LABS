@@ -1516,3 +1516,126 @@ Périmètre : IPv4 ingress, pas IPv6/NDP, pas authentification des utilisateurs,
 pas vérification de destination ni ACL applicative. Un clone du tuple complet
 IP+MAC sur le même port ne peut pas être distingué de son propriétaire par ce
 filtre. Ce n'est pas un firmware constructeur.
+
+## Multicast LAN : IGMPv2 snooping et querier Linux
+
+La politique optionnelle `multicast` configure le **bridge Linux réel**, sans
+nouveau daemon permanent. Ce premier périmètre exige des ports access physiques
+sur **un seul VLAN commun**, sans trunk/LACP ni commandes startup non suivies.
+Un manifeste sans cette politique conserve le comportement précédent du kernel.
+
+```json
+"multicast": {
+  "snooping": true,
+  "querier": true,
+  "ports": {
+    "eth0": {"router": "auto", "flood": true, "fast_leave": false},
+    "eth1": {"router": "off", "flood": true, "fast_leave": true},
+    "eth2": {"router": "permanent", "flood": false, "fast_leave": false}
+  }
+}
+```
+
+Les ports omis reçoivent `router: auto`, `flood: true`, `fast_leave: false`.
+`router` vaut `off`, `auto` ou `permanent` et pilote le flag kernel du port
+multicast-router. Un port routeur permanent reçoit aussi des flux sans listener
+local. `flood` contrôle la diffusion des **groupes inconnus**, pas une ACL de tous
+les multicasts. `fast_leave` active l'immediate leave ; le réserver à un port
+avec un seul récepteur, jamais un segment partagé/uplink, car plusieurs membres
+peuvent sinon perdre leur flux. Les groupes connus suivent la MDB et les ports
+routeurs, sous réserve de l'état des liens, VLAN et autres politiques.
+
+Le querier nécessite le snooping. Il émet de vraies queries IGMPv2, avec les timers
+Linux normaux, **source 0.0.0.0** car le switch est non numéroté. Certains hôtes
+peuvent ne pas accepter ce querier ; aucune IP de management n'est inventée.
+La convergence initiale prend notamment le délai de réponse aux queries (10 s
+avec les valeurs kernel usuelles) : une MDB présente n'est pas un certificat
+immédiat de filtrage/livraison. Sans querier effectif, Linux peut continuer à
+flooder. Les intervalles ne sont pas raccourcis pour simuler une convergence.
+
+La politique pilote `mcast_snooping`, `mcast_querier`, `mcast_igmp_version=2`,
+`mcast_query_use_ifaddr=0`, `mcast_vlan_snooping=0` et les trois flags de chaque
+port. Les paramètres partagés snooping/flood du kernel affectent aussi IPv6/MLD :
+**il n'existe pas ici de contrôle IPv6 indépendant**. IGMPv3/SSM, PIM, multicast
+routé, politique multi-VLAN et fidélité complète aux CLI constructeur ne sont
+pas implémentés. Sources primaires :
+[bridge Linux](https://www.kernel.org/doc/html/latest/networking/bridge.html) et
+[bridge/iproute2](https://man7.org/linux/man-pages/man8/bridge.8.html).
+
+### Configuration et diagnostics
+
+```text
+configure terminal
+ip igmp snooping
+ip igmp snooping querier
+end
+```
+
+Les formes `no` sont acceptées. Désactiver le querier avant de désactiver snooping,
+ou faire les deux dans le même bloc : l'ensemble est validé avant mutation.
+Les variantes par VLAN/adresse de querier constructeur sont rejetées.
+Pour les flags de ports, appliquer un fichier contenant l'objet de politique :
+
+```bash
+sudo python3 -m network_labs.appliances multicast-policy multicast-lan SW1 --file multicast-policy.json
+sudo python3 -m network_labs.appliances inspect multicast-lan SW1
+sudo python3 -m network_labs.appliances explain multicast-lan SW1
+```
+
+`inspect.multicast` rapporte les valeurs netlink, les paramètres de ports et la
+**MDB observée** via `bridge -j -s -d mdb show`. Une valeur absente reste
+non vérifiée. `explain` présente ces observations sans déduire une livraison ni
+une topologie multicast complète. Les edits non liés ne flushent pas les groupes.
+`save`/`export` refusent les paramètres gérés modifiés ; la MDB/timers dynamiques
+ne sont pas de la dérive et ne sont pas sauvegardés. `restore` recrée la politique,
+puis les clients doivent rejoindre à nouveau leurs groupes. Un JSON `null`
+retire la gestion et rétablit snooping on/querier off/IGMPv2 et les flags de ports
+par défaut ; cela ne restaure pas une ancienne configuration kernel externe.
+
+### Essai réel sans ajouter de programme au rootfs
+
+```bash
+python3 -m network_labs.appliances example --multicast \
+  --rootfs "$HOME/network-labs-rootfs" > multicast-lan.json
+sudo python3 -m network_labs.appliances start multicast-lan.json
+```
+
+Dans le terminal A, rejoindre le groupe pendant une fenêtre bornée :
+
+```bash
+sudo python3 -m network_labs.appliances multicast multicast-lan RX1 \
+  --group 239.10.10.10 --seconds 30
+```
+
+Dans le terminal B, attendre environ 12 secondes pour le démarrage normal du
+querier, puis envoyer et inspecter pendant que le récepteur est encore actif :
+
+```bash
+sudo python3 -m network_labs.appliances multicast multicast-lan TX1 \
+  --group 239.10.10.10 --send "Bonjour multicast" --count 3
+sudo python3 -m network_labs.appliances inspect multicast-lan SW1
+sudo python3 -m network_labs.appliances explain multicast-lan SW1
+```
+
+La commande `multicast` utilise un socket UDP réel dans le namespace réseau du
+node, épinglé par descripteur, avec le Python de l'hôte via `nsenter`. Le rootfs
+BusyBox reste inchangé. Le verrou du lab est relâché avant join/receive :
+`send`, `inspect`, `configure` et `stop` restent utilisables dans un autre terminal.
+Fermer le socket quitte le groupe et permet au kernel d'émettre IGMP leave.
+Ce helper temporaire est **hors cgroup OCI** ; inclure son coût Python dans une
+mesure globale si des probes tournent pendant le benchmark.
+
+Limites des probes : groupes administratifs IPv4 239/8, ports UDP 1024..65535,
+1..30 s, 1..100 envois de 1..1200 octets UTF-8, TTL=1. Le receive s'arrête après
+1000 datagrammes au plus et conserve au plus huit échantillons de 64 octets en
+hexadécimal. Les lectures de 1401 octets peuvent être tronquées et sont signalées.
+Le watchdog GNU timeout borne aussi un worker orphelin si la CLI disparaît ; un
+arrêt concurrent du lab conserve le namespace épinglé jusqu'à la fin de la probe,
+sans retour vers le réseau de l'hôte. Les comptes décrivent cette fenêtre/socket,
+pas une garantie zéro perte ; succès d'envoi ne prouve pas livraison. Après un
+stop/restore concurrent, ils ne certifient pas la nouvelle génération du lab.
+
+La validation native emploie un vrai join IGMP, vérifie MDB et réception UDP,
+capture le non-membre (absence de copies d'un groupe connu), les ports routeurs,
+le flooding autorisé/refusé d'un groupe inconnu, le leave, la dérive, restore et
+un stop concurrent. Les liens/routes/règles nft de l'hôte restent inchangés.

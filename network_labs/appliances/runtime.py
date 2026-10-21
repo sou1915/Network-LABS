@@ -361,6 +361,17 @@ class Manager:
         candidate = compile_config(state['spec'], name, text)
         return self._configure_network(name, candidate, 'Linux namespaces; partial IOS-style adapter')
 
+    def configure_multicast(self, name, policy):
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before multicast configuration.')
+        candidate = copy.deepcopy(state['spec'])
+        node = next((n for n in candidate['nodes'] if n['name'] == name), None)
+        if node is None or node['runtime'] != 'oci' or node['role'] != 'switch':
+            raise ValueError('Multicast policy requires an existing OCI switch.')
+        node['multicast'] = copy.deepcopy(policy)
+        return self._configure_network(name, validate(candidate), 'Linux bridge multicast snooping/querier')
+
     def configure_spanning_tree(self, name, policy=None, *, priority=None):
         state = self.read()
         if state['phase'] != 'running':

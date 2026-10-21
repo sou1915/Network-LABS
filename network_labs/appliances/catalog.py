@@ -17,7 +17,7 @@ def capabilities():
         'runtimes': [
             {'id': 'oci', 'implementation': 'experimental',
              'prerequisites_detected': bool(linux and cgroup and tools['ip'] and tools['bridge'] and tools['sysctl'] and tools['crun']),
-             'scope': 'Persistent Linux containers; VLAN access/trunk, LACP port-channels and classic common STP, dot1Q routing, BusyBox DHCP, optional nftables IPv4 firewall/NAT and static access-port source-MAC security, access-only DHCPv4 trust filtering with volatile request/ACK bindings and kernel ARP source admission, partial IOS-style configuration and saved startup manifests. Shared host kernel.'},
+             'scope': 'Persistent Linux containers; VLAN access/trunk, LACP port-channels and classic common STP, dot1Q routing, BusyBox DHCP, optional nftables IPv4 firewall/NAT and static access-port source-MAC security, access-only DHCPv4 trust filtering with volatile request/ACK bindings and kernel ARP/IPv4 source admission, optional single-access-VLAN IGMPv2 snooping/querier, partial IOS-style configuration and saved startup manifests. Shared host kernel.'},
             {'id': 'firecracker', 'implementation': 'experimental',
              'prerequisites_detected': bool(linux and tools['ip'] and tools['firecracker'] and kvm),
              'scope': 'One Ethernet NIC, dedicated guest kernel and disk. Guest console log; no exec agent.'},
