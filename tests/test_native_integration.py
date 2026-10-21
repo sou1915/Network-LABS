@@ -65,6 +65,15 @@ class RealContainerTests(unittest.TestCase):
                 with manager.locked():
                     manager.start(spec); ping(False)
                     config('SW1', forward)
+                    # Some Linux distributions inherit loose/strict reverse-path
+                    # filtering into namespaces. Isolate missing-return-route
+                    # behavior from that separate source-validation policy.
+                    rpf_keys = ('net.ipv4.conf.all.rp_filter', 'net.ipv4.conf.eth0.rp_filter')
+                    rpf_before = manager.ns(2, 'sysctl', '-n', *rpf_keys).stdout.splitlines()
+                    self.assertEqual(len(rpf_before), len(rpf_keys))
+                    print('STATIC ROUTE R1 initial rp_filter: ' + repr(rpf_before), flush=True)
+                    manager.ns(2, 'sysctl', '-w', *[key + '=0' for key in rpf_keys])
+                    self.assertEqual(manager.ns(2, 'sysctl', '-n', *rpf_keys).stdout.splitlines(), ['0', '0'])
                 # The request really arrives at PC2; only the return route is missing.
                 ready = threading.Event(); pcap = Path(folder) / 'missing-return.pcap'
                 future = pool.submit(capture, Manager(spec['name']), 'PC2', 'eth0', pcap,
@@ -77,7 +86,9 @@ class RealContainerTests(unittest.TestCase):
                 self.assertIn('192.0.2.10 > 203.0.113.10', decoded)
                 self.assertIn('echo request', decoded); self.assertIn('ttl 62', decoded)
                 with manager.locked():
-                    config('R1', backward); ping(); ping(client='PC2', target='192.0.2.10')
+                    config('R1', backward)
+                    manager.ns(2, 'sysctl', '-w', *[key + '=' + value for key, value in zip(rpf_keys, rpf_before)])
+                    ping(); ping(client='PC2', target='192.0.2.10')
                     actual = manager.inspect('SW1')['routes']
                     self.assertTrue(any(r.get('dst') == '203.0.113.0/24' and r.get('dev') == 'vlan20' and
                                         r.get('gateway') == '198.18.0.2' and r.get('protocol') == 'static' for r in actual))

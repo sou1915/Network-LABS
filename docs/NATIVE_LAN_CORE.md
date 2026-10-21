@@ -2111,6 +2111,10 @@ l'hôte restent inchangés. Références primaires :
 198.18.0.2/29 et LAN 203.0.113.1/24), PC2 (203.0.113.10/24). Le forwarding
 est activé sur SW1/R1, mais aucun des deux ne connaît initialement le LAN distant.
 Les clients ont leur gateway locale. Aucun daemon/rootfs supplémentaire.
+Selon les valeurs Linux `rp_filter` héritées, une source sans route inverse peut
+aussi être rejetée avant que sa requête atteigne le client distant. Le moteur
+ne désactive pas cette validation implicitement ; le ping seul ne permet pas
+de distinguer ce contrôle de source d’une absence de route de retour.
 
 ```bash
 python3 -m network_labs.appliances example --static-routing \
@@ -2163,7 +2167,9 @@ sudo python3 -m network_labs.appliances configure static-routing-lan SW1 \
 ```
 
 La validation native capture la requête ICMP réellement arrivée à PC2 quand la
-route de retour manque, puis valide les pings dans les deux sens et TTL 62
+route de retour manque (rp_filter désactivé temporairement sur R1 pour isoler
+ce cas de la validation de source Linux), puis restaure les valeurs rp_filter
+initiales et valide les pings dans les deux sens et TTL 62
 après les deux sauts routés. Elle teste la priorité d'une /32 vers un voisin
 absent, la default route sans /24, les retraits/restaurations et le refus de
 save après ajout externe d'une route. Une panne injectée après suppression
