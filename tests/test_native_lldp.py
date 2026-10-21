@@ -71,6 +71,13 @@ class LLDPTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             read_cli(manager, 'PC1', 'configuration; dangerous')
 
+    def test_rootfs_uses_verbose_identity_not_bare_numeric_version(self):
+        profile = 'lldpd 1.0.17\nPrivilege separation user: _lldpd\nPrivilege separation group: _lldpd\nPrivilege separation chroot: /run/lldpd\n'
+        with patch('network_labs.appliances.lldp.subprocess.run', return_value=subprocess.CompletedProcess([], 0, profile, '')), \
+             patch('network_labs.appliances.dns_rootfs.assets', return_value=[]) as asset:
+            rootfs_assets('/trusted/lldpd', '/trusted/lldpcli')
+        self.assertEqual([call.kwargs['version_args'] for call in asset.call_args_list], [('-vv',), ('-vv',)])
+
     def test_rootfs_builder_refuses_unknown_privilege_separation_profile(self):
         for profile in ('not a daemon', 'Privilege separation user: root\nPrivilege separation group: root\nPrivilege separation chroot: /\n'):
             with patch('network_labs.appliances.lldp.subprocess.run', return_value=subprocess.CompletedProcess([], 0, profile, '')):

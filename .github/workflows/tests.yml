@@ -30,4 +30,4 @@ jobs:
       - name: Prepare Linux bonding without creating default host bonds
         run: sudo modprobe bonding max_bonds=0
       - name: Boot isolated nodes and verify actual packet delivery and cleanup
-        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -v
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -f -v

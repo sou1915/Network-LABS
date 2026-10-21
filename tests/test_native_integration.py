@@ -33,7 +33,7 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
-    def test_lldp_real_neighbors_pcap_link_loss_daemon_loss_policy_drift_and_restore(self):
+    def test_appliance_lldp_real_neighbors_pcap_link_loss_daemon_loss_policy_drift_and_restore(self):
         from network_labs.appliances.examples import lldp_lab
         from network_labs.appliances.firewall import fingerprint
         from network_labs.appliances.persistence import load_startup

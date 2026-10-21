@@ -22,8 +22,8 @@ def rootfs_assets(daemon, client):
     fields = dict(re.findall(r'^Privilege separation (user|group|chroot):\s*(\S+)\s*$', result.stdout, re.MULTILINE))
     if result.returncode or fields.get('user') != '_lldpd' or fields.get('group') != '_lldpd' or fields.get('chroot') not in ('/run/lldpd', '/var/run/lldpd'):
         raise ValueError('LLDP requires the Debian/Ubuntu _lldpd account and /run/lldpd privilege-separation build profile; observed: ' + repr(fields))
-    planned = assets(daemon, destination=DAEMON, identity='lldpd ', version_args=('-v',))
-    planned += assets(client, destination=CLIENT, identity='lldpcli ', version_args=('-v',))
+    planned = assets(daemon, destination=DAEMON, identity='lldpd ', version_args=('-vv',))
+    planned += assets(client, destination=CLIENT, identity='lldpcli ', version_args=('-vv',))
     return sorted(set(planned), key=lambda item: str(item[1]))
 
 
