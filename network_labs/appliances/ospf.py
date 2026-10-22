@@ -33,6 +33,10 @@ def validate_ospf(node):
     if any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
                                      'dhcp_server', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'lldp', 'firewall')):
         raise ValueError('Initial OSPF profile excludes static/default routes, subinterfaces, bundles and other managed services.')
+    integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')
+    integer(policy.setdefault('dead', 4), 2, 240, 'OSPF dead')
+    if policy['dead'] <= policy['hello']:
+        raise ValueError('OSPF dead must exceed hello.')
     value = policy.get('router_id')
     if not isinstance(value, str):
         raise ValueError('OSPF router_id must be IPv4 text.')
@@ -44,7 +48,7 @@ def validate_ospf(node):
         raise ValueError('OSPF requires 1..16 physical interfaces.')
     networks = []
     for name, port in ports.items():
-        keys(port, ('cost', 'passive', 'network_type', 'priority'), 'OSPF interface')
+        keys(port, ('cost', 'passive', 'network_type', 'priority', 'hello', 'dead'), 'OSPF interface')
         if name not in node['interfaces'] or not node['interfaces'][name] or name in node['shutdown']:
             raise ValueError('OSPF interfaces must be UP and statically numbered.')
         local = ipaddress.IPv4Interface(node['interfaces'][name])
@@ -53,6 +57,11 @@ def validate_ospf(node):
         if any(local.network.overlaps(network) for network in networks):
             raise ValueError('OSPF interface subnets must not overlap.')
         networks.append(local.network)
+        hello, dead = interface_timers(node, port)
+        integer(hello, 1, 60, 'OSPF interface hello')
+        integer(dead, 2, 240, 'OSPF interface dead')
+        if dead <= hello:
+            raise ValueError('OSPF interface dead must exceed hello.')
         network_type = port.setdefault('network_type', 'point-to-point')
         if network_type not in ('point-to-point', 'broadcast'):
             raise ValueError('OSPF network_type supports point-to-point or broadcast only.')
@@ -77,12 +86,13 @@ def validate_ospf(node):
     policy['networks'] = sorted(set(canonical))
     if all(ports[name]['passive'] for name in enabled_interfaces(node)):
         raise ValueError('OSPF requires at least one active transit interface.')
-    integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')
-    integer(policy.setdefault('dead', 4), 2, 240, 'OSPF dead')
-    if policy['dead'] <= policy['hello']:
-        raise ValueError('OSPF dead must exceed hello.')
     policy['router_id'] = str(router_id)
     policy['interfaces'] = dict(sorted(ports.items()))
+
+
+def interface_timers(node, port):
+    policy = node['ospf']
+    return port.get('hello', policy['hello']), port.get('dead', policy['dead'])
 
 
 def enabled_interfaces(node):
@@ -121,8 +131,9 @@ def config(node):
              '  ecmp no;', '  area 0.0.0.0 {']
     for name, port in enabled_interfaces(node).items():
         kind = 'broadcast' if port['network_type'] == 'broadcast' else 'ptp'
-        election = f' priority {port["priority"]}; wait {policy["dead"]};' if kind == 'broadcast' else ''
-        lines.append(f'    interface "{name}" {{ type {kind}; cost {port["cost"]}; stub {"yes" if port["passive"] else "no"}; hello {policy["hello"]}; dead {policy["dead"]};{election} }};')
+        hello, dead = interface_timers(node, port)
+        election = f' priority {port["priority"]}; wait {dead};' if kind == 'broadcast' else ''
+        lines.append(f'    interface "{name}" {{ type {kind}; cost {port["cost"]}; stub {"yes" if port["passive"] else "no"}; hello {hello}; dead {dead};{election} }};')
     return '\n'.join(lines + ['  };', '}']) + '\n'
 
 
@@ -188,7 +199,7 @@ def validate_change(node, previous):
         raise ValueError('OSPF service adapter accepts OSPF-only edits; recreate the lab for network changes.')
     if node.get('ospf') and previous.get('ospf') and any(
             node['ospf'][key] != previous['ospf'][key] for key in ('router_id', 'process_id', 'hello', 'dead')):
-        raise ValueError('Live OSPF adapter supports selectors, passive interfaces and costs; delete/recreate the process to change ID/timers.')
+        raise ValueError('Live OSPF adapter supports interface policy edits; router ID/process ID and process-wide timer changes require lab recreation.')
 
 
 # Never select a kill target from bird.pid. Inspect executable and exact config

@@ -692,6 +692,130 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_ag_ospf_interface_timers_real_mismatch_backup_capture_rollback_restore(self):
+        import re
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from network_labs.appliances.examples import ospf_lab
+        from network_labs.appliances.ospf import read_cli, apply_change
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', bird=shutil.which('bird'), birdc=shutil.which('birdc'))
+            spec = ospf_lab(rootfs); spec['name'] = 'ospf-timers-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def route():
+                rows = json.loads(manager.ns(2, 'ip', '-j', 'route', 'show', '198.51.100.0/24').stdout)
+                return rows[0] if rows else {}
+            def wait(predicate, label):
+                deadline = time.monotonic() + 40
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label + '; route=' + repr(route()))
+            def neighbor_is(node, peer, full):
+                text = read_cli(manager, node, 'show ospf neighbors')
+                if text is None:
+                    return False
+                rows = [line for line in text.splitlines() if peer in line]
+                return any('Full' in line for line in rows) if full else not any('Full' in line for line in rows)
+            def interface_timers(node, interface, hello, dead):
+                text = read_cli(manager, node, 'show ospf interface ospf4 "' + interface + '"') or ''
+                return re.search(r'Hello timer:\s+' + str(hello) + r'\b', text) and re.search(r'Dead timer:\s+' + str(dead) + r'\b', text)
+            def traffic(gateway, ttl):
+                wait(lambda: route().get('gateway') == gateway, 'actual next hop ' + gateway)
+                def ping():
+                    result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False)
+                    return result.returncode == 0 and 'ttl=' + str(ttl) in result.stdout
+                wait(ping, 'actual traffic reply TTL ' + str(ttl))
+            def primary():
+                wait(lambda: neighbor_is('R1', '2.2.2.2', True) and neighbor_is('R2', '1.1.1.1', True), 'matched-timer Full adjacency')
+                traffic('10.0.12.2', 62)
+            def configure(node, hello, dead):
+                return manager.configure_ios(node, f'conf t\ninterface eth0\nip ospf hello-interval {hello}\nip ospf dead-interval {dead}\nend')
+            def identities():
+                return [(json.loads(manager.crun('state', node).stdout)['pid'],
+                         manager.crun('exec', node, '/bin/cat', '/run/bird.pid').stdout,
+                         [(r['ifname'], r['ifindex']) for r in json.loads(manager.ns(index, 'ip', '-j', 'link', 'show').stdout)])
+                        for node, index in (('R1', 2), ('R2', 3))]
+            try:
+                with manager.locked():
+                    manager.start(spec); primary()
+                    original = identities(); revision = manager.read()['revision']
+                    with self.assertRaisesRegex(ValueError, 'dead must exceed hello'):
+                        manager.configure_ios('R1', 'conf t\ninterface eth0\nip ospf hello-interval 5\nend')
+                    self.assertEqual(manager.read()['revision'], revision)
+                    self.assertEqual(manager.read()['phase'], 'running')
+                    configure('R1', 2, 8)
+                    wait(lambda: neighbor_is('R1', '2.2.2.2', False) and neighbor_is('R2', '1.1.1.1', False), 'timer mismatch breaks only primary adjacency')
+                    wait(lambda: neighbor_is('R1', '3.3.3.3', True) and neighbor_is('R2', '3.3.3.3', True), 'other interfaces retain Full adjacency')
+                    traffic('10.0.13.2', 61)
+                    wait(lambda: interface_timers('R1', 'eth0', 2, 8), 'real changed timers')
+                    self.assertTrue(interface_timers('R1', 'eth1', 1, 4))
+                    self.assertEqual(identities(), original)
+                # Decode the real Hello on the mismatched wire, not the manifest.
+                event = threading.Event(); path = Path(folder) / 'ospf-timers.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'R1', 'eth0', path, seconds=3, packets=100,
+                                     expression='ip proto 89 and src host 10.0.12.1', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('OSPF timer capture not ready')
+                captured = future.result(timeout=7)
+                packets = run(['tcpdump', '-nn', '-vv', '-r', str(path)]).stdout
+                self.assertGreater(captured['captured_packets'], 0)
+                self.assertIn('OSPFv2', packets)
+                self.assertIn('Hello Timer 2s', packets); self.assertIn('Dead Timer 8s', packets)
+                with manager.locked():
+                    configure('R2', 2, 8); primary()
+                    self.assertTrue(interface_timers('R2', 'eth0', 2, 8))
+                    self.assertTrue(interface_timers('R2', 'eth1', 1, 4))
+                    self.assertEqual(identities(), original)
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    for index in (2, 3):
+                        policy = saved['nodes'][index]['ospf']
+                        self.assertEqual((policy['hello'], policy['dead']), (1, 4))
+                        self.assertEqual((policy['interfaces']['eth0']['hello'], policy['interfaces']['eth0']['dead']), (2, 8))
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); primary()
+                    self.assertTrue(interface_timers('R1', 'eth0', 2, 8))
+                    before = identities(); revision = manager.read()['revision']; calls = []
+                    def fail_after_reload(actual_manager, index, node, previous):
+                        apply_change(actual_manager, index, node, previous)
+                        calls.append(node['ospf']['interfaces']['eth0']['hello'])
+                        if len(calls) == 1:
+                            raise RuntimeFailure('injected failure after actual timer reload')
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_after_reload):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                            configure('R1', 3, 12)
+                    self.assertEqual(calls, [3, 2]); self.assertEqual(manager.read()['revision'], revision)
+                    self.assertEqual(manager.read()['phase'], 'running')
+                    wait(lambda: interface_timers('R1', 'eth0', 2, 8), 'rollback reloads actual old timers')
+                    primary(); self.assertEqual(identities(), before)
+            except Exception:
+                for name in ('R1', 'R2', 'R3'):
+                    path = manager.directory / name / 'ospf.log'
+                    if path.exists():
+                        print(name + ': ' + path.read_text()[-5000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
         from network_labs.appliances.examples import static_routing_lab
         from network_labs.appliances.persistence import load_startup

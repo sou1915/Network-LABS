@@ -212,3 +212,38 @@ class OSPFTests(unittest.TestCase):
                          'ip ospf network broadcast\nip ospf priority 256'):
             with self.subTest(commands=commands), self.assertRaises(ValueError):
                 compile_config(spec, 'R1', 'conf t\ninterface eth0\n' + commands + '\nend')
+
+    def test_per_interface_timers_inherit_without_mutating_other_interfaces(self):
+        from network_labs.appliances.ospf import interface_timers
+        spec = ospf_lab('/rootfs'); before = copy.deepcopy(spec)
+        result = compile_config(spec, 'R1', 'conf t\ninterface eth0\nip ospf hello-interval 2\nip ospf dead-interval 8\nend')
+        node = result['nodes'][2]
+        self.assertEqual(interface_timers(node, node['ospf']['interfaces']['eth0']), (2, 8))
+        self.assertEqual(interface_timers(node, node['ospf']['interfaces']['eth1']), (1, 4))
+        self.assertEqual(spec, before)
+        self.assertIn('interface "eth0" { type ptp; cost 10; stub no; hello 2; dead 8;', config(node))
+        # Inheritance stays inheritance: changing a manifest-wide default takes
+        # effect on ports without overrides, not on explicitly configured ports.
+        result['nodes'][2]['ospf'].update(hello=3, dead=12)
+        node = validate(result)['nodes'][2]
+        self.assertEqual(interface_timers(node, node['ospf']['interfaces']['eth0']), (2, 8))
+        self.assertEqual(interface_timers(node, node['ospf']['interfaces']['eth1']), (3, 12))
+        result = compile_config(spec, 'R1', 'conf t\ninterface eth0\nip ospf network broadcast\nip ospf hello-interval 2\nip ospf dead-interval 8\nend')
+        self.assertIn('hello 2; dead 8; priority 1; wait 8;', config(result['nodes'][2]))
+
+    def test_interface_timer_validation_is_atomic_and_bounded(self):
+        spec = ospf_lab('/rootfs'); before = copy.deepcopy(spec)
+        for commands in ('ip ospf hello-interval 0', 'ip ospf hello-interval 61',
+                         'ip ospf dead-interval 1', 'ip ospf dead-interval 241',
+                         'ip ospf hello-interval 4', 'ip ospf hello-interval 8\nip ospf dead-interval 8',
+                         'ip ospf dead-interval minimal hello-multiplier 5', 'no ip ospf hello-interval'):
+            with self.subTest(commands=commands), self.assertRaises(ValueError):
+                compile_config(spec, 'R1', 'conf t\ninterface eth0\n' + commands + '\nend')
+            self.assertEqual(spec, before)
+        for options in ({'hello': True}, {'dead': True}, {'hello': '2'}, {'dead': None}):
+            candidate = copy.deepcopy(spec); candidate['nodes'][2]['ospf']['interfaces']['eth0'].update(options)
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                validate(candidate)
+        # The whole block is validated once; temporary command order can differ.
+        result = compile_config(spec, 'R1', 'conf t\ninterface eth0\nip ospf hello-interval 10\nip ospf dead-interval 40\nend')
+        self.assertEqual(result['nodes'][2]['ospf']['interfaces']['eth0']['dead'], 40)

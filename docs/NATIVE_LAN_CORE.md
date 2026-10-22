@@ -2494,7 +2494,7 @@ sending/receiving OSPF Hello packets. ECMP is disabled.
 There is no OSPFv3, multi-area, NBMA/PtMP profile, authentication, BFD,
 redistribution, default origination, VRF or SVI in this first profile. Static/default routes, other managed services and untracked startup
 commands on OSPF routers are rejected. The partial IOS adapter supports the OSPF-only edits described below. Changes
-to addresses, link state, router ID or timers still require the manifest and
+to addresses, link state, router ID or process-wide timer defaults still require the manifest and
 lab recreation. Real BIRD show commands remain available.
 
 A bounded failure test can be done directly in R1, then restored:
@@ -2571,7 +2571,7 @@ set/unset passive on a declared OSPF interface, and add/remove `network ADDRESS
 WILDCARD area 0` (also `area 0.0.0.0`). Wildcards must be contiguous; `0.0.0.0`
 selects an exact local address. The command selects interfaces by their primary
 IPv4 address; it does not advertise an arbitrary remote prefix. A selector must
-match an existing numbered physical interface. Non-zero areas, additional processes, live router-ID/timer edits, passive-default,
+match an existing numbered physical interface. Non-zero areas, additional processes, live router-ID/process-wide timer edits, passive-default,
 cost auto-calculation,
 interface-level `ip ospf PROCESS area AREA` and other syntax are rejected.
 
@@ -2725,3 +2725,64 @@ nft policy and forwarding remain checked after cleanup.
 References: [BIRD 2 OSPF options](https://bird.nic.cz/doc/bird-2.16.2.html),
 [Cisco OSPF interface states and priority](https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13689-17.html),
 and [Cisco explanation of normal 2-Way neighbors](https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13683-11.html).
+
+
+### Per-interface OSPF Hello and Dead timers
+
+The partial IOS adapter accepts `ip ospf hello-interval SECONDS` and
+`ip ospf dead-interval SECONDS` under a declared OSPF interface. These commands
+set the real BIRD interface timers; they do not change timers on other ports.
+`ospf.interfaces.PORT.hello` and `.dead` are optional integer overrides. Without
+an override, the interface inherits `ospf.hello`/`ospf.dead` (legacy lab defaults
+1/4 seconds). Overrides remain explicit through save/restore; inheritance is not
+silently converted into a stored per-port value. Broadcast's wait timer follows
+the effective per-interface dead timer.
+
+This bounded profile permits hello 1..60 seconds and dead 2..240 seconds, with
+dead strictly greater than hello. The complete command block is validated before
+any journal or daemon change, so a block can set both timers in either order.
+Fast Hello/hello-multiplier, millisecond timers, BFD and `no ...-interval` reset
+syntax are unsupported. Use explicit positive values to change timers back;
+these values are profile settings, not a promise of Cisco's factory defaults.
+Process-wide timer defaults remain manifest-only for existing processes.
+
+On the existing `example --ospf` triangle (`ospf-lan`), the R1–R2 link is eth0 at
+both ends. R1–R3 and R2–R3 retain their original timers:
+
+```bash
+# Mismatch R1's primary link: R2 still uses hello 1/dead 4.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\ninterface eth0\nip ospf hello-interval 2\nip ospf dead-interval 8\nend'
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf neighbors
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf interface
+# After actual convergence, the surviving R1–R3–R2 path carries the traffic.
+sudo python3 -m network_labs.appliances exec ospf-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.10
+
+# Match R2 to reestablish the primary adjacency and path.
+sudo python3 -m network_labs.appliances configure ospf-lan R2 \
+  --text $'conf t\ninterface eth0\nip ospf hello-interval 2\nip ospf dead-interval 8\nend'
+# Optional: explicitly restore 1/4 at both ends.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\ninterface eth0\nip ospf hello-interval 1\nip ospf dead-interval 4\nend'
+sudo python3 -m network_labs.appliances configure ospf-lan R2 \
+  --text $'conf t\ninterface eth0\nip ospf hello-interval 1\nip ospf dead-interval 4\nend'
+```
+
+Peers on a link must use compatible Hello/Dead timers. The adapter deliberately
+does not rewrite peer configurations or declare convergence: a mismatch can
+break an adjacency and alter real routing. On a broadcast LAN, coordinate every
+participating router's timers; this is not an automatic multi-node transaction.
+Reload completion is separate from neighbor expiry, election and SPF convergence.
+
+The native timer case checks invalid-block refusal before revision changes,
+actual primary-adjacency loss with the R1/R2 mismatch, retained Full neighbors
+on the other links, the real backup kernel next hop and TTL-61 ping, and a PCAP
+whose decoded R1 Hello carries Hello Timer 2s/Dead Timer 8s. Matching R2 restores
+Full adjacency and TTL-62 primary traffic. Daemon/container/link identities stay
+unchanged through these edits. Save/restore preserves the nondefault overrides;
+a failure injected after an actual timer reload exercises rollback to the prior
+2/8 configuration, followed by real adjacency/traffic recovery. Host networking
+cleanup checks remain required.

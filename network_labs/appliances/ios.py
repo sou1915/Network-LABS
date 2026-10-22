@@ -169,6 +169,11 @@ def compile_config(spec, name, text):
                     if interface not in node['ospf']['interfaces']:
                         raise ValueError('OSPF cost requires an interface with declared OSPF options.')
                     node['ospf']['interfaces'][interface]['cost'] = int(match[1]); continue
+                match = re.fullmatch(r'ip ospf (hello|dead)-interval (\d+)', command)
+                if match and node.get('ospf'):
+                    if interface not in node['ospf']['interfaces']:
+                        raise ValueError('OSPF timers require declared OSPF interface options.')
+                    node['ospf']['interfaces'][interface][match[1]] = int(match[2]); continue
                 match = re.fullmatch(r'ip ospf network (broadcast|point-to-point)', command)
                 if match and node.get('ospf'):
                     if interface not in node['ospf']['interfaces']:
