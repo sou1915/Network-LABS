@@ -692,6 +692,98 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_ak_verify_real_dhcp_endpoints_pcap_loss_blocked_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        import copy
+        from network_labs.appliances.examples import ospf_dhcp_multi_lab
+        from network_labs.appliances.verify import verify, render
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                bird=shutil.which('bird'), birdc=shutil.which('birdc'), dnsmasq=shutil.which('dnsmasq'))
+            spec = ospf_dhcp_multi_lab(rootfs); spec['name'] = 'verify-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label)
+            def address():
+                return [a['local'] for row in json.loads(manager.ns(0, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
+                        for a in row.get('addr_info', []) if a.get('scope') == 'global']
+            def signal(value):
+                manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -' + value + ' "$(/bin/cat /run/udhcpc.pid)"')
+            def check(**options):
+                before = copy.deepcopy(manager.read())
+                report = verify(manager, 'PC1', 'PC2', count=2, **options)
+                self.assertEqual(before, manager.read())
+                return report
+            try:
+                with manager.locked():
+                    manager.start(spec)
+                    wait(lambda: address() == ['192.0.2.100'], 'observed DHCP address')
+                    wait(lambda: manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False).returncode == 0,
+                         'actual route convergence and ARP warmup')
+                event = threading.Event(); path = Path(folder) / 'verify.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', path,
+                    seconds=5, packets=100, expression='icmp', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('Verification capture not ready')
+                with manager.locked():
+                    report = check(bidirectional=True)
+                    self.assertEqual(report['status'], 'passed'); self.assertEqual(report['probe_commands_attempted'], 2)
+                    self.assertEqual(report['directions'][1]['destination_address'], '192.0.2.100')
+                    for direction in report['directions']:
+                        self.assertEqual((direction['transmitted'], direction['received']), (2, 2))
+                        self.assertEqual(direction['reply_ttls'], [62, 62])
+                    self.assertIn('RÉUSSI', render(report))
+                self.assertGreater(future.result(timeout=8)['captured_packets'], 0)
+                text = run(['tcpdump', '-nn', '-r', str(path)]).stdout
+                self.assertIn('ICMP echo request', text); self.assertIn('ICMP echo reply', text)
+                with manager.locked():
+                    initial = manager.ns(3, 'sysctl', '-n', 'net.ipv4.icmp_echo_ignore_all').stdout.strip()
+                    try:
+                        manager.ns(3, 'sysctl', '-w', 'net.ipv4.icmp_echo_ignore_all=1')
+                        report = check()
+                        self.assertEqual(report['status'], 'failed')
+                        self.assertEqual(report['directions'][0]['received'], 0)
+                        self.assertEqual(report['directions'][0]['route']['status'], 'observed')
+                    finally:
+                        manager.ns(3, 'sysctl', '-w', 'net.ipv4.icmp_echo_ignore_all=' + initial)
+                    manager.ns(3, 'ip', 'link', 'set', 'eth0', 'down')
+                    report = check()
+                    self.assertEqual(report['status'], 'blocked'); self.assertEqual(report['probe_commands_attempted'], 0)
+                    self.assertIn('INTERFACE_DOWN', report['endpoints'][1]['reasons'])
+                    manager.ns(3, 'ip', 'link', 'set', 'eth0', 'up')
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan10\nno ip helper-address 198.18.0.3\nend')
+                    signal('USR2'); wait(lambda: not address(), 'released DHCP address')
+                    report = check()
+                    self.assertEqual(report['status'], 'blocked'); self.assertEqual(report['probe_commands_attempted'], 0)
+                    self.assertIn('NO_USABLE_IPV4', report['endpoints'][0]['reasons'])
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan10\nip helper-address 198.18.0.3\nend')
+                    signal('USR1'); wait(lambda: address() == ['192.0.2.100'], 'DHCP reacquisition')
+                    wait(lambda: manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False).returncode == 0,
+                         'route convergence after the destination link returns')
+                    self.assertEqual(check(bidirectional=True)['status'], 'passed')
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_aj_multi_vlan_ospf_dhcp_isolation_helpers_scoped_recovery_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

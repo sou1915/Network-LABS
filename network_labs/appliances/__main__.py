@@ -70,6 +70,11 @@ def main(arguments=None):
     route.add_argument('--source', help='Local source, or original remote source with --ingress.')
     route.add_argument('--ingress', help='Managed Linux ingress interface; requires --source.')
     route.add_argument('--json', action='store_true')
+    verify = commands.add_parser('verify', help='Send bounded real ICMP between two observed single-NIC OCI hosts.')
+    verify.add_argument('name'); verify.add_argument('source'); verify.add_argument('destination')
+    verify.add_argument('--count', type=int, default=3)
+    verify.add_argument('--bidirectional', action='store_true')
+    verify.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
@@ -177,6 +182,11 @@ def main(arguments=None):
                     manager.recover(); result = manager.status()
                 elif args.command == 'inspect':
                     result = manager.inspect(args.node)
+                elif args.command == 'verify':
+                    from .verify import verify, render
+                    result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'explain':
                     from .diagnostics import explain, render
                     result = explain(manager, args.node)

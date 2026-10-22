@@ -2984,3 +2984,64 @@ then injects failure after an actual OSPF cost reload on R1 and fails rollback.
 Scoped recovery restores R1 while preserving SW1's real BIRD and relay PIDs.
 Save/stop/restore reacquires both reserved leases and reconverges OSPF. Host
 links/routes/rules/nft/forwarding remain checked after cleanup.
+
+
+### Explicit connectivity verification between managed hosts
+
+`verify LAB SOURCE DESTINATION` resolves both endpoints from actual kernel IPv4
+address snapshots and executes a bounded real ICMP test. It works with DHCP
+addresses without copying the current lease into a command. Endpoints must be
+different running OCI hosts, each with one physical eth0 and exactly one usable
+global-scope IPv4 address. This first profile excludes router/switch/VM endpoints,
+multiple NICs, subinterfaces, port channels and ambiguous address selection.
+There is no fallback to a declared IP if the kernel has no usable address.
+
+```bash
+sudo python3 -m network_labs.appliances verify ospf-dhcp-multi-lan PC1 PC2
+sudo python3 -m network_labs.appliances verify ospf-dhcp-multi-lan PC1 PC3 \
+  --bidirectional --count 2
+sudo python3 -m network_labs.appliances verify ospf-dhcp-multi-lan PC2 PC1 \
+  --bidirectional --json
+```
+
+The default count is 3, bounded to 1..5 per direction. `--bidirectional` executes
+two separate round-trip tests. Each uses numeric ping bound to eth0, one-second
+reply timeout and a count+2-second deadline; the command wrapper times out at
+count+5 seconds. The lab lock stays held during this bounded operation, so other
+lab lifecycle/configuration operations wait. A capture started beforehand can
+continue recording the packets. Individual kernel/container reads time out after
+3 seconds. No configuration is written, but probes can update ARP/neighbor
+caches, counters and conntrack. `explain` and `route` remain passive commands.
+
+Human output is French; `--json` includes endpoint kernel evidence, observed
+source route-get records before each probe, exact ping argv, return code, bounded
+stdout/stderr, transmitted/received/loss counts and observed reply TTLs. It records
+probe command attempts separately from packet counts; an attempted command does
+not prove packets went on the wire. A TTL is an observation, not a computed path.
+
+| Status | Meaning |
+|---|---|
+| passed | Every requested direction returned all requested replies, with valid statistics and ping exit 0 |
+| failed | At least one executed probe has valid statistics showing incomplete delivery |
+| blocked | Endpoint prerequisite missing/down, duplicate endpoint IPv4, or an observed local/lo route that cannot test the remote host |
+| unknown | An observation, command or statistics result is unavailable, ambiguous, malformed or timed out |
+
+CLI exit status is 0 only for `passed`, otherwise 1. Invalid arguments and a lab
+with pending configuration are refused before probing. Missing IP does not prove
+a DHCP failure, and a present IP does not prove DHCP lease provenance. An absent
+or rejected route-get result remains separate evidence: the command can still
+attempt ping. An observed route does not guarantee packet delivery. Duplicate
+addresses and observed local routes are blocked to avoid calling local echo
+replies remote connectivity. Observations are sequential and can change between
+reads; external namespace changes are outside the lab-lock guarantee.
+
+This is an explicit pairwise ICMP check, not a lab-wide certificate of VLAN
+isolation, OSPF convergence, DHCP/DNS/firewall correctness or application health.
+Use the existing inspect/explain, actual daemon commands and captures for those
+details. The privileged verification case uses DHCP endpoints in the seven-node
+lab, correlates successful bidirectional counts/TTL with actual ICMP request/reply
+PCAP, suppresses destination echo replies to prove route selection can coexist
+with failed delivery, then checks a down interface and released DHCP address
+block without launching ping. After link/helper recovery and convergence, real
+bidirectional verification succeeds again. Configuration/revision snapshots and
+baseline host links/routes/rules/nft/forwarding remain unchanged by verification.
