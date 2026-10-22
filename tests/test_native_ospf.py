@@ -2,10 +2,11 @@
 import copy
 import subprocess
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from network_labs.appliances.examples import ospf_lab
 from network_labs.appliances.spec import validate
-from network_labs.appliances.ospf import config, observe, dynamic_route, read_cli
+from network_labs.appliances.ospf import config, observe, dynamic_route, read_cli, enabled_interfaces
+from network_labs.appliances.ios import compile_config
 
 
 class OSPFTests(unittest.TestCase):
@@ -62,6 +63,70 @@ class OSPFTests(unittest.TestCase):
         from network_labs.appliances.runtime import Manager
         spec = ospf_lab('/rootfs'); manager = Mock()
         manager.read.return_value = {'spec': spec, 'phase': 'running'}
+        candidate = copy.deepcopy(spec); candidate['nodes'][2]['interfaces']['eth2'] = '192.0.2.2/24'
         with self.assertRaisesRegex(ValueError, 'service adapter'):
-            Manager._configure_network(manager, 'R1', copy.deepcopy(spec), 'test')
+            Manager._configure_network(manager, 'R1', candidate, 'test')
         manager.save.assert_not_called()
+
+    def test_cli_cost_passive_context_and_process_selection(self):
+        spec = ospf_lab('/rootfs'); before = copy.deepcopy(spec)
+        result = compile_config(spec, 'R1', 'conf t\nrouter ospf 1\npassive-interface eth0\ninterface eth1\nip ospf cost 50\nend')
+        self.assertTrue(result['nodes'][2]['ospf']['interfaces']['eth0']['passive'])
+        self.assertEqual(result['nodes'][2]['ospf']['interfaces']['eth1']['cost'], 50)
+        self.assertEqual(spec, before)
+        for command in ('router ospf 2', 'router ospf 1\nrouter-id 4.4.4.4',
+                        'interface eth0\nip ospf cost 0', 'interface eth0\nip ospf cost 65536',
+                        'router ospf 1\npassive-interface default', 'passive-interface eth0',
+                        'interface eth0\nip address 10.0.12.3 255.255.255.252'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                compile_config(spec, 'R1', 'conf t\n' + command + '\nend')
+
+    def test_network_selectors_preserve_overlap_removal_and_interface_options(self):
+        spec = ospf_lab('/rootfs')
+        def commands(spec, text):
+            return compile_config(spec, 'R1', 'conf t\nrouter ospf 1\n' + text + '\nend')
+        # Both selectors enable eth0. Removing one must not disable the other.
+        a = commands(spec, 'network 10.0.12.1 0.0.0.0 area 0')
+        b = commands(a, 'no network 10.0.12.0 0.0.0.3 area 0.0.0.0')
+        self.assertIn('eth0', enabled_interfaces(b['nodes'][2]))
+        c = commands(b, 'no network 10.0.12.1 0.0.0.0 area 0')
+        self.assertNotIn('eth0', enabled_interfaces(c['nodes'][2]))
+        self.assertNotIn('interface "eth0"', config(c['nodes'][2]))
+        self.assertEqual(c['nodes'][2]['ospf']['interfaces']['eth0'], spec['nodes'][2]['ospf']['interfaces']['eth0'])
+        self.assertEqual(commands(c, 'no network 10.0.12.1 0.0.0.0 area 0'), c)
+        d = commands(c, 'network 10.0.12.0 0.0.0.3 area 0')
+        self.assertEqual(d, spec)
+
+    def test_selectors_reject_invalid_unknown_and_empty_transit(self):
+        spec = ospf_lab('/rootfs')
+        for command in ('network 10.0.12.0 0.0.1.1 area 0', 'network 203.0.113.0 0.0.0.255 area 0',
+                        'network 10.0.12.0 0.0.0.3 area 1',
+                        'no network 10.0.12.0 0.0.0.3 area 0\nno network 10.0.13.0 0.0.0.3 area 0'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                compile_config(spec, 'R1', 'conf t\nrouter ospf 1\n' + command + '\nend')
+        for networks in ([], ['10.0.12.1/30'], ['203.0.113.0/24'], [123], '10.0.12.0/30'):
+            candidate = copy.deepcopy(spec); candidate['nodes'][2]['ospf']['networks'] = networks
+            with self.subTest(networks=networks), self.assertRaises(ValueError):
+                validate(candidate)
+
+    def test_drift_and_unavailable_or_pending_control_refused_before_journal(self):
+        from network_labs.appliances.runtime import Manager, RuntimeFailure
+        spec = ospf_lab('/rootfs'); manager = Mock()
+        manager.read.return_value = {'spec': spec, 'phase': 'running'}
+        candidate = compile_config(spec, 'R1', 'conf t\ninterface eth0\nip ospf cost 100\nend')
+        for verified, reply in ((False, '0003 OK\n'), (True, None), (True, '0004-Reconfiguration in progress\n0000 OK\n'),
+                                (True, '0003-Running\n0022-Configuration unconfirmed\n0000 OK\n')):
+            with self.subTest(verified=verified, reply=reply), \
+                 patch('network_labs.appliances.ospf.observe_config', return_value={'configuration_verified': verified}), \
+                 patch('network_labs.appliances.ospf._cli', return_value=reply), self.assertRaises(RuntimeFailure):
+                Manager._configure_network(manager, 'R1', candidate, 'test')
+            manager.save.assert_not_called()
+
+    def test_idempotent_ospf_edit_does_not_reload_or_increment_revision(self):
+        from network_labs.appliances.runtime import Manager
+        spec = ospf_lab('/rootfs'); manager = Mock()
+        manager.read.return_value = {'spec': spec, 'phase': 'running', 'revision': 4}
+        with patch('network_labs.appliances.ospf.preflight_change'), patch('network_labs.appliances.ospf.apply_change') as apply:
+            result = Manager._configure_network(manager, 'R1', copy.deepcopy(spec), 'test')
+        self.assertTrue(result['unchanged']); self.assertEqual(result['revision'], 4)
+        manager.save.assert_not_called(); apply.assert_not_called()

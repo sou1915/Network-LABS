@@ -43,8 +43,6 @@ def compile_config(spec, name, text):
         raise ValueError('An OCI node with dialect ios-basic is required. This is not Cisco IOS firmware.')
     if node.get('switch_backend') == 'ovs':
         raise ValueError('OVS configuration uses its real native tools; IOS-style edits are unsupported.')
-    if node.get('ospf'):
-        raise ValueError('OSPF nodes use the real BIRD CLI; IOS-style live configuration is not supported yet.')
     if node.get('dhcp_pools') or node.get('dhcp_clients') or node.get('dhcp_server') or node.get('dns_server') or node.get('lldp') is not None:
         raise ValueError('IOS-style live configuration of DHCP/DNS/LLDP service nodes is not supported yet.')
     if not isinstance(text, str) or len(text) > 65536:
@@ -62,16 +60,15 @@ def compile_config(spec, name, text):
             if command == 'end':
                 mode = 'priv'; interface = None; continue
             if command == 'exit':
-                mode = 'config' if mode in ('interface', 'vlan') else 'priv'
+                mode = 'config' if mode in ('interface', 'vlan', 'ospf') else 'priv'
                 interface = None; continue
-            match = re.fullmatch(r'no interface (vlan\s*\d+)', command)
-            if match and mode == 'config':
-                name, _ = resolve_interface(node, match[1])
-                node.setdefault('svis', {}).pop(name, None)
-                node['shutdown'] = [p for p in node['shutdown'] if p != name]
-                continue
+            match = re.fullmatch(r'router ospf (\d+)', command)
+            if match and mode in ('config', 'interface', 'ospf'):
+                if not node.get('ospf') or int(match[1]) != node['ospf']['process_id']:
+                    raise ValueError('Select the existing manifest OSPF process ID; process creation is unsupported.')
+                mode = 'ospf'; interface = None; continue
             match = re.fullmatch(r'interface (vlan\s*\d+|\S+)', command)
-            if match and mode in ('config', 'interface', 'vlan'):
+            if match and mode in ('config', 'interface', 'vlan', 'ospf'):
                 interface, parent = resolve_interface(node, match[1])
                 if re.fullmatch(r'vlan\d+', interface):
                     node.setdefault('svis', {}).setdefault(interface, {'vlan': int(interface[4:]), 'address': ''})
@@ -80,6 +77,26 @@ def compile_config(spec, name, text):
                         raise ValueError('Only router dot1Q subinterfaces are supported.')
                     node['subinterfaces'].setdefault(interface, {'parent': parent, 'vlan': None, 'address': ''})
                 mode = 'interface'; continue
+            if mode == 'ospf':
+                match = re.fullmatch(r'(no )?network (\S+) (\S+) area (0|0\.0\.0\.0)', command)
+                if match:
+                    from .ospf import configure_network
+                    configure_network(node, match[2], match[3], remove=bool(match[1]))
+                    continue
+                match = re.fullmatch(r'(no )?passive-interface (\S+)', command)
+                if match:
+                    name, parent = resolve_interface(node, match[2])
+                    if parent or name not in node['ospf']['interfaces']:
+                        raise ValueError('Passive OSPF requires an interface with declared OSPF options.')
+                    node['ospf']['interfaces'][name]['passive'] = not bool(match[1])
+                    continue
+                raise ValueError('OSPF supports network/no network in area 0 and passive-interface/no passive-interface only.')
+            match = re.fullmatch(r'no interface (vlan\s*\d+)', command)
+            if match and mode == 'config':
+                name, _ = resolve_interface(node, match[1])
+                node.setdefault('svis', {}).pop(name, None)
+                node['shutdown'] = [p for p in node['shutdown'] if p != name]
+                continue
             match = re.fullmatch(r'vlan (\d+)', command)
             if match and mode in ('config', 'interface', 'vlan') and node['role'] == 'switch':
                 vid = int(match[1])
@@ -134,6 +151,11 @@ def compile_config(spec, name, text):
                 configure_route(node, command, resolve_interface)
                 continue
             if mode == 'interface':
+                match = re.fullmatch(r'ip ospf cost (\d+)', command)
+                if match and node.get('ospf'):
+                    if interface not in node['ospf']['interfaces']:
+                        raise ValueError('OSPF cost requires an interface with declared OSPF options.')
+                    node['ospf']['interfaces'][interface]['cost'] = int(match[1]); continue
                 helper = re.fullmatch(r'(no )?ip helper-address (\S+)', command)
                 if helper:
                     from .dhcp_relay import configure_helper
@@ -282,4 +304,9 @@ def compile_config(spec, name, text):
             raise ValueError('Unsupported command or context: ' + source.strip())
         except (ValueError, KeyError, IndexError) as error:
             raise ValueError(f'Line {line_number}: {error}') from error
-    return validate(candidate)
+    candidate = validate(candidate)
+    previous = next(n for n in spec['nodes'] if n['name'] == node['name'])
+    if previous.get('ospf') or node.get('ospf'):
+        from .ospf import validate_change
+        validate_change(node, previous)
+    return candidate

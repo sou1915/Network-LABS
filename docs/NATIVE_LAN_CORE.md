@@ -2491,11 +2491,10 @@ supported. Transit interfaces use point-to-point network type; passive LANs
 are announced without sending/receiving OSPF Hello packets. ECMP is disabled.
 
 There is no OSPFv3, multi-area, DR/BDR broadcast profile, authentication, BFD,
-redistribution, default origination, VRF, SVI or IOS OSPF adapter in this first
-profile. Static/default routes, other managed services and untracked startup
-commands on OSPF routers are rejected. Live network edits through the managed
-adapter are refused until it can coordinate the daemon. Use the manifest and
-recreate the lab for policy changes. Real BIRD show commands remain available.
+redistribution, default origination, VRF or SVI in this first profile. Static/default routes, other managed services and untracked startup
+commands on OSPF routers are rejected. The partial IOS adapter supports the OSPF-only edits described below. Changes
+to addresses, link state, router ID or timers still require the manifest and
+lab recreation. Real BIRD show commands remain available.
 
 A bounded failure test can be done directly in R1, then restored:
 
@@ -2529,3 +2528,70 @@ drift refusal and restore. Baseline host links/routes/rules/nft/forwarding are
 checked after cleanup.
 
 Reference: [BIRD 2 configuration and OSPF documentation](https://bird.nic.cz/doc/bird-2.16.2.html).
+
+
+### Managed OSPF configuration from the partial IOS adapter
+
+Recreate old `ospf-lan` examples once: the new example enables `dialect: ios-basic`
+on the three routers. It declares one process (`process_id`, default 1), not
+multiple OSPF processes or Cisco firmware. Its real BIRD daemon remains running
+while managed commands reload its configuration. Reload completion does not
+mean neighbors have converged or traffic has succeeded.
+
+```bash
+# Preferred R1-to-R2 cost becomes 100, selecting R1-to-R3-to-R2 instead.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'configure terminal\ninterface eth0\nip ospf cost 100\nend'
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show route
+sudo python3 -m network_labs.appliances exec ospf-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.10
+# Restore the primary cost.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\ninterface eth0\nip ospf cost 10\nend'
+
+# Stop R1's OSPF adjacency on eth0 while retaining its connected IP/link.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\nrouter ospf 1\npassive-interface eth0\nend'
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\nrouter ospf 1\nno passive-interface eth0\nend'
+
+# Disable/re-enable OSPF on the subnet selected by this stored statement.
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\nrouter ospf 1\nno network 10.0.12.0 0.0.0.3 area 0\nend'
+sudo python3 -m network_labs.appliances configure ospf-lan R1 \
+  --text $'conf t\nrouter ospf 1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend'
+```
+
+Supported commands select the existing process, set an explicit cost 1..65535,
+set/unset passive on a declared OSPF interface, and add/remove `network ADDRESS
+WILDCARD area 0` (also `area 0.0.0.0`). Wildcards must be contiguous; `0.0.0.0`
+selects an exact local address. The command selects interfaces by their primary
+IPv4 address; it does not advertise an arbitrary remote prefix. A selector must
+match an existing numbered physical interface. Non-zero areas, process creation
+or deletion, router-ID/timer edits, passive-default, cost auto-calculation,
+interface-level `ip ospf PROCESS area AREA` and other syntax are rejected.
+
+`ospf.networks` stores up to 64 canonical IPv4 selector prefixes. When omitted,
+it defaults to the subnet of each declared OSPF interface. All selectors are in
+area 0. Overlapping selectors remain independent: removing one disables an
+interface only when no remaining selector matches. Interface cost/passive options
+remain stored while deselected. At least one selected non-passive transit
+interface must remain; an empty/stopped process is outside this profile.
+No bandwidth-based automatic cost is claimed: the manifest default remains 10.
+
+Before journaling, live edits require a matching managed config file and a BIRD
+control response with no pending or unconfirmed reconfiguration. The candidate
+file is syntax-checked with the real BIRD parser, replaced atomically, and loaded
+through its control socket. Apply failures reload the previous policy; interrupted
+or failed rollback can use `recover`. The adapter does not kill/restart the daemon
+or touch interfaces/addresses. A missing daemon is refused; recreate the lab if
+it was externally stopped. These observations cannot exclude concurrent external
+BIRD control commands; don't mix unmanaged BIRD edits with managed configuration.
+
+The expanded native OSPF test verifies cost-based next-hop/TTL changes without
+physical failure, passive adjacency loss and recovery, overlapping network selector
+removal/re-add, preserved BIRD/container/link identities, unchanged revision for
+idempotent edits, pre-journal drift refusal, rollback after actual BIRD reload,
+failed rollback followed by recovery, and save/restore. The general tests cover
+invalid contexts, wildcard/profile limits and pending/unknown control responses.

@@ -26,7 +26,8 @@ def validate_ospf(node):
     policy = node.setdefault('ospf', None)
     if policy is None:
         return
-    keys(policy, ('router_id', 'interfaces', 'hello', 'dead'), 'OSPF')
+    keys(policy, ('router_id', 'interfaces', 'hello', 'dead', 'process_id', 'networks'), 'OSPF')
+    integer(policy.setdefault('process_id', 1), 1, 65535, 'OSPF process ID')
     if node['runtime'] != 'oci' or node['role'] != 'router' or not node['forwarding']:
         raise ValueError('OSPF requires a forwarding OCI router.')
     if any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
@@ -55,7 +56,20 @@ def validate_ospf(node):
         integer(port.setdefault('cost', 10), 1, 65535, 'OSPF cost')
         if type(port.setdefault('passive', False)) is not bool:
             raise ValueError('OSPF passive must be boolean.')
-    if all(port['passive'] for port in ports.values()):
+    selectors = policy.setdefault('networks', [str(network) for network in networks])
+    if not isinstance(selectors, list) or not 1 <= len(selectors) <= 64:
+        raise ValueError('OSPF requires 1..64 IPv4 network selectors.')
+    canonical = []
+    for value in selectors:
+        if not isinstance(value, str):
+            raise ValueError('OSPF network selectors must be IPv4 prefix text.')
+        selector = ipaddress.IPv4Network(value, strict=True)
+        matches = {name for name, address in node['interfaces'].items() if address and ipaddress.IPv4Interface(address).ip in selector}
+        if not matches or matches - set(ports):
+            raise ValueError('OSPF network selector must match numbered interfaces with declared OSPF options.')
+        canonical.append(str(selector))
+    policy['networks'] = sorted(set(canonical))
+    if all(ports[name]['passive'] for name in enabled_interfaces(node)):
         raise ValueError('OSPF requires at least one active transit interface.')
     integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')
     integer(policy.setdefault('dead', 4), 2, 240, 'OSPF dead')
@@ -65,13 +79,41 @@ def validate_ospf(node):
     policy['interfaces'] = dict(sorted(ports.items()))
 
 
+def enabled_interfaces(node):
+    policy = node['ospf']
+    selectors = [ipaddress.IPv4Network(value) for value in policy['networks']]
+    return {name: port for name, port in policy['interfaces'].items()
+            if any(ipaddress.IPv4Interface(node['interfaces'][name]).ip in selector for selector in selectors)}
+
+
+def configure_network(node, address, wildcard, remove=False):
+    # Accept contiguous IOS wildcard masks, including exact-host 0.0.0.0.
+    address = ipaddress.IPv4Address(address)
+    bits = int(ipaddress.IPv4Address(wildcard))
+    if bits & (bits + 1):
+        raise ValueError('OSPF adapter supports contiguous wildcard masks only.')
+    prefix = ipaddress.IPv4Network((int(address) & (0xffffffff ^ bits), 32 - bits.bit_length()))
+    policy = node['ospf']
+    value = str(prefix)
+    if remove:
+        policy['networks'] = [entry for entry in policy['networks'] if entry != value]
+        return
+    matches = [name for name, local in node['interfaces'].items() if local and ipaddress.IPv4Interface(local).ip in prefix]
+    if not matches:
+        raise ValueError('OSPF network must match an existing numbered physical interface.')
+    for name in matches:
+        policy['interfaces'].setdefault(name, {'cost': 10, 'passive': False})
+    if value not in policy['networks']:
+        policy['networks'].append(value)
+
+
 def config(node):
     policy = node['ospf']
     lines = [f'router id {policy["router_id"]};', 'log stderr all;', 'protocol device { scan time 1; }',
              'protocol kernel kernel4 { scan time 1; ipv4 { import none; export where source = RTS_OSPF; }; }',
              'protocol ospf v2 ospf4 {', '  ipv4 { import where source = RTS_OSPF; export none; };',
              '  ecmp no;', '  area 0.0.0.0 {']
-    for name, port in policy['interfaces'].items():
+    for name, port in enabled_interfaces(node).items():
         lines.append(f'    interface "{name}" {{ type ptp; cost {port["cost"]}; stub {"yes" if port["passive"] else "no"}; hello {policy["hello"]}; dead {policy["dead"]}; }};')
     return '\n'.join(lines + ['  };', '}']) + '\n'
 
@@ -81,18 +123,22 @@ def prepare_files(bundle, node):
         (Path(bundle) / 'files/bird.conf').write_text(config(node))
 
 
-def read_cli(manager, name, command):
-    # All call sites use fixed show commands. Bound output inside the container;
+def _cli(manager, name, command, *, readonly=True):
+    # All call sites use fixed show/configure commands. Bound output inside the container;
     # pipefail prevents a failed client from becoming an apparently empty RIB.
     try:
         result = manager.crun('exec', name, '/bin/sh', '-c',
-            'set -o pipefail; /usr/sbin/birdc -v -r -s /run/bird.ctl "$@" | /bin/busybox head -c 65537',
-            'bird-observer', *command.split(), check=False, timeout=3)
+            'set -o pipefail; /usr/sbin/birdc -v -s /run/bird.ctl "$@" | /bin/busybox head -c 65537',
+            'bird-control', *(['-r'] if readonly else []), *command.split(), check=False, timeout=3)
         if result.returncode or len(result.stdout) > 65536 or re.search(r'(?m)^[89]\d{3}', result.stdout):
             return None
         return result.stdout
     except (OSError, subprocess.TimeoutExpired):
         return None
+
+
+def read_cli(manager, name, command):
+    return _cli(manager, name, command)
 
 
 def start_servers(manager):
@@ -121,3 +167,48 @@ def observe(manager, node):
 
 def dynamic_route(node, route):
     return node.get('ospf') is not None and route.get('protocol') in ('bird', 192, '192')
+
+
+def validate_change(node, previous):
+    if not node.get('ospf') or not previous.get('ospf'):
+        raise ValueError('OSPF service adapter requires an existing process; create/remove it through the manifest.')
+    if {k: v for k, v in node.items() if k != 'ospf'} != {k: v for k, v in previous.items() if k != 'ospf'}:
+        raise ValueError('OSPF service adapter accepts OSPF-only edits; recreate the lab for network changes.')
+    if any(node['ospf'][key] != previous['ospf'][key] for key in ('router_id', 'process_id', 'hello', 'dead')):
+        raise ValueError('Live OSPF adapter supports network selectors, passive interfaces and costs only.')
+
+
+def _done(text):
+    return (text is not None and re.search(r'(?m)^0003[ -]', text) is not None
+            and re.search(r'(?m)^(000[456]|0022)[ -]', text) is None)
+
+
+def preflight_change(manager, node, previous):
+    from .runtime import RuntimeFailure
+    validate_change(node, previous)
+    if not observe_config(manager, node['name'], '/lab/bird.conf', config(previous))['configuration_verified']:
+        raise RuntimeFailure('OSPF configuration drift; refusing live change.')
+    if not _done(_cli(manager, node['name'], 'configure status', readonly=False)):
+        raise RuntimeFailure('OSPF control unavailable or reconfiguration pending; refusing live change.')
+
+
+def apply_change(manager, index, node, previous):
+    """Reload BIRD only; never touch links, addresses or static routes."""
+    from .runtime import RuntimeFailure
+    validate_change(node, previous)
+    path = manager.directory / node['name'] / 'files/bird.conf'
+    temporary = path.with_suffix('.conf.new')
+    try:
+        temporary.write_text(config(node))
+        manager.crun('exec', node['name'], DAEMON, '-p', '-c', '/lab/bird.conf.new', timeout=3)
+        temporary.replace(path)
+        response = _cli(manager, node['name'], 'configure', readonly=False)
+        if response is None or re.search(r'(?m)^000[34][ -]', response) is None:
+            raise RuntimeFailure('BIRD did not accept OSPF reconfiguration.')
+        deadline = time.monotonic() + 5
+        while not _done(_cli(manager, node['name'], 'configure status', readonly=False)):
+            if time.monotonic() >= deadline:
+                raise RuntimeFailure('BIRD reconfiguration did not complete; adjacency convergence is separate.')
+            time.sleep(0.1)
+    finally:
+        temporary.unlink(missing_ok=True)

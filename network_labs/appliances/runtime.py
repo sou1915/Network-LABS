@@ -468,7 +468,11 @@ class Manager:
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
         if previous['nodes'][index].get('ospf') is not None or candidate['nodes'][index].get('ospf') is not None:
-            raise ValueError('OSPF live network edits require a service adapter; recreate the lab.')
+            from .ospf import preflight_change, apply_change
+            preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
+            if candidate['nodes'][index] == previous['nodes'][index]:
+                return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
+            configure = apply_change
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('dhcp_relay') is not None or candidate['nodes'][index].get('dhcp_relay') is not None:
@@ -543,7 +547,10 @@ class Manager:
                     from .firewall import apply
                     state.setdefault('firewall_fingerprints', {})[node['name']] = apply(self, index, node)
                 pending = state['pending_spec']['nodes'][index]
-                if node.get('dhcp_relay') is not None or pending.get('dhcp_relay') is not None:
+                if node.get('ospf') is not None or pending.get('ospf') is not None:
+                    from .ospf import apply_change
+                    apply_change(self, index, node, pending)
+                elif node.get('dhcp_relay') is not None or pending.get('dhcp_relay') is not None:
                     from .dhcp_relay import apply_change
                     apply_change(self, index, node, pending)
                 else:

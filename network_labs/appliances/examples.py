@@ -399,7 +399,7 @@ def ospf_lab(rootfs):
          {'eth0': {'cost': 30}, 'eth1': {'cost': 10}})]
     for name, router_id, interfaces, ports in definitions:
         nodes.append({'name': name, 'runtime': 'oci', 'role': 'router', 'rootfs': rootfs, 'interfaces': interfaces,
-                      'forwarding': True, 'ospf': {'router_id': router_id, 'interfaces': ports}})
+                      'forwarding': True, 'dialect': 'ios-basic', 'ospf': {'router_id': router_id, 'interfaces': ports}})
     return validate({'version': 2, 'name': 'ospf-lan', 'nodes': nodes, 'links': [
         [['PC1', 'eth0'], ['R1', 'eth2']], [['PC2', 'eth0'], ['R2', 'eth2']],
         [['R1', 'eth0'], ['R2', 'eth0']], [['R1', 'eth1'], ['R3', 'eth0']],

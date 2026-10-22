@@ -394,9 +394,65 @@ class RealContainerTests(unittest.TestCase):
                     wait(lambda: (route() or {}).get('gateway') == '10.0.12.2', 'primary recovered')
                     ping(62)
                     manager.ns(2, 'ip', 'link', 'set', 'eth1', 'up'); converged()
+                    # Reconfigure the real daemon through the managed IOS subset.
+                    from network_labs.appliances.ospf import apply_change
+                    def cli(text):
+                        return manager.configure_ios('R1', 'conf t\n' + text + '\nend')
+                    def identity():
+                        pid = manager.crun('exec', 'R1', '/bin/cat', '/run/bird.pid').stdout
+                        state = json.loads(manager.crun('state', 'R1').stdout)
+                        ports = {(row['ifname'], row['ifindex']) for row in json.loads(manager.ns(2, 'ip', '-j', 'link', 'show').stdout)}
+                        return pid, state['pid'], ports
+                    original_identity = identity()
+                    changed = cli('interface eth0\nip ospf cost 100')
+                    wait(lambda: (route() or {}).get('gateway') == '10.0.13.2', 'CLI cost selects backup without physical failure')
+                    ping(61)
+                    self.assertEqual(identity(), original_identity)
+                    self.assertTrue(cli('interface eth0\nip ospf cost 100')['unchanged'])
+                    self.assertEqual(manager.read()['revision'], changed['revision'])
+                    cli('interface eth0\nip ospf cost 10'); converged()
+                    cli('router ospf 1\npassive-interface eth0')
+                    wait(lambda: (route() or {}).get('gateway') == '10.0.13.2', 'passive transit removes primary adjacency')
+                    ping(61)
+                    cli('router ospf 1\nno passive-interface eth0'); converged()
+                    cli('router ospf 1\nnetwork 10.0.12.1 0.0.0.0 area 0\nno network 10.0.12.0 0.0.0.3 area 0')
+                    converged()  # Exact-host selector still enables eth0.
+                    cli('router ospf 1\nno network 10.0.12.1 0.0.0.0 area 0')
+                    wait(lambda: (route() or {}).get('gateway') == '10.0.13.2', 'network removal disables OSPF on eth0')
+                    ping(61)
+                    self.assertEqual(manager.read()['spec']['nodes'][2]['ospf']['interfaces']['eth0']['cost'], 10)
+                    cli('router ospf 1\nnetwork 10.0.12.0 0.0.0.3 area 0'); converged()
+                    # Apply genuinely loads the changed policy before an injected
+                    # failure; rollback reloads the old file without killing BIRD.
+                    before = manager.read()['revision']
+                    calls = []
+                    def fail_after_reload(actual_manager, index, node, previous):
+                        apply_change(actual_manager, index, node, previous)
+                        calls.append(node['ospf']['interfaces']['eth0']['cost'])
+                        if len(calls) == 1:
+                            raise RuntimeFailure('injected failure after actual OSPF reload')
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_after_reload):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                            cli('interface eth0\nip ospf cost 100')
+                    self.assertEqual(calls, [100, 10]); self.assertEqual(manager.read()['revision'], before)
+                    self.assertEqual(manager.read()['phase'], 'running'); converged()
+                    def fail_both(actual_manager, index, node, previous):
+                        apply_change(actual_manager, index, node, previous)
+                        raise RuntimeFailure('injected post-reload apply and rollback failure')
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_both):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                            cli('interface eth0\nip ospf cost 100')
+                    self.assertEqual(manager.read()['phase'], 'configuration-failed')
+                    manager.recover(); self.assertEqual(manager.read()['phase'], 'running'); converged()
+                    self.assertEqual(identity(), original_identity)
                     path = manager.directory / 'R1/files/bird.conf'; original = path.read_text()
                     try:
                         path.write_text(original + '# drift\n')
+                        before = manager.read()['revision']
+                        with self.assertRaisesRegex(RuntimeFailure, 'OSPF configuration drift'):
+                            cli('interface eth0\nip ospf cost 100')
+                        self.assertEqual(manager.read()['revision'], before)
+                        self.assertEqual(manager.read()['phase'], 'running')
                         with self.assertRaisesRegex(RuntimeFailure, 'OSPF'):
                             manager.write_startup()
                     finally:
