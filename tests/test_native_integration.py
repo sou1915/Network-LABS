@@ -362,12 +362,14 @@ class RealContainerTests(unittest.TestCase):
                 wait(lambda: (route() or {}).get('gateway') == '10.0.12.2', 'primary OSPF FIB route')
                 self.assertIn(route().get('protocol'), ('bird', 192, '192'))
                 ping(62)
-            def record(filename, node, interface):
+            def record(filename, node, interface, expression='ip proto 89', action=None):
                 event = threading.Event(); path = Path(folder) / filename
                 future = pool.submit(capture, Manager(spec['name']), node, interface, path,
-                                     seconds=3, packets=100, expression='ip proto 89', ready=event.set)
+                                     seconds=3, packets=100, expression=expression, ready=event.set)
                 if not event.wait(5):
                     future.result(timeout=5); self.fail('OSPF capture not ready')
+                if action is not None:
+                    action()
                 result = future.result(timeout=7)
                 return result['captured_packets'], run(['tcpdump', '-nn', '-vv', '-r', str(path)]).stdout
             try:
@@ -406,7 +408,15 @@ class RealContainerTests(unittest.TestCase):
                     original_identity = identity()
                     changed = cli('interface eth0\nip ospf cost 100')
                     wait(lambda: (route() or {}).get('gateway') == '10.0.13.2', 'CLI cost selects backup without physical failure')
-                    ping(61)
+                # Cost is directional: request crosses three routers, reply two.
+                # Capture outside the manager lock so the observer can initialize.
+                count, packets = record('ospf-cost-request.pcap', 'PC2', 'eth0',
+                                        expression='icmp and src host 192.0.2.10 and icmp[0] = 8', action=lambda: ping(62))
+                self.assertGreater(count, 0); self.assertIn('ttl 61', packets)
+                self.assertIn('echo request', packets)
+                reverse = json.loads(manager.ns(3, 'ip', '-j', 'route', 'show', '192.0.2.0/24').stdout)
+                self.assertEqual(reverse[0]['gateway'], '10.0.12.1')
+                with manager.locked():
                     self.assertEqual(identity(), original_identity)
                     self.assertTrue(cli('interface eth0\nip ospf cost 100')['unchanged'])
                     self.assertEqual(manager.read()['revision'], changed['revision'])

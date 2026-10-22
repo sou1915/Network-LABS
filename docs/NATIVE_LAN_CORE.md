@@ -2589,8 +2589,9 @@ or touch interfaces/addresses. A missing daemon is refused; recreate the lab if
 it was externally stopped. These observations cannot exclude concurrent external
 BIRD control commands; don't mix unmanaged BIRD edits with managed configuration.
 
-The expanded native OSPF test verifies cost-based next-hop/TTL changes without
-physical failure, passive adjacency loss and recovery, overlapping network selector
+The expanded native OSPF test verifies cost-based next-hop changes without
+physical failure, including captured request TTL 61 at PC2 while replies retain
+TTL 62 on their unchanged reverse path, passive adjacency loss and recovery, overlapping network selector
 removal/re-add, preserved BIRD/container/link identities, unchanged revision for
 idempotent edits, pre-journal drift refusal, rollback after actual BIRD reload,
 failed rollback followed by recovery, and save/restore. The general tests cover
