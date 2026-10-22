@@ -61,3 +61,76 @@ class ServiceAdapterTests(unittest.TestCase):
             relay.assert_called_once_with(manager, 1, spec['nodes'][1], pending['nodes'][1])
             self.assertNotIn('SW1', [call.args[2]['name'] for call in ospf.call_args_list])
         self.assertEqual(state['phase'], 'running'); self.assertNotIn('pending_spec', state)
+
+
+    def test_scoped_recovery_preserves_other_nodes_and_clears_target(self):
+        spec = ospf_dhcp_lab('/rootfs'); pending = copy.deepcopy(spec)
+        pending['nodes'][2]['ospf']['interfaces']['eth0']['cost'] = 40
+        state = {'phase': 'configuration-failed', 'spec': spec, 'pending_spec': pending, 'pending_node': 'R1'}
+        manager = Mock(); manager.read.return_value = state
+        with patch('network_labs.appliances.ospf.apply_change') as ospf, \
+             patch('network_labs.appliances.dhcp_relay.apply_change') as relay, \
+             patch('network_labs.appliances.lan.configure') as lan:
+            Manager.recover(manager)
+            ospf.assert_called_once_with(manager, 2, spec['nodes'][2], pending['nodes'][2])
+            relay.assert_not_called(); lan.assert_not_called()
+        self.assertNotIn('pending_node', state); self.assertNotIn('pending_spec', state)
+        self.assertEqual(state['phase'], 'running')
+
+    def test_scoped_equal_manifest_still_reconciles_target(self):
+        # A failed idempotent LAN operation may have altered kernel state.
+        spec = ospf_dhcp_lab('/rootfs')
+        state = {'phase': 'configuring', 'spec': spec, 'pending_spec': copy.deepcopy(spec), 'pending_node': 'SW2'}
+        manager = Mock(); manager.read.return_value = state
+        with patch('network_labs.appliances.ospf.apply_change') as ospf, \
+             patch('network_labs.appliances.dhcp_relay.apply_change') as relay, \
+             patch('network_labs.appliances.lan.configure') as lan:
+            Manager.recover(manager)
+            lan.assert_called_once_with(manager, 4, spec['nodes'][4], spec['nodes'][4])
+            ospf.assert_not_called(); relay.assert_not_called()
+
+    def test_invalid_scoped_journal_refuses_before_touching_any_node(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        for target, other, topology in ((None, False, False), ('missing', False, False),
+                                        ('R1', True, False), ('R1', False, True)):
+            spec = ospf_dhcp_lab('/rootfs'); pending = copy.deepcopy(spec)
+            if other:
+                pending['nodes'][1]['dhcp_relay'] = None
+            if topology:
+                pending['links'] = []
+            state = {'phase': 'configuration-failed', 'spec': spec, 'pending_spec': pending, 'pending_node': target}
+            manager = Mock(); manager.read.return_value = state
+            with self.subTest(target=target, other=other, topology=topology), \
+                 patch('network_labs.appliances.ospf.apply_change') as ospf, \
+                 patch('network_labs.appliances.dhcp_relay.apply_change') as relay, \
+                 patch('network_labs.appliances.lan.configure') as lan:
+                with self.assertRaisesRegex(RuntimeFailure, 'scoped recovery journal'):
+                    Manager.recover(manager)
+                ospf.assert_not_called(); relay.assert_not_called(); lan.assert_not_called()
+                manager.save.assert_not_called()
+            self.assertIn('pending_node', state); self.assertEqual(state['phase'], 'configuration-failed')
+
+    def test_failed_transaction_journals_target_before_apply(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        spec = ospf_dhcp_lab('/rootfs'); pending = copy.deepcopy(spec)
+        pending['nodes'][2]['ospf']['interfaces']['eth0']['cost'] = 40
+        state = {'phase': 'running', 'spec': spec, 'revision': 0}
+        manager = Mock(); manager.read.return_value = state
+        def fail(*args):
+            self.assertEqual(state['pending_node'], 'R1')
+            self.assertIn('pending_spec', state)
+            raise RuntimeFailure('injected')
+        with patch('network_labs.appliances.ospf.preflight_change'), \
+             patch('network_labs.appliances.ospf.apply_change', side_effect=fail):
+            with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                Manager._configure_network(manager, 'R1', pending, 'test')
+        self.assertEqual(state['phase'], 'configuration-failed'); self.assertEqual(state['pending_node'], 'R1')
+
+    def test_multi_vlan_helpers_keep_other_pool_and_ospf_policy(self):
+        from network_labs.appliances.examples import ospf_dhcp_multi_lab
+        spec = ospf_dhcp_multi_lab('/rootfs')
+        result = compile_config(spec, 'SW1', 'conf t\ninterface vlan10\nno ip helper-address 198.18.0.3\nend')
+        self.assertEqual(result['nodes'][1]['dhcp_relay']['interface'], 'vlan30')
+        self.assertEqual(result['nodes'][1]['ospf'], spec['nodes'][1]['ospf'])
+        self.assertEqual(result['nodes'][5]['dhcp_pools'], spec['nodes'][5]['dhcp_pools'])
+        self.assertEqual(compile_config(result, 'SW1', 'conf t\ninterface vlan10\nip helper-address 198.18.0.3\nend'), spec)

@@ -2916,3 +2916,71 @@ policies and checks host links/routes/rules/nft/forwarding after cleanup.
 Restore reacquires a lease and reconverges OSPF; runtime leases/neighbors are not
 snapshotted. Existing single-service profile limits remain in force; this does
 not enable DHCP/DNS/LLDP/security services arbitrarily on every OSPF node.
+
+
+### Two DHCP client VLANs with OSPF and scoped recovery
+
+`example --ospf-dhcp-multi` extends the previous composition to seven nodes:
+
+| Node/interface | Network | Purpose |
+|---|---|---|
+| PC1 / SW1 vlan10 | 192.0.2.0/24 | DHCP reservation .100, gateway .1 |
+| PC3 / SW1 vlan30 | 198.51.100.0/24 | Independent DHCP reservation .100, gateway .1 |
+| SW1 vlan20 / SW2 / R1 eth0 | 198.18.0.0/29 | Tagged VLAN20 transit; broadcast OSPF |
+| DHCP1 eth0 | 198.18.0.3/29 | Two remote pools; explicit return route to each client subnet |
+| R1 eth1 / PC2 | 203.0.113.0/24 | Remote LAN, PC2 .10 and gateway .1 |
+
+Both client SVIs are passive OSPF advertisements. R1 learns both client prefixes;
+SW1 learns the remote LAN. The VLAN20 trunk carries transit traffic, while the
+two DHCP client ports remain in separate access VLANs. Inter-VLAN client traffic
+is routed by SW1 (BusyBox TTL 63), and traffic to PC2 crosses SW1 and R1 (TTL 62).
+The server is still on-link to the relay upstream; multi-hop helpers are not added.
+No DNS service is configured.
+
+Use the BIRD-and-dnsmasq rootfs from the preceding section:
+
+```bash
+python3 -m network_labs.appliances example --ospf-dhcp-multi \
+  --rootfs "$HOME/network-labs-ospf-dhcp-rootfs" > ospf-dhcp-multi.json
+sudo python3 -m network_labs.appliances start ospf-dhcp-multi.json
+sudo python3 -m network_labs.appliances exec ospf-dhcp-multi-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.100
+sudo python3 -m network_labs.appliances exec ospf-dhcp-multi-lan PC3 -- \
+  /bin/ping -c 3 203.0.113.10
+sudo python3 -m network_labs.appliances exec ospf-dhcp-multi-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show route
+sudo python3 -m network_labs.appliances configure ospf-dhcp-multi-lan SW1 \
+  --text $'conf t\ninterface vlan10\nno ip helper-address 198.18.0.3\nend'
+sudo python3 -m network_labs.appliances configure ospf-dhcp-multi-lan SW1 \
+  --text $'conf t\ninterface vlan10\nip helper-address 198.18.0.3\nend'
+```
+
+Wait for actual leases and OSPF convergence after start. Removing VLAN10's helper
+retains VLAN30's helper and both routing advertisements. The shared relay daemon
+restarts briefly for a helper change; uninterrupted DHCP during that restart is
+not guaranteed. Once loaded, the remaining VLAN30 helper can handle fresh DORA
+while VLAN10 discovery receives no offer. Existing leases can still route.
+
+New network and firewall transactions persist `pending_node` alongside the
+pending manifest **before** applying changes. After failed rollback, `recover`
+reconciles that node only, preserving services on unrelated nodes. It validates
+the target name/runtime, node ordering and that the other declarations/topology
+are unchanged before touching any node. An invalid scoped journal is retained
+and refused. Equal desired/pending declarations still reconcile the target:
+a partially executed idempotent operation may have changed actual kernel state.
+Successful commit, rollback or recovery clears both journal fields.
+
+Older journals without `pending_node` retain the legacy all-node reconciliation
+behavior for compatibility. This marker scopes a single-node transaction; it is
+not a distributed transaction or a filesystem/lease/adjacency snapshot. Recovery
+on the target still uses the appropriate existing service or LAN adapter.
+
+The privileged multi-VLAN case captures DORA and the distinct giaddr for both
+pools, observes zero DHCP packets on released PC1's VLAN during fresh PC3 DORA,
+checks actual addresses/default gateways, both learned return routes and routed
+TTL-63/TTL-62 traffic. It removes only VLAN10's helper, verifies unanswered fresh
+VLAN10 discovery and successful fresh VLAN30 acquisition, restores the helper,
+then injects failure after an actual OSPF cost reload on R1 and fails rollback.
+Scoped recovery restores R1 while preserving SW1's real BIRD and relay PIDs.
+Save/stop/restore reacquires both reserved leases and reconverges OSPF. Host
+links/routes/rules/nft/forwarding remain checked after cleanup.

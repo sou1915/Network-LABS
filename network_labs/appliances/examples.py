@@ -476,3 +476,26 @@ def ospf_dhcp_lab(rootfs):
             'reservations': [{'mac': '02:00:00:00:40:01', 'address': '192.0.2.100'}]}]}})
     spec['links'].append([['SW2', 'eth2'], ['DHCP1', 'eth0']])
     return validate(spec)
+
+
+def ospf_dhcp_multi_lab(rootfs):
+    """Two isolated DHCP client VLANs advertised by the same real OSPF switch."""
+    spec = ospf_dhcp_lab(rootfs)
+    spec['name'] = 'ospf-dhcp-multi-lan'
+    switch, server = spec['nodes'][1], spec['nodes'][5]
+    switch['interfaces']['eth2'] = ''
+    switch['vlans'].append(30)
+    switch['switchports']['eth2'] = {'mode': 'access', 'vlan': 30}
+    switch['svis']['vlan30'] = {'vlan': 30, 'address': '198.51.100.1/24'}
+    switch['ospf']['interfaces']['vlan30'] = {'passive': True}
+    switch['ospf']['networks'].append('198.51.100.0/24')
+    switch['dhcp_relay'] = [switch['dhcp_relay'],
+        {'interface': 'vlan30', 'upstream_interface': 'vlan20', 'server': '198.18.0.3'}]
+    server['routes'].append({'destination': '198.51.100.0/24', 'gateway': '198.18.0.1', 'interface': 'eth0'})
+    server['dhcp_pools']['pools'].append({'network': '198.51.100.0/24', 'start': '198.51.100.100',
+        'end': '198.51.100.110', 'router': '198.51.100.1',
+        'reservations': [{'mac': '02:00:00:00:40:02', 'address': '198.51.100.100'}]})
+    spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+        'interfaces': {'eth0': ''}, 'dhcp_clients': ['eth0'], 'interface_macs': {'eth0': '02:00:00:00:40:02'}})
+    spec['links'].append([['PC3', 'eth0'], ['SW1', 'eth2']])
+    return validate(spec)

@@ -692,6 +692,145 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_aj_multi_vlan_ospf_dhcp_isolation_helpers_scoped_recovery_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ospf_dhcp_multi_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.ospf import apply_change as apply_ospf, read_cli
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                bird=shutil.which('bird'), birdc=shutil.which('birdc'), dnsmasq=shutil.which('dnsmasq'))
+            spec = ospf_dhcp_multi_lab(rootfs); spec['name'] = 'multi-ospf-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label)
+            def addresses(node):
+                index = 0 if node == 'PC1' else 6
+                return [a['local'] for row in json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
+                        for a in row.get('addr_info', []) if a.get('scope') == 'global']
+            def lease(node):
+                address, gateway, index = ('192.0.2.100', '192.0.2.1', 0) if node == 'PC1' else ('198.51.100.100', '198.51.100.1', 6)
+                wait(lambda: addresses(node) == [address], 'actual lease ' + node)
+                default = json.loads(manager.ns(index, 'ip', '-j', 'route', 'show', 'default').stdout)
+                self.assertTrue(any(row.get('gateway') == gateway for row in default))
+            def signal(node, value):
+                manager.crun('exec', node, '/bin/sh', '-c', '/bin/kill -' + value + ' "$(/bin/cat /run/udhcpc.pid)"')
+            def release(node):
+                signal(node, 'USR2'); wait(lambda: not addresses(node), 'released ' + node)
+            def ping(node, destination, ttl):
+                def probe():
+                    result = manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', destination, check=False)
+                    return result.returncode == 0 and 'ttl=' + str(ttl) in result.stdout
+                wait(probe, 'routed traffic from ' + node)
+            def learned():
+                wait(lambda: 'Full' in (read_cli(manager, 'SW1', 'show ospf neighbors') or ''), 'OSPF adjacency')
+                for prefix in ('192.0.2.0/24', '198.51.100.0/24'):
+                    def route():
+                        rows = json.loads(manager.ns(2, 'ip', '-j', 'route', 'show', prefix).stdout)
+                        return any(r.get('gateway') == '198.18.0.1' and r.get('protocol') in ('bird', 192, '192') for r in rows)
+                    wait(route, 'learned client VLAN route ' + prefix)
+            def traffic():
+                lease('PC1'); lease('PC3'); learned()
+                for node, address in (('PC1', '192.0.2.100'), ('PC3', '198.51.100.100')):
+                    ping(node, '203.0.113.10', 62); ping('PC2', address, 62)
+                ping('PC1', '198.51.100.100', 63); ping('PC3', '192.0.2.100', 63)
+            def pid(path):
+                return manager.crun('exec', 'SW1', '/bin/cat', path).stdout
+            def capture_start(label, node):
+                event = threading.Event(); path = Path(folder) / (label + '.pcap')
+                future = pool.submit(capture, Manager(spec['name']), node, 'eth0', path,
+                    seconds=4, packets=100, expression='udp and (port 67 or port 68)', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('Multi-VLAN capture not ready')
+                return path, future
+            def decoded(item):
+                path, future = item; result = future.result(timeout=8)
+                return result, run(['tcpdump', '-nn', '-vvv', '-r', str(path)]).stdout
+            def helper(remove=False):
+                return manager.configure_ios('SW1', 'conf t\ninterface vlan10\n' + ('no ' if remove else '') + 'ip helper-address 198.18.0.3\nend')
+            try:
+                with manager.locked():
+                    manager.start(spec); traffic()
+                    bird_pid = pid('/run/bird.pid'); release('PC1'); release('PC3')
+                isolated = capture_start('vlan10-isolation', 'PC1')
+                other = capture_start('vlan30-dora', 'DHCP1')
+                with manager.locked():
+                    signal('PC3', 'USR1')
+                result, _ = decoded(isolated); self.assertEqual(result['captured_packets'], 0)
+                _, text = decoded(other)
+                for message in ('Discover', 'Offer', 'Request', 'ACK', 'Gateway-IP 198.51.100.1'):
+                    self.assertIn(message, text)
+                first = capture_start('vlan10-dora', 'DHCP1')
+                with manager.locked():
+                    signal('PC1', 'USR1')
+                _, text = decoded(first)
+                for message in ('Discover', 'Offer', 'Request', 'ACK', 'Gateway-IP 192.0.2.1'):
+                    self.assertIn(message, text)
+                with manager.locked():
+                    traffic(); helper(True)
+                    self.assertEqual(manager.state['spec']['nodes'][1]['dhcp_relay']['interface'], 'vlan30')
+                    self.assertEqual(bird_pid, pid('/run/bird.pid')); traffic(); release('PC1')
+                missing = capture_start('vlan10-no-helper', 'PC1')
+                with manager.locked():
+                    signal('PC1', 'USR1')
+                _, text = decoded(missing)
+                self.assertIn('Discover', text); self.assertNotIn('Offer', text)
+                with manager.locked():
+                    self.assertEqual(addresses('PC1'), []); release('PC3'); learned()
+                available = capture_start('vlan30-helper-still-works', 'DHCP1')
+                with manager.locked():
+                    signal('PC3', 'USR1')
+                _, text = decoded(available)
+                self.assertIn('Offer', text); self.assertIn('ACK', text); self.assertIn('Gateway-IP 198.51.100.1', text)
+                with manager.locked():
+                    lease('PC3'); ping('PC3', '203.0.113.10', 62)
+                    helper(); traffic()
+                    identities = (pid('/run/bird.pid'), pid('/run/dhcp-relay.pid'))
+                    calls = []
+                    def fail_rollback(*args):
+                        calls.append(True)
+                        if len(calls) == 1:
+                            apply_ospf(*args)
+                        raise RuntimeFailure('Injected router OSPF reload/rollback failure')
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_rollback):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                            manager.configure_ios('R1', 'conf t\ninterface eth0\nip ospf cost 40\nend')
+                    self.assertEqual(manager.read()['pending_node'], 'R1')
+                    manager.recover()
+                    self.assertNotIn('pending_node', manager.state); self.assertNotIn('pending_spec', manager.state)
+                    self.assertEqual(identities, (pid('/run/bird.pid'), pid('/run/dhcp-relay.pid')))
+                    self.assertEqual(bird_pid, pid('/run/bird.pid')); traffic()
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(len(saved['nodes'][1]['dhcp_relay']), 2)
+                    self.assertEqual(len(saved['nodes'][5]['dhcp_pools']['pools']), 2)
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); traffic()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_ai_ospf_and_dhcp_relay_real_independent_edits_recover_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

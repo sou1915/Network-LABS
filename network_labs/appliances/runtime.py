@@ -482,7 +482,7 @@ class Manager:
         old_macs = previous['nodes'][index].get('interface_macs', {})
         if set(old_macs) - set(candidate['nodes'][index].get('interface_macs', {})):
             raise ValueError('Live removal of an explicit interface MAC requires stopping and recreating the lab.')
-        state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
+        state['phase'] = 'configuring'; state['pending_spec'] = candidate; state['pending_node'] = name; self.save()
         try:
             configure(self, index, candidate['nodes'][index], previous['nodes'][index])
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as original:
@@ -491,10 +491,10 @@ class Manager:
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as rollback:
                 state['phase'] = 'configuration-failed'; self.save()
                 raise RuntimeFailure(f'Apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
-            state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+            state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
             raise RuntimeFailure(f'Configuration failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
-        state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+        state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
         return {'configured': name, 'revision': state['revision'], 'source': source}
 
     def configure_firewall(self, name, policy):
@@ -509,7 +509,7 @@ class Manager:
         candidate['nodes'][index]['firewall'] = policy
         candidate = validate(candidate)
         previous = state['spec']['nodes'][index]
-        state['phase'] = 'configuring'; state['pending_spec'] = candidate; self.save()
+        state['phase'] = 'configuring'; state['pending_spec'] = candidate; state['pending_node'] = name; self.save()
         try:
             baseline = apply(self, index, candidate['nodes'][index])
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as original:
@@ -518,11 +518,11 @@ class Manager:
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as rollback:
                 state['phase'] = 'configuration-failed'; self.save()
                 raise RuntimeFailure(f'Firewall apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
-            state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+            state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
             raise RuntimeFailure(f'Firewall failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
         state.setdefault('firewall_fingerprints', {})[name] = baseline
-        state['phase'] = 'running'; state.pop('pending_spec'); self.save()
+        state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
     def sessions(self, name, clear=False):
@@ -537,8 +537,18 @@ class Manager:
         state = self.read()
         if state['phase'] not in ('configuring', 'configuration-failed') or 'pending_spec' not in state:
             raise RuntimeFailure('No interrupted network configuration to recover.')
+        target = state.get('pending_node')
+        if 'pending_node' in state:
+            current, pending_nodes = state['spec']['nodes'], state['pending_spec']['nodes']
+            if (not isinstance(target, str) or not any(n['name'] == target and n['runtime'] == 'oci' for n in current)
+                    or {k: v for k, v in state['spec'].items() if k != 'nodes'} !=
+                       {k: v for k, v in state['pending_spec'].items() if k != 'nodes'}
+                    or len(current) != len(pending_nodes)
+                    or any(n['name'] != p['name'] or (n['name'] != target and n != p)
+                           for n, p in zip(current, pending_nodes))):
+                raise RuntimeFailure('Invalid scoped recovery journal; no node configuration was applied.')
         for index, node in enumerate(state['spec']['nodes']):
-            if node['runtime'] == 'oci':
+            if node['runtime'] == 'oci' and (target is None or node['name'] == target):
                 if node.get('firewall') is not None:
                     from .firewall import apply
                     state.setdefault('firewall_fingerprints', {})[node['name']] = apply(self, index, node)
@@ -550,7 +560,7 @@ class Manager:
                         adapter.apply_change(self, index, node, pending)
                 else:
                     configure(self, index, node, pending)
-        state.pop('pending_spec'); state['phase'] = 'running'; self.save()
+        state.pop('pending_spec'); state.pop('pending_node', None); state['phase'] = 'running'; self.save()
 
     def write_startup(self):
         state = self.read()
