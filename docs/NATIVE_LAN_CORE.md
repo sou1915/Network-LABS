@@ -2487,10 +2487,11 @@ The `ospf` manifest defines `router_id`, `interfaces` (each with `cost` and
 `passive`), `hello` and `dead`. Router IDs must be unique in the lab. Defaults
 are cost 10, hello 1 second and dead 4 seconds. Only forwarding OCI routers,
 1..16 UP numbered physical interfaces, disjoint IPv4 subnets and area 0 are
-supported. Transit interfaces use point-to-point network type; passive LANs
-are announced without sending/receiving OSPF Hello packets. ECMP is disabled.
+supported. The older triangle uses point-to-point transit; the broadcast profile
+below adds shared Ethernet DR/BDR election. Passive LANs are announced without
+sending/receiving OSPF Hello packets. ECMP is disabled.
 
-There is no OSPFv3, multi-area, DR/BDR broadcast profile, authentication, BFD,
+There is no OSPFv3, multi-area, NBMA/PtMP profile, authentication, BFD,
 redistribution, default origination, VRF or SVI in this first profile. Static/default routes, other managed services and untracked startup
 commands on OSPF routers are rejected. The partial IOS adapter supports the OSPF-only edits described below. Changes
 to addresses, link state, router ID or timers still require the manifest and
@@ -2641,7 +2642,7 @@ changing the ID of an existing process requires separate delete/create blocks.
 Missing/mismatched IDs on deletion are refused. Creation/removal must not be
 combined with IP/link/static-route or other service changes. The router's
 addresses and forwarding must already be configured. Existing profile limits
-(area 0, numbered point-to-point transit and passive LAN interfaces) still apply.
+(area 0, numbered point-to-point/broadcast transit and passive LAN interfaces) still apply.
 
 Creation checks for executable BIRD assets, existing BIRD processes and conflicting
 managed config/control paths before journaling. Removal verifies the executable
@@ -2656,3 +2657,71 @@ after deletion, container/link survival with a forged PID 1 pidfile, refusal
 without stopping a separate real BIRD daemon, rollback after actual removal
 and after actual creation, failed creation rollback followed by `recover`, and
 save/restore both with the process absent and with its recreated policy active.
+
+
+### Shared Ethernet OSPF broadcast, DR and BDR
+
+`example --ospf-broadcast` creates seven nodes: four routers on a common switch,
+plus PC1 behind R3 and PC2 behind R4. The switch explicitly disables IGMP snooping
+in this example so that this lab exercises OSPF multicast over a plain shared LAN.
+It does not test the coexistence of OSPF with the optional snooping profile.
+
+```bash
+python3 -m network_labs.appliances example --ospf-broadcast \
+  --rootfs "$HOME/network-labs-rootfs-ospf" > ospf-broadcast-lan.json
+sudo python3 -m network_labs.appliances start ospf-broadcast-lan.json
+sudo python3 -m network_labs.appliances exec ospf-broadcast-lan R3 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf interface
+sudo python3 -m network_labs.appliances exec ospf-broadcast-lan R3 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf neighbors
+sudo python3 -m network_labs.appliances exec ospf-broadcast-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.10
+```
+
+The shared transit subnet is `10.0.100.0/24`; router R1..R4 uses address `.1`..`.4`.
+Priorities are 200, 100, 1 and 0. With a fresh simultaneous startup, the example
+expects R1 as DR, R2 as BDR, and R3/R4 as DROther. R3 and R4 normally remain
+2-Way with each other while each forms Full adjacencies with the DR and BDR.
+A 2-Way DROther pair is not, by itself, an adjacency failure. Priority 0 prevents
+R4 becoming DR/BDR but does not stop it exchanging routes or forwarding traffic.
+
+`ospf.interfaces.PORT.network_type` accepts `point-to-point` (the legacy default)
+or `broadcast`. `priority` is an integer 0..255, default 1; values other than 1
+require broadcast. The generated BIRD config explicitly sets network type and,
+for broadcast, election priority and wait timer equal to the declared dead timer.
+The example retains the lab timers hello 1/dead 4 seconds. Do not infer Cisco
+Ethernet defaults from this adapter's legacy point-to-point default.
+
+The partial IOS adapter can change these options on a declared OSPF interface:
+
+```bash
+sudo python3 -m network_labs.appliances configure ospf-broadcast-lan R4 \
+  --text $'conf t\ninterface eth0\nip ospf network broadcast\nip ospf priority 255\nend'
+# Reset priority to 1, then explicitly choose point-to-point if required:
+# conf t / interface eth0 / no ip ospf priority / ip ospf network point-to-point / end
+# For this shared-LAN example, restore R4's broadcast priority 0:
+sudo python3 -m network_labs.appliances configure ospf-broadcast-lan R4 \
+  --text $'conf t\ninterface eth0\nip ospf network broadcast\nip ospf priority 0\nend'
+```
+
+Existing DR/BDR elections are non-preemptive; raising priority or returning an
+older higher-priority router does not force an existing DR out of its role.
+Changing network type may disrupt adjacencies and requires matching peer settings;
+there is no automatic cross-node coordination or computed election. The engine
+only renders policy, reloads BIRD, and observes its actual interface/neighbor text.
+`inspect`/`explain` now include bounded `show ospf interface ospf4` output; missing
+output stays unknown. No inferred DR/BDR or universal convergence flag is supplied.
+
+The native case verifies all initial DR/BDR/DROther roles, actual Full and 2-Way
+neighbors, captured OSPFv2 multicast Hellos, priority-0 exclusion, BDR promotion
+when R1's link goes down, and R1's non-preemptive return. It verifies that real
+PC1/PC2 traffic crosses R3/R4 directly (kernel next hop `.4`, reply TTL 62), even
+while the DR changes. Actual CLI priority changes and point-to-point/broadcast
+reloads are checked against BIRD output, followed by recovered adjacencies and
+traffic. Save/restore preserves the declared type/priority, then new daemons run
+a fresh election; elected roles are not saved. Baseline host links, routes, rules,
+nft policy and forwarding remain checked after cleanup.
+
+References: [BIRD 2 OSPF options](https://bird.nic.cz/doc/bird-2.16.2.html),
+[Cisco OSPF interface states and priority](https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13689-17.html),
+and [Cisco explanation of normal 2-Way neighbors](https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13683-11.html).

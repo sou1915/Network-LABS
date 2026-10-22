@@ -44,7 +44,7 @@ def validate_ospf(node):
         raise ValueError('OSPF requires 1..16 physical interfaces.')
     networks = []
     for name, port in ports.items():
-        keys(port, ('cost', 'passive'), 'OSPF interface')
+        keys(port, ('cost', 'passive', 'network_type', 'priority'), 'OSPF interface')
         if name not in node['interfaces'] or not node['interfaces'][name] or name in node['shutdown']:
             raise ValueError('OSPF interfaces must be UP and statically numbered.')
         local = ipaddress.IPv4Interface(node['interfaces'][name])
@@ -53,6 +53,12 @@ def validate_ospf(node):
         if any(local.network.overlaps(network) for network in networks):
             raise ValueError('OSPF interface subnets must not overlap.')
         networks.append(local.network)
+        network_type = port.setdefault('network_type', 'point-to-point')
+        if network_type not in ('point-to-point', 'broadcast'):
+            raise ValueError('OSPF network_type supports point-to-point or broadcast only.')
+        integer(port.setdefault('priority', 1), 0, 255, 'OSPF priority')
+        if network_type != 'broadcast' and port['priority'] != 1:
+            raise ValueError('OSPF priority other than 1 requires broadcast network type.')
         integer(port.setdefault('cost', 10), 1, 65535, 'OSPF cost')
         if type(port.setdefault('passive', False)) is not bool:
             raise ValueError('OSPF passive must be boolean.')
@@ -114,7 +120,9 @@ def config(node):
              'protocol ospf v2 ospf4 {', '  ipv4 { import where source = RTS_OSPF; export none; };',
              '  ecmp no;', '  area 0.0.0.0 {']
     for name, port in enabled_interfaces(node).items():
-        lines.append(f'    interface "{name}" {{ type ptp; cost {port["cost"]}; stub {"yes" if port["passive"] else "no"}; hello {policy["hello"]}; dead {policy["dead"]}; }};')
+        kind = 'broadcast' if port['network_type'] == 'broadcast' else 'ptp'
+        election = f' priority {port["priority"]}; wait {policy["dead"]};' if kind == 'broadcast' else ''
+        lines.append(f'    interface "{name}" {{ type {kind}; cost {port["cost"]}; stub {"yes" if port["passive"] else "no"}; hello {policy["hello"]}; dead {policy["dead"]};{election} }};')
     return '\n'.join(lines + ['  };', '}']) + '\n'
 
 
@@ -165,9 +173,10 @@ def observe(manager, node):
     result = observe_config(manager, node['name'], '/lab/bird.conf', config(node))
     return {**result, 'source': 'BIRD 2 control socket and managed config file',
             'neighbors': read_cli(manager, node['name'], 'show ospf neighbors'),
+            'interfaces': read_cli(manager, node['name'], 'show ospf interface ospf4'),
             'protocol': read_cli(manager, node['name'], 'show protocols all ospf4'),
             'routes': read_cli(manager, node['name'], 'show route protocol ospf4 all'),
-            'note': 'Actual daemon text; file conformity does not prove loaded policy or convergence. Kernel routes are observed separately. Single area 0, IPv4 point-to-point/passive interfaces only.'}
+            'note': 'Actual daemon text; file conformity does not prove loaded policy or convergence. Kernel routes are observed separately. Single area 0, IPv4 point-to-point/broadcast and passive interfaces. DR/BDR and 2-Way states are actual daemon observations.'}
 
 
 def dynamic_route(node, route):

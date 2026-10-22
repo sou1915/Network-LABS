@@ -574,6 +574,124 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_af_ospf_broadcast_real_election_two_way_failover_cli_and_restore(self):
+        import re
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from network_labs.appliances.examples import ospf_broadcast_lab
+        from network_labs.appliances.ospf import read_cli
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', bird=shutil.which('bird'), birdc=shutil.which('birdc'))
+            spec = ospf_broadcast_lab(rootfs); spec['name'] = 'ospf-bcast-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def iface(node):
+                return read_cli(manager, node, 'show ospf interface ospf4 "eth0"') or ''
+            def field(node, label):
+                match = re.search(re.escape(label) + r':\s+(\S+)', iface(node))
+                return match[1] if match else None
+            def neighbor(node, other):
+                text = read_cli(manager, node, 'show ospf neighbors') or ''
+                value = str(other) + '.' + str(other) + '.' + str(other) + '.' + str(other)
+                match = re.search(re.escape(value) + r'\s+\d+\s+(\S+)', text)
+                return match[1].split('/')[0] if match else None
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label + '; interface snapshots=' + repr({name: iface(name) for name in ('R1', 'R2', 'R3', 'R4')}))
+            def elected(dr, bdr, names=('R1', 'R2', 'R3', 'R4')):
+                wait(lambda: all(field(name, 'Designated router (ID)') == dr and field(name, 'Backup designated router (ID)') == bdr for name in names), 'observed DR=' + dr + ', BDR=' + bdr)
+            def route():
+                rows = json.loads(manager.ns(5, 'ip', '-j', 'route', 'show', '198.51.100.0/24').stdout)
+                return rows[0] if rows else {}
+            def traffic():
+                wait(lambda: route().get('gateway') == '10.0.100.4', 'R3 kernel next hop directly to R4, not through DR')
+                self.assertIn(route().get('protocol'), ('bird', 192, '192'))
+                def ping():
+                    result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False)
+                    return result.returncode == 0 and 'ttl=62' in result.stdout
+                wait(ping, 'real PC1/PC2 traffic across the shared LAN')
+            def initial():
+                elected('1.1.1.1', '2.2.2.2')
+                wait(lambda: field('R1', 'State') == 'DR' and field('R2', 'State') == 'Backup' and
+                     field('R3', 'State') == field('R4', 'State') == 'DROther', 'initial interface roles')
+                wait(lambda: neighbor('R3', 4) == neighbor('R4', 3) == '2-Way', 'normal DROther-to-DROther 2-Way')
+                wait(lambda: all(neighbor(name, other) == 'Full' for name in ('R3', 'R4') for other in (1, 2)), 'Full adjacencies with DR and BDR')
+                self.assertEqual(field('R4', 'Priority'), '0'); traffic()
+            try:
+                with manager.locked():
+                    manager.start(spec); initial()
+                event = threading.Event(); path = Path(folder) / 'ospf-broadcast.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'R3', 'eth0', path, seconds=3, packets=100,
+                                     expression='ip proto 89', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('Broadcast OSPF capture not ready')
+                captured = future.result(timeout=7)
+                packets = run(['tcpdump', '-nn', '-vv', '-r', str(path)]).stdout
+                self.assertGreater(captured['captured_packets'], 0)
+                self.assertIn('OSPFv2', packets); self.assertIn('Hello', packets); self.assertIn('224.0.0.5', packets)
+                with manager.locked():
+                    manager.ns(3, 'ip', 'link', 'set', 'eth0', 'down')
+                    elected('2.2.2.2', '3.3.3.3', ('R2', 'R3', 'R4'))
+                    wait(lambda: field('R2', 'State') == 'DR' and field('R3', 'State') == 'Backup', 'BDR promoted, eligible DROther becomes BDR')
+                    self.assertEqual(field('R4', 'Priority'), '0')
+                    self.assertEqual(field('R4', 'State'), 'DROther'); traffic()
+                    manager.ns(3, 'ip', 'link', 'set', 'eth0', 'up')
+                    elected('2.2.2.2', '3.3.3.3')
+                    wait(lambda: neighbor('R1', 2) == neighbor('R1', 3) == 'Full' and neighbor('R1', 4) == '2-Way', 'returning higher-priority router does not preempt')
+                    self.assertEqual(field('R1', 'State'), 'DROther')
+                    self.assertEqual(field('R1', 'Priority'), '200'); traffic()
+                    def cli(text):
+                        return manager.configure_ios('R4', 'conf t\ninterface eth0\n' + text + '\nend')
+                    cli('ip ospf priority 255')
+                    wait(lambda: field('R4', 'Priority') == '255', 'CLI priority reached actual daemon')
+                    elected('2.2.2.2', '3.3.3.3')
+                    wait(lambda: neighbor('R4', 2) == neighbor('R4', 3) == 'Full', 'priority change rejoins elected routers')
+                    self.assertEqual(field('R4', 'State'), 'DROther'); traffic()
+                    cli('no ip ospf priority\nip ospf network point-to-point')
+                    wait(lambda: field('R4', 'Type') == 'ptp', 'actual CLI network type change')
+                    cli('ip ospf network broadcast\nip ospf priority 0')
+                    wait(lambda: field('R4', 'Type') == 'broadcast' and field('R4', 'Priority') == '0', 'broadcast profile restored')
+                    elected('2.2.2.2', '3.3.3.3')
+                    wait(lambda: neighbor('R4', 2) == neighbor('R4', 3) == 'Full', 'broadcast adjacencies recovered')
+                    traffic()
+                    observation = manager.inspect('R4')['ospf']
+                    self.assertIn('Type: broadcast', observation['interfaces'])
+                    self.assertTrue(observation['configuration_verified'])
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(saved['nodes'][6]['ospf']['interfaces']['eth0']['priority'], 0)
+                    self.assertEqual(saved['nodes'][6]['ospf']['interfaces']['eth0']['network_type'], 'broadcast')
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); initial()
+            except Exception:
+                for name in ('R1', 'R2', 'R3', 'R4'):
+                    path = manager.directory / name / 'ospf.log'
+                    if path.exists():
+                        print(name + ': ' + path.read_text()[-5000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
         from network_labs.appliances.examples import static_routing_lab
         from network_labs.appliances.persistence import load_startup

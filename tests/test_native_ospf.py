@@ -41,11 +41,12 @@ class OSPFTests(unittest.TestCase):
     def test_unknown_control_state_is_not_empty_neighbors_or_converged(self):
         node = ospf_lab('/rootfs')['nodes'][2]
         manager = Mock()
-        manager.crun.side_effect = [subprocess.CompletedProcess([], 0, config(node), '')] + [subprocess.CompletedProcess([], 1, '', 'no socket')] * 3
+        manager.crun.side_effect = [subprocess.CompletedProcess([], 0, config(node), '')] + [subprocess.CompletedProcess([], 1, '', 'no socket')] * 4
         result = observe(manager, node)
         self.assertTrue(result['configuration_verified'])
         self.assertIsNone(result['neighbors'])
         self.assertIsNone(result['routes'])
+        self.assertIsNone(result['interfaces'])
         self.assertNotIn('converged', result)
         for text in ('8001 syntax error\n', 'x' * 65537):
             manager.crun.side_effect = None
@@ -186,3 +187,28 @@ class OSPFTests(unittest.TestCase):
                  patch('network_labs.appliances.ospf.processes', side_effect=[owned, all_pids]), self.assertRaises(RuntimeFailure):
                 Manager._configure_network(manager, 'R1', candidate, 'test')
             manager.save.assert_not_called()
+
+    def test_broadcast_policy_has_real_election_parameters_and_interface_observation(self):
+        from network_labs.appliances.examples import ospf_broadcast_lab
+        spec = ospf_broadcast_lab('/rootfs'); node = spec['nodes'][6]
+        self.assertIn('type broadcast; cost 10; stub no; hello 1; dead 4; priority 0; wait 4;', config(node))
+        self.assertIn('type ptp; cost 10; stub yes;', config(node))
+        self.assertEqual(spec['nodes'][2]['multicast']['snooping'], False)
+        for options in ({'network_type': 'nbma'}, {'network_type': True}, {'priority': -1}, {'priority': 256}, {'priority': True}):
+            candidate = copy.deepcopy(spec); candidate['nodes'][6]['ospf']['interfaces']['eth0'].update(options)
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                validate(candidate)
+        node = ospf_lab('/rootfs'); node['nodes'][2]['ospf']['interfaces']['eth0']['priority'] = 2
+        with self.assertRaisesRegex(ValueError, 'requires broadcast'):
+            validate(node)
+
+    def test_broadcast_cli_network_and_priority_are_explicit_and_bounded(self):
+        spec = ospf_lab('/rootfs')
+        candidate = compile_config(spec, 'R1', 'conf t\ninterface eth0\nip ospf network broadcast\nip ospf priority 0\nend')
+        self.assertIn('priority 0;', config(candidate['nodes'][2]))
+        restored = compile_config(candidate, 'R1', 'conf t\ninterface eth0\nno ip ospf priority\nip ospf network point-to-point\nend')
+        self.assertEqual(restored, spec)
+        for commands in ('ip ospf priority 0', 'ip ospf priority 256', 'ip ospf network non-broadcast',
+                         'ip ospf network broadcast\nip ospf priority 256'):
+            with self.subTest(commands=commands), self.assertRaises(ValueError):
+                compile_config(spec, 'R1', 'conf t\ninterface eth0\n' + commands + '\nend')

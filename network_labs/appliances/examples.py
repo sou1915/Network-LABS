@@ -412,3 +412,25 @@ def ospf_cli_lab(rootfs):
     for node in spec['nodes']:
         node['ospf'] = None
     return validate(spec)
+
+
+def ospf_broadcast_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = [
+        {'name': 'PC1', 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': '192.0.2.10/24'}, 'gateway': '192.0.2.1'},
+        {'name': 'PC2', 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': '198.51.100.10/24'}, 'gateway': '198.51.100.1'},
+        {'name': 'SW1', 'role': 'switch', 'runtime': 'oci', 'rootfs': rootfs,
+         'interfaces': {'eth0': '', 'eth1': '', 'eth2': '', 'eth3': ''},
+         'multicast': {'snooping': False}}]
+    for number, priority in ((1, 200), (2, 100), (3, 1), (4, 0)):
+        interfaces = {'eth0': f'10.0.100.{number}/24'}
+        ports = {'eth0': {'network_type': 'broadcast', 'priority': priority}}
+        if number in (3, 4):
+            interfaces['eth1'] = '192.0.2.1/24' if number == 3 else '198.51.100.1/24'
+            ports['eth1'] = {'passive': True}
+        nodes.append({'name': f'R{number}', 'runtime': 'oci', 'rootfs': rootfs, 'role': 'router',
+                      'interfaces': interfaces, 'forwarding': True, 'dialect': 'ios-basic',
+                      'ospf': {'router_id': f'{number}.{number}.{number}.{number}', 'interfaces': ports}})
+    links = [[['SW1', f'eth{i-1}'], [f'R{i}', 'eth0']] for i in range(1, 5)]
+    links += [[['PC1', 'eth0'], ['R3', 'eth1']], [['PC2', 'eth0'], ['R4', 'eth1']]]
+    return validate({'version': 2, 'name': 'ospf-broadcast-lan', 'nodes': nodes, 'links': links})

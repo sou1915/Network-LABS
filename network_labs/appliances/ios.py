@@ -169,6 +169,16 @@ def compile_config(spec, name, text):
                     if interface not in node['ospf']['interfaces']:
                         raise ValueError('OSPF cost requires an interface with declared OSPF options.')
                     node['ospf']['interfaces'][interface]['cost'] = int(match[1]); continue
+                match = re.fullmatch(r'ip ospf network (broadcast|point-to-point)', command)
+                if match and node.get('ospf'):
+                    if interface not in node['ospf']['interfaces']:
+                        raise ValueError('OSPF network type requires declared OSPF interface options.')
+                    node['ospf']['interfaces'][interface]['network_type'] = match[1]; continue
+                match = re.fullmatch(r'(?:ip ospf priority (\d+)|no ip ospf priority)', command)
+                if match and node.get('ospf'):
+                    if interface not in node['ospf']['interfaces'] or node['ospf']['interfaces'][interface].get('network_type', 'point-to-point') != 'broadcast':
+                        raise ValueError('OSPF priority requires broadcast network type.')
+                    node['ospf']['interfaces'][interface]['priority'] = int(match[1]) if match[1] else 1; continue
                 helper = re.fullmatch(r'(no )?ip helper-address (\S+)', command)
                 if helper:
                     from .dhcp_relay import configure_helper
