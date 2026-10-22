@@ -64,9 +64,19 @@ def compile_config(spec, name, text):
                 interface = None; continue
             match = re.fullmatch(r'router ospf (\d+)', command)
             if match and mode in ('config', 'interface', 'ospf'):
-                if not node.get('ospf') or int(match[1]) != node['ospf']['process_id']:
-                    raise ValueError('Select the existing manifest OSPF process ID; process creation is unsupported.')
+                process = int(match[1])
+                if node.get('ospf') and process != node['ospf']['process_id']:
+                    raise ValueError('Only one OSPF process is supported; delete the existing process first.')
+                if not node.get('ospf'):
+                    if node['role'] != 'router':
+                        raise ValueError('OSPF process creation requires an OCI router.')
+                    node['ospf'] = {'process_id': process, 'router_id': None, 'interfaces': {}, 'networks': [], 'hello': 1, 'dead': 4}
                 mode = 'ospf'; interface = None; continue
+            match = re.fullmatch(r'no router ospf (\d+)', command)
+            if match and mode == 'config':
+                if not node.get('ospf') or int(match[1]) != node['ospf']['process_id']:
+                    raise ValueError('Select the existing OSPF process for deletion.')
+                node['ospf'] = None; continue
             match = re.fullmatch(r'interface (vlan\s*\d+|\S+)', command)
             if match and mode in ('config', 'interface', 'vlan', 'ospf'):
                 interface, parent = resolve_interface(node, match[1])
@@ -78,6 +88,9 @@ def compile_config(spec, name, text):
                     node['subinterfaces'].setdefault(interface, {'parent': parent, 'vlan': None, 'address': ''})
                 mode = 'interface'; continue
             if mode == 'ospf':
+                match = re.fullmatch(r'router-id (\S+)', command)
+                if match:
+                    node['ospf']['router_id'] = str(ipaddress.IPv4Address(match[1])); continue
                 match = re.fullmatch(r'(no )?network (\S+) (\S+) area (0|0\.0\.0\.0)', command)
                 if match:
                     from .ospf import configure_network
@@ -90,7 +103,7 @@ def compile_config(spec, name, text):
                         raise ValueError('Passive OSPF requires an interface with declared OSPF options.')
                     node['ospf']['interfaces'][name]['passive'] = not bool(match[1])
                     continue
-                raise ValueError('OSPF supports network/no network in area 0 and passive-interface/no passive-interface only.')
+                raise ValueError('OSPF supports router-id, network/no network in area 0 and passive-interface/no passive-interface only.')
             match = re.fullmatch(r'no interface (vlan\s*\d+)', command)
             if match and mode == 'config':
                 name, _ = resolve_interface(node, match[1])
@@ -305,6 +318,7 @@ def compile_config(spec, name, text):
         except (ValueError, KeyError, IndexError) as error:
             raise ValueError(f'Line {line_number}: {error}') from error
     candidate = validate(candidate)
+    node = next(n for n in candidate['nodes'] if n['name'] == node['name'])
     previous = next(n for n in spec['nodes'] if n['name'] == node['name'])
     if previous.get('ospf') or node.get('ospf'):
         from .ospf import validate_change

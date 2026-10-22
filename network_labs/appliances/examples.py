@@ -404,3 +404,11 @@ def ospf_lab(rootfs):
         [['PC1', 'eth0'], ['R1', 'eth2']], [['PC2', 'eth0'], ['R2', 'eth2']],
         [['R1', 'eth0'], ['R2', 'eth0']], [['R1', 'eth1'], ['R3', 'eth0']],
         [['R2', 'eth1'], ['R3', 'eth1']]]})
+
+
+def ospf_cli_lab(rootfs):
+    spec = ospf_lab(rootfs)
+    spec['name'] = 'ospf-cli-lan'
+    for node in spec['nodes']:
+        node['ospf'] = None
+    return validate(spec)

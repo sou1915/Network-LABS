@@ -141,19 +141,24 @@ def read_cli(manager, name, command):
     return _cli(manager, name, command)
 
 
-def start_servers(manager):
+def start_one(manager, node):
     from .runtime import RuntimeFailure
+    if processes(manager, node, managed=False):
+        raise RuntimeFailure('Refusing to start OSPF while a BIRD process already exists.')
+    manager.crun('exec', node['name'], DAEMON, '-p', '-c', '/lab/bird.conf', timeout=3)
+    manager.crun('exec', '--detach', node['name'], DAEMON, '-f', '-c', '/lab/bird.conf',
+                 '-s', '/run/bird.ctl', '-P', '/run/bird.pid', log=manager.directory / node['name'] / 'ospf.log')
+    deadline = time.monotonic() + 5
+    while len(processes(manager, node)) != 1 or read_cli(manager, node['name'], 'show status') is None:
+        if time.monotonic() >= deadline:
+            raise RuntimeFailure(node['name'] + ': managed BIRD process/control socket did not become available.')
+        time.sleep(0.1)
+
+
+def start_servers(manager):
     for node in manager.state['spec']['nodes']:
-        if node.get('ospf') is None:
-            continue
-        manager.crun('exec', node['name'], DAEMON, '-p', '-c', '/lab/bird.conf', timeout=3)
-        manager.crun('exec', '--detach', node['name'], DAEMON, '-f', '-c', '/lab/bird.conf',
-                     '-s', '/run/bird.ctl', '-P', '/run/bird.pid', log=manager.directory / node['name'] / 'ospf.log')
-        deadline = time.monotonic() + 5
-        while read_cli(manager, node['name'], 'show status') is None:
-            if time.monotonic() >= deadline:
-                raise RuntimeFailure(node['name'] + ': BIRD control socket did not become available.')
-            time.sleep(0.1)
+        if node.get('ospf') is not None:
+            start_one(manager, node)
 
 
 def observe(manager, node):
@@ -170,12 +175,48 @@ def dynamic_route(node, route):
 
 
 def validate_change(node, previous):
-    if not node.get('ospf') or not previous.get('ospf'):
-        raise ValueError('OSPF service adapter requires an existing process; create/remove it through the manifest.')
     if {k: v for k, v in node.items() if k != 'ospf'} != {k: v for k, v in previous.items() if k != 'ospf'}:
         raise ValueError('OSPF service adapter accepts OSPF-only edits; recreate the lab for network changes.')
-    if any(node['ospf'][key] != previous['ospf'][key] for key in ('router_id', 'process_id', 'hello', 'dead')):
-        raise ValueError('Live OSPF adapter supports network selectors, passive interfaces and costs only.')
+    if node.get('ospf') and previous.get('ospf') and any(
+            node['ospf'][key] != previous['ospf'][key] for key in ('router_id', 'process_id', 'hello', 'dead')):
+        raise ValueError('Live OSPF adapter supports selectors, passive interfaces and costs; delete/recreate the process to change ID/timers.')
+
+
+# Never select a kill target from bird.pid. Inspect executable and exact config
+# and control-socket argv in the container PID namespace. PID 1 may be listed
+# to reject untracked BIRD-as-init, but must never be terminated here.
+PROCESS_SCRIPT = r'''for proc in /proc/[0-9]*; do
+    [ "$(/bin/busybox readlink "$proc/exe" 2>/dev/null)" = /usr/sbin/bird ] || continue
+    if [ "$2" = managed ]; then
+        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox grep -Fxq -- '/lab/bird.conf' || continue
+        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox grep -Fxq -- '/run/bird.ctl' || continue
+    fi
+    pid=${proc##*/}
+    if [ "$1" = stop ]; then
+        [ "$pid" -gt 1 ] || exit 1
+        /bin/busybox kill -TERM "$pid" || exit 1
+    else echo "$pid"; fi
+done
+'''
+
+
+def processes(manager, node, action='list', *, managed=True):
+    return manager.crun('exec', node['name'], '/bin/sh', '-c', PROCESS_SCRIPT, 'ospf-control',
+                        action, 'managed' if managed else 'all', timeout=3).stdout.splitlines()
+
+
+def stop_one(manager, node):
+    from .runtime import RuntimeFailure
+    owned = processes(manager, node)
+    if owned != processes(manager, node, managed=False):
+        raise RuntimeFailure('Unmanaged BIRD process detected; refusing OSPF service removal.')
+    processes(manager, node, 'stop')
+    deadline = time.monotonic() + 5
+    while processes(manager, node, managed=False):
+        if time.monotonic() >= deadline:
+            raise RuntimeFailure('Managed BIRD process did not stop.')
+        time.sleep(0.1)
+    manager.crun('exec', node['name'], '/bin/busybox', 'rm', '-f', '/run/bird.ctl', '/run/bird.pid', timeout=3)
 
 
 def _done(text):
@@ -186,22 +227,47 @@ def _done(text):
 def preflight_change(manager, node, previous):
     from .runtime import RuntimeFailure
     validate_change(node, previous)
-    if not observe_config(manager, node['name'], '/lab/bird.conf', config(previous))['configuration_verified']:
-        raise RuntimeFailure('OSPF configuration drift; refusing live change.')
-    if not _done(_cli(manager, node['name'], 'configure status', readonly=False)):
-        raise RuntimeFailure('OSPF control unavailable or reconfiguration pending; refusing live change.')
+    if previous.get('ospf'):
+        if not observe_config(manager, node['name'], '/lab/bird.conf', config(previous))['configuration_verified']:
+            raise RuntimeFailure('OSPF configuration drift; refusing live change.')
+        if not _done(_cli(manager, node['name'], 'configure status', readonly=False)):
+            raise RuntimeFailure('OSPF control unavailable or reconfiguration pending; refusing live change.')
+        owned = processes(manager, node)
+        if len(owned) != 1 or owned != processes(manager, node, managed=False) or owned == ['1']:
+            raise RuntimeFailure('OSPF requires exactly one managed non-init BIRD process.')
+    else:
+        if processes(manager, node, managed=False):
+            raise RuntimeFailure('Unmanaged BIRD process detected; refusing OSPF creation.')
+        for path in ('/lab/bird.conf', '/run/bird.ctl'):
+            if manager.crun('exec', node['name'], '/bin/busybox', 'test', '-e', path, check=False, timeout=3).returncode == 0:
+                raise RuntimeFailure('Unmanaged OSPF config/control path exists; refusing creation.')
+    if node.get('ospf'):
+        for binary in (DAEMON, CLIENT):
+            manager.crun('exec', node['name'], '/bin/busybox', 'test', '-x', binary, timeout=3)
 
 
 def apply_change(manager, index, node, previous):
-    """Reload BIRD only; never touch links, addresses or static routes."""
+    """Reconcile the journal target service; never change links or addresses."""
     from .runtime import RuntimeFailure
     validate_change(node, previous)
     path = manager.directory / node['name'] / 'files/bird.conf'
     temporary = path.with_suffix('.conf.new')
+    if node.get('ospf') is None:
+        stop_one(manager, node)
+        path.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
+        return
     try:
         temporary.write_text(config(node))
         manager.crun('exec', node['name'], DAEMON, '-p', '-c', '/lab/bird.conf.new', timeout=3)
         temporary.replace(path)
+        owned = processes(manager, node)
+        if owned != processes(manager, node, managed=False) or len(owned) > 1 or owned == ['1']:
+            raise RuntimeFailure('Unmanaged or ambiguous BIRD process; refusing OSPF apply.')
+        if not owned:
+            manager.crun('exec', node['name'], '/bin/busybox', 'rm', '-f', '/run/bird.ctl', '/run/bird.pid', timeout=3)
+            start_one(manager, node)
+            return
         response = _cli(manager, node['name'], 'configure', readonly=False)
         if response is None or re.search(r'(?m)^000[34][ -]', response) is None:
             raise RuntimeFailure('BIRD did not accept OSPF reconfiguration.')

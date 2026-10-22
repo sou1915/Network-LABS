@@ -2533,8 +2533,9 @@ Reference: [BIRD 2 configuration and OSPF documentation](https://bird.nic.cz/doc
 ### Managed OSPF configuration from the partial IOS adapter
 
 Recreate old `ospf-lan` examples once: the new example enables `dialect: ios-basic`
-on the three routers. It declares one process (`process_id`, default 1), not
-multiple OSPF processes or Cisco firmware. Its real BIRD daemon remains running
+on the three routers. It declares one process (`process_id`, default 1). The adapter can also create
+or remove that single process; multiple processes and Cisco firmware are outside
+this profile. Its real BIRD daemon remains running
 while managed commands reload its configuration. Reload completion does not
 mean neighbors have converged or traffic has succeeded.
 
@@ -2563,13 +2564,14 @@ sudo python3 -m network_labs.appliances configure ospf-lan R1 \
   --text $'conf t\nrouter ospf 1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend'
 ```
 
-Supported commands select the existing process, set an explicit cost 1..65535,
+Supported commands select or create one process, delete it with `no router ospf
+ID`, set an explicit cost 1..65535,
 set/unset passive on a declared OSPF interface, and add/remove `network ADDRESS
 WILDCARD area 0` (also `area 0.0.0.0`). Wildcards must be contiguous; `0.0.0.0`
 selects an exact local address. The command selects interfaces by their primary
 IPv4 address; it does not advertise an arbitrary remote prefix. A selector must
-match an existing numbered physical interface. Non-zero areas, process creation
-or deletion, router-ID/timer edits, passive-default, cost auto-calculation,
+match an existing numbered physical interface. Non-zero areas, additional processes, live router-ID/timer edits, passive-default,
+cost auto-calculation,
 interface-level `ip ospf PROCESS area AREA` and other syntax are rejected.
 
 `ospf.networks` stores up to 64 canonical IPv4 selector prefixes. When omitted,
@@ -2584,9 +2586,10 @@ Before journaling, live edits require a matching managed config file and a BIRD
 control response with no pending or unconfirmed reconfiguration. The candidate
 file is syntax-checked with the real BIRD parser, replaced atomically, and loaded
 through its control socket. Apply failures reload the previous policy; interrupted
-or failed rollback can use `recover`. The adapter does not kill/restart the daemon
-or touch interfaces/addresses. A missing daemon is refused; recreate the lab if
-it was externally stopped. These observations cannot exclude concurrent external
+or failed rollback can use `recover`. Ordinary edits reload the existing daemon; explicit process creation/removal
+starts/stops BIRD. Interfaces and addresses remain in place. Before ordinary
+edits or removal, a missing/unmanaged daemon is refused. Recovery reconciles
+the journal target, including restarting a removed daemon or undoing creation. These observations cannot exclude concurrent external
 BIRD control commands; don't mix unmanaged BIRD edits with managed configuration.
 
 The expanded native OSPF test verifies cost-based next-hop changes without
@@ -2596,3 +2599,60 @@ removal/re-add, preserved BIRD/container/link identities, unchanged revision for
 idempotent edits, pre-journal drift refusal, rollback after actual BIRD reload,
 failed rollback followed by recovery, and save/restore. The general tests cover
 invalid contexts, wildcard/profile limits and pending/unknown control responses.
+
+
+### Create and remove OSPF processes through CLI
+
+Reuse a rootfs built with both BIRD 2 binaries (see setup above).
+`--ospf-cli` starts the same five-node topology with interface addresses and
+forwarding configured, but no OSPF processes or learned routes. Configure each
+router in a complete block; an unfinished process without an explicit unique
+router ID and at least one active network selector is rejected atomically.
+
+```bash
+python3 -m network_labs.appliances example --ospf-cli \
+  --rootfs "$HOME/network-labs-rootfs-ospf" > ospf-cli-lan.json
+sudo python3 -m network_labs.appliances start ospf-cli-lan.json
+
+sudo python3 -m network_labs.appliances configure ospf-cli-lan R1 \
+  --text $'conf t\nrouter ospf 1\nrouter-id 1.1.1.1\nnetwork 10.0.12.0 0.0.0.3 area 0\nnetwork 10.0.13.0 0.0.0.3 area 0\nnetwork 192.0.2.0 0.0.0.255 area 0\npassive-interface eth2\ninterface eth1\nip ospf cost 30\nend'
+sudo python3 -m network_labs.appliances configure ospf-cli-lan R2 \
+  --text $'conf t\nrouter ospf 1\nrouter-id 2.2.2.2\nnetwork 10.0.12.0 0.0.0.3 area 0\nnetwork 10.0.23.0 0.0.0.3 area 0\nnetwork 198.51.100.0 0.0.0.255 area 0\npassive-interface eth2\nend'
+sudo python3 -m network_labs.appliances configure ospf-cli-lan R3 \
+  --text $'conf t\nrouter ospf 1\nrouter-id 3.3.3.3\nnetwork 10.0.13.0 0.0.0.3 area 0\nnetwork 10.0.23.0 0.0.0.3 area 0\ninterface eth0\nip ospf cost 30\nend'
+
+# Wait for neighbors to reach Full, then verify traffic.
+sudo python3 -m network_labs.appliances exec ospf-cli-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf neighbors
+sudo python3 -m network_labs.appliances exec ospf-cli-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.10
+
+# Removing R1's process withdraws its daemon-owned routes and connectivity.
+sudo python3 -m network_labs.appliances configure ospf-cli-lan R1 \
+  --text $'conf t\nno router ospf 1\nend'
+# Reapply the complete R1 block above to restore it.
+```
+
+`router ospf ID` creates a process only on a forwarding OCI router with the
+required image assets. IDs range from 1..65535 and are locally significant;
+router IDs must be unique across active lab processes. No automatic router-ID
+selection is performed. `router-id` can set the ID while creating a process;
+changing the ID of an existing process requires separate delete/create blocks.
+Missing/mismatched IDs on deletion are refused. Creation/removal must not be
+combined with IP/link/static-route or other service changes. The router's
+addresses and forwarding must already be configured. Existing profile limits
+(area 0, numbered point-to-point transit and passive LAN interfaces) still apply.
+
+Creation checks for executable BIRD assets, existing BIRD processes and conflicting
+managed config/control paths before journaling. Removal verifies the executable
+and config/control argv inside the container namespace, signals only the managed
+non-init process, waits for its exit, and removes its config/control files.
+`bird.pid` is never used to select a kill target. An unrelated BIRD process
+causes refusal and is left untouched. Process creation can reconverge after the
+command returns; a successful command does not certify end-to-end traffic.
+
+The native case additionally verifies actual route withdrawal and failed traffic
+after deletion, container/link survival with a forged PID 1 pidfile, refusal
+without stopping a separate real BIRD daemon, rollback after actual removal
+and after actual creation, failed creation rollback followed by `recover`, and
+save/restore both with the process absent and with its recreated policy active.

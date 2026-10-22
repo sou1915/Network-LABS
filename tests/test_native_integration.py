@@ -485,6 +485,79 @@ class RealContainerTests(unittest.TestCase):
                 manager = Manager(spec['name'])
                 with manager.locked():
                     manager.start(saved); converged()
+                    # Lifecycle: the real process can be removed and recreated
+                    # without replacing its container or network interfaces.
+                    from network_labs.appliances.ospf import processes
+                    baseline = identity()[1:]
+                    create = ('router ospf 1\nrouter-id 1.1.1.1\n'
+                              'network 10.0.12.0 0.0.0.3 area 0\n'
+                              'network 10.0.13.0 0.0.0.3 area 0\n'
+                              'network 192.0.2.0 0.0.0.255 area 0\n'
+                              'passive-interface eth2\ninterface eth1\nip ospf cost 30')
+                    remove = 'no router ospf 1'
+                    before = manager.read()['revision']; calls = []
+                    def fail_after_lifecycle(actual_manager, index, node, previous):
+                        apply_change(actual_manager, index, node, previous)
+                        calls.append(node.get('ospf') is not None)
+                        if len(calls) == 1:
+                            raise RuntimeFailure('injected failure after actual OSPF lifecycle change')
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_after_lifecycle):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                            cli(remove)
+                    self.assertEqual(calls, [False, True]); self.assertEqual(manager.read()['revision'], before)
+                    converged(); self.assertEqual(identity()[1:], baseline)
+                    # A forged PID file pointing at init must not select it.
+                    manager.crun('exec', 'R1', '/bin/sh', '-c', 'echo 1 > /run/bird.pid')
+                    cli(remove)
+                    wait(lambda: route() is None, 'CLI removal withdraws BIRD routes')
+                    self.assertEqual(processes(manager, manager.read()['spec']['nodes'][2], managed=False), [])
+                    self.assertFalse((manager.directory / 'R1/files/bird.conf').exists())
+                    self.assertIsNone(read_cli(manager, 'R1', 'show status'))
+                    self.assertEqual(json.loads(manager.crun('state', 'R1').stdout)['status'], 'running')
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False).returncode, 0)
+                    # A separate real BIRD process must stay untouched, and
+                    # block managed creation instead of being adopted/killed.
+                    manager.crun('exec', 'R1', '/bin/sh', '-c', 'echo "router id 9.9.9.9; log stderr all; protocol device { scan time 1; }" > /tmp/foreign-bird.conf')
+                    manager.crun('exec', '--detach', 'R1', '/usr/sbin/bird', '-f', '-c', '/tmp/foreign-bird.conf',
+                                 '-s', '/run/foreign-bird.ctl', '-P', '/run/foreign-bird.pid', log=manager.directory / 'R1/foreign-bird.log')
+                    before = manager.read()['revision']
+                    with self.assertRaisesRegex(RuntimeFailure, 'Unmanaged BIRD'):
+                        cli(create)
+                    self.assertEqual(manager.read()['revision'], before)
+                    self.assertEqual(manager.read()['phase'], 'running')
+                    manager.crun('exec', 'R1', '/usr/sbin/birdc', '-s', '/run/foreign-bird.ctl', 'show', 'status')
+                    manager.crun('exec', 'R1', '/usr/sbin/birdc', '-s', '/run/foreign-bird.ctl', 'down')
+                    wait(lambda: not processes(manager, manager.read()['spec']['nodes'][2], managed=False), 'foreign daemon stopped by its own control socket')
+                    before = manager.read()['revision']; calls.clear()
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_after_lifecycle):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                            cli(create)
+                    self.assertEqual(calls, [True, False]); self.assertEqual(manager.read()['revision'], before)
+                    self.assertIsNone(manager.read()['spec']['nodes'][2]['ospf'])
+                    self.assertEqual(processes(manager, manager.read()['spec']['nodes'][2], managed=False), [])
+                    self.assertFalse((manager.directory / 'R1/files/bird.conf').exists())
+                    with patch('network_labs.appliances.ospf.apply_change', side_effect=fail_both):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                            cli(create)
+                    self.assertEqual(manager.read()['phase'], 'configuration-failed')
+                    manager.recover(); self.assertEqual(manager.read()['phase'], 'running')
+                    self.assertIsNone(manager.read()['spec']['nodes'][2]['ospf'])
+                    self.assertEqual(processes(manager, manager.read()['spec']['nodes'][2], managed=False), [])
+                    manager.write_startup(); disabled = load_startup(spec['name'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(disabled)
+                    self.assertIsNone(manager.read()['spec']['nodes'][2]['ospf'])
+                    self.assertIsNone(route()); self.assertIsNone(read_cli(manager, 'R1', 'show status'))
+                    cli(create); converged()
+                    manager.write_startup(); created = load_startup(spec['name'])
+                    self.assertEqual(created['nodes'][2]['ospf'], saved['nodes'][2]['ospf'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(created); converged()
+
             except Exception:
                 for node in ('R1', 'R2', 'R3'):
                     path = manager.directory / node / 'ospf.log'

@@ -297,4 +297,4 @@ Native DHCPv4 relay: `example --dhcp-relay` connects a client VLAN to a remote s
 
 Native multi-VLAN DHCP: `example --dhcp-multi` uses per-VLAN helpers and a central dnsmasq server with disjoint remote pools; see the native LAN guide for limits and setup.
 
-Native dynamic routing: `example --ospf` runs real BIRD 2 OSPFv2 in an area-zero three-router topology with a higher-cost backup path. See the native LAN guide for image setup and the bounded supported profile.
+Native dynamic routing: `example --ospf` runs real BIRD 2 OSPFv2 in an area-zero three-router topology with a higher-cost backup path. `example --ospf-cli` starts the numbered topology without OSPF daemons; create/remove its processes through the partial IOS adapter. See the native LAN guide for image setup, commands and the bounded supported profile.

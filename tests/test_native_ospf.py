@@ -130,3 +130,59 @@ class OSPFTests(unittest.TestCase):
             result = Manager._configure_network(manager, 'R1', copy.deepcopy(spec), 'test')
         self.assertTrue(result['unchanged']); self.assertEqual(result['revision'], 4)
         manager.save.assert_not_called(); apply.assert_not_called()
+
+    def test_create_delete_process_requires_complete_explicit_policy(self):
+        from network_labs.appliances.examples import ospf_cli_lab
+        spec = ospf_cli_lab('/rootfs'); before = copy.deepcopy(spec)
+        text = 'conf t\nrouter ospf 42\nrouter-id 1.1.1.1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend'
+        result = compile_config(spec, 'R1', text)
+        self.assertEqual(spec, before)
+        self.assertEqual(result['nodes'][2]['ospf']['process_id'], 42)
+        self.assertEqual(set(enabled_interfaces(result['nodes'][2])), {'eth0'})
+        removed = compile_config(result, 'R1', 'conf t\nno router ospf 42\nend')
+        self.assertEqual(removed, spec)
+        for value in ('conf t\nrouter ospf 42\nend', 'conf t\nrouter ospf 0\nrouter-id 1.1.1.1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend',
+                      text.replace('1.1.1.1', '2.2.2.2').replace('42', '65536')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                compile_config(spec, 'R1', value)
+        for value in ('conf t\nno router ospf 1\nend', 'conf t\nrouter ospf 1\nend'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                compile_config(result, 'R1', value)
+        with self.assertRaisesRegex(ValueError, 'service adapter'):
+            compile_config(spec, 'R1', text.replace('end', 'interface eth2\nip address 192.0.2.2 255.255.255.0\nend'))
+
+    def test_creation_rejects_existing_process_or_control_artifacts_before_journal(self):
+        from network_labs.appliances.runtime import Manager, RuntimeFailure
+        from network_labs.appliances.examples import ospf_cli_lab
+        spec = ospf_cli_lab('/rootfs')
+        candidate = compile_config(spec, 'R1', 'conf t\nrouter ospf 1\nrouter-id 1.1.1.1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend')
+        for pids, exitcode in ((['1'], 1), (['77'], 1), ([], 0)):
+            manager = Mock(); manager.read.return_value = {'spec': spec, 'phase': 'running'}
+            manager.crun.return_value = subprocess.CompletedProcess([], exitcode, '', '')
+            with self.subTest(pids=pids, exitcode=exitcode), \
+                 patch('network_labs.appliances.ospf.processes', return_value=pids), self.assertRaises(RuntimeFailure):
+                Manager._configure_network(manager, 'R1', candidate, 'test')
+            manager.save.assert_not_called()
+
+    def test_missing_binaries_rejected_before_creation_journal(self):
+        from network_labs.appliances.runtime import Manager, RuntimeFailure
+        from network_labs.appliances.examples import ospf_cli_lab
+        spec = ospf_cli_lab('/rootfs')
+        candidate = compile_config(spec, 'R1', 'conf t\nrouter ospf 1\nrouter-id 1.1.1.1\nnetwork 10.0.12.0 0.0.0.3 area 0\nend')
+        manager = Mock(); manager.read.return_value = {'spec': spec, 'phase': 'running'}
+        manager.crun.side_effect = [subprocess.CompletedProcess([], 1, '', '')] * 2 + [RuntimeFailure('binary unavailable')]
+        with patch('network_labs.appliances.ospf.processes', return_value=[]), self.assertRaisesRegex(RuntimeFailure, 'binary unavailable'):
+            Manager._configure_network(manager, 'R1', candidate, 'test')
+        manager.save.assert_not_called()
+
+    def test_removal_requires_exactly_one_managed_non_init_process(self):
+        from network_labs.appliances.runtime import Manager, RuntimeFailure
+        spec = ospf_lab('/rootfs'); candidate = compile_config(spec, 'R1', 'conf t\nno router ospf 1\nend')
+        for owned, all_pids in ((['1'], ['1']), ([], []), (['8'], ['8', '9'])):
+            manager = Mock(); manager.read.return_value = {'spec': spec, 'phase': 'running'}
+            with self.subTest(owned=owned, all_pids=all_pids), \
+                 patch('network_labs.appliances.ospf.observe_config', return_value={'configuration_verified': True}), \
+                 patch('network_labs.appliances.ospf._cli', return_value='0003-Running\n0000 OK\n'), \
+                 patch('network_labs.appliances.ospf.processes', side_effect=[owned, all_pids]), self.assertRaises(RuntimeFailure):
+                Manager._configure_network(manager, 'R1', candidate, 'test')
+            manager.save.assert_not_called()
