@@ -40,6 +40,8 @@ def drift(manager):
             errors.append(node['name'] + ': IP Source Guard rules differ or are unavailable')
         if node.get('dhcp_server') is not None and actual.get('dhcp_server', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP server configuration differs or is unavailable')
+        if node.get('ospf') is not None and actual.get('ospf', {}).get('configuration_verified') is not True:
+            errors.append(node['name'] + ': OSPF configuration differs or is unavailable')
         if node.get('dhcp_pools') is not None and actual.get('dhcp_pools', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP pools configuration differs or is unavailable')
         if node.get('dhcp_relay') is not None and actual.get('dhcp_relay', {}).get('configuration_verified') is not True:
@@ -80,8 +82,9 @@ def drift(manager):
             if gateways != ([node['gateway']] if node.get('gateway') else []):
                 errors.append(node['name'] + ': default route differs')
         configured = {(r['destination'], r['gateway'], r['interface']) for r in node['routes']}
+        from .ospf import dynamic_route
         observed = {(str(ipaddress.IPv4Network(r['dst'], strict=False)), r.get('gateway'), r.get('dev')) for r in actual['routes']
-                    if r.get('dst') != 'default' and r.get('protocol') != 'kernel'}
+                    if r.get('dst') != 'default' and r.get('protocol') != 'kernel' and not dynamic_route(node, r)}
         if observed != configured:
             errors.append(node['name'] + ': static routes differ')
         if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':

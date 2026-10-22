@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
 def addresses(node):
@@ -171,6 +171,8 @@ def validate_lan(node):
     validate_relay(node)
     from .dhcp_multi import validate_pools
     validate_pools(node)
+    from .ospf import validate_ospf
+    validate_ospf(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     from .ovs import validate_ovs
@@ -330,6 +332,9 @@ def observe(manager, index, node):
     if node.get('dhcp_server') is not None:
         from .dhcp import observe_server
         result['dhcp_server'] = observe_server(manager, node)
+    if node.get('ospf') is not None:
+        from .ospf import observe as observe_ospf
+        result['ospf'] = observe_ospf(manager, node)
     if node.get('dhcp_pools') is not None:
         from .dhcp_multi import observe as observe_pools
         result['dhcp_pools'] = observe_pools(manager, index, node)

@@ -106,6 +106,9 @@ def validate(data):
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
             if role != 'host' or list(interfaces) != ['eth0'] or not interfaces['eth0']:
                 raise ValueError('Firecracker initial adapter: host with one static IPv4 eth0 only.')
+    ospf_ids = [n['ospf']['router_id'] for n in data['nodes'] if n.get('ospf')]
+    if len(set(ospf_ids)) != len(ospf_ids):
+        raise ValueError('OSPF router IDs must be unique within the lab.')
     links = data.setdefault('links', [])
     if not isinstance(links, list) or len(links) > 512:
         raise ValueError('links must be an array with at most 512 entries.')

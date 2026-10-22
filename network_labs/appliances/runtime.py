@@ -122,7 +122,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -150,6 +150,12 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if openvswitch:
         from .ovs import rootfs_assets as ovs_assets
         ovs_additions = ovs_assets()
+    if (bird is None) != (birdc is None):
+        raise ValueError('Provide both --bird and --birdc.')
+    bird_additions = []
+    if bird is not None:
+        from .ospf import rootfs_assets
+        bird_additions = rootfs_assets(bird, birdc)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -158,7 +164,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -233,6 +239,8 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
+            if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
+                raise RuntimeFailure(node['name'] + ': OSPF requires a rootfs built with --bird and --birdc.')
             if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS/DHCP relay requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
@@ -318,6 +326,8 @@ class Manager:
             from .dhcp_relay import start_servers as start_relays
             start_relays(self)
             start_clients(self)
+            from .ospf import start_servers as start_ospf
+            start_ospf(self)
             self.state['phase'] = 'running'; self.save()
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
@@ -334,6 +344,8 @@ class Manager:
         prepare_relay(bundle, node)
         from .dhcp_multi import prepare_files as prepare_pools
         prepare_pools(bundle, node)
+        from .ospf import prepare_files as prepare_ospf
+        prepare_ospf(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):
@@ -455,6 +467,8 @@ class Manager:
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
+        if previous['nodes'][index].get('ospf') is not None or candidate['nodes'][index].get('ospf') is not None:
+            raise ValueError('OSPF live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('dhcp_relay') is not None or candidate['nodes'][index].get('dhcp_relay') is not None:
@@ -548,7 +562,7 @@ class Manager:
         save_startup(self.name, spec)
         state['startup_spec'] = copy.deepcopy(spec); self.save()
         return {'saved': str(CONFIG_ROOT / self.name / 'startup.json'),
-                'note': 'Declarative network configuration only; no runtime filesystem snapshot or DHCP lease persistence.'}
+                'note': 'Declarative network configuration only; no runtime filesystem snapshot, DHCP lease persistence or learned OSPF route snapshot.'}
 
     def stop(self):
         state = self.read(); errors = []

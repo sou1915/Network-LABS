@@ -296,3 +296,5 @@ Voir [le guide ARP](docs/NATIVE_LAN_CORE.md#inspection-arp-dynamique-sur-ports-a
 Native DHCPv4 relay: `example --dhcp-relay` connects a client VLAN to a remote single-pool DHCP server through a real dnsmasq relay. Setup and limits: [Native LAN core](docs/NATIVE_LAN_CORE.md#dhcpv4-relay-remote-single-pool-server).
 
 Native multi-VLAN DHCP: `example --dhcp-multi` uses per-VLAN helpers and a central dnsmasq server with disjoint remote pools; see the native LAN guide for limits and setup.
+
+Native dynamic routing: `example --ospf` runs real BIRD 2 OSPFv2 in an area-zero three-router topology with a higher-cost backup path. See the native LAN guide for image setup and the bounded supported profile.

@@ -102,6 +102,10 @@ def explain_node(node, actual):
         _add(findings, 'DHCP_RESERVATIONS',
              f"{len(node['dhcp_server'].get('reservations', []))} réservations MAC/IP configurées ; ce ne sont pas des baux observés ni une preuve de disponibilité du serveur.",
              {'declared_reservations': node['dhcp_server'].get('reservations', [])})
+    if node.get('ospf') is not None:
+        observed = actual.get('ospf', {})
+        _add(findings, 'OSPF_OBSERVATION', 'OSPFv2 : état BIRD observé ; la conformité du fichier ne prouve pas la convergence.',
+             observed, 'info' if observed.get('neighbors') is not None else 'unknown')
     if node.get('dhcp_pools') is not None:
         observed = actual.get('dhcp_pools', {})
         verified = observed.get('configuration_verified') is True

@@ -2450,3 +2450,82 @@ addresses/masks/gateways/resolver options, captures zero client DHCP broadcast
 leakage across VLANs, and tests fresh VLAN20 acquisition while VLAN10's helper
 is removed. It verifies reacquisition after re-add, drift/save refusal, restore
 and unchanged host networking. Save stores declarations, not lease files.
+
+
+## Native OSPFv2 with BIRD 2
+
+`example --ospf` creates PC1, PC2 and three routers. R1–R2 is the preferred
+transit link; R1–R3–R2 is the higher-cost backup. BIRD exchanges actual OSPFv2
+packets and installs learned routes in each router's Linux namespace. The
+engine does not calculate or insert synthetic topology routes.
+
+```bash
+sudo apt-get install bird2
+python3 -m network_labs.appliances rootfs \
+  --busybox "$(command -v busybox)" \
+  --bird "$(command -v bird)" --birdc "$(command -v birdc)" \
+  --output "$HOME/network-labs-rootfs-ospf"
+python3 -m network_labs.appliances example --ospf \
+  --rootfs "$HOME/network-labs-rootfs-ospf" > ospf-lan.json
+sudo python3 -m network_labs.appliances start ospf-lan.json
+sudo python3 -m network_labs.appliances inspect ospf-lan R1
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf neighbors
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show route
+sudo python3 -m network_labs.appliances exec ospf-lan PC1 -- \
+  /bin/ping -c 3 198.51.100.10
+```
+
+Use a new rootfs output directory. The builder copies trusted local BIRD 2
+executables and their ELF dependencies; daemon execution is inside the router
+containers. A BIRD 3 binary is not accepted by this profile. `start` waits for
+the control socket, not for OSPF convergence. Neighbor state can take several
+seconds to reach Full.
+
+The `ospf` manifest defines `router_id`, `interfaces` (each with `cost` and
+`passive`), `hello` and `dead`. Router IDs must be unique in the lab. Defaults
+are cost 10, hello 1 second and dead 4 seconds. Only forwarding OCI routers,
+1..16 UP numbered physical interfaces, disjoint IPv4 subnets and area 0 are
+supported. Transit interfaces use point-to-point network type; passive LANs
+are announced without sending/receiving OSPF Hello packets. ECMP is disabled.
+
+There is no OSPFv3, multi-area, DR/BDR broadcast profile, authentication, BFD,
+redistribution, default origination, VRF, SVI or IOS OSPF adapter in this first
+profile. Static/default routes, other managed services and untracked startup
+commands on OSPF routers are rejected. Live network edits through the managed
+adapter are refused until it can coordinate the daemon. Use the manifest and
+recreate the lab for policy changes. Real BIRD show commands remain available.
+
+A bounded failure test can be done directly in R1, then restored:
+
+```bash
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- /bin/ip link set eth0 down
+# After convergence: R1's remote LAN route uses 10.0.13.2 via R3.
+sudo python3 -m network_labs.appliances exec ospf-lan PC1 -- /bin/ping -c 3 198.51.100.10
+sudo python3 -m network_labs.appliances exec ospf-lan R1 -- /bin/ip link set eth0 up
+```
+
+The primary PC1→PC2 path crosses two routers (TTL 62 with BusyBox's initial
+TTL 64); the backup crosses three (TTL 61). Restore externally changed link
+state before saving. `inspect`/`explain` retain actual BIRD neighbor/protocol/RIB
+text and separate kernel routes. Unavailable or oversized controller output
+is unknown, not an empty neighbor table or a convergence verdict. Config-file
+conformity does not prove the running daemon loaded an unchanged configuration.
+
+Save/restore persists OSPF declarations, not learned routes, LSDB or adjacency
+state. For OSPF nodes only, kernel routes tagged `bird` (protocol 192) are treated
+as dynamic and excluded from the static-route drift comparison. This is not an
+audit of the full dynamic RIB, nor a guarantee against externally injected routes
+using that same protocol tag. Non-BIRD injected routes still fail the static-route
+audit, and managed BIRD config-file drift blocks save. Restore reconverges using
+new daemon processes.
+
+The native case verifies absent routes/failed traffic before daemon startup,
+Full adjacencies, captured OSPFv2 packets, no OSPF packets on a passive LAN,
+actual preferred and backup FIB next hops and routed TTL, withdrawal after both
+R1 transit links fail, recovery, daemon shutdown route removal, config/static-route
+drift refusal and restore. Baseline host links/routes/rules/nft/forwarding are
+checked after cleanup.
+
+Reference: [BIRD 2 configuration and OSPF documentation](https://bird.nic.cz/doc/bird-2.16.2.html).

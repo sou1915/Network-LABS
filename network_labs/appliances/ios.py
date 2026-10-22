@@ -43,6 +43,8 @@ def compile_config(spec, name, text):
         raise ValueError('An OCI node with dialect ios-basic is required. This is not Cisco IOS firmware.')
     if node.get('switch_backend') == 'ovs':
         raise ValueError('OVS configuration uses its real native tools; IOS-style edits are unsupported.')
+    if node.get('ospf'):
+        raise ValueError('OSPF nodes use the real BIRD CLI; IOS-style live configuration is not supported yet.')
     if node.get('dhcp_pools') or node.get('dhcp_clients') or node.get('dhcp_server') or node.get('dns_server') or node.get('lldp') is not None:
         raise ValueError('IOS-style live configuration of DHCP/DNS/LLDP service nodes is not supported yet.')
     if not isinstance(text, str) or len(text) > 65536:

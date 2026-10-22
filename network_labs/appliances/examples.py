@@ -383,3 +383,24 @@ def dhcp_multi_lab(rootfs):
          'router': '198.18.0.1', 'dns': ['198.18.0.53']}]}
     server['routes'].append({'destination': '198.18.0.0/24', 'gateway': '198.51.100.1', 'interface': 'eth0'})
     return validate(spec)
+
+
+def ospf_lab(rootfs):
+    rootfs = str(Path(rootfs).resolve())
+    nodes = [
+        {'name': 'PC1', 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': '192.0.2.10/24'}, 'gateway': '192.0.2.1'},
+        {'name': 'PC2', 'runtime': 'oci', 'rootfs': rootfs, 'interfaces': {'eth0': '198.51.100.10/24'}, 'gateway': '198.51.100.1'}]
+    definitions = [
+        ('R1', '1.1.1.1', {'eth0': '10.0.12.1/30', 'eth1': '10.0.13.1/30', 'eth2': '192.0.2.1/24'},
+         {'eth0': {'cost': 10}, 'eth1': {'cost': 30}, 'eth2': {'passive': True}}),
+        ('R2', '2.2.2.2', {'eth0': '10.0.12.2/30', 'eth1': '10.0.23.1/30', 'eth2': '198.51.100.1/24'},
+         {'eth0': {'cost': 10}, 'eth1': {'cost': 10}, 'eth2': {'passive': True}}),
+        ('R3', '3.3.3.3', {'eth0': '10.0.13.2/30', 'eth1': '10.0.23.2/30'},
+         {'eth0': {'cost': 30}, 'eth1': {'cost': 10}})]
+    for name, router_id, interfaces, ports in definitions:
+        nodes.append({'name': name, 'runtime': 'oci', 'role': 'router', 'rootfs': rootfs, 'interfaces': interfaces,
+                      'forwarding': True, 'ospf': {'router_id': router_id, 'interfaces': ports}})
+    return validate({'version': 2, 'name': 'ospf-lan', 'nodes': nodes, 'links': [
+        [['PC1', 'eth0'], ['R1', 'eth2']], [['PC2', 'eth0'], ['R2', 'eth2']],
+        [['R1', 'eth0'], ['R2', 'eth0']], [['R1', 'eth1'], ['R3', 'eth0']],
+        [['R2', 'eth1'], ['R3', 'eth1']]]})

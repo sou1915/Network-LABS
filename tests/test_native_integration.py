@@ -324,6 +324,117 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), baseline_nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, baseline_forwarding)
 
+    def test_appliance_ad_ospf_real_adjacencies_routes_failure_recovery_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ospf_lab
+        from network_labs.appliances.ospf import start_servers, read_cli
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', bird=shutil.which('bird'), birdc=shutil.which('birdc'))
+            spec = ospf_lab(rootfs); spec['name'] = 'ospf-test-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def route():
+                rows = json.loads(manager.ns(2, 'ip', '-j', 'route', 'show', '198.51.100.0/24').stdout)
+                return rows[0] if rows else None
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label + '; routes=' + repr(route()))
+            def ping(ttl):
+                def delivered():
+                    result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False)
+                    return result.returncode == 0 and 'ttl=' + str(ttl) in result.stdout
+                wait(delivered, 'routed ping TTL ' + str(ttl))
+            def converged():
+                wait(lambda: all((read_cli(manager, node, 'show ospf neighbors') or '').lower().count('full') >= 2 for node in ('R1', 'R2', 'R3')), 'all real OSPF adjacencies Full')
+                wait(lambda: (route() or {}).get('gateway') == '10.0.12.2', 'primary OSPF FIB route')
+                self.assertIn(route().get('protocol'), ('bird', 192, '192'))
+                ping(62)
+            def record(filename, node, interface):
+                event = threading.Event(); path = Path(folder) / filename
+                future = pool.submit(capture, Manager(spec['name']), node, interface, path,
+                                     seconds=3, packets=100, expression='ip proto 89', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('OSPF capture not ready')
+                result = future.result(timeout=7)
+                return result['captured_packets'], run(['tcpdump', '-nn', '-vv', '-r', str(path)]).stdout
+            try:
+                def before_daemons(actual_manager):
+                    self.assertIsNone(route())
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False).returncode, 0)
+                    start_servers(actual_manager)
+                with manager.locked():
+                    with patch('network_labs.appliances.ospf.start_servers', side_effect=before_daemons):
+                        manager.start(spec)
+                    converged()
+                count, packets = record('ospf-transit.pcap', 'R1', 'eth0')
+                self.assertGreater(count, 0); self.assertIn('OSPFv2', packets)
+                count, _ = record('ospf-passive.pcap', 'PC1', 'eth0')
+                self.assertEqual(count, 0)
+                with manager.locked():
+                    manager.ns(2, 'ip', 'link', 'set', 'eth0', 'down')
+                    wait(lambda: (route() or {}).get('gateway') == '10.0.13.2', 'backup next hop learned by OSPF')
+                    ping(61)
+                    manager.ns(2, 'ip', 'link', 'set', 'eth1', 'down')
+                    wait(lambda: route() is None, 'OSPF route withdrawn after isolation')
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False).returncode, 0)
+                    manager.ns(2, 'ip', 'link', 'set', 'eth0', 'up')
+                    wait(lambda: (route() or {}).get('gateway') == '10.0.12.2', 'primary recovered')
+                    ping(62)
+                    manager.ns(2, 'ip', 'link', 'set', 'eth1', 'up'); converged()
+                    path = manager.directory / 'R1/files/bird.conf'; original = path.read_text()
+                    try:
+                        path.write_text(original + '# drift\n')
+                        with self.assertRaisesRegex(RuntimeFailure, 'OSPF'):
+                            manager.write_startup()
+                    finally:
+                        path.write_text(original)
+                    # Non-BIRD injected routes still fail the static-route audit.
+                    manager.ns(2, 'ip', 'route', 'add', '203.0.113.0/24', 'via', '10.0.12.2', 'proto', 'static')
+                    try:
+                        with self.assertRaisesRegex(RuntimeFailure, 'static routes'):
+                            manager.write_startup()
+                    finally:
+                        manager.ns(2, 'ip', 'route', 'del', '203.0.113.0/24')
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertTrue(all(not node['routes'] for node in saved['nodes']))
+                    manager.crun('exec', 'R1', '/usr/sbin/birdc', '-s', '/run/bird.ctl', 'down')
+                    wait(lambda: read_cli(manager, 'R1', 'show status') is None, 'BIRD stopped')
+                    wait(lambda: route() is None, 'daemon-owned routes removed on shutdown')
+                    observed = manager.inspect('R1')['ospf']
+                    self.assertTrue(observed['configuration_verified']); self.assertIsNone(observed['neighbors'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); converged()
+            except Exception:
+                for node in ('R1', 'R2', 'R3'):
+                    path = manager.directory / node / 'ospf.log'
+                    if path.exists():
+                        print(node + ': ' + path.read_text()[-6000:])
+                raise
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore(self):
         from network_labs.appliances.examples import static_routing_lab
         from network_labs.appliances.persistence import load_startup

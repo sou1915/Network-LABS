@@ -6,13 +6,14 @@ import struct
 import subprocess
 
 
-def assets(binary, *, destination='/usr/sbin/dnsmasq', identity='dnsmasq version ', version_args=('--version',)):
+def assets(binary, *, destination='/usr/sbin/dnsmasq', identity='dnsmasq version ', version_args=('--version',), version_check=None):
     binary = Path(binary).resolve()
     raw = binary.read_bytes()
     if len(raw) < 64 or raw[:4] != b'\x7fELF' or raw[4] not in (1, 2) or raw[5] not in (1, 2):
         raise ValueError('Trusted host service must be an ELF executable.')
     version = subprocess.run([str(binary), *version_args], text=True, capture_output=True, timeout=5)
-    if version.returncode or not version.stdout.lower().startswith(identity):
+    accepted = version_check(version) if version_check is not None else (version.returncode == 0 and version.stdout.lower().startswith(identity))
+    if not accepted:
         raise ValueError('The trusted binary did not identify itself as ' + identity.strip() + '.')
     endian, is64 = ('<' if raw[5] == 1 else '>'), raw[4] == 2
     offset = struct.unpack_from(endian + ('Q' if is64 else 'I'), raw, 32 if is64 else 28)[0]
