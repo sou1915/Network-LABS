@@ -467,20 +467,16 @@ class Manager:
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
-        if previous['nodes'][index].get('ospf') is not None or candidate['nodes'][index].get('ospf') is not None:
-            from .ospf import preflight_change, apply_change
-            preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
+        from .service_adapters import adapters
+        selected = adapters(candidate['nodes'][index], previous['nodes'][index])
+        for adapter in selected:
+            adapter.preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
+        if selected:
             if candidate['nodes'][index] == previous['nodes'][index]:
                 return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
-            configure = apply_change
+            configure = selected[0].apply_change
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
-        if previous['nodes'][index].get('dhcp_relay') is not None or candidate['nodes'][index].get('dhcp_relay') is not None:
-            from .dhcp_relay import preflight_change, apply_change
-            preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
-            if candidate['nodes'][index] == previous['nodes'][index]:
-                return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
-            configure = apply_change
         if previous['nodes'][index].get('switch_backend') == 'ovs' or candidate['nodes'][index].get('switch_backend') == 'ovs':
             raise ValueError('OVS live network edits are unsupported by this adapter; use a new manifest and recreate the lab.')
         old_macs = previous['nodes'][index].get('interface_macs', {})
@@ -547,12 +543,11 @@ class Manager:
                     from .firewall import apply
                     state.setdefault('firewall_fingerprints', {})[node['name']] = apply(self, index, node)
                 pending = state['pending_spec']['nodes'][index]
-                if node.get('ospf') is not None or pending.get('ospf') is not None:
-                    from .ospf import apply_change
-                    apply_change(self, index, node, pending)
-                elif node.get('dhcp_relay') is not None or pending.get('dhcp_relay') is not None:
-                    from .dhcp_relay import apply_change
-                    apply_change(self, index, node, pending)
+                from .service_adapters import adapters
+                selected = adapters(node, pending)
+                if selected:
+                    for adapter in selected:
+                        adapter.apply_change(self, index, node, pending)
                 else:
                     configure(self, index, node, pending)
         state.pop('pending_spec'); state['phase'] = 'running'; self.save()

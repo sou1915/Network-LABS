@@ -2492,8 +2492,8 @@ below adds shared Ethernet DR/BDR election. Passive LANs are announced without
 sending/receiving OSPF Hello packets. ECMP is disabled.
 
 There is no OSPFv3, multi-area, NBMA/PtMP profile, authentication, BFD,
-redistribution, default origination or VRF in this bounded profile. Static/default routes, other managed services and untracked startup
-commands on OSPF routers are rejected. The partial IOS adapter supports the OSPF-only edits described below. Changes
+redistribution, default origination or VRF in this bounded profile. Static/default routes, untracked startup and other managed services
+(except the bounded DHCP relay composition below) are rejected on OSPF nodes. The partial IOS adapter supports the OSPF-only edits described below. Changes
 to addresses, link state, router ID or process-wide timer defaults still require the manifest and
 lab recreation. Real BIRD show commands remain available.
 
@@ -2834,8 +2834,8 @@ Save stores declarations; restore rebuilds SVIs and starts a fresh routing daemo
 which must reconverge. It does not save learned routes or neighbors.
 
 This profile excludes OVS SVIs, switch physical routed ports, router subinterfaces,
-bundles and co-located DHCP/DNS/LLDP/firewall, bridge security or explicit multicast
-policies. It does not implement Catalyst per-VLAN autostate or all vendor behavior.
+bundles and co-located DHCP clients/servers, DNS/LLDP/firewall, bridge security or
+explicit multicast policies. The bounded DHCP relay composition below is supported. It does not implement Catalyst per-VLAN autostate or all vendor behavior.
 The example uses the default Linux bridge multicast behavior; optional snooping
 policy coexistence has not been validated.
 
@@ -2846,3 +2846,73 @@ cost without replacing the daemon/SVI, removes/recreates the switch OSPF process
 to verify route withdrawal and failed/recovered traffic, then saves/restores the
 nondefault cost and SVIs. Baseline host links/routes/rules/nft/forwarding remain
 checked after cleanup.
+
+
+### OSPF and DHCP relay on the same L3 switch
+
+`example --ospf-dhcp` extends the SVI/trunk lab to six nodes. PC1 now obtains
+192.0.2.100/24 and gateway 192.0.2.1 from a reserved remote pool on DHCP1
+(198.18.0.3/29), via SW1's VLAN10 relay and VLAN20 upstream SVI. DHCP1 connects
+to an access port on SW2. SW1 also runs BIRD OSPF on VLAN20 and advertises
+passive VLAN10; R1 learns the DHCP-client subnet through actual OSPF.
+PC1 and PC2 (203.0.113.10) exchange real traffic through SW1 and R1.
+
+The DHCP server remains **on-link to the relay's upstream SVI**. Its explicit
+static return route to 192.0.2.0/24 uses 198.18.0.1. This composition does not add
+multi-hop DHCP helpers or require OSPF convergence for DHCP acquisition. OSPF
+learned routes provide remote-client connectivity; DHCP still works if the OSPF
+process is removed, while traffic requiring learned routes fails.
+
+Build a fresh trusted rootfs containing both service executables:
+
+```bash
+sudo apt-get install crun iproute2 busybox-static bird2 dnsmasq-base
+python3 -m network_labs.appliances rootfs --busybox /bin/busybox \
+  --bird /usr/sbin/bird --birdc /usr/sbin/birdc \
+  --dnsmasq /usr/sbin/dnsmasq --output "$HOME/network-labs-ospf-dhcp-rootfs"
+python3 -m network_labs.appliances example --ospf-dhcp \
+  --rootfs "$HOME/network-labs-ospf-dhcp-rootfs" > ospf-dhcp.json
+sudo python3 -m network_labs.appliances start ospf-dhcp.json
+sudo python3 -m network_labs.appliances exec ospf-dhcp-lan PC1 -- \
+  /bin/busybox ip -4 addr show dev eth0
+sudo python3 -m network_labs.appliances exec ospf-dhcp-lan PC1 -- \
+  /bin/ping -c 3 203.0.113.10
+sudo python3 -m network_labs.appliances inspect ospf-dhcp-lan SW1
+```
+
+A DHCP address may arrive asynchronously after start. Check the actual lease and
+OSPF neighbors before interpreting failed pings. The example runs no DNS server.
+Use an unused rootfs output directory; the builder refuses existing output.
+
+Live changes select the service whose policy changed, including journal rollback
+and `recover`. An OSPF-only edit reloads BIRD and preserves the relay process;
+a helper-only edit restarts the relay and preserves BIRD. Removing one service
+leaves the other running. Idempotent blocks on a co-located node preflight both
+services without reloading either. Changes to both policies in one block, or
+combined service/network edits, are refused before journaling. Make separate
+transactions; there is no distributed or multi-service atomic transaction.
+Normal edits preflight the selected service, not the unchanged service's complete
+runtime state. Save still audits both managed config files and network drift.
+
+```bash
+sudo python3 -m network_labs.appliances configure ospf-dhcp-lan SW1 \
+  --text $'conf t\ninterface vlan20\nip ospf cost 40\nend'
+sudo python3 -m network_labs.appliances configure ospf-dhcp-lan SW1 \
+  --text $'conf t\ninterface vlan10\nno ip helper-address 198.18.0.3\nend'
+sudo python3 -m network_labs.appliances configure ospf-dhcp-lan SW1 \
+  --text $'conf t\ninterface vlan10\nip helper-address 198.18.0.3\nend'
+sudo python3 -m network_labs.appliances save ospf-dhcp-lan
+sudo python3 -m network_labs.appliances stop ospf-dhcp-lan
+sudo python3 -m network_labs.appliances restore ospf-dhcp-lan
+```
+
+Existing leases can continue routing during helper removal; new acquisition
+fails. The privileged composition case verifies reserved address/default gateway,
+bidirectional TTL-62 traffic through OSPF routes, captured DORA and giaddr,
+unsuccessful discovery without a helper, unchanged BIRD during helper edits,
+unchanged relay during OSPF edits, failed helper rollback followed by actual
+recovery, and DHCP acquisition while OSPF is absent. It saves/restores both
+policies and checks host links/routes/rules/nft/forwarding after cleanup.
+Restore reacquires a lease and reconverges OSPF; runtime leases/neighbors are not
+snapshotted. Existing single-service profile limits remain in force; this does
+not enable DHCP/DNS/LLDP/security services arbitrarily on every OSPF node.

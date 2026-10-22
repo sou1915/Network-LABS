@@ -336,6 +336,6 @@ def compile_config(spec, name, text):
     node = next(n for n in candidate['nodes'] if n['name'] == node['name'])
     previous = next(n for n in spec['nodes'] if n['name'] == node['name'])
     if previous.get('ospf') or node.get('ospf'):
-        from .ospf import validate_change
-        validate_change(node, previous)
+        from .service_adapters import adapters
+        adapters(node, previous)
     return candidate

@@ -692,6 +692,133 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_ai_ospf_and_dhcp_relay_real_independent_edits_recover_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ospf_dhcp_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.ospf import read_cli
+        from network_labs.appliances.dhcp_relay import apply_change as apply_relay
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                bird=shutil.which('bird'), birdc=shutil.which('birdc'), dnsmasq=shutil.which('dnsmasq'))
+            spec = ospf_dhcp_lab(rootfs); spec['name'] = 'ospf-dhcp-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label)
+            def addresses():
+                return [a['local'] for row in json.loads(manager.ns(0, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
+                        for a in row.get('addr_info', []) if a.get('scope') == 'global']
+            def lease():
+                wait(lambda: addresses() == ['192.0.2.100'], 'actual reserved DHCP lease')
+                default = json.loads(manager.ns(0, 'ip', '-j', 'route', 'show', 'default').stdout)
+                self.assertTrue(any(row.get('gateway') == '192.0.2.1' for row in default))
+            def full():
+                wait(lambda: 'Full' in (read_cli(manager, 'SW1', 'show ospf neighbors') or ''), 'OSPF Full')
+            def traffic():
+                lease(); full()
+                for node, destination in (('PC1', '203.0.113.10'), ('PC2', '192.0.2.100')):
+                    def ping():
+                        result = manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', destination, check=False)
+                        return result.returncode == 0 and 'ttl=62' in result.stdout
+                    wait(ping, 'actual bidirectional routed DHCP-client traffic')
+            def signal(value):
+                manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -' + value + ' "$(/bin/cat /run/udhcpc.pid)"')
+            def release():
+                signal('USR2'); wait(lambda: not addresses(), 'lease release')
+            def cli(text):
+                return manager.configure_ios('SW1', 'conf t\n' + text + '\nend')
+            def pid(path):
+                return manager.crun('exec', 'SW1', '/bin/cat', path).stdout
+            def helper(remove=False):
+                return cli('interface vlan10\n' + ('no ' if remove else '') + 'ip helper-address 198.18.0.3')
+            def packets(filename, node, action):
+                event = threading.Event(); path = Path(folder) / filename
+                future = pool.submit(capture, Manager(spec['name']), node, 'eth0', path,
+                    seconds=4, packets=100, expression='udp and (port 67 or port 68)', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('DHCP/OSPF composition capture not ready')
+                with manager.locked():
+                    action()
+                future.result(timeout=8)
+                return run(['tcpdump', '-nn', '-vvv', '-r', str(path)]).stdout
+            try:
+                with manager.locked():
+                    manager.start(spec); traffic()
+                    bird_pid = pid('/run/bird.pid'); relay_pid = pid('/run/dhcp-relay.pid')
+                    cli('interface vlan20\nip ospf cost 40')
+                    self.assertEqual(relay_pid, pid('/run/dhcp-relay.pid'))
+                    self.assertEqual(bird_pid, pid('/run/bird.pid')); traffic(); release()
+                dora = packets('dora.pcap', 'DHCP1', lambda: signal('USR1'))
+                for message in ('Discover', 'Offer', 'Request', 'ACK', 'Gateway-IP 192.0.2.1'):
+                    self.assertIn(message, dora)
+                with manager.locked():
+                    traffic(); helper(True)
+                    self.assertEqual(bird_pid, pid('/run/bird.pid')); traffic(); release()
+                missing = packets('no-helper.pcap', 'PC1', lambda: signal('USR1'))
+                self.assertIn('Discover', missing); self.assertNotIn('Offer', missing)
+                with manager.locked():
+                    self.assertEqual(addresses(), []); full(); helper(); traffic()
+                    self.assertEqual(bird_pid, pid('/run/bird.pid'))
+                    revision = manager.state['revision']; calls = []
+                    def fail_rollback(*args):
+                        calls.append(True)
+                        if len(calls) == 1:
+                            apply_relay(*args)
+                        raise RuntimeFailure('Injected helper failure with co-located OSPF')
+                    with patch('network_labs.appliances.dhcp_relay.apply_change', side_effect=fail_rollback):
+                        with self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                            helper(True)
+                    self.assertEqual(manager.state['phase'], 'configuration-failed')
+                    manager.recover()
+                    self.assertEqual(manager.state['revision'], revision)
+                    self.assertEqual(bird_pid, pid('/run/bird.pid')); traffic()
+                    release(); signal('USR1'); lease()
+                    relay_pid = pid('/run/dhcp-relay.pid')
+                    cli('no router ospf 1')
+                    self.assertEqual(relay_pid, pid('/run/dhcp-relay.pid'))
+                    wait(lambda: not json.loads(manager.ns(2, 'ip', '-j', 'route', 'show', '192.0.2.0/24').stdout), 'remote OSPF return route withdrawn')
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False).returncode, 0)
+                    release()
+                independent = packets('dhcp-without-ospf.pcap', 'DHCP1', lambda: signal('USR1'))
+                self.assertIn('Offer', independent); self.assertIn('ACK', independent)
+                with manager.locked():
+                    lease()
+                    cli('router ospf 1\nrouter-id 1.1.1.1\nnetwork 192.0.2.0 0.0.0.255 area 0\nnetwork 198.18.0.0 0.0.0.7 area 0\npassive-interface vlan10\ninterface vlan20\nip ospf network broadcast\nip ospf cost 40')
+                    self.assertEqual(relay_pid, pid('/run/dhcp-relay.pid')); traffic()
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(saved['nodes'][1]['ospf']['interfaces']['vlan20']['cost'], 40)
+                    self.assertEqual(saved['nodes'][1]['dhcp_relay'], spec['nodes'][1]['dhcp_relay'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); traffic()
+                    observed = manager.inspect('SW1')
+                    self.assertTrue(observed['ospf']['configuration_verified'])
+                    self.assertTrue(observed['dhcp_relay']['configuration_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_ah_ospf_svi_real_trunk_routes_cli_withdrawal_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

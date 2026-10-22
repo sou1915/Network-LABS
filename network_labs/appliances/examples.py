@@ -454,3 +454,25 @@ def ospf_svi_lab(rootfs):
     spec['links'][1] = [['SW1', 'eth1'], ['SW2', 'eth0']]
     spec['links'].append([['SW2', 'eth1'], ['R1', 'eth0']])
     return validate(spec)
+
+
+def ospf_dhcp_lab(rootfs):
+    """Co-located OSPF and DHCP relay, with an on-link upstream DHCP server."""
+    spec = ospf_svi_lab(rootfs)
+    spec['name'] = 'ospf-dhcp-lan'
+    pc, switch = spec['nodes'][:2]
+    pc['interfaces']['eth0'] = ''; pc['gateway'] = None
+    pc['dhcp_clients'] = ['eth0']
+    pc['interface_macs'] = {'eth0': '02:00:00:00:40:01'}
+    switch['dhcp_relay'] = {'interface': 'vlan10', 'upstream_interface': 'vlan20', 'server': '198.18.0.3'}
+    access = spec['nodes'][4]
+    access['interfaces']['eth2'] = ''
+    access['switchports']['eth2'] = {'mode': 'access', 'vlan': 20}
+    spec['nodes'].append({'name': 'DHCP1', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+        'interfaces': {'eth0': '198.18.0.3/29'},
+        'routes': [{'destination': '192.0.2.0/24', 'gateway': '198.18.0.1', 'interface': 'eth0'}],
+        'dhcp_pools': {'interface': 'eth0', 'pools': [{'network': '192.0.2.0/24', 'start': '192.0.2.100',
+            'end': '192.0.2.110', 'router': '192.0.2.1',
+            'reservations': [{'mac': '02:00:00:00:40:01', 'address': '192.0.2.100'}]}]}})
+    spec['links'].append([['SW2', 'eth2'], ['DHCP1', 'eth0']])
+    return validate(spec)
