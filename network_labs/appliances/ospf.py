@@ -188,8 +188,12 @@ def validate_change(node, previous):
 PROCESS_SCRIPT = r'''for proc in /proc/[0-9]*; do
     [ "$(/bin/busybox readlink "$proc/exe" 2>/dev/null)" = /usr/sbin/bird ] || continue
     if [ "$2" = managed ]; then
-        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox grep -Fxq -- '/lab/bird.conf' || continue
-        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox grep -Fxq -- '/run/bird.ctl' || continue
+        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox awk '
+            previous == "-c" { config = $0 }
+            previous == "-s" { socket = $0 }
+            { previous = $0 }
+            END { exit !(config == "/lab/bird.conf" && socket == "/run/bird.ctl") }
+        ' || continue
     fi
     pid=${proc##*/}
     if [ "$1" = stop ]; then
