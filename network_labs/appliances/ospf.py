@@ -22,16 +22,25 @@ def rootfs_assets(daemon, client):
     return sorted(set(planned), key=lambda item: str(item[1]))
 
 
+def routed_addresses(node):
+    """Only the routed interface kinds covered by the OSPF profile."""
+    if node['role'] == 'switch':
+        return {name: svi['address'] for name, svi in node.get('svis', {}).items()}
+    return node['interfaces']
+
+
 def validate_ospf(node):
     policy = node.setdefault('ospf', None)
     if policy is None:
         return
     keys(policy, ('router_id', 'interfaces', 'hello', 'dead', 'process_id', 'networks'), 'OSPF')
     integer(policy.setdefault('process_id', 1), 1, 65535, 'OSPF process ID')
-    if node['runtime'] != 'oci' or node['role'] != 'router' or not node['forwarding']:
-        raise ValueError('OSPF requires a forwarding OCI router.')
+    if node['runtime'] != 'oci' or not node['forwarding'] or not (node['role'] == 'router' or
+            (node['role'] == 'switch' and node.get('switch_backend', 'linux') == 'linux' and node.get('svis'))):
+        raise ValueError('OSPF requires a forwarding OCI router or Linux L3 switch with SVIs.')
     if any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
-                                     'dhcp_server', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'lldp', 'firewall')):
+                                     'dhcp_server', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'lldp', 'firewall',
+                                     'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')):
         raise ValueError('Initial OSPF profile excludes static/default routes, subinterfaces, bundles and other managed services.')
     integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')
     integer(policy.setdefault('dead', 4), 2, 240, 'OSPF dead')
@@ -45,13 +54,14 @@ def validate_ospf(node):
         raise ValueError('OSPF router_id must be usable unicast IPv4.')
     ports = policy.get('interfaces')
     if not isinstance(ports, dict) or not 1 <= len(ports) <= 16:
-        raise ValueError('OSPF requires 1..16 physical interfaces.')
+        raise ValueError('OSPF requires 1..16 routed interfaces (router physical ports or switch SVIs).')
+    addresses = routed_addresses(node)
     networks = []
     for name, port in ports.items():
         keys(port, ('cost', 'passive', 'network_type', 'priority', 'hello', 'dead'), 'OSPF interface')
-        if name not in node['interfaces'] or not node['interfaces'][name] or name in node['shutdown']:
+        if name not in addresses or not addresses[name] or name in node['shutdown']:
             raise ValueError('OSPF interfaces must be UP and statically numbered.')
-        local = ipaddress.IPv4Interface(node['interfaces'][name])
+        local = ipaddress.IPv4Interface(addresses[name])
         if not 1 <= local.network.prefixlen <= 30 or local.ip in (local.network.network_address, local.network.broadcast_address) or local.ip.is_multicast or local.ip.is_reserved or local.ip.is_loopback or local.ip.is_unspecified:
             raise ValueError('OSPF interface needs usable IPv4 on a prefix 1..30 subnet.')
         if any(local.network.overlaps(network) for network in networks):
@@ -79,7 +89,7 @@ def validate_ospf(node):
         if not isinstance(value, str):
             raise ValueError('OSPF network selectors must be IPv4 prefix text.')
         selector = ipaddress.IPv4Network(value, strict=True)
-        matches = {name for name, address in node['interfaces'].items() if address and ipaddress.IPv4Interface(address).ip in selector}
+        matches = {name for name, address in addresses.items() if address and ipaddress.IPv4Interface(address).ip in selector}
         if not matches or matches - set(ports):
             raise ValueError('OSPF network selector must match numbered interfaces with declared OSPF options.')
         canonical.append(str(selector))
@@ -97,9 +107,10 @@ def interface_timers(node, port):
 
 def enabled_interfaces(node):
     policy = node['ospf']
+    addresses = routed_addresses(node)
     selectors = [ipaddress.IPv4Network(value) for value in policy['networks']]
     return {name: port for name, port in policy['interfaces'].items()
-            if any(ipaddress.IPv4Interface(node['interfaces'][name]).ip in selector for selector in selectors)}
+            if any(ipaddress.IPv4Interface(addresses[name]).ip in selector for selector in selectors)}
 
 
 def configure_network(node, address, wildcard, remove=False):
@@ -114,9 +125,9 @@ def configure_network(node, address, wildcard, remove=False):
     if remove:
         policy['networks'] = [entry for entry in policy['networks'] if entry != value]
         return
-    matches = [name for name, local in node['interfaces'].items() if local and ipaddress.IPv4Interface(local).ip in prefix]
+    matches = [name for name, local in routed_addresses(node).items() if local and ipaddress.IPv4Interface(local).ip in prefix]
     if not matches:
-        raise ValueError('OSPF network must match an existing numbered physical interface.')
+        raise ValueError('OSPF network must match an existing numbered routed interface (router port or switch SVI).')
     for name in matches:
         policy['interfaces'].setdefault(name, {'cost': 10, 'passive': False})
     if value not in policy['networks']:

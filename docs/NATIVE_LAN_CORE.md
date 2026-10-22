@@ -2485,14 +2485,14 @@ seconds to reach Full.
 
 The `ospf` manifest defines `router_id`, `interfaces` (each with `cost` and
 `passive`), `hello` and `dead`. Router IDs must be unique in the lab. Defaults
-are cost 10, hello 1 second and dead 4 seconds. Only forwarding OCI routers,
-1..16 UP numbered physical interfaces, disjoint IPv4 subnets and area 0 are
-supported. The older triangle uses point-to-point transit; the broadcast profile
+are cost 10, hello 1 second and dead 4 seconds. Forwarding OCI routers and Linux L3 switches support
+1..16 UP numbered routed interfaces: physical ports on routers, SVIs on Linux
+switches. Disjoint IPv4 subnets and area 0 are required. The older triangle uses point-to-point transit; the broadcast profile
 below adds shared Ethernet DR/BDR election. Passive LANs are announced without
 sending/receiving OSPF Hello packets. ECMP is disabled.
 
 There is no OSPFv3, multi-area, NBMA/PtMP profile, authentication, BFD,
-redistribution, default origination, VRF or SVI in this first profile. Static/default routes, other managed services and untracked startup
+redistribution, default origination or VRF in this bounded profile. Static/default routes, other managed services and untracked startup
 commands on OSPF routers are rejected. The partial IOS adapter supports the OSPF-only edits described below. Changes
 to addresses, link state, router ID or process-wide timer defaults still require the manifest and
 lab recreation. Real BIRD show commands remain available.
@@ -2786,3 +2786,63 @@ unchanged through these edits. Save/restore preserves the nondefault overrides;
 a failure injected after an actual timer reload exercises rollback to the prior
 2/8 configuration, followed by real adjacency/traffic recovery. Host networking
 cleanup checks remain required.
+
+
+### OSPF on Linux L3-switch VLAN interfaces
+
+`example --ospf-svi` provides five real OCI nodes. PC1 (192.0.2.10/24) uses
+SW1's passive VLAN10 gateway (192.0.2.1). SW1's VLAN20 (198.18.0.1/29)
+forms a broadcast OSPF adjacency with R1 (198.18.0.2/29), through a tagged
+VLAN20 trunk to the L2 switch SW2 and an access port to R1. PC2
+(203.0.113.10/24) uses R1's passive LAN gateway (203.0.113.1).
+The two endpoints need no manually configured remote-prefix routes;
+BIRD learns them and installs them in each transit node's Linux FIB.
+
+Use the trusted BIRD-enabled rootfs built in the OSPF setup above:
+
+```bash
+python3 -m network_labs.appliances example --ospf-svi \
+  --rootfs "$HOME/network-labs-rootfs" > ospf-svi.json
+sudo python3 -m network_labs.appliances start ospf-svi.json
+sudo python3 -m network_labs.appliances exec ospf-svi-lan SW1 -- \
+  /usr/sbin/birdc -s /run/bird.ctl show ospf neighbors
+sudo python3 -m network_labs.appliances exec ospf-svi-lan PC1 -- \
+  /bin/ping -c 3 203.0.113.10
+sudo python3 -m network_labs.appliances configure ospf-svi-lan SW1 \
+  --text $'conf t\ninterface vlan 20\nip ospf cost 40\nend'
+sudo python3 -m network_labs.appliances inspect ospf-svi-lan SW1
+sudo python3 -m network_labs.appliances save ospf-svi-lan
+sudo python3 -m network_labs.appliances stop ospf-svi-lan
+sudo python3 -m network_labs.appliances restore ospf-svi-lan
+```
+
+On a switch, `ospf.interfaces` keys and `network` selectors resolve only declared
+SVIs, never L2 ports or br0. `interface vlan 20` / `interface vlan20` select an
+existing SVI for OSPF cost, type, priority and Hello/Dead policy. Router-process
+creation/removal and `passive-interface vlan10` use the same partial IOS adapter
+as routers. Creation needs a complete explicit policy; e.g. router-id 1.1.1.1,
+network 192.0.2.0 0.0.0.255 area 0, network 198.18.0.0 0.0.0.7 area 0,
+passive-interface vlan10 and broadcast type on vlan20. Match R1's transit type
+and timers. A cost edit on this single-path example changes the metric, not the
+physical path.
+
+SVIs and `ip routing` must already be configured before creating OSPF. While
+OSPF exists, combined SVI/address/VLAN/forwarding changes are refused before
+journaling. Remove OSPF first or recreate the lab to change underlying networking.
+Existing staged parser checks, reload, rollback/recover and drift/save checks apply.
+Save stores declarations; restore rebuilds SVIs and starts a fresh routing daemon,
+which must reconverge. It does not save learned routes or neighbors.
+
+This profile excludes OVS SVIs, switch physical routed ports, router subinterfaces,
+bundles and co-located DHCP/DNS/LLDP/firewall, bridge security or explicit multicast
+policies. It does not implement Catalyst per-VLAN autostate or all vendor behavior.
+The example uses the default Linux bridge multicast behavior; optional snooping
+policy coexistence has not been validated.
+
+The privileged test checks Full adjacency on the actual SVI, learned forward and
+return routes with vlan20 egress, bidirectional TTL-62 pings, decoded VLAN20-tagged
+OSPF Hellos on the trunk and zero OSPF packets on passive VLAN10. It reloads a
+cost without replacing the daemon/SVI, removes/recreates the switch OSPF process
+to verify route withdrawal and failed/recovered traffic, then saves/restores the
+nondefault cost and SVIs. Baseline host links/routes/rules/nft/forwarding remain
+checked after cleanup.

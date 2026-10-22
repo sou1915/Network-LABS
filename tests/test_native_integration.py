@@ -692,6 +692,101 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
+    def test_appliance_ah_ospf_svi_real_trunk_routes_cli_withdrawal_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ospf_svi_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.ospf import read_cli
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', bird=shutil.which('bird'), birdc=shutil.which('birdc'))
+            spec = ospf_svi_lab(rootfs); spec['name'] = 'ospf-svi-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                self.fail('Timed out: ' + label + '; neighbors=' + repr(read_cli(manager, 'SW1', 'show ospf neighbors')))
+            def route(index, prefix):
+                rows = json.loads(manager.ns(index, 'ip', '-j', 'route', 'show', prefix).stdout)
+                return rows[0] if rows else {}
+            def traffic():
+                wait(lambda: route(1, '203.0.113.0/24').get('gateway') == '198.18.0.2' and
+                     route(2, '192.0.2.0/24').get('gateway') == '198.18.0.1', 'both learned routes')
+                self.assertEqual(route(1, '203.0.113.0/24')['dev'], 'vlan20')
+                self.assertIn(route(1, '203.0.113.0/24')['protocol'], ('bird', 192, '192'))
+                for node, destination in (('PC1', '203.0.113.10'), ('PC2', '192.0.2.10')):
+                    def ping():
+                        result = manager.crun('exec', node, '/bin/ping', '-c', '1', '-W', '1', destination, check=False)
+                        return result.returncode == 0 and 'ttl=62' in result.stdout
+                    wait(ping, 'bidirectional routed traffic ' + node)
+            def full():
+                wait(lambda: 'Full' in (read_cli(manager, 'SW1', 'show ospf neighbors') or '') and
+                     'Full' in (read_cli(manager, 'R1', 'show ospf neighbors') or ''), 'real SVI adjacency')
+                traffic()
+            def cli(text):
+                return manager.configure_ios('SW1', 'conf t\n' + text + '\nend')
+            try:
+                with manager.locked():
+                    manager.start(spec); full()
+                    identities = (manager.crun('exec', 'SW1', '/bin/cat', '/run/bird.pid').stdout,
+                                  manager.ns(1, 'ip', '-j', 'link', 'show', 'dev', 'vlan20').stdout)
+                captures = []
+                for name, port, expression in (('SW1', 'eth1', 'vlan 20 and ip proto 89'), ('PC1', 'eth0', 'ip proto 89')):
+                    event = threading.Event(); path = Path(folder) / (name + '.pcap')
+                    future = pool.submit(capture, Manager(spec['name']), name, port, path,
+                                         seconds=3, packets=100, expression=expression, ready=event.set)
+                    if not event.wait(5):
+                        future.result(timeout=5); self.fail('SVI capture not ready')
+                    captures.append((name, path, future))
+                for name, path, future in captures:
+                    result = future.result(timeout=8)
+                    if name == 'PC1':
+                        self.assertEqual(result['captured_packets'], 0)
+                    else:
+                        self.assertGreater(result['captured_packets'], 0)
+                        text = run(['tcpdump', '-e', '-nn', '-vv', '-r', str(path)]).stdout
+                        self.assertIn('vlan 20', text); self.assertIn('OSPFv2', text); self.assertIn('Hello', text)
+                with manager.locked():
+                    cli('interface vlan 20\nip ospf cost 40')
+                    wait(lambda: 'Cost: 40' in (read_cli(manager, 'SW1', 'show ospf interface ospf4 "vlan20"') or ''), 'actual SVI cost reload')
+                    self.assertEqual(identities, (manager.crun('exec', 'SW1', '/bin/cat', '/run/bird.pid').stdout,
+                        manager.ns(1, 'ip', '-j', 'link', 'show', 'dev', 'vlan20').stdout))
+                    full()
+                    # Disabling the sole transit is invalid. Remove the process to test withdrawal.
+                    cli('no router ospf 1')
+                    wait(lambda: not route(1, '203.0.113.0/24') and not route(2, '192.0.2.0/24'), 'route withdrawal')
+                    self.assertNotEqual(manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False).returncode, 0)
+                    cli('router ospf 1\nrouter-id 1.1.1.1\nnetwork 192.0.2.0 0.0.0.255 area 0\nnetwork 198.18.0.0 0.0.0.7 area 0\npassive-interface vlan10\ninterface vlan20\nip ospf network broadcast\nip ospf cost 40')
+                    full()
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(saved['nodes'][1]['ospf']['interfaces']['vlan20']['cost'], 40)
+                    self.assertEqual(saved['nodes'][1]['svis'], spec['nodes'][1]['svis'])
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); full()
+                    self.assertTrue(manager.inspect('SW1')['ospf']['configuration_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_ag_ospf_interface_timers_real_mismatch_backup_capture_rollback_restore(self):
         import re
         import threading

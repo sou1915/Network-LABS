@@ -434,3 +434,23 @@ def ospf_broadcast_lab(rootfs):
     links = [[['SW1', f'eth{i-1}'], [f'R{i}', 'eth0']] for i in range(1, 5)]
     links += [[['PC1', 'eth0'], ['R3', 'eth1']], [['PC2', 'eth0'], ['R4', 'eth1']]]
     return validate({'version': 2, 'name': 'ospf-broadcast-lan', 'nodes': nodes, 'links': links})
+
+
+def ospf_svi_lab(rootfs):
+    """A real L3 switch peers through VLAN20 and advertises passive VLAN10."""
+    spec = static_routing_lab(rootfs)
+    spec['name'] = 'ospf-svi-lan'
+    switch, router = spec['nodes'][1:3]
+    switch['ospf'] = {'router_id': '1.1.1.1', 'interfaces': {
+        'vlan10': {'passive': True}, 'vlan20': {'network_type': 'broadcast'}}}
+    router['ospf'] = {'router_id': '2.2.2.2', 'interfaces': {
+        'eth0': {'network_type': 'broadcast'}, 'eth1': {'passive': True}}}
+    switch['vlans'] = [1, 10, 20]
+    switch['switchports']['eth1'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [20]}
+    spec['nodes'].append({'name': 'SW2', 'role': 'switch', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+        'interfaces': {'eth0': '', 'eth1': ''}, 'vlans': [1, 20],
+        'switchports': {'eth0': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [20]},
+                        'eth1': {'mode': 'access', 'vlan': 20}}})
+    spec['links'][1] = [['SW1', 'eth1'], ['SW2', 'eth0']]
+    spec['links'].append([['SW2', 'eth1'], ['R1', 'eth0']])
+    return validate(spec)

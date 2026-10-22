@@ -68,8 +68,8 @@ def compile_config(spec, name, text):
                 if node.get('ospf') and process != node['ospf']['process_id']:
                     raise ValueError('Only one OSPF process is supported; delete the existing process first.')
                 if not node.get('ospf'):
-                    if node['role'] != 'router':
-                        raise ValueError('OSPF process creation requires an OCI router.')
+                    if node['role'] not in ('router', 'switch'):
+                        raise ValueError('OSPF process creation requires an OCI router or Linux L3 switch.')
                     node['ospf'] = {'process_id': process, 'router_id': None, 'interfaces': {}, 'networks': [], 'hello': 1, 'dead': 4}
                 mode = 'ospf'; interface = None; continue
             match = re.fullmatch(r'no router ospf (\d+)', command)

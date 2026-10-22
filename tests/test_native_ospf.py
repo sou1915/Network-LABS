@@ -10,6 +10,38 @@ from network_labs.appliances.ios import compile_config
 
 
 class OSPFTests(unittest.TestCase):
+    def test_svi_profile_selectors_cli_and_lifecycle(self):
+        from network_labs.appliances.examples import ospf_svi_lab
+        spec = ospf_svi_lab('/rootfs'); before = copy.deepcopy(spec)
+        node = spec['nodes'][1]
+        self.assertEqual(set(enabled_interfaces(node)), {'vlan10', 'vlan20'})
+        self.assertIn('interface "vlan10" { type ptp; cost 10; stub yes;', config(node))
+        changed = compile_config(spec, 'SW1', 'conf t\ninterface vlan 20\nip ospf cost 40\nip ospf hello-interval 2\nip ospf dead-interval 8\nend')
+        port = changed['nodes'][1]['ospf']['interfaces']['vlan20']
+        self.assertEqual((port['cost'], port['hello'], port['dead']), (40, 2, 8))
+        disabled = compile_config(spec, 'SW1', 'conf t\nno router ospf 1\nend')
+        recreated = compile_config(disabled, 'SW1', 'conf t\nrouter ospf 1\nrouter-id 1.1.1.1\nnetwork 192.0.2.0 0.0.0.255 area 0\nnetwork 198.18.0.0 0.0.0.7 area 0\npassive-interface vlan10\ninterface vlan20\nip ospf network broadcast\nend')
+        self.assertEqual(recreated, spec)
+        self.assertEqual(spec, before)
+
+    def test_svi_ospf_rejects_wrong_interface_role_and_combined_network_edits(self):
+        from network_labs.appliances.examples import ospf_svi_lab
+        for update in ({'forwarding': False}, {'shutdown': ['vlan20']}, {'switch_backend': 'ovs'}):
+            candidate = ospf_svi_lab('/rootfs'); candidate['nodes'][1].update(update)
+            with self.subTest(update=update), self.assertRaises(ValueError):
+                validate(candidate)
+        for interface in ('eth0', 'br0', 'vlan99'):
+            candidate = ospf_svi_lab('/rootfs')
+            candidate['nodes'][1]['ospf']['interfaces'] = {interface: {}}
+            with self.subTest(interface=interface), self.assertRaises(ValueError):
+                validate(candidate)
+        spec = ospf_svi_lab('/rootfs')
+        for command in ('interface vlan20\nshutdown', 'no interface vlan10',
+                        'interface vlan10\nip address 192.0.2.2 255.255.255.0',
+                        'interface vlan20\nswitchport mode access', 'no ip routing'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                compile_config(spec, 'SW1', 'conf t\n' + command + '\nend')
+
     def test_config_has_explicit_area_ports_passive_and_no_redistribution(self):
         node = ospf_lab('/rootfs')['nodes'][2]
         text = config(node)
