@@ -14,7 +14,8 @@ CLIENT = '/usr/sbin/birdc'
 
 def rootfs_assets(daemon, client):
     from .dns_rootfs import assets
-    planned = assets(daemon, destination=DAEMON, identity='bird version 2.')
+    planned = assets(daemon, destination=DAEMON, identity='BIRD version 2',
+                     version_check=lambda result: result.returncode == 0 and re.match(r'^BIRD version 2\.\d', result.stderr.strip()) is not None)
     # birdc has no --version; its documented control-client usage exits 1.
     planned += assets(client, destination=CLIENT, identity='BIRD control client', version_args=('-h',),
                       version_check=lambda result: result.returncode == 1 and '[-s <control-socket>] [-v] [-r]' in result.stderr)
