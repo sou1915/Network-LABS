@@ -132,8 +132,10 @@ class RealContainerTests(unittest.TestCase):
                         self.assertEqual(manager.read(), before)
                 # A physical trunk carries untagged LLDP and VLAN20-tagged OSPF.
                 path = Path(folder) / 'trunk.pcap'
-                cap = capture(Manager(spec['name']), 'SW1', 'eth1', path, seconds=5, packets=100,
-                              expression='ether proto 0x88cc or (vlan 20 and ip proto 89)')
+                # Keep the bounded trunk capture unfiltered: mixing a VLAN
+                # qualifier with an untagged branch changes BPF offsets. Decode
+                # and assert both actual encapsulations offline instead.
+                cap = capture(Manager(spec['name']), 'SW1', 'eth1', path, seconds=5, packets=100)
                 self.assertGreater(cap['captured_packets'], 0)
                 decoded = run(['tcpdump', '-e', '-nn', '-vv', '-r', str(path)]).stdout
                 self.assertIn('ethertype LLDP (0x88cc)', decoded)
