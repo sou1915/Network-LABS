@@ -87,17 +87,24 @@ class RealContainerTests(unittest.TestCase):
             def pid(name, path):
                 return manager.crun('exec', name, '/bin/cat', path).stdout.strip()
             def lldp_pids():
-                # Foreground lldpd does not promise a pidfile. Read executable
-                # identity and start time from the actual container /proc.
-                script = r'''for proc in /proc/[0-9]*; do
-                    [ "$(/bin/busybox readlink "$proc/exe" 2>/dev/null)" = /usr/sbin/lldpd ] || continue
-                    printf '%s ' "${proc##*/}"
-                    /bin/busybox awk '{sub(/^.*\) /, ""); print $20}' "$proc/stat"
-                done'''
-                identities = {name: sorted(manager.crun('exec', name, '/bin/sh', '-c', script).stdout.splitlines())
-                              for name in expected}
-                for name, actual in identities.items():
+                # lldpd privilege separation restricts container /proc/exe reads.
+                # The privileged test reads only PIDs in this node's owned
+                # cgroup, matching its actual executable inode and start time.
+                from network_labs.appliances.runtime import process_identity
+                from network_labs.appliances.spec import prefix
+                identities = {}
+                for name in expected:
+                    group = Path('/sys/fs/cgroup/network-labs') / prefix(spec) / name
+                    actual = []
+                    for value in (group / 'cgroup.procs').read_text().split():
+                        try:
+                            if (Path('/proc') / value / 'exe').samefile(manager.directory / name / 'rootfs/usr/sbin/lldpd'):
+                                actual.append((int(value), process_identity(int(value))))
+                        except FileNotFoundError:
+                            continue  # An unrelated short-lived exec may finish.
                     self.assertTrue(actual, name + ': no observed LLDP process')
+                    self.assertTrue(all(start is not None for _, start in actual))
+                    identities[name] = sorted(actual)
                 return identities
             try:
                 with manager.locked():
