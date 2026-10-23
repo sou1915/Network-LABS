@@ -87,7 +87,18 @@ class RealContainerTests(unittest.TestCase):
             def pid(name, path):
                 return manager.crun('exec', name, '/bin/cat', path).stdout.strip()
             def lldp_pids():
-                return {name: pid(name, '/run/lldpd.pid') for name in expected}
+                # Foreground lldpd does not promise a pidfile. Read executable
+                # identity and start time from the actual container /proc.
+                script = r'''for proc in /proc/[0-9]*; do
+                    [ "$(/bin/busybox readlink "$proc/exe" 2>/dev/null)" = /usr/sbin/lldpd ] || continue
+                    printf '%s ' "${proc##*/}"
+                    /bin/busybox awk '{sub(/^.*\) /, ""); print $20}' "$proc/stat"
+                done'''
+                identities = {name: sorted(manager.crun('exec', name, '/bin/sh', '-c', script).stdout.splitlines())
+                              for name in expected}
+                for name, actual in identities.items():
+                    self.assertTrue(actual, name + ': no observed LLDP process')
+                return identities
             try:
                 with manager.locked():
                     manager.start(spec); neighbors(expected); traffic()
