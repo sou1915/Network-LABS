@@ -771,6 +771,13 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(report['status'], 'blocked', json.dumps(report)); self.assertEqual(report['probe_commands_attempted'], 0)
                     self.assertIn('INTERFACE_DOWN', report['endpoints'][1]['reasons'])
                     manager.ns(3, 'ip', 'link', 'set', 'eth0', 'up')
+                    # Administrative link-down can remove the endpoint default route.
+                    # Make that return-path fault explicit, then restore the fixture.
+                    manager.ns(3, 'ip', 'route', 'del', 'default', check=False)
+                    report = check(bidirectional=True)
+                    self.assertEqual(report['status'], 'failed', json.dumps(report))
+                    self.assertEqual(report['directions'][1]['route']['status'], 'command_failed')
+                    manager.ns(3, 'ip', 'route', 'replace', 'default', 'via', spec['nodes'][3]['gateway'], 'dev', 'eth0')
                     manager.configure_ios('SW1', 'conf t\ninterface vlan10\nno ip helper-address 198.18.0.3\nend')
                     signal('USR2'); wait(lambda: not address(), 'released DHCP address')
                     report = check()
@@ -779,7 +786,7 @@ class RealContainerTests(unittest.TestCase):
                     manager.configure_ios('SW1', 'conf t\ninterface vlan10\nip helper-address 198.18.0.3\nend')
                     signal('USR1'); wait(lambda: address() == ['192.0.2.100'], 'DHCP reacquisition')
                     wait(lambda: manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '203.0.113.10', check=False).returncode == 0,
-                         'route convergence after the destination link returns')
+                         'connectivity after restoring destination link/default gateway and DHCP')
                     self.assertEqual(check(bidirectional=True)['status'], 'passed')
             finally:
                 if manager.directory.exists():

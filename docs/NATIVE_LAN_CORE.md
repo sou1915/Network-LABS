@@ -3042,6 +3042,10 @@ details. The privileged verification case uses DHCP endpoints in the seven-node
 lab, correlates successful bidirectional counts/TTL with actual ICMP request/reply
 PCAP, suppresses destination echo replies to prove route selection can coexist
 with failed delivery, then checks a down interface and released DHCP address
-block without launching ping. After link/helper recovery and convergence, real
+block without launching ping. It also removes the destination default route
+explicitly to verify a missing return path is reported as failed delivery, then
+restores the gateway. Administrative link-down may remove next-hop routes;
+raising the link alone does not restore all declarative configuration. Verification
+observes this drift and does not repair it. After link/helper recovery and convergence, real
 bidirectional verification succeeds again. Configuration/revision snapshots and
 baseline host links/routes/rules/nft/forwarding remain unchanged by verification.
