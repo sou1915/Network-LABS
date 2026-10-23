@@ -70,7 +70,10 @@ class RealContainerTests(unittest.TestCase):
                 summary = normalize_neighbors(raw)
                 self.assertEqual(summary['status'], 'observed', json.dumps(raw))
                 self.assertTrue(all(n['port_id']['type'] == 'ifname' for n in summary['neighbors']))
-                self.assertTrue(all(n['ttl_seconds'] == 6 for n in summary['neighbors']))
+                # Startup can retain an earlier announcement until refreshed.
+                # Wait for the declared TTL on received records, never rewrite it.
+                if any(n['ttl_seconds'] != 6 for n in summary['neighbors']):
+                    return None
                 return {(n['local_port'], n['system_name'], n['port_id']['value']) for n in summary['neighbors']}
             def neighbors(wanted):
                 wait(lambda: {name: peers(name) for name in wanted} == wanted, 'actual LLDP port/peer pairs')

@@ -3080,7 +3080,7 @@ Summary status `observed` means the supported record structure was decoded,
 including a genuinely empty table. `partial` preserves decoded records/identifiers
 while counting rejected entries or marking malformed optional fields. `unknown`
 means the table could not be decoded; it is not an empty-table verdict. Raw JSON
-remains available in all cases where the daemon supplied it. Displayed advertised
+remains available whenever the existing bounded daemon read returned it. Displayed advertised
 text is JSON-escaped; the underlying evidence retains its original value.
 
 An empty table does not establish a failed link or failed packet delivery.
@@ -3088,7 +3088,9 @@ Neither normalized LLDP nor file conformity certifies DHCP acquisition, OSPF
 convergence or application health. `explain` stays passive and leaves state and
 revision untouched; use explicit `verify` for bounded delivery tests. The native
 composition case checks decoded exact port pairs through loss/return/restore,
-actual TTL values, passive rendered/JSON findings and unchanged state. The
+actual TTL values after fresh announcements, passive rendered/JSON findings
+and unchanged state. Startup may briefly retain an earlier advertised TTL; the
+parser never replaces it with the declared policy. The
 standalone LLDP case checks an unavailable daemon produces unknown summary data.
 
 
