@@ -3052,6 +3052,46 @@ are checked after cleanup. No convergence-time or lossless-failover guarantee is
 made, and generic service/security combinations remain outside this profile.
 
 
+### Readable received LLDP neighbors
+
+`inspect LAB NODE` keeps the original LLDP JSON0 in `lldp.neighbors` and adds
+`lldp.neighbor_summary`, normalized from **that same read**, with no extra query.
+`explain LAB NODE` prints each received local port, announced name/chassis,
+remote port identifier with its subtype, and advertised TTL. The upstream
+[lldpd JSON0 integration contract](https://github.com/lldpd/lldpd/blob/master/tests/integration/test_lldpcli.py)
+defines the array structure; unfamiliar or malformed data remains unknown/partial.
+
+```bash
+sudo python3 -m network_labs.appliances explain ospf-dhcp-lldp-lan SW2
+sudo python3 -m network_labs.appliances inspect ospf-dhcp-lldp-lan SW2
+sudo python3 -m network_labs.appliances explain ospf-dhcp-lldp-lan SW2 --json
+```
+
+A received SW2 record can describe local `eth0`, announced chassis/name `SW1`,
+port ID subtype `ifname` and value `eth1`, with advertised TTL 6 seconds. That TTL
+is not a remaining-lifetime countdown; the daemon's age label is retained without
+calculating expiry. A MAC/local port ID is preserved as such, never guessed to be
+a physical interface name. A missing system name uses only the received chassis
+ID for display. Names are unauthenticated claims, not resolved against managed
+node names or declared cables. Repeated local ports remain repeated records;
+multiple advertisements are not collapsed into a dictionary.
+
+Summary status `observed` means the supported record structure was decoded,
+including a genuinely empty table. `partial` preserves decoded records/identifiers
+while counting rejected entries or marking malformed optional fields. `unknown`
+means the table could not be decoded; it is not an empty-table verdict. Raw JSON
+remains available in all cases where the daemon supplied it. Displayed advertised
+text is JSON-escaped; the underlying evidence retains its original value.
+
+An empty table does not establish a failed link or failed packet delivery.
+Neither normalized LLDP nor file conformity certifies DHCP acquisition, OSPF
+convergence or application health. `explain` stays passive and leaves state and
+revision untouched; use explicit `verify` for bounded delivery tests. The native
+composition case checks decoded exact port pairs through loss/return/restore,
+actual TTL values, passive rendered/JSON findings and unchanged state. The
+standalone LLDP case checks an unavailable daemon produces unknown summary data.
+
+
 ### Explicit connectivity verification between managed hosts
 
 `verify LAB SOURCE DESTINATION` resolves both endpoints from actual kernel IPv4

@@ -65,11 +65,13 @@ class RealContainerTests(unittest.TestCase):
                 self.fail('Timed out: ' + label + '; observations=' + json.dumps(details))
             def peers(name):
                 # Only actual daemon output; never walk the manifest links.
-                self.assertIsNotNone(lldp_read(manager, name, 'neighbors details'))
-                values = lldp_read(manager, name, 'neighbors details', 'keyvalue') or {}
-                return {(key[len('lldp.'):-len('.chassis.name')], value,
-                         values.get(key[:-len('chassis.name')] + 'port.ifname'))
-                        for key, value in values.items() if key.startswith('lldp.') and key.endswith('.chassis.name')}
+                from network_labs.appliances.lldp_neighbors import normalize_neighbors
+                raw = lldp_read(manager, name, 'neighbors details')
+                summary = normalize_neighbors(raw)
+                self.assertEqual(summary['status'], 'observed', json.dumps(raw))
+                self.assertTrue(all(n['port_id']['type'] == 'ifname' for n in summary['neighbors']))
+                self.assertTrue(all(n['ttl_seconds'] == 6 for n in summary['neighbors']))
+                return {(n['local_port'], n['system_name'], n['port_id']['value']) for n in summary['neighbors']}
             def neighbors(wanted):
                 wait(lambda: {name: peers(name) for name in wanted} == wanted, 'actual LLDP port/peer pairs')
             def lease(index, address):
@@ -109,6 +111,16 @@ class RealContainerTests(unittest.TestCase):
             try:
                 with manager.locked():
                     manager.start(spec); neighbors(expected); traffic()
+                    from network_labs.appliances.diagnostics import explain, render
+                    before = copy.deepcopy(manager.read())
+                    report = explain(manager, 'SW2')
+                    self.assertEqual(manager.read(), before)
+                    self.assertEqual(report['packet_delivery'], 'not_tested')
+                    findings = [f for item in report['nodes'] for f in item['findings'] if f['code'] == 'LLDP_NEIGHBOR']
+                    self.assertEqual({(f['evidence']['local_port'], f['evidence']['system_name'], f['evidence']['port_id']['value'])
+                                      for f in findings}, expected['SW2'])
+                    self.assertIn('TTL annoncé 6 s', render(report))
+                    self.assertEqual(manager.inspect('SW2')['lldp']['neighbor_summary']['status'], 'observed')
                     identities = lldp_pids()
                     bird = pid('SW1', '/run/bird.pid'); relay = pid('SW1', '/run/dhcp-relay.pid')
                     manager.configure_ios('SW1', 'conf t\ninterface vlan20\nip ospf cost 55\nend')
@@ -1953,6 +1965,7 @@ class RealContainerTests(unittest.TestCase):
                     manager.crun('exec', 'SW2', '/bin/busybox', 'killall', '-9', 'lldpd')
                     wait_peers({'SW1': {'PC1'}})  # Actual advertised TTL expiry.
                     self.assertIsNone(manager.inspect('SW2')['lldp']['neighbors'])
+                    self.assertEqual(manager.inspect('SW2')['lldp']['neighbor_summary']['status'], 'unknown')
                     self.assertFalse(manager.inspect('SW2')['lldp']['policy_verified'])
                     ping()  # Linux bridging is independent of the LLDP daemon.
                     with self.assertRaisesRegex(RuntimeFailure, 'LLDP'):

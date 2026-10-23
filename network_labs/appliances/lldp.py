@@ -126,8 +126,10 @@ def observe(manager, node):
     baseline = manager.state.get('lldp_baselines', {}).get(node['name'], {})
     global_ok = actual is not None and global_fingerprint(actual) == baseline.get('global')
     statuses_ok = statuses is not None and all(baseline.get('port_status', {}).get(p) == s for p, s in statuses.items())
+    from .lldp_neighbors import normalize_neighbors
+    neighbors = read_cli(manager, node['name'], 'neighbors details')
     return {**file, 'source': 'Actual container lldpcli queries; not declared topology discovery',
             'policy_verified': file['configuration_verified'] and global_ok and statuses_ok,
             'global_configuration_verified': global_ok, 'port_status': statuses,
-            'neighbors': read_cli(manager, node['name'], 'neighbors details'),
+            'neighbors': neighbors, 'neighbor_summary': normalize_neighbors(neighbors),
             'note': 'Neighbor advertisements are unauthenticated observations, not packet delivery or endpoint health. Missing/down interfaces may be absent; no inferred neighbors, CDP, LLDP-MED, or persistent neighbor cache.'}

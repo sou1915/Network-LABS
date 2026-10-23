@@ -302,3 +302,5 @@ Native dynamic routing: `example --ospf` runs real BIRD 2 OSPFv2 in an area-zero
 Native connectivity verification: `verify LAB PC1 PC2 --bidirectional --json` reads actual endpoint addresses (including DHCP) and executes bounded real ICMP with kernel route evidence and passed/failed/blocked/unknown results. It does not certify all protocols; passive `explain` and `route` remain available. See `docs/NATIVE_LAN_CORE.md`.
 
 Native infrastructure discovery: `example --ospf-dhcp-lldp` adds actual physical-port LLDP to the seven-node OSPF/two-VLAN DHCP lab, including its trunk. Discovery remains separate from routing adjacency and delivery. See [setup and limits](docs/NATIVE_LAN_CORE.md#physical-lldp-alongside-ospf-and-dhcp).
+
+Readable LLDP diagnostics: `explain LAB NODE` prints actual received local/remote identifiers and advertised TTL; `inspect` retains raw JSON0 plus a normalized summary. Empty, partial and unknown reads remain distinct. See [the guide](docs/NATIVE_LAN_CORE.md#readable-received-lldp-neighbors).

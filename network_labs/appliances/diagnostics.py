@@ -72,6 +72,23 @@ def explain_node(node, actual):
         _add(findings, 'LLDP_NEIGHBORS',
              'Voisins annoncés par LLDP ; observation non authentifiée, pas une preuve de livraison.',
              {'neighbors': lldp.get('neighbors')}, 'info' if lldp.get('neighbors') is not None else 'unknown')
+        from .lldp_neighbors import normalize_neighbors
+        summary = normalize_neighbors(lldp.get('neighbors'))
+        for neighbor in summary['neighbors'] or []:
+            # Escape advertised control characters in human-readable output.
+            label = lambda value: json.dumps(value, ensure_ascii=True)
+            chassis, port = neighbor['chassis_id'], neighbor['port_id']
+            peer = neighbor['system_name'] or chassis['value']
+            ttl = str(neighbor['ttl_seconds']) if neighbor['ttl_seconds'] is not None else '?'
+            _add(findings, 'LLDP_NEIGHBOR',
+                 f"LLDP {label(neighbor['local_port'])} → nom/châssis annoncé {label(peer)}, identifiant de port {label(port['type'])} {label(port['value'])}, TTL annoncé {ttl} s (pas un temps restant).",
+                 neighbor)
+        if summary['status'] == 'observed' and not summary['neighbors']:
+            _add(findings, 'LLDP_NEIGHBORS_EMPTY',
+                 'Aucun voisin LLDP dans cette lecture ; cela ne prouve ni une panne de lien ni une absence de connectivité.', summary)
+        elif summary['status'] != 'observed':
+            _add(findings, 'LLDP_NEIGHBORS_UNPARSED',
+                 'Lecture LLDP indisponible, incomplète ou de structure non reconnue ; aucun voisin manquant inventé.', summary, 'unknown')
         _add(findings, 'LLDP_POLICY' if lldp.get('policy_verified') is True else 'LLDP_POLICY_UNVERIFIED',
              'Configuration LLDP : ' + ('conforme.' if lldp.get('policy_verified') is True else 'modifiée/indisponible/non vérifiée.'),
              {'configuration_verified': lldp.get('configuration_verified'),
