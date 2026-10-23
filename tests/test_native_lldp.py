@@ -5,14 +5,14 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from network_labs.appliances.examples import lldp_lab
+from network_labs.appliances.examples import lldp_lab, ospf_dhcp_lldp_lab
 from network_labs.appliances.lldp import observe, config, global_fingerprint, port_status, read_cli, rootfs_assets
 from network_labs.appliances.runtime import oci_config
 from network_labs.appliances.spec import validate
 
 
 class LLDPTests(unittest.TestCase):
-    def test_strict_physical_access_scope_and_bounded_timers(self):
+    def test_strict_physical_scope_and_bounded_timers(self):
         for policy in ({}, {'ports': []}, {'ports': ['eth0', 'eth0']}, {'ports': ['br0']},
                        {'ports': ['eth0'], 'tx_interval': True}, {'ports': ['eth0'], 'tx_hold': 1},
                        {'ports': ['eth0'], 'tx_interval': 61}, {'ports': ['eth0'], 'cdp': True}):
@@ -20,8 +20,7 @@ class LLDPTests(unittest.TestCase):
             with self.subTest(policy=policy), self.assertRaises(ValueError):
                 validate(spec)
         spec = lldp_lab('/rootfs'); spec['nodes'][2]['switchports']['eth1'] = {'mode': 'trunk', 'native_vlan': 10, 'allowed': [10]}
-        with self.assertRaisesRegex(ValueError, 'access'):
-            validate(spec)
+        self.assertEqual(validate(spec)['nodes'][2]['lldp']['ports'], ['eth0', 'eth1'])
         spec = lldp_lab('/rootfs'); spec['nodes'][0]['startup'] = [['/bin/true']]
         with self.assertRaisesRegex(ValueError, 'startup'):
             validate(spec)
@@ -91,3 +90,57 @@ class LLDPTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'LLDP'):
             compile_config(spec, 'SW1', 'conf t\ninterface eth0\nshutdown\nend')
         self.assertEqual(spec, original)
+
+    def test_composition_selects_only_changed_service_and_preserves_lldp(self):
+        from network_labs.appliances.ios import compile_config
+        from network_labs.appliances.service_adapters import adapters
+        spec = ospf_dhcp_lldp_lab('/rootfs'); original = copy.deepcopy(spec)
+        for command, module in (('interface vlan20\nip ospf cost 55', 'ospf'),
+                                ('interface vlan10\nno ip helper-address 198.18.0.3', 'dhcp_relay')):
+            candidate = compile_config(spec, 'SW1', 'conf t\n' + command + '\nend')
+            selected = adapters(candidate['nodes'][1], spec['nodes'][1])
+            self.assertEqual([m.__name__.split('.')[-1] for m in selected], [module])
+            self.assertEqual(candidate['nodes'][1]['lldp'], spec['nodes'][1]['lldp'])
+        self.assertEqual(spec, original)
+        # LLDP follows physical ports, while OSPF follows numbered SVIs.
+        spec['nodes'][1]['lldp']['ports'] = ['vlan20']
+        with self.assertRaisesRegex(ValueError, 'physical'):
+            validate(spec)
+
+    def test_lldp_policy_and_network_edits_are_centrally_refused_before_journal(self):
+        from network_labs.appliances.runtime import Manager
+        for base, index, field, value in (
+                (ospf_dhcp_lldp_lab('/rootfs'), 1, 'lldp', {'ports': ['eth1'], 'tx_interval': 7, 'tx_hold': 3}),
+                (ospf_dhcp_lldp_lab('/rootfs'), 1, 'shutdown', ['eth1']),
+                (lldp_lab('/rootfs'), 2, 'shutdown', ['eth1']),
+                (lldp_lab('/rootfs'), 2, 'lldp', None)):
+            manager = Mock(); state = {'spec': base, 'phase': 'running'}
+            manager.read.return_value = state
+            candidate = copy.deepcopy(base); candidate['nodes'][index][field] = value
+            with self.subTest(field=field, name=base['name']), patch('network_labs.appliances.lan.configure') as apply:
+                with self.assertRaises(ValueError):
+                    Manager._configure_network(manager, base['nodes'][index]['name'], candidate, 'test')
+                manager.save.assert_not_called(); apply.assert_not_called()
+            self.assertEqual(state, {'spec': base, 'phase': 'running'})
+
+    def test_static_lldp_noop_does_not_reapply_network(self):
+        from network_labs.appliances.runtime import Manager
+        spec = lldp_lab('/rootfs'); manager = Mock()
+        manager.read.return_value = {'spec': spec, 'phase': 'running', 'revision': 3}
+        with patch('network_labs.appliances.lan.configure') as apply:
+            result = Manager._configure_network(manager, 'SW1', copy.deepcopy(spec), 'test')
+        self.assertTrue(result['unchanged']); self.assertEqual(result['revision'], 3)
+        manager.save.assert_not_called(); apply.assert_not_called()
+
+    def test_composed_cli_example_and_mutually_exclusive_profiles(self):
+        import contextlib
+        import io
+        from network_labs.appliances.__main__ import main
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(['example', '--ospf-dhcp-lldp', '--rootfs', '/rootfs']), 0)
+        spec = json.loads(output.getvalue())
+        self.assertEqual(spec['name'], 'ospf-dhcp-lldp-lan')
+        self.assertEqual([n['name'] for n in spec['nodes'] if n.get('lldp')], ['SW1', 'R1', 'SW2'])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(['example', '--ospf-dhcp-lldp', '--lldp', '--rootfs', '/rootfs']), 1)

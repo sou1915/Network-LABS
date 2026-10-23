@@ -471,9 +471,9 @@ class Manager:
         selected = adapters(candidate['nodes'][index], previous['nodes'][index])
         for adapter in selected:
             adapter.preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
+        if (selected or previous['nodes'][index].get('lldp') is not None) and candidate['nodes'][index] == previous['nodes'][index]:
+            return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
         if selected:
-            if candidate['nodes'][index] == previous['nodes'][index]:
-                return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
             configure = selected[0].apply_change
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')

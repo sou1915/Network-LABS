@@ -1880,7 +1880,7 @@ Le manifest ajoute par node :
 ```
 
 Le profil initial accepte 1 à 16 interfaces physiques déclarées, des ports
-switch access, intervalle 1–60 s et hold 2–10. Les ports sont explicitement
+switch Linux access ou trunk, intervalle 1–60 s et hold 2–10. Les ports sont explicitement
 sélectionnés, le nom du node est annoncé, et l'identifiant de port est son nom
 d'interface. Les configurations par défaut de l'hôte ne sont pas importées.
 Les nodes avec startup non suivi ou LACP sont refusés pour ce premier profil.
@@ -2378,7 +2378,7 @@ even with the helper removed. A fresh DHCP acquisition is the relevant negative
 test; a ping with an existing lease does not establish relay availability.
 
 No DHCPv6, Option 82, multiple servers per client interface, HA or generic UDP forwarding is implemented. Multiple remote pools are described below.
-This initial relay profile cannot share its node with DHCP/DNS/LLDP services,
+This relay profile cannot share its node with DHCP clients/servers or DNS services,
 untracked startup commands or DHCP snooping/ARP inspection/IP source guard.
 Other nodes may still run their own services.
 
@@ -2834,8 +2834,8 @@ Save stores declarations; restore rebuilds SVIs and starts a fresh routing daemo
 which must reconverge. It does not save learned routes or neighbors.
 
 This profile excludes OVS SVIs, switch physical routed ports, router subinterfaces,
-bundles and co-located DHCP clients/servers, DNS/LLDP/firewall, bridge security or
-explicit multicast policies. The bounded DHCP relay composition below is supported. It does not implement Catalyst per-VLAN autostate or all vendor behavior.
+bundles and co-located DHCP clients/servers, DNS/firewall, bridge security or
+explicit multicast policies. The bounded DHCP relay and physical-port LLDP compositions below are supported. It does not implement Catalyst per-VLAN autostate or all vendor behavior.
 The example uses the default Linux bridge multicast behavior; optional snooping
 policy coexistence has not been validated.
 
@@ -2915,7 +2915,7 @@ recovery, and DHCP acquisition while OSPF is absent. It saves/restores both
 policies and checks host links/routes/rules/nft/forwarding after cleanup.
 Restore reacquires a lease and reconverges OSPF; runtime leases/neighbors are not
 snapshotted. Existing single-service profile limits remain in force; this does
-not enable DHCP/DNS/LLDP/security services arbitrarily on every OSPF node.
+not enable DHCP/DNS/security services arbitrarily on every OSPF node. The physical-port LLDP composition below is supported.
 
 
 ### Two DHCP client VLANs with OSPF and scoped recovery
@@ -2984,6 +2984,72 @@ then injects failure after an actual OSPF cost reload on R1 and fails rollback.
 Scoped recovery restores R1 while preserving SW1's real BIRD and relay PIDs.
 Save/stop/restore reacquires both reserved leases and reconverges OSPF. Host
 links/routes/rules/nft/forwarding remain checked after cleanup.
+
+
+### Physical LLDP alongside OSPF and DHCP
+
+`example --ospf-dhcp-lldp` extends the seven-node multi-VLAN lab above. Real
+lldpd daemons run on SW1, SW2 and R1, restricted to these physical ports:
+
+| Local node / port | Expected received peer / advertised port |
+|---|---|
+| SW1 eth1 | SW2 eth0 (trunk) |
+| SW2 eth0 | SW1 eth1 (trunk) |
+| SW2 eth1 | R1 eth0 (access VLAN20) |
+| R1 eth0 | SW2 eth1 |
+
+This table describes the example, not fabricated observation. `inspect` retains
+actual daemon JSON; missing evidence remains unknown. SW1 and R1 are OSPF peers
+on VLAN20 but are not direct LLDP neighbors: SW2 lies between them. Client/server
+access ports and SVIs do not advertise LLDP in this example. The interface
+selection follows the [lldpd manual](https://lldpd.github.io/usage.html); Linux
+physical access/trunk ports are supported, while virtual SVIs, LACP and OVS
+coexistence remain excluded. LLDP advertisements are unauthenticated and do not
+establish delivery, routing convergence or application health.
+
+Build a **new** image directory containing all three service assets:
+
+```bash
+sudo apt install -y busybox-static bird2 dnsmasq-base lldpd
+python3 -m network_labs.appliances rootfs \
+  --busybox /bin/busybox --bird /usr/sbin/bird --birdc /usr/sbin/birdc \
+  --dnsmasq /usr/sbin/dnsmasq --lldpd /usr/sbin/lldpd --lldpcli /usr/sbin/lldpcli \
+  --output "$HOME/network-labs-ospf-dhcp-lldp-rootfs"
+python3 -m network_labs.appliances example --ospf-dhcp-lldp \
+  --rootfs "$HOME/network-labs-ospf-dhcp-lldp-rootfs" > ospf-dhcp-lldp.json
+sudo python3 -m network_labs.appliances start ospf-dhcp-lldp.json
+sudo python3 -m network_labs.appliances exec ospf-dhcp-lldp-lan SW2 -- \
+  /usr/sbin/lldpcli -u /run/lldpd.socket show neighbors details
+sudo python3 -m network_labs.appliances inspect ospf-dhcp-lldp-lan SW1
+# Wait for DHCP addresses and OSPF convergence before testing delivery.
+sudo python3 -m network_labs.appliances verify ospf-dhcp-lldp-lan PC1 PC2 --bidirectional
+sudo python3 -m network_labs.appliances configure ospf-dhcp-lldp-lan SW1 \
+  --text $'conf t\ninterface vlan20\nip ospf cost 55\nend'
+sudo python3 -m network_labs.appliances save ospf-dhcp-lldp-lan
+sudo python3 -m network_labs.appliances stop ospf-dhcp-lldp-lan
+sudo python3 -m network_labs.appliances restore ospf-dhcp-lldp-lan
+```
+
+Separate OSPF-only and helper-only live edits preserve the LLDP policy and
+processes. LLDP policy/port changes and underlying network edits on LLDP nodes
+are refused before journaling; recreate the lab for those changes. A no-op
+configuration does not reapply networking. Selected-service preflight still
+audits that service only; an OSPF edit does not repair or certify LLDP. Save
+checks the existing managed LLDP file, live global policy and port-status
+baseline as well as the other services. Restore starts fresh daemons and must
+rediscover neighbors, reacquire leases and reconverge OSPF; no runtime tables
+are snapshotted.
+
+The privileged composition case checks exact received local-port/peer/remote-port
+pairs (including absence of a false SW1–R1 LLDP hop), untagged LLDP and tagged
+VLAN20 OSPF in an actual trunk PCAP, both DHCP addresses and bidirectional TTL-62
+remote traffic. Cost/helper edits preserve LLDP process identities; fresh DHCP
+still works afterwards. Trunk loss ages out the affected LLDP neighbors, expires
+OSPF adjacency and breaks remote delivery, while SW2–R1 discovery remains.
+Link return restores discovery and routing. Save/restore retains the nondefault
+cost and rediscovers actual neighbors. Host links/routes/rules/nft/forwarding
+are checked after cleanup. No convergence-time or lossless-failover guarantee is
+made, and generic service/security combinations remain outside this profile.
 
 
 ### Explicit connectivity verification between managed hosts

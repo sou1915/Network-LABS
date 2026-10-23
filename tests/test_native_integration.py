@@ -33,6 +33,121 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_lldp_trunk_ospf_dhcp_service_edits_loss_and_restore(self):
+        import copy
+        from network_labs.appliances.examples import ospf_dhcp_lldp_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.lldp import read_cli as lldp_read
+        from network_labs.appliances.ospf import read_cli as ospf_read
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                bird=shutil.which('bird'), birdc=shutil.which('birdc'), dnsmasq=shutil.which('dnsmasq'),
+                lldpd=shutil.which('lldpd'), lldpcli=shutil.which('lldpcli'))
+            spec = ospf_dhcp_lldp_lab(rootfs); spec['name'] = 'lldp-ospf-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            expected = {'SW1': {('eth1', 'SW2', 'eth0')},
+                        'SW2': {('eth0', 'SW1', 'eth1'), ('eth1', 'R1', 'eth0')},
+                        'R1': {('eth0', 'SW2', 'eth1')}}
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                details = {name: manager.inspect(name) for name in ('SW1', 'SW2', 'R1', 'PC1', 'PC3')}
+                self.fail('Timed out: ' + label + '; observations=' + json.dumps(details))
+            def peers(name):
+                # Only actual daemon output; never walk the manifest links.
+                self.assertIsNotNone(lldp_read(manager, name, 'neighbors details'))
+                values = lldp_read(manager, name, 'neighbors details', 'keyvalue') or {}
+                return {(key[len('lldp.'):-len('.chassis.name')], value,
+                         values.get(key[:-len('chassis.name')] + 'port.ifname'))
+                        for key, value in values.items() if key.startswith('lldp.') and key.endswith('.chassis.name')}
+            def neighbors(wanted):
+                wait(lambda: {name: peers(name) for name in wanted} == wanted, 'actual LLDP port/peer pairs')
+            def lease(index, address):
+                wait(lambda: any(a.get('local') == address for row in json.loads(manager.ns(index,
+                    'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout) for a in row.get('addr_info', [])), 'DHCP ' + address)
+            def ping(source, address, check=True):
+                return manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', address, check=check)
+            def traffic():
+                lease(0, '192.0.2.100'); lease(6, '198.51.100.100')
+                wait(lambda: 'Full' in (ospf_read(manager, 'SW1', 'show ospf neighbors') or ''), 'OSPF Full')
+                wait(lambda: ping('PC1', '203.0.113.10', check=False).returncode == 0, 'OSPF forward delivery')
+                for source, destination in (('PC1', '203.0.113.10'), ('PC3', '203.0.113.10'),
+                                            ('PC2', '192.0.2.100'), ('PC2', '198.51.100.100')):
+                    self.assertIn('ttl=62', ping(source, destination).stdout)
+            def pid(name, path):
+                return manager.crun('exec', name, '/bin/cat', path).stdout.strip()
+            def lldp_pids():
+                return {name: pid(name, '/run/lldpd.pid') for name in expected}
+            try:
+                with manager.locked():
+                    manager.start(spec); neighbors(expected); traffic()
+                    identities = lldp_pids()
+                    bird = pid('SW1', '/run/bird.pid'); relay = pid('SW1', '/run/dhcp-relay.pid')
+                    manager.configure_ios('SW1', 'conf t\ninterface vlan20\nip ospf cost 55\nend')
+                    self.assertEqual(pid('SW1', '/run/bird.pid'), bird)
+                    self.assertEqual(pid('SW1', '/run/dhcp-relay.pid'), relay)
+                    for prefix in ('no ', ''):
+                        manager.configure_ios('SW1', 'conf t\ninterface vlan10\n' + prefix + 'ip helper-address 198.18.0.3\nend')
+                        self.assertEqual(pid('SW1', '/run/bird.pid'), bird)
+                        self.assertEqual(lldp_pids(), identities)
+                        neighbors(expected)
+                    # Fresh acquisition confirms the helper still works beside LLDP.
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR2 "$(/bin/cat /run/udhcpc.pid)"')
+                    wait(lambda: not any(row.get('addr_info') for row in json.loads(manager.ns(0,
+                        'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)), 'released PC1 IPv4')
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -USR1 "$(/bin/cat /run/udhcpc.pid)"')
+                    traffic()
+                    before = copy.deepcopy(manager.read())
+                    for command in ('interface eth1\nshutdown', 'interface vlan20\nip ospf cost 56\ninterface eth1\nshutdown'):
+                        with self.assertRaises(ValueError):
+                            manager.configure_ios('SW1', 'conf t\n' + command + '\nend')
+                        self.assertEqual(manager.read(), before)
+                # A physical trunk carries untagged LLDP and VLAN20-tagged OSPF.
+                path = Path(folder) / 'trunk.pcap'
+                cap = capture(Manager(spec['name']), 'SW1', 'eth1', path, seconds=5, packets=100,
+                              expression='ether proto 0x88cc or (vlan 20 and ip proto 89)')
+                self.assertGreater(cap['captured_packets'], 0)
+                decoded = run(['tcpdump', '-e', '-nn', '-vv', '-r', str(path)]).stdout
+                self.assertIn('ethertype LLDP (0x88cc)', decoded)
+                self.assertIn('vlan 20', decoded); self.assertIn('OSPFv2', decoded)
+                self.assertFalse(any('vlan ' in line and 'LLDP' in line for line in decoded.splitlines()), decoded)
+                with manager.locked():
+                    manager.ns(1, 'ip', 'link', 'set', 'eth1', 'down')
+                    neighbors({'SW1': set(), 'SW2': {('eth1', 'R1', 'eth0')}, 'R1': expected['R1']})
+                    wait(lambda: 'Full' not in (ospf_read(manager, 'SW1', 'show ospf neighbors') or ''), 'OSPF expiry after trunk loss')
+                    self.assertNotEqual(ping('PC1', '203.0.113.10', check=False).returncode, 0)
+                    manager.ns(1, 'ip', 'link', 'set', 'eth1', 'up')
+                    neighbors(expected); traffic()
+                    self.assertEqual(lldp_pids(), identities)
+                    for name in expected:
+                        self.assertTrue(manager.inspect(name)['lldp']['policy_verified'])
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); neighbors(expected); traffic()
+                    self.assertEqual(manager.read()['spec']['nodes'][1]['ospf']['interfaces']['vlan20']['cost'], 55)
+                    for name in expected:
+                        self.assertTrue(manager.inspect(name)['lldp']['policy_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_ab_dhcp_relay_real_dora_renew_loss_drift_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

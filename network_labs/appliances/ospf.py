@@ -39,7 +39,7 @@ def validate_ospf(node):
             (node['role'] == 'switch' and node.get('switch_backend', 'linux') == 'linux' and node.get('svis'))):
         raise ValueError('OSPF requires a forwarding OCI router or Linux L3 switch with SVIs.')
     if any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
-                                     'dhcp_server', 'dhcp_pools', 'dns_server', 'lldp', 'firewall',
+                                     'dhcp_server', 'dhcp_pools', 'dns_server', 'firewall',
                                      'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')):
         raise ValueError('Initial OSPF profile excludes static/default routes, subinterfaces, bundles and other managed services.')
     integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')

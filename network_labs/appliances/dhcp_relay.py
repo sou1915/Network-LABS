@@ -38,8 +38,8 @@ def _validate_rule(node, policy):
     if node['runtime'] != 'oci' or node['role'] not in ('router', 'switch') or node.get('switch_backend', 'linux') != 'linux' or not node['forwarding']:
         raise ValueError('DHCP relay requires a forwarding OCI router or Linux L3 switch.')
     if any((node.get('startup'), node.get('dhcp_server'), node.get('dhcp_pools'), node.get('dhcp_clients'), node.get('dns_server'),
-            node.get('lldp'), (node.get('dhcp_snooping') or {}).get('enabled'), node.get('arp_inspection'), node.get('ip_source_guard'))):
-        raise ValueError('Initial DHCP relay profile excludes untracked startup, DHCP/DNS/LLDP services and DHCP snooping/ARP/IP source guards on the relay node.')
+            (node.get('dhcp_snooping') or {}).get('enabled'), node.get('arp_inspection'), node.get('ip_source_guard'))):
+        raise ValueError('Initial DHCP relay profile excludes untracked startup, DHCP/DNS services and DHCP snooping/ARP/IP source guards on the relay node.')
     local = addresses(node)
     interfaces = [policy.get('interface'), policy.get('upstream_interface')]
     if any(not isinstance(name, str) or not local.get(name) or name in node['shutdown'] or

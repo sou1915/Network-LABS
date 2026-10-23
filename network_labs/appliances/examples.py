@@ -499,3 +499,14 @@ def ospf_dhcp_multi_lab(rootfs):
         'interfaces': {'eth0': ''}, 'dhcp_clients': ['eth0'], 'interface_macs': {'eth0': '02:00:00:00:40:02'}})
     spec['links'].append([['PC3', 'eth0'], ['SW1', 'eth2']])
     return validate(spec)
+
+
+def ospf_dhcp_lldp_lab(rootfs):
+    """Real physical neighbor discovery alongside SVI OSPF and two DHCP helpers."""
+    spec = ospf_dhcp_multi_lab(rootfs)
+    spec['name'] = 'ospf-dhcp-lldp-lan'
+    # Only infrastructure links advertise; SVIs and client/server access ports
+    # are deliberately outside this example's discovery scope.
+    for index, ports in ((1, ['eth1']), (4, ['eth0', 'eth1']), (2, ['eth0'])):
+        spec['nodes'][index]['lldp'] = {'ports': ports}
+    return validate(spec)

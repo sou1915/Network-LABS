@@ -37,8 +37,6 @@ def validate_lldp(node):
     ports = policy.get('ports')
     if not isinstance(ports, list) or not ports or len(ports) > 16 or any(not isinstance(p, str) or p not in node['interfaces'] for p in ports) or len(set(ports)) != len(ports):
         raise ValueError('LLDP ports require 1..16 unique declared physical interfaces.')
-    if node['role'] == 'switch' and any(node['switchports'][p]['mode'] != 'access' for p in ports):
-        raise ValueError('Initial LLDP switch profile supports physical access ports only.')
     policy['ports'] = sorted(ports)
     integer(policy.setdefault('tx_interval', 2), 1, 60, 'LLDP transmit interval')
     integer(policy.setdefault('tx_hold', 3), 2, 10, 'LLDP transmit hold')
