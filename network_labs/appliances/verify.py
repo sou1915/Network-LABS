@@ -17,7 +17,7 @@ def _text(value):
 def _endpoint(manager, index, node):
     result = {'node': node['name'], 'interface': 'eth0', 'status': 'unknown', 'address': None,
               'dhcp_client_configured': 'eth0' in node['dhcp_clients'], 'reasons': [],
-              'container': None, 'kernel': None}
+              'container': None, 'link': None, 'kernel': None}
     try:
         state = manager.crun('state', node['name'], check=False, timeout=3)
         if state.returncode:
@@ -28,18 +28,26 @@ def _endpoint(manager, index, node):
         result['container'] = container['status']
         if container['status'] != 'running':
             result.update(status='blocked', reasons=['CONTAINER_NOT_RUNNING']); return result
+        link = _json_read(manager, index, 'ip', '-j', 'link', 'show', 'dev', 'eth0')
+        result['link'] = link
+        if link['status'] != 'observed' or len(link['records']) != 1 or link['records'][0].get('ifname') != 'eth0':
+            result['reasons'].append('INTERFACE_NOT_OBSERVED'); return result
+        flags = link['records'][0].get('flags')
+        if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+            raise ValueError('Missing interface flags.')
+        if 'UP' not in flags or 'LOWER_UP' not in flags:
+            result.update(status='blocked', reasons=['INTERFACE_DOWN']); return result
         observed = _json_read(manager, index, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0')
         result['kernel'] = observed
         if observed['status'] != 'observed':
             result['reasons'].append('ADDRESS_READ_UNAVAILABLE'); return result
         records = observed['records']
-        if len(records) != 1 or records[0].get('ifname') != 'eth0':
-            result['reasons'].append('INTERFACE_NOT_OBSERVED'); return result
-        row = records[0]; flags = row.get('flags')
-        if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
-            raise ValueError('Missing interface flags.')
-        if 'UP' not in flags or 'LOWER_UP' not in flags:
-            result.update(status='blocked', reasons=['INTERFACE_DOWN']); return result
+        # ip -4 addr can omit an existing link that has no IPv4 addresses.
+        # Establish interface state separately; an observed empty address list
+        # then means no IPv4, rather than an unavailable interface snapshot.
+        if len(records) > 1 or (records and records[0].get('ifname') != 'eth0'):
+            result['reasons'].append('ADDRESS_READ_UNAVAILABLE'); return result
+        row = records[0] if records else {}
         addresses = []
         for item in row.get('addr_info', []):
             if item.get('family') != 'inet' or item.get('scope') != 'global':

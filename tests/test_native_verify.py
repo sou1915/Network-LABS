@@ -21,6 +21,8 @@ def manager_for():
     manager = Mock(); manager.name = 'verify-test'
     manager.read.return_value = {'spec': ospf_dhcp_multi_lab('/rootfs'), 'phase': 'running', 'revision': 4}
     def ns(index, *args, **kwargs):
+        if args[:3] == ('ip', '-j', 'link'):
+            return completed([{'ifname': 'eth0', 'flags': ['UP', 'LOWER_UP']}])
         if args[:4] == ('ip', '-j', '-4', 'addr'):
             address = '192.0.2.100' if index == 0 else '203.0.113.10'
             return completed([{'ifname': 'eth0', 'flags': ['UP', 'LOWER_UP'],
@@ -54,6 +56,14 @@ class VerifyTests(unittest.TestCase):
             self.assertEqual(report['status'], 'blocked'); self.assertEqual(report['probe_commands_attempted'], 0)
             self.assertTrue(all(call.args[0] == 'state' for call in manager.crun.call_args_list))
             self.assertEqual(report['directions'], [])
+
+    def test_empty_ipv4_list_with_observed_up_link_blocks_without_probe(self):
+        manager = manager_for(); original = manager.ns.side_effect
+        manager.ns.side_effect = lambda i, *a, **k: completed([]) if a[:4] == ('ip', '-j', '-4', 'addr') else original(i, *a, **k)
+        report = verify(manager, 'PC1', 'PC2')
+        self.assertEqual(report['status'], 'blocked'); self.assertEqual(report['probe_commands_attempted'], 0)
+        self.assertTrue(all('NO_USABLE_IPV4' in endpoint['reasons'] for endpoint in report['endpoints']))
+        self.assertTrue(all(endpoint['link']['status'] == 'observed' for endpoint in report['endpoints']))
 
     def test_missing_malformed_or_ambiguous_observations_stay_unknown(self):
         for value in ('bad json', [{'ifname': 'eth0'}], [{'ifname': 'eth0', 'flags': ['UP', 'LOWER_UP'], 'addr_info':
