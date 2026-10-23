@@ -692,7 +692,7 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
 
-    def test_appliance_ak_verify_real_dhcp_endpoints_pcap_loss_blocked_and_restore(self):
+    def test_appliance_aa_verify_real_dhcp_endpoints_pcap_loss_blocked_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading
         import copy
@@ -716,7 +716,14 @@ class RealContainerTests(unittest.TestCase):
                     if predicate():
                         return
                     time.sleep(0.2)
-                self.fail('Timed out: ' + label)
+                details = {'verification': verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)}
+                for name in ('PC1', 'SW1', 'R1', 'PC2'):
+                    details[name] = manager.inspect(name)
+                    for filename in ('dhcp.log', 'dhcp-relay.log', 'ospf.log'):
+                        path = manager.directory / name / filename
+                        if path.exists():
+                            details[name][filename] = path.read_text()[-4000:]
+                self.fail('Timed out: ' + label + '; observations=' + json.dumps(details))
             def address():
                 return [a['local'] for row in json.loads(manager.ns(0, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout)
                         for a in row.get('addr_info', []) if a.get('scope') == 'global']
