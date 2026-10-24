@@ -31,6 +31,75 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+## Micro-nodes Linux natifs et microVMs (expérimental)
+
+**Fichier → Micro-nodes natifs · runtimes / manifest**, ou
+`python3 -m network_labs --native-lab`, ouvre le diagnostic des runtimes et un
+éditeur de lab JSON avec validation et budget mémoire cible. Le laboratoire
+natif est distinct du canvas pédagogique : il ne convertit pas automatiquement
+les modèles constructeur ni leurs configurations.
+
+Le nouveau gestionnaire peut démarrer des **containers OCI/crun persistants**,
+relier leurs namespaces par veth et lancer des **microVMs Firecracker** optionnelles
+sur le même fabric via TAP. Rootfs, kernel et disque sont fournis explicitement.
+Les commandes OCI sont exécutées dans le node réel. Le démarrage/arrêt nécessite
+sudo dans un terminal ; conserver la GUI sans privilèges. Libkrun, Unikraft,
+Hyperlight/Nanvix, WASI 0.3 et netkit sont identifiés comme pistes non intégrées.
+
+```bash
+python3 -m network_labs.appliances doctor
+```
+
+[Guide d'installation, premier ping réel, limites et validation](docs/HYBRID_APPLIANCES.md).
+
+### Premier moteur LAN autonome
+
+Le scénario natif `example --campus` crée **8 nodes** avec VLAN access/trunk,
+sous-interfaces 802.1Q, routage inter-VLAN et DHCP BusyBox réel. Une CLI partielle
+`ios-basic` applique les blocs supportés sur les namespaces Linux ; `inspect`
+lit les interfaces/routes/VLAN du kernel. `save` conserve un manifest startup
+durable et `restore` recrée le lab après arrêt. Ce moteur ne dépend pas de Tk.
+
+```bash
+python3 -m network_labs.appliances example --campus --rootfs "$HOME/network-labs-rootfs" > campus-lan.json
+python3 -m network_labs.appliances plan campus-lan.json
+```
+
+[Lancement, commandes couvertes, sauvegarde et critères de validation](docs/NATIVE_LAN_CORE.md).
+Le backend Linux propose aussi un firewall IPv4 stateful et masquerade/SNAT/DNAT
+(`example --firewall`), avec règles, compteurs, sessions et sauvegarde.
+Le filtre IPv4 `example --ip-source-guard` ajoute la validation réelle IP ou
+IP+MAC par port access, basée sur DHCP snooping/bindings statiques, avec DAI
+optionnel et autorisations dynamiques courtes. Voir le guide LAN pour ses limites.
+Le scénario `example --multicast` ajoute IGMPv2 snooping/querier Linux sur un
+VLAN access, une MDB réelle et des probes UDP bornées via la commande `multicast`.
+`example --dhcp-reservations` ajoute un client PRN1 avec IP réservée par MAC,
+deux clients dynamiques et des ACKs observables via DHCP snooping.
+`example --dns` ajoute DNS local dnsmasq réel (UDP/TCP, A/PTR), resolver DHCP ou
+statique et HTTP par nom ; préparer un nouveau rootfs avec `rootfs --dnsmasq`.
+Voir la section DNS du guide LAN pour les commandes et limites.
+`example --lldp` ajoute la découverte réelle des voisins avec lldpd/lldpcli,
+inspection et capture LLDP ; son rootfs optionnel se prépare avec `--lldpd` et `--lldpcli`.
+`example --svi` ajoute un switch L3 Linux avec gateways sur VLAN 10/20, trunk,
+configuration SVI et activation explicite de `ip routing`, sans nouveau daemon.
+`example --static-routing` ajoute un LAN avec switch L3 et routeur : configurer
+les routes aller/retour avec `ip route`/`no ip route`, y compris default route et /32.
+`route LAB NODE IPv4` lit la décision réelle du kernel, l’entrée FIB et le voisinage,
+sans paquet de test ; `--source`/`--ingress` précisent le contexte du lookup.
+`inspect`/`explain` exposent aussi rp_filter et forwarding par interface,
+avec les valeurs effectives lisibles en texte. `route` fournit des findings
+structurés et des vérifications suggérées selon les flags et états NUD observés.
+Le scénario `example --enterprise` intègre 20 nodes (12 PC, 4 switches,
+routeur, firewall, DHCP et WAN). `benchmark` mesure le repos et une charge ICMP
+parallèle puis nettoie le lab. Le scénario `example --lacp` ajoute un trunk VLAN sur deux liens agrégés par LACP Linux,
+avec inspection de négociation et seuil min-links. `example --stp` ajoute une boucle contrôlée par le STP commun 802.1D du kernel, avec protections BPDU Guard/Root Guard optionnelles.
+`explain LAB [NODE]` ajoute un diagnostic passif lisible en français, ou structuré avec `--json`, fondé sur les états réels du kernel.
+`capture LAB NODE INTERFACE --output trace.pcap` enregistre les vraies trames du node avec durée/paquets/taille bornés et filtres BPF (tcpdump/nsenter/timeout optionnels).
+`explain LAB` compare aussi les memberships VLAN observés entre switches (LACP regroupé), et affiche les compteurs RX/TX/errors/drops cumulés sans conclure à la livraison des paquets.
+Le budget total 2 Gio reste à valider. `example --rstp` utilise un backend
+Open vSwitch optionnel dans les containers (rootfs `--openvswitch`, module
+`openvswitch` préchargé), avec ports access et RSTP réel. Voir le guide LAN.
+
 ## Essai facultatif : micro-appliances Wasm
 
 Le choix **Moteur du projet → Wasm · LAN** exécute les endpoints et switches de
@@ -199,3 +268,45 @@ xvfb-run -a python3 -m unittest discover -s tests -v
 Tests API/HTTP locaux, atomicité, persistance, ports, protocoles, politiques et
 synchronisation GUI/CLI inclus. Vérification navigateur facultative avec
 Playwright : voir [WEB.md](docs/WEB.md). La CLI utilisateur n'exige pas Node.
+
+La commande native `monitor LAB NODE [INTERFACE] --seconds 5 [--json]` mesure
+passivement les différences RX/TX et les débits moyens par port sur deux relevés.
+Les changements d'identité et diminutions de compteurs détectés rendent les taux
+indisponibles ; aucun test de livraison n'est implicite.
+Voir [le guide LAN](docs/NATIVE_LAN_CORE.md#débits-passifs-sur-un-intervalle).
+
+Le scénario natif `example --port-security` ajoute l'admission de MAC source
+statiques sur ports access OCI, avec filtrage nftables réel, compteurs,
+configuration IOS partielle et save/restore des MAC déclarées. Dynamic/sticky
+learning et shutdown automatique ne sont pas implémentés.
+Voir [le guide de port security](docs/NATIVE_LAN_CORE.md#port-security-statique-sur-ports-access).
+
+Le scénario natif `example --dhcp-snooping` démarre un vrai client, un serveur
+trusted et un serveur rogue. Il ajoute filtrage DHCPv4 sur ports access et
+bindings volatiles issus des échanges REQUEST/ACK, avec worker supervisé,
+compteurs et save/restore de la politique. Trunks/LACP et relay/Option 82
+restent hors périmètre ; inspection ARP disponible séparément. Voir [le guide DHCP snooping](docs/NATIVE_LAN_CORE.md#dhcp-snooping-ipv4--confiance-et-bindings-observés).
+
+Le scénario natif `example --arp-inspection` ajoute la validation ARP réelle :
+MAC Ethernet + MAC/IP ARP + port/VLAN, depuis bindings statiques explicites ou
+permissions DHCP à timeout kernel court. Les permissions dynamiques expirent
+sans worker ; les paquets IPv4 de données ne sont pas filtrés par cette option.
+Voir [le guide ARP](docs/NATIVE_LAN_CORE.md#inspection-arp-dynamique-sur-ports-access).
+
+Native DHCPv4 relay: `example --dhcp-relay` connects a client VLAN to a remote single-pool DHCP server through a real dnsmasq relay. Setup and limits: [Native LAN core](docs/NATIVE_LAN_CORE.md#dhcpv4-relay-remote-single-pool-server).
+
+Native multi-VLAN DHCP: `example --dhcp-multi` uses per-VLAN helpers and a central dnsmasq server with disjoint remote pools; see the native LAN guide for limits and setup.
+
+Native dynamic routing: `example --ospf` runs real BIRD 2 OSPFv2 in an area-zero three-router topology with a higher-cost backup path. `example --ospf-cli` starts the numbered topology without OSPF daemons; create/remove its processes through the partial IOS adapter. `example --ospf-broadcast` adds four routers on a shared Ethernet LAN with observed DR/BDR/DROther roles and normal 2-Way neighbors. `example --ospf-svi` connects a real Linux L3-switch VLAN interface to a router over a tagged VLAN trunk, with passive client-LAN advertisements. `example --ospf-dhcp` adds a co-located DHCP relay and remote pool, with independent OSPF/helper transactions and recovery. `example --ospf-dhcp-multi` adds two independent client VLANs/pools, learned return routes and scoped recovery that preserves services on other nodes. Per-interface Hello/Dead CLI timers drive actual BIRD adjacency expiry and recovery. See the native LAN guide for image setup, commands and the bounded supported profile.
+
+Native connectivity verification: `verify LAB PC1 PC2 --bidirectional --json` reads actual endpoint addresses (including DHCP) and executes bounded real ICMP with kernel route evidence and passed/failed/blocked/unknown results. It does not certify all protocols; passive `explain` and `route` remain available. See `docs/NATIVE_LAN_CORE.md`.
+
+Native infrastructure discovery: `example --ospf-dhcp-lldp` adds actual physical-port LLDP to the seven-node OSPF/two-VLAN DHCP lab, including its trunk. Discovery remains separate from routing adjacency and delivery. See [setup and limits](docs/NATIVE_LAN_CORE.md#physical-lldp-alongside-ospf-and-dhcp).
+
+Readable LLDP diagnostics: `explain LAB NODE` prints actual received local/remote identifiers and advertised TTL; `inspect` retains raw JSON0 plus a normalized summary. Empty, partial and unknown reads remain distinct. See [the guide](docs/NATIVE_LAN_CORE.md#readable-received-lldp-neighbors).
+
+Routed application scenario: `example --lan-services` composes eight OCI nodes with two DHCP client VLANs, DHCP-supplied DNS, local UDP/TCP DNS, name-based HTTP across OSPF and physical LLDP. See [setup and service/failure boundaries](docs/NATIVE_LAN_CORE.md#routed-lan-services-dhcp-dns-and-http-with-ospf-and-lldp).
+
+Native service diagnostics: `python3 -m network_labs.appliances probe lan-services PC1 web.lab.test`
+reports separate real DNS A, TCP connection and HTTP HEAD results. See
+[bounded service probe scope](docs/NATIVE_LAN_CORE.md#explicit-dns-tcp-and-http-service-probes).
