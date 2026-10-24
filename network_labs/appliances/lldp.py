@@ -63,7 +63,7 @@ def read_cli(manager, name, what, fmt='json0'):
         # Literal commands, no user shell interpolation. A closed pipe bounds
         # output inside the node even for a large/hostile neighbor table.
         result = manager.crun('exec', name, '/bin/sh', '-c',
-                              f'{CLIENT} -u /run/lldpd.socket -f {fmt} show {what} | /bin/busybox head -c {LIMIT + 1}', check=False, timeout=5)
+                              f'set -o pipefail; {CLIENT} -u /run/lldpd.socket -f {fmt} show {what} | /bin/busybox head -c {LIMIT + 1}', check=False, timeout=5)
         if result.returncode or len(result.stdout.encode()) > LIMIT:
             return None
         if fmt == 'keyvalue':

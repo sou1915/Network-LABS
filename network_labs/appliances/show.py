@@ -24,6 +24,9 @@ BIRD_COMMANDS = {
 }
 
 
+LLDP_COMMANDS = ('show lldp neighbors', 'show lldp neighbors detail')
+
+
 def show(manager, name, command):
     """Caller holds lab lock. No packet probes, config writes or topology inference."""
     if not isinstance(command, str) or '\n' in command or '\r' in command:
@@ -42,8 +45,8 @@ def show(manager, name, command):
             value = int(value)
         selection = {'field': kind, 'value': value}
         command = 'show mac address-table'
-    if command not in COMMANDS and command not in BIRD_COMMANDS:
-        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS]))
+    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS:
+        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS]))
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('show requires a running lab without pending configuration.')
@@ -55,6 +58,8 @@ def show(manager, name, command):
         raise ValueError('This bridge show command requires a Linux switch; OVS has a separate observation backend.')
     if selection and selection['field'] == 'interface' and selection['value'] not in {*node['interfaces'], 'br0'}:
         raise ValueError('Select a declared Linux switch port or br0.')
+    if command in LLDP_COMMANDS and node.get('lldp') is None:
+        raise ValueError('This node has no declared LLDP service.')
     if command in BIRD_COMMANDS and node.get('ospf') is None:
         raise ValueError('This node has no declared OSPF process. Configure it before querying BIRD.')
     report = dict(lab=manager.name, node=name, command=command, query=query, selection=selection, revision=state.get('revision', 0),
@@ -66,6 +71,10 @@ def show(manager, name, command):
         report.update(daemon_command=BIRD_COMMANDS[command],
                       source='Actual BIRD 2 read-only control socket; partial IOS-style adapter',
                       scope='Actual BIRD text, not Cisco output. Protocol routes are the daemon RIB, not proof of kernel installation or packet delivery. No inferred neighbor roles or convergence verdict.')
+    if command in LLDP_COMMANDS:
+        report.update(daemon_command='show neighbors details',
+                      source='Received lldpd JSON0 advertisements; no topology-derived neighbors',
+                      scope='Advertised names and identifiers, not authenticated inventory. TTL is advertised, not remaining time. An empty table does not prove link failure or absent equipment.')
     try:
         container = manager.crun('state', name, check=False, timeout=3)
         if container.returncode:
@@ -76,6 +85,12 @@ def show(manager, name, command):
         report['container_status'] = status['status']
         if status['status'] != 'running':
             report['status'] = 'blocked'
+        elif command in LLDP_COMMANDS:
+            from .lldp import read_cli
+            from .lldp_neighbors import normalize_neighbors
+            raw = read_cli(manager, name, 'neighbors details')
+            summary = normalize_neighbors(raw)
+            report.update(status=summary['status'], observation={'raw': raw, 'summary': summary})
         elif command in BIRD_COMMANDS:
             from .ospf import read_cli
             text = read_cli(manager, name, BIRD_COMMANDS[command])
@@ -132,7 +147,26 @@ def _table(headers, rows):
 def render(report):
     lines = [report['node'] + '# ' + report.get('query', report['command']),
              ('Source : BIRD 2 — sortie réelle du daemon, adaptateur partiel.' if report['command'] in BIRD_COMMANDS
+              else 'Source : lldpd — annonces LLDP reçues.' if report['command'] in LLDP_COMMANDS
               else 'Source : Linux kernel — adaptateur partiel, noms Linux conservés.')]
+    if report['command'] in LLDP_COMMANDS and report['status'] in ('observed', 'partial'):
+        summary = report['observation']['summary']
+        lines.append('TTL annoncé en secondes, pas un compte à rebours. Identités annoncées, non authentifiées.')
+        if report['status'] == 'partial':
+            lines.append('Observation partielle : champs incomplets ou entrées non interprétées = ' + str(summary['unparsed_entries']))
+        rows = []
+        detailed = report['command'].endswith(' detail')
+        for row in summary['neighbors']:
+            values = [row['local_port'], row['system_name'] or row['chassis_id']['value'],
+                      row['port_id']['type'] + ': ' + row['port_id']['value'], row['ttl_seconds']]
+            if detailed:
+                values += [row['chassis_id']['type'] + ': ' + row['chassis_id']['value'], row['age'], row['incomplete_fields']]
+            rows.append(values)
+        headers = ['Port local', 'Nom/chassis annoncé', 'Port distant (type: ID)', 'TTL annoncé']
+        if detailed:
+            headers += ['Chassis (type: ID)', 'Age (lldpd)', 'Champs incomplets']
+        lines.extend(_table(headers, rows) if rows else ['Aucun voisin LLDP annoncé dans cette observation ; aucune conclusion de connectivité.'])
+        return '\n'.join(lines)
     if report['status'] != 'observed':
         lines.append('Observation ' + report['status'] + ' : ' + _cell(report.get('error') or report.get('observation') or report.get('container_status')))
         return '\n'.join(lines)

@@ -132,3 +132,42 @@ class NativeShowTests(unittest.TestCase):
         manager.ns.return_value = completed([{'ifname': 'eth0', 'vlans': [None]}])
         text = render(show(manager, 'SW1', 'show vlan brief'))
         self.assertIn('eth0', text); self.assertIn('?', text); self.assertNotIn('Aucune entrée', text)
+
+    def test_lldp_observed_names_ports_and_raw_evidence(self):
+        from test_native_lldp_neighbors import payload, record
+        manager = manager_for(); manager.read.return_value['spec']['nodes'][1]['lldp'] = {'interfaces': ['eth1']}
+        raw = payload(record(name='external-peer\x1b[31m'))
+        before = copy.deepcopy(manager.read())
+        for command in ('show lldp neighbors', 'show lldp neighbors detail'):
+            with patch('network_labs.appliances.lldp.read_cli', return_value=raw) as read:
+                result = show(manager, 'SW1', command)
+            read.assert_called_once_with(manager, 'SW1', 'neighbors details')
+            self.assertEqual(result['status'], 'observed'); self.assertEqual(result['observation']['raw'], raw)
+            text = render(result)
+            self.assertIn('external-peer', text); self.assertIn('ifname: eth0', text)
+            self.assertIn('TTL annoncé', text); self.assertNotIn('\x1b', text)
+            manager.ns.assert_not_called(); self.assertEqual(manager.read(), before)
+
+    def test_lldp_partial_empty_and_unknown_remain_distinct(self):
+        from test_native_lldp_neighbors import payload, record
+        for raw, status in [(payload(), 'observed'), (None, 'unknown'), (payload(record(), None), 'partial')]:
+            manager = manager_for(); manager.read.return_value['spec']['nodes'][1]['lldp'] = {'interfaces': ['eth1']}
+            with patch('network_labs.appliances.lldp.read_cli', return_value=raw):
+                result = show(manager, 'SW1', 'show lldp neighbors')
+            self.assertEqual(result['status'], status)
+            if status == 'partial':
+                self.assertIn('SW2', render(result)); self.assertIn('partielle', render(result))
+            elif status == 'unknown':
+                self.assertNotIn('Aucun voisin', render(result))
+            else:
+                self.assertIn('Aucun voisin LLDP annoncé', render(result))
+        manager = manager_for()
+        with self.assertRaises(ValueError): show(manager, 'PC1', 'show lldp neighbors')
+        manager.crun.assert_not_called()
+
+    def test_lldp_read_pipeline_does_not_hide_client_failure(self):
+        from network_labs.appliances.lldp import read_cli
+        manager = manager_for(); manager.crun.side_effect = None
+        manager.crun.return_value = completed('{"lldp":[{}]}', 1)
+        self.assertIsNone(read_cli(manager, 'SW1', 'neighbors details'))
+        self.assertIn('set -o pipefail;', manager.crun.call_args.args[4])

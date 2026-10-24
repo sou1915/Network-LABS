@@ -3367,3 +3367,25 @@ here are the BIRD protocol RIB; use `show ip route` for the Linux main table and
 
 Malformed VLAN entries now render unknown fields rather than disappearing into
 an apparently empty kernel table. Raw observations remain available in JSON.
+
+### LLDP show commands
+
+```bash
+sudo python3 -m network_labs.appliances show lan-services SW2 --text 'show lldp neighbors'
+sudo python3 -m network_labs.appliances show lan-services SW2 --text 'show lldp neighbors detail' --json
+```
+
+Both commands read one actual lldpcli JSON0 neighbor snapshot using the existing
+bounded adapter and normalizer. They retain received port/chassis identifier
+subtypes, repeated ports, optional system names and advertised TTL (not remaining
+lifetime). The detailed view adds chassis identity, the raw lldpd age label and
+incomplete-field names. Advertised text is escaped in human output; JSON keeps
+raw evidence and normalized records. No manifest link or inventory name is used
+to invent a peer. A missing advertised name falls back only to its chassis ID.
+
+An observed empty table is distinct from unavailable or malformed output. Partial
+observations retain usable rows with a warning and exit 1; only fully observed
+output exits 0. None of these results certifies connectivity or authenticates
+advertised identities. Nodes without declared LLDP reject the query. The LLDP
+pipeline now enables pipefail so a failed lldpcli cannot be hidden by a successful
+output-limiting command. No daemon restart or configuration change is performed.

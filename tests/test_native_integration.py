@@ -95,6 +95,12 @@ class RealContainerTests(unittest.TestCase):
                     manager.start(spec); ready()
                     from network_labs.appliances.show import show, render as render_show
                     before_show = json.dumps(manager.read(), sort_keys=True)
+                    for command in ('show lldp neighbors', 'show lldp neighbors detail'):
+                        discovery = show(manager, 'SW2', command)
+                        self.assertEqual(discovery['status'], 'observed', discovery)
+                        self.assertEqual({n['system_name'] for n in discovery['observation']['summary']['neighbors']}, {'SW1', 'R1'})
+                        self.assertIn('SW1', render_show(discovery))
+                        self.assertIn('R1', render_show(discovery))
                     for command in ('show ip ospf neighbor', 'show ip ospf interface', 'show ip ospf', 'show ip route ospf'):
                         bird_show = show(manager, 'SW1', command)
                         self.assertEqual(bird_show['status'], 'observed', bird_show)
