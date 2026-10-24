@@ -306,3 +306,7 @@ Native infrastructure discovery: `example --ospf-dhcp-lldp` adds actual physical
 Readable LLDP diagnostics: `explain LAB NODE` prints actual received local/remote identifiers and advertised TTL; `inspect` retains raw JSON0 plus a normalized summary. Empty, partial and unknown reads remain distinct. See [the guide](docs/NATIVE_LAN_CORE.md#readable-received-lldp-neighbors).
 
 Routed application scenario: `example --lan-services` composes eight OCI nodes with two DHCP client VLANs, DHCP-supplied DNS, local UDP/TCP DNS, name-based HTTP across OSPF and physical LLDP. See [setup and service/failure boundaries](docs/NATIVE_LAN_CORE.md#routed-lan-services-dhcp-dns-and-http-with-ospf-and-lldp).
+
+Native service diagnostics: `python3 -m network_labs.appliances probe lan-services PC1 web.lab.test`
+reports separate real DNS A, TCP connection and HTTP HEAD results. See
+[bounded service probe scope](docs/NATIVE_LAN_CORE.md#explicit-dns-tcp-and-http-service-probes).

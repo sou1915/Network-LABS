@@ -77,6 +77,13 @@ def main(arguments=None):
     verify.add_argument('--count', type=int, default=3)
     verify.add_argument('--bidirectional', action='store_true')
     verify.add_argument('--json', action='store_true')
+    service = commands.add_parser('probe', help='Bounded DNS A, TCP connect and HTTP HEAD from an OCI host.')
+    service.add_argument('name'); service.add_argument('source'); service.add_argument('target')
+    service.add_argument('--protocol', choices=('dns', 'tcp', 'http'), default='http')
+    service.add_argument('--port', type=int)
+    service.add_argument('--path', default='/')
+    service.add_argument('--timeout', type=int, default=3, help='Deadline per wire stage, 1..5 seconds.')
+    service.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
@@ -187,6 +194,12 @@ def main(arguments=None):
                 elif args.command == 'verify':
                     from .verify import verify, render
                     result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'probe':
+                    from .service_probe import probe, render
+                    result = probe(manager, args.source, args.target, protocol=args.protocol,
+                                   port=args.port, path=args.path, timeout=args.timeout)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'explain':

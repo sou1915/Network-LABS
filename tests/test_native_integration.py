@@ -41,6 +41,7 @@ class RealContainerTests(unittest.TestCase):
         from network_labs.appliances.dns import start_servers as start_dns
         from network_labs.appliances.persistence import load_startup
         from network_labs.appliances.verify import verify
+        from network_labs.appliances.service_probe import probe
         from network_labs.appliances.firewall import fingerprint
         from test_native_dns import DNS_QUERY, dns_response
         host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
@@ -79,6 +80,12 @@ class RealContainerTests(unittest.TestCase):
                 wait(lambda: web(host='203.0.113.10', check=False).returncode == 0, 'actual routed HTTP delivery')
                 for client in ('PC1', 'PC3'):
                     self.assertIn('Network LABS routed HTTP', web(client).stdout)
+                    before = json.dumps(manager.read(), sort_keys=True)
+                    application = probe(manager, client, 'web.lab.test')
+                    self.assertEqual(application['status'], 'passed', application)
+                    self.assertEqual([stage['stage'] for stage in application['stages']], ['dns', 'tcp', 'http'])
+                    self.assertEqual(application['stages'][-1]['http_status'], 200)
+                    self.assertEqual(json.dumps(manager.read(), sort_keys=True), before)
                 self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
                 observed = manager.inspect('SW2')['lldp']['neighbor_summary']
                 self.assertEqual(observed['status'], 'observed')
@@ -86,6 +93,12 @@ class RealContainerTests(unittest.TestCase):
             try:
                 with manager.locked():
                     manager.start(spec); ready()
+                    missing = probe(manager, 'PC1', 'web.lab.test', path='/missing-probe-page')
+                    self.assertEqual(missing['status'], 'failed', missing)
+                    self.assertEqual(missing['stages'][-1]['http_status'], 404)
+                    negative = probe(manager, 'PC1', 'missing.lab.test', protocol='dns')
+                    self.assertEqual(negative['status'], 'failed', negative)
+                    self.assertEqual(negative['stages'][0]['rcode'], 3)
                     for index in (0, 6, 3):
                         for transport in ('udp', 'tcp'):
                             for host, kind, code, value in (
@@ -118,6 +131,10 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
                     self.assertIn('Network LABS routed HTTP', web(host='203.0.113.10').stdout)
                     self.assertNotEqual(web(check=False).returncode, 0)
+                    application = probe(manager, 'PC1', 'web.lab.test', timeout=1)
+                    self.assertEqual(application['status'], 'failed', application)
+                    self.assertEqual([s['stage'] for s in application['stages']], ['dns'])
+                    self.assertEqual(probe(manager, 'PC1', '203.0.113.10')['status'], 'passed')
                     start_dns(manager)
                     wait(lambda: query(check=False).returncode == 0, 'DNS restart'); ready()
                     # Successful name resolution does not establish HTTP availability.
@@ -141,6 +158,10 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(dns_response(query().stdout)[1][0][-1], '203.0.113.10')
                     self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
                     self.assertNotEqual(web(check=False).returncode, 0)
+                    application = probe(manager, 'PC1', 'web.lab.test', timeout=1)
+                    self.assertEqual(application['status'], 'failed', application)
+                    self.assertEqual([s['stage'] for s in application['stages']], ['dns', 'tcp'])
+                    self.assertEqual(application['stages'][0]['status'], 'passed')
                     manager.crun('exec', 'PC2', '/bin/busybox', 'httpd', '-p', '80', '-h', '/tmp/www')
                     ready()
                     # DNS on the connected transit survives remote route withdrawal.
@@ -149,6 +170,10 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(dns_response(query().stdout)[1][0][-1], '203.0.113.10')
                     self.assertNotEqual(web(check=False).returncode, 0)
                     self.assertEqual(verify(manager, 'PC1', 'PC2', count=1)['status'], 'failed')
+                    application = probe(manager, 'PC1', 'web.lab.test', timeout=1)
+                    self.assertEqual(application['status'], 'failed', application)
+                    self.assertEqual(application['stages'][0]['status'], 'passed')
+                    self.assertEqual(application['stages'][-1]['stage'], 'tcp')
                     manager.configure_ios('R1', 'conf t\nrouter ospf 1\nrouter-id 2.2.2.2\n'
                         'network 198.18.0.0 0.0.0.7 area 0\nnetwork 203.0.113.0 0.0.0.255 area 0\n'
                         'passive-interface eth1\ninterface eth0\nip ospf network broadcast\nend')

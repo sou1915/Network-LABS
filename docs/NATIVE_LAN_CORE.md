@@ -3228,3 +3228,49 @@ Services/routing are restored and retested before save/stop/restore, which must
 reacquire leases and restore name-based HTTP. Host links/routes/rules/nft/forwarding
 remain checked after cleanup. No lossless recovery or whole-application resource
 budget is inferred from these checks.
+
+### Explicit DNS, TCP and HTTP service probes
+
+`probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
+its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.
+The host Python standard library runs in the owned node network namespace; no
+Python installation in the guest is needed. It binds sockets to the observed
+source IPv4. It does not change configuration or use the host DNS resolver.
+
+```bash
+sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test
+sudo python3 -m network_labs.appliances probe lan-services PC3 web.lab.test --json
+sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --protocol dns
+sudo python3 -m network_labs.appliances probe lan-services PC1 203.0.113.10 --protocol tcp --port 80
+sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --path /missing-page
+```
+
+Default HTTP probing performs DNS when needed, TCP connect, then a separate HTTP
+HEAD connection. Only HTTP 2xx passes; 3xx/4xx/5xx retain their actual status and
+fail the requested check. Redirects are not followed, response bodies are not
+validated, and TLS is not supported. TCP success proves connection establishment,
+not application correctness. A later HTTP failure can occur after TCP success.
+
+DNS support deliberately covers a direct IPv4 A query over UDP to exactly one
+IPv4 nameserver read from the guest. No search domains, CNAME chain following,
+multiple-server fallback, TCP retry, recursion implementation or host resolver
+fallback. NXDOMAIN and an empty direct A answer fail the requested resolution;
+malformed/truncated replies remain unknown. Multiple A addresses block subsequent
+TCP/HTTP selection. Literal IPv4 targets bypass DNS. Local/loopback targets are
+rejected for transport checks. Source endpoints require one observed usable IPv4
+on physical eth0, and a running lab without pending configuration.
+
+`--timeout 1..5` (default 3) bounds each wire stage; the parent also bounds worker
+execution. HTTP reads at most 4096 bytes while finding the status line. Total time
+also includes bounded endpoint, resolver and route observations. Stages stop at
+the first failure or unavailable result. JSON and French output distinguish
+`passed`, `failed`, `unknown` and `blocked`; exit 0 means the requested probe passed,
+otherwise exit 1. Kernel route evidence is reported separately from delivery.
+No failure alone proves whether routing, filtering, a stopped service or the
+return path caused it. Probes update normal network counters and connection state.
+
+The routed-services native test exercises successful probes from both DHCP VLANs,
+NXDOMAIN, HTTP 404, stopped DNS with working literal-IP HTTP, stopped HTTP with
+working DNS, route withdrawal, and recovery/save/restore. Unit tests additionally
+exercise malformed DNS packets, resolver ambiguity, actual loopback TCP/HTTP
+responses and non-followed redirects.
