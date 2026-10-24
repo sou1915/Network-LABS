@@ -63,6 +63,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
               'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP HEAD are separate connections. HTTP 2xx only; no redirects, TLS or body validation. Failures do not prove a routing/firewall/service root cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
+        from .service_findings import findings
+        report['findings'] = findings(report)
         return report
     if endpoint['status'] != 'ready':
         return finish(endpoint['status'])
@@ -119,11 +121,11 @@ def render(report):
     safe = lambda value: json.dumps(value, ensure_ascii=True)
     lines = [f"Sonde {report['protocol'].upper()} : {labels[report['status']]} | {report['lab']}/{report['node']}",
              'Cible : ' + safe(report['target'])]
-    for stage in report['stages']:
-        lines.append(stage['stage'].upper() + ' : ' + labels[stage['status']] + ' | ' + safe({k: v for k, v in stage.items() if k not in ('stage', 'status', 'request')}))
-    if not report['stages']:
-        lines.append('Endpoint : ' + safe(report['endpoint']['reasons']))
-    if 'route' in report:
-        lines.append('Route kernel : ' + safe(report['route']))
+    from .service_findings import findings
+    for finding in findings(report):
+        lines.append('[' + labels[finding['status']] + '] ' + finding['message'])
+        if finding['next_step']:
+            lines.append('  À vérifier / limite : ' + finding['next_step'])
+    lines.append('Utiliser --json pour les adresses, codes, erreurs et preuves détaillées.')
     lines.append('Observations successives ; un échec ne prouve pas sa cause. HTTP teste HEAD et le statut 2xx, sans télécharger la page.')
     return '\n'.join(lines)

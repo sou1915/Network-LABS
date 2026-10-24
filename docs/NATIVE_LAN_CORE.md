@@ -3282,3 +3282,11 @@ the error also prints the corresponding `restore` command. Neither action is
 performed automatically. `/run` is transient, so saved declarations and active
 runtime state are different. An existing lab directory with a missing state file
 is reported as incomplete state, not a safe invitation to overwrite resources.
+
+Service probes also expose structured `findings` with stable codes, status,
+French explanation, suggested checks and the original stage evidence. Human
+output explains DNS NXDOMAIN/no-direct-A/errors, TCP refusal versus other failed
+connections, and actual HTTP statuses. Suggestions never change configuration
+and never turn a timeout or refusal into a proven firewall/routing/daemon cause.
+HTTP HEAD rejection is distinguished from GET availability; previous successful
+DNS/TCP stages remain visible when HTTP fails. Raw evidence remains in `--json`.
