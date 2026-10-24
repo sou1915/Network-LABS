@@ -3157,3 +3157,74 @@ raising the link alone does not restore all declarative configuration. Verificat
 observes this drift and does not repair it. After link/helper recovery and convergence, real
 bidirectional verification succeeds again. Configuration/revision snapshots and
 baseline host links/routes/rules/nft/forwarding remain unchanged by verification.
+
+
+### Routed LAN services: DHCP, DNS and HTTP with OSPF and LLDP
+
+`example --lan-services` composes the preceding profiles into eight real OCI
+nodes. It reuses existing adapters and validation limits; no service is enabled
+implicitly on other nodes.
+
+| Node | Address / role |
+|---|---|
+| PC1 | VLAN10 DHCP reservation 192.0.2.100, gateway 192.0.2.1 |
+| PC3 | VLAN30 DHCP reservation 198.51.100.100, gateway 198.51.100.1 |
+| SW1 | L3 switch: both DHCP helpers, passive client SVIs, OSPF on VLAN20, physical LLDP |
+| SW2 | VLAN20 L2 transit, trunk to SW1, access links to R1/DHCP1/DNS1, physical LLDP on infrastructure links |
+| R1 | 198.18.0.2/29 and 203.0.113.1/24, broadcast OSPF transit and passive remote LAN, physical LLDP |
+| PC2 | 203.0.113.10/24, gateway 203.0.113.1, explicit BusyBox HTTP startup recipe |
+| DHCP1 | 198.18.0.3/29, two remote DHCP pools, explicit client-subnet return routes |
+| DNS1 | 198.18.0.4/29, static local dnsmasq records and explicit return routes via SW1/R1 |
+
+Both DHCP pools advertise DNS1 as option 6. The clients' actual `/etc/resolv.conf`
+is installed by the existing DHCP hook; no static resolver competes with it.
+DNS1 serves `web.lab.test` → 203.0.113.10 and `dns.lab.test` → 198.18.0.4, including
+automatic reverse PTR records. These are explicit static records, not dynamic
+DHCP registration. DNS has no host/upstream resolver inheritance or cache;
+existing local-zone A/PTR/NODATA/NXDOMAIN behavior is retained. No external
+Internet access, DNSSEC, recursive DNS or HTTPS service is added.
+
+Use the BIRD/dnsmasq/lldpd rootfs from the physical LLDP composition above:
+
+```bash
+python3 -m network_labs.appliances example --lan-services \
+  --rootfs "$HOME/network-labs-ospf-dhcp-lldp-rootfs" > lan-services.json
+sudo python3 -m network_labs.appliances start lan-services.json
+# Wait for both DHCP leases and OSPF convergence.
+sudo python3 -m network_labs.appliances exec lan-services PC1 -- \
+  /bin/cat /etc/resolv.conf
+sudo python3 -m network_labs.appliances exec lan-services PC1 -- \
+  /bin/busybox nslookup -type=A web.lab.test
+sudo python3 -m network_labs.appliances exec lan-services PC1 -- \
+  /bin/busybox wget -T 3 -q -O - http://web.lab.test/
+sudo python3 -m network_labs.appliances exec lan-services PC3 -- \
+  /bin/busybox wget -T 3 -q -O - http://web.lab.test/
+sudo python3 -m network_labs.appliances verify lan-services PC1 PC2 --bidirectional
+sudo python3 -m network_labs.appliances explain lan-services SW2
+sudo python3 -m network_labs.appliances save lan-services
+sudo python3 -m network_labs.appliances stop lan-services
+sudo python3 -m network_labs.appliances restore lan-services
+```
+
+Successful HTTP returns `Network LABS routed HTTP`. HTTP crosses SW1 and R1;
+client DNS reaches DNS1 through SW1 and the transit VLAN. DNS1 has explicit
+return routes to both client subnets through SW1 and the remote PC2 subnet
+through R1. Startup readiness remains separate from DHCP/OSPF convergence.
+
+PC2's explicit startup argv creates a sample page and starts BusyBox httpd in
+its own container. Restore replays this recipe, rebuilding the sample page.
+Arbitrary HTTP filesystem changes, process state, caches and connections are not
+snapshotted or audited as a managed web-server policy. This is a bounded HTTP
+application test, not a complete server OS or vendor web GUI.
+
+The privileged composition case observes both acquired addresses and resolver
+files, UDP/TCP A/PTR/NODATA/NXDOMAIN responses from both client VLANs and PC2,
+name-based HTTP from PC1/PC3, physical LLDP and bidirectional real ICMP. A client
+PCAP contains actual DNS traffic, HTTP request/response and the sample payload.
+It separately stops DNS, stops HTTP and removes R1 OSPF: routing/ICMP can still
+work with DNS unavailable; DNS and ICMP can work with HTTP unavailable; transit
+DNS can still answer while the remote OSPF route and HTTP delivery are absent.
+Services/routing are restored and retested before save/stop/restore, which must
+reacquire leases and restore name-based HTTP. Host links/routes/rules/nft/forwarding
+remain checked after cleanup. No lossless recovery or whole-application resource
+budget is inferred from these checks.

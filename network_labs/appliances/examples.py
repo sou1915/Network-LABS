@@ -510,3 +510,28 @@ def ospf_dhcp_lldp_lab(rootfs):
     for index, ports in ((1, ['eth1']), (4, ['eth0', 'eth1']), (2, ['eth0'])):
         spec['nodes'][index]['lldp'] = {'ports': ports}
     return validate(spec)
+
+
+def lan_services_lab(rootfs):
+    """Eight real nodes: routed DHCP clients, local DNS, HTTP and physical LLDP."""
+    spec = ospf_dhcp_lldp_lab(rootfs)
+    spec['name'] = 'lan-services'
+    access, dhcp, web = spec['nodes'][4], spec['nodes'][5], spec['nodes'][3]
+    access['interfaces']['eth3'] = ''
+    access['switchports']['eth3'] = {'mode': 'access', 'vlan': 20}
+    for pool in dhcp['dhcp_pools']['pools']:
+        pool['dns'] = ['198.18.0.4']
+    # Explicit startup argv, as in dns_lab: restore recreates the sample page;
+    # arbitrary HTTP filesystem changes are not persisted or audited.
+    web['startup'] = [['/bin/sh', '-c',
+        'mkdir -p /tmp/www; echo "Network LABS routed HTTP" > /tmp/www/index.html; /bin/busybox httpd -p 80 -h /tmp/www']]
+    spec['nodes'].append({'name': 'DNS1', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+        'interfaces': {'eth0': '198.18.0.4/29'},
+        'routes': [{'destination': network, 'gateway': gateway, 'interface': 'eth0'}
+                   for network, gateway in (('192.0.2.0/24', '198.18.0.1'),
+                                            ('198.51.100.0/24', '198.18.0.1'),
+                                            ('203.0.113.0/24', '198.18.0.2'))],
+        'dns_server': {'interface': 'eth0', 'zone': 'lab.test', 'ttl': 60,
+                       'records': {'web.lab.test': '203.0.113.10', 'dns.lab.test': '198.18.0.4'}}})
+    spec['links'].append([['SW2', 'eth3'], ['DNS1', 'eth0']])
+    return validate(spec)

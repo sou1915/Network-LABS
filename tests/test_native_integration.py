@@ -33,6 +33,125 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_lan_services_routed_dns_http_failures_pcap_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import lan_services_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.dns import start_servers as start_dns
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.verify import verify
+        from network_labs.appliances.firewall import fingerprint
+        from test_native_dns import DNS_QUERY, dns_response
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', 'route', 'show']).stdout
+        rules = run(['ip', '-j', 'rule', 'show']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                bird=shutil.which('bird'), birdc=shutil.which('birdc'), dnsmasq=shutil.which('dnsmasq'),
+                lldpd=shutil.which('lldpd'), lldpcli=shutil.which('lldpcli'))
+            spec = lan_services_lab(rootfs); spec['name'] = 'services-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(0.2)
+                details = {n: manager.inspect(n) for n in ('PC1', 'PC3', 'SW1', 'R1', 'DNS1', 'PC2')}
+                self.fail('Timed out: ' + label + '; observations=' + json.dumps(details))
+            def query(index=0, host='web.lab.test', kind=1, transport='udp', check=True):
+                return manager.ns(index, sys.executable, '-c', DNS_QUERY, host, str(kind), transport,
+                                  '198.18.0.4', check=check, timeout=5)
+            def web(client='PC1', host='web.lab.test', check=True):
+                return manager.crun('exec', client, '/bin/busybox', 'timeout', '8', '/bin/busybox',
+                    'wget', '-T', '3', '-q', '-O', '-', 'http://' + host + '/', check=check, timeout=11)
+            def ready():
+                for client, address in (('PC1', '192.0.2.100'), ('PC3', '198.51.100.100')):
+                    index = 0 if client == 'PC1' else 6
+                    wait(lambda: any(a.get('local') == address for row in json.loads(manager.ns(index,
+                        'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0').stdout) for a in row.get('addr_info', [])), 'DHCP address ' + client)
+                    resolver = manager.crun('exec', client, '/bin/cat', '/etc/resolv.conf').stdout
+                    self.assertEqual(resolver, 'nameserver 198.18.0.4\n')
+                wait(lambda: web(host='203.0.113.10', check=False).returncode == 0, 'actual routed HTTP delivery')
+                for client in ('PC1', 'PC3'):
+                    self.assertIn('Network LABS routed HTTP', web(client).stdout)
+                self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
+                observed = manager.inspect('SW2')['lldp']['neighbor_summary']
+                self.assertEqual(observed['status'], 'observed')
+                self.assertEqual({n['system_name'] for n in observed['neighbors']}, {'SW1', 'R1'})
+            try:
+                with manager.locked():
+                    manager.start(spec); ready()
+                    for index in (0, 6, 3):
+                        for transport in ('udp', 'tcp'):
+                            for host, kind, code, value in (
+                                ('web.lab.test', 1, 0, '203.0.113.10'),
+                                ('10.113.0.203.in-addr.arpa', 12, 0, 'web.lab.test'),
+                                ('web.lab.test', 28, 0, None), ('missing.lab.test', 1, 3, None)):
+                                rcode, answers = dns_response(query(index, host, kind, transport).stdout)
+                                self.assertEqual(rcode, code)
+                                self.assertEqual(answers, [] if value is None else [(host, kind, 1, 60, value)])
+                event = threading.Event(); path = Path(folder) / 'services.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', path,
+                    seconds=6, packets=100, expression='udp port 53 or tcp port 53 or tcp port 80', ready=event.set)
+                if not event.wait(5):
+                    future.result(timeout=5); self.fail('Services capture not ready')
+                with manager.locked():
+                    for transport in ('udp', 'tcp'):
+                        self.assertEqual(dns_response(query(transport=transport).stdout)[1][0][-1], '203.0.113.10')
+                    self.assertIn('Network LABS routed HTTP', web().stdout)
+                self.assertGreater(future.result(timeout=9)['captured_packets'], 0)
+                decoded = run(['tcpdump', '-nn', '-vv', '-A', '-r', str(path)]).stdout
+                for text in ('web.lab.test', '198.18.0.4.53', '203.0.113.10.80', 'GET / HTTP/', 'HTTP/1.', 'Network LABS routed HTTP'):
+                    self.assertIn(text, decoded)
+                with manager.locked():
+                    # A correct route and ICMP do not establish DNS availability.
+                    manager.crun('exec', 'DNS1', '/bin/busybox', 'killall', '-TERM', 'dnsmasq')
+                    wait(lambda: manager.inspect('DNS1')['dns_server']['listener_snapshot'] == [], 'DNS daemon shutdown')
+                    for transport in ('udp', 'tcp'):
+                        self.assertNotEqual(query(transport=transport, check=False).returncode, 0)
+                    self.assertTrue(manager.inspect('DNS1')['dns_server']['configuration_verified'])
+                    self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
+                    self.assertIn('Network LABS routed HTTP', web(host='203.0.113.10').stdout)
+                    self.assertNotEqual(web(check=False).returncode, 0)
+                    start_dns(manager)
+                    wait(lambda: query(check=False).returncode == 0, 'DNS restart'); ready()
+                    # Successful name resolution does not establish HTTP availability.
+                    manager.crun('exec', 'PC2', '/bin/busybox', 'killall', '-TERM', 'httpd')
+                    self.assertEqual(dns_response(query().stdout)[1][0][-1], '203.0.113.10')
+                    self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
+                    self.assertNotEqual(web(check=False).returncode, 0)
+                    manager.crun('exec', 'PC2', '/bin/busybox', 'httpd', '-p', '80', '-h', '/tmp/www')
+                    ready()
+                    # DNS on the connected transit survives remote route withdrawal.
+                    manager.configure_ios('R1', 'conf t\nno router ospf 1\nend')
+                    wait(lambda: not json.loads(manager.ns(1, 'ip', '-j', 'route', 'show', '203.0.113.0/24').stdout), 'OSPF remote route withdrawal')
+                    self.assertEqual(dns_response(query().stdout)[1][0][-1], '203.0.113.10')
+                    self.assertNotEqual(web(check=False).returncode, 0)
+                    self.assertEqual(verify(manager, 'PC1', 'PC2', count=1)['status'], 'failed')
+                    manager.configure_ios('R1', 'conf t\nrouter ospf 1\nrouter-id 2.2.2.2\n'
+                        'network 198.18.0.0 0.0.0.7 area 0\nnetwork 203.0.113.0 0.0.0.255 area 0\n'
+                        'passive-interface eth1\ninterface eth0\nip ospf network broadcast\nend')
+                    ready(); manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ready()
+                    self.assertEqual(dns_response(query(index=6, transport='tcp').stdout)[1][0][-1], '203.0.113.10')
+                    self.assertTrue(manager.inspect('DNS1')['dns_server']['configuration_verified'])
+            finally:
+                if manager.directory.exists():
+                    with manager.locked():
+                        manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', 'route', 'show']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', 'rule', 'show']).stdout, rules)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)
+
     def test_appliance_aa_lldp_trunk_ospf_dhcp_service_edits_loss_and_restore(self):
         import copy
         from network_labs.appliances.examples import ospf_dhcp_lldp_lab

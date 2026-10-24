@@ -138,7 +138,7 @@ question=b''.join(bytes([len(label)])+label.encode('ascii') for label in host.sp
 packet=struct.pack('!6H',0x5a19,0x0100,1,0,0,0)+question
 with socket.socket(socket.AF_INET,socket.SOCK_STREAM if transport=='tcp' else socket.SOCK_DGRAM) as sock:
     sock.settimeout(2)
-    sock.connect(('10.10.0.2',53))
+    sock.connect((sys.argv[4] if len(sys.argv)>4 else '10.10.0.2',53))
     if transport=='tcp':
         sock.sendall(struct.pack('!H',len(packet))+packet)
         def exact(size):

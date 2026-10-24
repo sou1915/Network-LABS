@@ -304,3 +304,5 @@ Native connectivity verification: `verify LAB PC1 PC2 --bidirectional --json` re
 Native infrastructure discovery: `example --ospf-dhcp-lldp` adds actual physical-port LLDP to the seven-node OSPF/two-VLAN DHCP lab, including its trunk. Discovery remains separate from routing adjacency and delivery. See [setup and limits](docs/NATIVE_LAN_CORE.md#physical-lldp-alongside-ospf-and-dhcp).
 
 Readable LLDP diagnostics: `explain LAB NODE` prints actual received local/remote identifiers and advertised TTL; `inspect` retains raw JSON0 plus a normalized summary. Empty, partial and unknown reads remain distinct. See [the guide](docs/NATIVE_LAN_CORE.md#readable-received-lldp-neighbors).
+
+Routed application scenario: `example --lan-services` composes eight OCI nodes with two DHCP client VLANs, DHCP-supplied DNS, local UDP/TCP DNS, name-based HTTP across OSPF and physical LLDP. See [setup and service/failure boundaries](docs/NATIVE_LAN_CORE.md#routed-lan-services-dhcp-dns-and-http-with-ospf-and-lldp).
