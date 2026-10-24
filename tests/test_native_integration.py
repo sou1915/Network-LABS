@@ -106,6 +106,16 @@ class RealContainerTests(unittest.TestCase):
                         self.assertEqual(observed['status'], 'observed', observed)
                         self.assertTrue(observed['observation']['records'], observed)
                         self.assertIn('Source : Linux kernel', render_show(observed))
+                    fdb = show(manager, 'SW1', 'show mac address-table')
+                    client_mac = '02:00:00:00:40:01'
+                    learned = [row for row in fdb['observation']['records'] if row.get('mac') == client_mac and row.get('vlan') == 10]
+                    self.assertTrue(learned, fdb)
+                    self.assertTrue(all(row.get('ifname') == 'eth0' for row in learned), learned)
+                    for suffix in ('vlan 10', 'interface eth0'):
+                        selected = show(manager, 'SW1', 'show mac address-table ' + suffix)
+                        self.assertTrue(any(row.get('mac') == client_mac for row in selected['display_records']), selected)
+                        text = render_show(selected)
+                        self.assertTrue(any(client_mac in line and 'eth0' in line for line in text.splitlines()), text)
                     self.assertEqual(json.dumps(manager.read(), sort_keys=True), before_show)
                     missing = probe(manager, 'PC1', 'web.lab.test', path='/missing-probe-page')
                     self.assertEqual(missing['status'], 'failed', missing)

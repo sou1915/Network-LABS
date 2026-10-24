@@ -3322,3 +3322,24 @@ not that connectivity is healthy. Unknown commands, multiple commands, shell
 syntax and pending configurations are rejected before observation. The native
 routed-services test checks the actual DHCP address, learned route, bridge tables
 and unchanged state; unit tests cover invalid commands and missing evidence.
+
+FDB port rendering uses iproute2's `ifname` field (with an explicitly observed
+`dev` fallback), rather than assuming the neighbor-table JSON schema. A literal
+empty FDB `state` is displayed as `reachable`, matching iproute2's state encoder;
+a missing state remains `?`. Raw JSON is untouched. Flags are shown as readable
+lists (`-` for an observed empty list). Missing VLANs remain unspecified.
+
+```bash
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show mac address-table vlan 10'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show mac address-table interface eth0'
+```
+
+These optional single filters select observed rows from the same complete br0
+snapshot, not from the manifest's VLAN/MAC declarations. JSON retains both the
+full `observation.records` and filtered `display_records`, with a count of
+unselected rows. Unknown/missing fields do not match a filter. Empty selection
+is not presented as an empty kernel table or a connectivity verdict. Interface
+filters accept a declared physical switch port or br0; VLAN filters accept
+1..4094. Combined filters and dynamic/static vendor classification are not added.
+
+Schema reference: [iproute2 bridge/fdb.c](https://kernel.googlesource.com/pub/scm/network/iproute2/iproute2-next/+/f46186fd0332640cb09f719627e5e14d38d54472/bridge/fdb.c).

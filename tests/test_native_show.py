@@ -63,3 +63,37 @@ class NativeShowTests(unittest.TestCase):
         with patch('network_labs.appliances.__main__.Manager', return_value=manager), patch('sys.stdout', new_callable=io.StringIO) as output:
             self.assertEqual(main(['show', 'lab', 'PC1', '--text', 'show ip route', '--json']), 0)
             self.assertEqual(json.loads(output.getvalue())['kernel_command'], list(COMMANDS['show ip route']))
+
+    def test_fdb_uses_actual_ifname_and_retains_raw_reachable_state(self):
+        manager = manager_for(); manager.ns.side_effect = None
+        records = [{'mac': '02:00:00:00:40:01', 'ifname': 'eth0', 'vlan': 10, 'state': '', 'flags': []},
+                   {'mac': '33:33:00:00:00:01', 'ifname': 'br0', 'state': 'permanent', 'flags': ['self']},
+                   {'mac': '02:00:00:00:40:02', 'dev': 'eth2', 'vlan': 30}]
+        manager.ns.return_value = completed(records)
+        report = show(manager, 'SW1', 'show mac address-table'); before = copy.deepcopy(report)
+        output = render(report)
+        for text in ('eth0', 'br0', 'eth2', 'reachable', 'permanent'):
+            self.assertIn(text, output)
+        self.assertEqual(report, before)
+        self.assertEqual(report['observation']['records'], records)
+
+    def test_fdb_filters_keep_snapshot_and_use_only_observed_vlan_or_port(self):
+        manager = manager_for(); manager.ns.side_effect = None
+        records = [{'mac': '02:00:00:00:40:01', 'ifname': 'eth0', 'vlan': 10},
+                   {'mac': '02:00:00:00:40:02', 'ifname': 'eth2', 'vlan': 30},
+                   {'mac': '33:33:00:00:00:01', 'ifname': 'eth0'}]
+        manager.ns.return_value = completed(records)
+        for suffix, wanted in [('vlan 10', records[:1]), ('interface eth2', records[1:2]), ('vlan 20', [])]:
+            result = show(manager, 'SW1', 'show mac address-table ' + suffix)
+            self.assertEqual(result['display_records'], wanted)
+            self.assertEqual(result['observation']['records'], records)
+            self.assertEqual(result['kernel_command'], list(COMMANDS['show mac address-table']))
+            if not wanted:
+                self.assertIn('correspondant au filtre', render(result))
+                self.assertNotIn('Aucune entrée retournée par le kernel', render(result))
+
+    def test_fdb_invalid_filters_never_execute(self):
+        for suffix in ('vlan 0', 'vlan 4095', 'vlan xxx', 'interface eth99', 'interface eth0; reboot', 'dynamic', 'vlan 10 interface eth0'):
+            manager = manager_for()
+            with self.assertRaises(ValueError): show(manager, 'SW1', 'show mac address-table ' + suffix)
+            manager.ns.assert_not_called(); manager.crun.assert_not_called()
