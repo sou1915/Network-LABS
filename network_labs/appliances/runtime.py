@@ -215,7 +215,30 @@ class Manager:
 
     def read(self):
         if self.state is None:
-            self.state = json.loads((self.directory / 'state.json').read_text())
+            try:
+                raw = (self.directory / 'state.json').read_text()
+            except FileNotFoundError as error:
+                if self.directory.exists():
+                    raise RuntimeFailure(
+                        f'Lab {self.name}: répertoire présent mais state.json absent. '
+                        'État incomplet ; ne supprimez pas le répertoire et ne recréez pas '
+                        'le lab avant de vérifier ses ressources existantes.'
+                    ) from error
+                message = (
+                    f'Lab {self.name}: aucun état actif trouvé. '
+                    'Le lab doit être démarré avant cette commande.\n'
+                    'Depuis le dossier du projet :\n'
+                    '  sudo python3 -m network_labs.appliances start CHEMIN_MANIFEST.json\n'
+                    f'Choisissez un manifeste dont le champ name vaut "{self.name}".'
+                )
+                if (CONFIG_ROOT / self.name / 'startup.json').is_file():
+                    message += (
+                        '\nUne configuration startup enregistrée est disponible. '
+                        'Pour la restaurer :\n'
+                        f'  sudo python3 -m network_labs.appliances restore {self.name}'
+                    )
+                raise RuntimeFailure(message) from error
+            self.state = json.loads(raw)
             self.state['spec'] = validate(self.state['spec'])
         return self.state
 

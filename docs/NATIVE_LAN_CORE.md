@@ -3274,3 +3274,11 @@ NXDOMAIN, HTTP 404, stopped DNS with working literal-IP HTTP, stopped HTTP with
 working DNS, route withdrawal, and recovery/save/restore. Unit tests additionally
 exercise malformed DNS packets, resolver ambiguity, actual loopback TCP/HTTP
 responses and non-followed redirects.
+
+If a command reports **aucun état actif trouvé**, start the lab from its manifest
+before running `probe`, `verify`, `inspect` or `status`. The manifest's `name`
+must match the lab name used by those commands. If a saved startup file exists,
+the error also prints the corresponding `restore` command. Neither action is
+performed automatically. `/run` is transient, so saved declarations and active
+runtime state are different. An existing lab directory with a missing state file
+is reported as incomplete state, not a safe invitation to overwrite resources.
