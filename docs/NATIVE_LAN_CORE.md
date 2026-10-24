@@ -3389,3 +3389,21 @@ output exits 0. None of these results certifies connectivity or authenticates
 advertised identities. Nodes without declared LLDP reject the query. The LLDP
 pipeline now enables pipefail so a failed lldpcli cannot be hidden by a successful
 output-limiting command. No daemon restart or configuration change is performed.
+
+### Classic STP show command
+
+```bash
+sudo python3 -m network_labs.appliances show stp-lan SW3 --text 'show spanning-tree'
+```
+
+For a running Linux switch, this command reads actual detailed netlink links and
+kernel sysfs bridge/root IDs (each read bounded to three seconds). It displays
+the observed common-tree protocol, bridge/root identifiers, root port and path
+cost, topology-change flag, per-port state/cost/priority and guard flags. OVS,
+router/host endpoints and vendor per-VLAN spanning trees are outside this adapter.
+Missing bridge/controller evidence is unknown; missing port state is partial.
+Raw reads and normalized tree remain available with --json. Observations are
+sequential, not atomic. No topology tree is computed, no BPDUs are sent by the
+command, and local settled state does not certify global convergence or delivery.
+The existing native STP triangle test checks initial blocking/root identity,
+actual failover to the alternate root port and unchanged configuration.

@@ -24,6 +24,8 @@ BIRD_COMMANDS = {
 }
 
 
+TREE_COMMAND = 'show spanning-tree'
+
 LLDP_COMMANDS = ('show lldp neighbors', 'show lldp neighbors detail')
 
 
@@ -45,8 +47,8 @@ def show(manager, name, command):
             value = int(value)
         selection = {'field': kind, 'value': value}
         command = 'show mac address-table'
-    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS:
-        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS]))
+    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS and command != TREE_COMMAND:
+        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS, TREE_COMMAND]))
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('show requires a running lab without pending configuration.')
@@ -54,7 +56,7 @@ def show(manager, name, command):
     if match is None or match[1]['runtime'] != 'oci':
         raise ValueError('show requires an existing OCI node.')
     index, node = match
-    if command in ('show vlan brief', 'show mac address-table') and (node['role'] != 'switch' or node.get('switch_backend') == 'ovs'):
+    if command in ('show vlan brief', 'show mac address-table', TREE_COMMAND) and (node['role'] != 'switch' or node.get('switch_backend') == 'ovs'):
         raise ValueError('This bridge show command requires a Linux switch; OVS has a separate observation backend.')
     if selection and selection['field'] == 'interface' and selection['value'] not in {*node['interfaces'], 'br0'}:
         raise ValueError('Select a declared Linux switch port or br0.')
@@ -71,6 +73,8 @@ def show(manager, name, command):
         report.update(daemon_command=BIRD_COMMANDS[command],
                       source='Actual BIRD 2 read-only control socket; partial IOS-style adapter',
                       scope='Actual BIRD text, not Cisco output. Protocol routes are the daemon RIB, not proof of kernel installation or packet delivery. No inferred neighbor roles or convergence verdict.')
+    if command == TREE_COMMAND:
+        report['scope'] = 'Linux common STP only, actual sysfs IDs and netlink port state. Sequential reads, no computed tree or global convergence/delivery verdict.'
     if command in LLDP_COMMANDS:
         report.update(daemon_command='show neighbors details',
                       source='Received lldpd JSON0 advertisements; no topology-derived neighbors',
@@ -85,6 +89,27 @@ def show(manager, name, command):
         report['container_status'] = status['status']
         if status['status'] != 'running':
             report['status'] = 'blocked'
+        elif command == TREE_COMMAND:
+            from .spanning_tree import kernel_ids, observe
+            links = _json_read(manager, index, 'ip', '-j', '-d', 'link', 'show')
+            report['kernel_command'] = ['ip', '-j', '-d', 'link', 'show']
+            report['observation'] = {'links': links, 'ids': None, 'tree': None}
+            if links['status'] != 'observed':
+                raise ValueError('Bridge link observation unavailable')
+            if any(not isinstance(r.get('ifname'), str) for r in links['records']):
+                raise ValueError('Link name missing in kernel observation')
+            bridge = next((r for r in links['records'] if r.get('ifname') == 'br0'), None)
+            mode = (bridge or {}).get('linkinfo', {}).get('info_data', {}).get('stp_state')
+            if mode not in (0, 1):
+                raise ValueError('Linux bridge STP controller unavailable or unsupported')
+            ids = kernel_ids(manager, index) if mode == 1 or node['spanning_tree']['mode'] == 'stp' else None
+            report['observation']['ids'] = ids
+            tree = observe(node, links['records'], ids)
+            report['observation']['tree'] = tree
+            valid_states = ('disabled', 'listening', 'learning', 'forwarding', 'blocking')
+            complete = (set(tree['ports']) == set(node['switchports']) and
+                        all(p.get('state') in valid_states for p in tree['ports'].values()))
+            report['status'] = 'observed' if complete else 'partial'
         elif command in LLDP_COMMANDS:
             from .lldp import read_cli
             from .lldp_neighbors import normalize_neighbors
@@ -149,6 +174,20 @@ def render(report):
              ('Source : BIRD 2 — sortie réelle du daemon, adaptateur partiel.' if report['command'] in BIRD_COMMANDS
               else 'Source : lldpd — annonces LLDP reçues.' if report['command'] in LLDP_COMMANDS
               else 'Source : Linux kernel — adaptateur partiel, noms Linux conservés.')]
+    if report['command'] == TREE_COMMAND and report['status'] in ('observed', 'partial'):
+        tree = report['observation']['tree']
+        lines.append('STP commun Linux, pas PVST/MSTP/RSTP. Relevés successifs, sans arbre calculé.')
+        for key in ('protocol', 'bridge_id', 'root_id', 'root_port', 'root_port_number', 'root_path_cost', 'topology_change'):
+            lines.append(key + ' : ' + _cell(tree.get(key)))
+        if tree['protocol'] == 'stp':
+            lines.append('Ce bridge est racine : ' + ('oui' if tree['is_root'] else 'non'))
+        if report['status'] == 'partial':
+            lines.append('Observation partielle : ports absents ou états indisponibles.')
+        rows = [[name, p.get('state'), p.get('cost'), p.get('priority'), p.get('bpdu_guard'), p.get('root_guard')]
+                for name, p in tree['ports'].items()]
+        lines.extend(_table(['Port', 'State', 'Cost', 'Priority', 'BPDU guard', 'Root guard'], rows))
+        lines.append('Un état local stabilisé ne certifie ni convergence globale ni livraison des paquets.')
+        return '\n'.join(lines)
     if report['command'] in LLDP_COMMANDS and report['status'] in ('observed', 'partial'):
         summary = report['observation']['summary']
         lines.append('TTL annoncé en secondes, pas un compte à rebours. Identités annoncées, non authentifiées.')

@@ -119,7 +119,7 @@ def kernel_ids(manager, index):
     # Read both identifiers directly from this namespace's kernel sysfs.
     result = {}
     for field in ('bridge_id', 'root_id'):
-        value = manager.ns(index, 'cat', '/sys/class/net/br0/bridge/' + field).stdout.strip().lower()
+        value = manager.ns(index, 'cat', '/sys/class/net/br0/bridge/' + field, timeout=3).stdout.strip().lower()
         if not re.fullmatch(r'[0-9a-f]{4}\.[0-9a-f]{12}', value):
             raise ValueError('Unexpected kernel STP bridge identifier: ' + value)
         result[field] = value

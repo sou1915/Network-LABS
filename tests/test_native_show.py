@@ -171,3 +171,33 @@ class NativeShowTests(unittest.TestCase):
         manager.crun.return_value = completed('{"lldp":[{}]}', 1)
         self.assertIsNone(read_cli(manager, 'SW1', 'neighbors details'))
         self.assertIn('set -o pipefail;', manager.crun.call_args.args[4])
+
+    def test_stp_actual_root_ids_and_ports_without_topology_inference(self):
+        manager = manager_for(); node = manager.read.return_value['spec']['nodes'][1]
+        node['spanning_tree']['mode'] = 'stp'
+        ports = list(node['switchports'])
+        links = [{'ifname': 'br0', 'linkinfo': {'info_data': {'stp_state': 1, 'root_port': 1, 'root_path_cost': 100}}}]
+        links += [{'ifname': p, 'flags': ['UP', 'LOWER_UP'], 'linkinfo': {'info_slave_data':
+            {'state': 'blocking' if i else 'forwarding', 'no': str(i + 1), 'cost': 100, 'priority': 32}}} for i, p in enumerate(ports)]
+        manager.ns.side_effect = None; manager.ns.return_value = completed(links)
+        ids = {'bridge_id': '2000.001122334455', 'root_id': '1000.001122334466'}
+        before = copy.deepcopy(manager.read())
+        with patch('network_labs.appliances.spanning_tree.kernel_ids', return_value=ids):
+            result = show(manager, 'SW1', 'show spanning-tree')
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(result['observation']['tree']['root_port'], ports[0])
+        self.assertFalse(result['observation']['tree']['is_root'])
+        text = render(result)
+        self.assertIn(ids['root_id'], text); self.assertIn('blocking', text)
+        self.assertEqual(manager.read(), before)
+
+    def test_stp_missing_bridge_or_port_evidence_never_becomes_converged(self):
+        manager = manager_for(); manager.ns.side_effect = None; manager.ns.return_value = completed([])
+        result = show(manager, 'SW1', 'show spanning-tree')
+        self.assertEqual(result['status'], 'unknown')
+        manager.ns.return_value = completed([{'ifname': 'br0', 'linkinfo': {'info_data': {'stp_state': 0}}}])
+        result = show(manager, 'SW1', 'show spanning-tree')
+        self.assertEqual(result['status'], 'partial'); self.assertIn('partielle', render(result))
+        manager = manager_for()
+        with self.assertRaises(ValueError): show(manager, 'PC1', 'show spanning-tree')
+        manager.ns.assert_not_called()
