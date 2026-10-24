@@ -121,7 +121,23 @@ class RealContainerTests(unittest.TestCase):
                     start_dns(manager)
                     wait(lambda: query(check=False).returncode == 0, 'DNS restart'); ready()
                     # Successful name resolution does not establish HTTP availability.
-                    manager.crun('exec', 'PC2', '/bin/busybox', 'killall', '-TERM', 'httpd')
+                    # BusyBox applets may keep the comm name "busybox". Match
+                    # the exact applet/port/root argv, never kill all BusyBox
+                    # processes (the container init is BusyBox too).
+                    stopped = manager.crun('exec', 'PC2', '/bin/sh', '-c', r'''for proc in /proc/[0-9]*; do
+                        pid=${proc##*/}; [ "$pid" -gt 1 ] || continue
+                        /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox awk '
+                            $0 == "httpd" { applet = 1 }
+                            previous == "-p" { port = $0 }
+                            previous == "-h" { directory = $0 }
+                            { previous = $0 }
+                            END { exit !(applet && port == "80" && directory == "/tmp/www") }
+                        ' || continue
+                        /bin/kill -TERM "$pid" || exit 1
+                        echo "$pid"
+                    done''')
+                    self.assertTrue(stopped.stdout.strip(), 'No matching HTTP process observed')
+                    wait(lambda: not manager.ns(3, 'ss', '-H', '-lnt', '( sport = :80 )').stdout.strip(), 'HTTP listener shutdown')
                     self.assertEqual(dns_response(query().stdout)[1][0][-1], '203.0.113.10')
                     self.assertEqual(verify(manager, 'PC1', 'PC2', count=1, bidirectional=True)['status'], 'passed')
                     self.assertNotEqual(web(check=False).returncode, 0)
