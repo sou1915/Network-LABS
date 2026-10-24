@@ -65,6 +65,10 @@ def main(arguments=None):
         item.add_argument('name')
         if command == 'export':
             item.add_argument('--startup', action='store_true', help='Export last saved startup configuration.')
+    show = commands.add_parser('show', help='Read actual Linux state using a bounded set of IOS-style show commands.')
+    show.add_argument('name'); show.add_argument('node')
+    show.add_argument('--text', required=True, help='One complete command, e.g. "show ip interface brief".')
+    show.add_argument('--json', action='store_true')
     inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
     inspect.add_argument('name'); inspect.add_argument('node')
     route = commands.add_parser('route', help='Observe the actual Linux IPv4 route decision; sends no test packets.')
@@ -189,6 +193,11 @@ def main(arguments=None):
                     result = manager.write_startup()
                 elif args.command == 'recover':
                     manager.recover(); result = manager.status()
+                elif args.command == 'show':
+                    from .show import show, render
+                    result = show(manager, args.node, args.text)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'observed' else 1
                 elif args.command == 'inspect':
                     result = manager.inspect(args.node)
                 elif args.command == 'verify':

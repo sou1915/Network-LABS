@@ -3290,3 +3290,35 @@ connections, and actual HTTP statuses. Suggestions never change configuration
 and never turn a timeout or refusal into a proven firewall/routing/daemon cause.
 HTTP HEAD rejection is distinguished from GET availability; previous successful
 DNS/TCP stages remain visible when HTTP fails. Raw evidence remains in `--json`.
+
+### Read-only IOS-style show commands
+
+Five complete command spellings are available through the native CLI:
+
+```bash
+sudo python3 -m network_labs.appliances show lan-services PC1 --text 'show ip interface brief'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show ip route'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show arp'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show vlan brief'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show mac address-table' --json
+```
+
+This is a partial command adapter over actual Linux kernel observations, not
+Cisco firmware or a complete vendor CLI. Interface names remain Linux names.
+The address summary reads all links so unaddressed ports are retained, and shows
+only their observed IPv4 addresses. Routes cover the IPv4 main table, with raw
+kernel protocol labels; other policy tables and advanced route details require
+other diagnostics or the raw JSON. ARP includes unresolved neighbor states.
+VLAN output is bridge membership, including trunks and bridge-self entries,
+not a vendor VLAN database. FDB output includes local/permanent entries instead
+of pretending all rows are learned dynamic MACs. Bridge commands require a Linux
+switch; OVS and VM guest adapters are not provided here.
+
+Every kernel read and container-state read has a three-second timeout. No packet
+probes or configuration changes occur. Empty observed tables differ from unknown
+or failed reads; unavailable fields display `?`. JSON preserves kernel records,
+command argv, timestamps and revision. Exit 0 means the observation was obtained,
+not that connectivity is healthy. Unknown commands, multiple commands, shell
+syntax and pending configurations are rejected before observation. The native
+routed-services test checks the actual DHCP address, learned route, bridge tables
+and unchanged state; unit tests cover invalid commands and missing evidence.

@@ -93,6 +93,20 @@ class RealContainerTests(unittest.TestCase):
             try:
                 with manager.locked():
                     manager.start(spec); ready()
+                    from network_labs.appliances.show import show, render as render_show
+                    before_show = json.dumps(manager.read(), sort_keys=True)
+                    brief = show(manager, 'PC1', 'show ip interface brief')
+                    self.assertEqual(brief['status'], 'observed', brief)
+                    self.assertIn('192.0.2.100/24', render_show(brief))
+                    routes_show = show(manager, 'SW1', 'show ip route')
+                    self.assertEqual(routes_show['status'], 'observed', routes_show)
+                    self.assertTrue(any(row.get('dst') == '203.0.113.0/24' for row in routes_show['observation']['records']))
+                    for command in ('show arp', 'show vlan brief', 'show mac address-table'):
+                        observed = show(manager, 'SW1', command)
+                        self.assertEqual(observed['status'], 'observed', observed)
+                        self.assertTrue(observed['observation']['records'], observed)
+                        self.assertIn('Source : Linux kernel', render_show(observed))
+                    self.assertEqual(json.dumps(manager.read(), sort_keys=True), before_show)
                     missing = probe(manager, 'PC1', 'web.lab.test', path='/missing-probe-page')
                     self.assertEqual(missing['status'], 'failed', missing)
                     self.assertEqual(missing['stages'][-1]['http_status'], 404)
