@@ -95,6 +95,14 @@ class RealContainerTests(unittest.TestCase):
                     manager.start(spec); ready()
                     from network_labs.appliances.show import show, render as render_show
                     before_show = json.dumps(manager.read(), sort_keys=True)
+                    for command in ('show ip ospf neighbor', 'show ip ospf interface', 'show ip ospf', 'show ip route ospf'):
+                        bird_show = show(manager, 'SW1', command)
+                        self.assertEqual(bird_show['status'], 'observed', bird_show)
+                        self.assertIn('BIRD 2', render_show(bird_show))
+                        if command == 'show ip ospf neighbor':
+                            self.assertIn('Full', bird_show['observation']['text'])
+                        if command == 'show ip route ospf':
+                            self.assertIn('203.0.113.0/24', bird_show['observation']['text'])
                     brief = show(manager, 'PC1', 'show ip interface brief')
                     self.assertEqual(brief['status'], 'observed', brief)
                     self.assertIn('192.0.2.100/24', render_show(brief))

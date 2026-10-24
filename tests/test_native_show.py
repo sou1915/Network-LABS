@@ -97,3 +97,38 @@ class NativeShowTests(unittest.TestCase):
             manager = manager_for()
             with self.assertRaises(ValueError): show(manager, 'SW1', 'show mac address-table ' + suffix)
             manager.ns.assert_not_called(); manager.crun.assert_not_called()
+
+    def test_ospf_queries_use_readonly_daemon_evidence_without_kernel_fallback(self):
+        from network_labs.appliances.show import BIRD_COMMANDS
+        for command, daemon_command in BIRD_COMMANDS.items():
+            manager = manager_for(); before = copy.deepcopy(manager.read())
+            raw = '0001 BIRD ready.\n1000 Router ID State\n 2.2.2.2 Full/DR\n'
+            with patch('network_labs.appliances.ospf.read_cli', return_value=raw) as read:
+                report = show(manager, 'SW1', command)
+                read.assert_called_once_with(manager, 'SW1', daemon_command)
+            self.assertEqual(report['status'], 'observed'); self.assertEqual(report['observation']['text'], raw)
+            self.assertIsNone(report['kernel_command']); manager.ns.assert_not_called()
+            self.assertEqual(manager.read(), before)
+            self.assertIn('BIRD 2', render(report)); self.assertIn('Full/DR', render(report))
+
+    def test_ospf_unavailable_empty_and_undeclared_process_are_not_empty_tables(self):
+        for output in (None, '', '  \n'):
+            with patch('network_labs.appliances.ospf.read_cli', return_value=output):
+                report = show(manager_for(), 'SW1', 'show ip ospf neighbor')
+            self.assertEqual(report['status'], 'unknown')
+            self.assertNotIn('Aucune entrée', render(report))
+        manager = manager_for()
+        with self.assertRaises(ValueError): show(manager, 'PC1', 'show ip ospf')
+        manager.crun.assert_not_called(); manager.ns.assert_not_called()
+
+    def test_ospf_control_characters_are_escaped_without_changing_json(self):
+        raw = '0001 BIRD\nInterface eth0\x1b[31m\n'
+        with patch('network_labs.appliances.ospf.read_cli', return_value=raw):
+            report = show(manager_for(), 'SW1', 'show ip ospf interface')
+        self.assertNotIn('\x1b', render(report)); self.assertEqual(report['observation']['text'], raw)
+
+    def test_malformed_vlan_entry_is_not_rendered_as_empty_kernel_table(self):
+        manager = manager_for(); manager.ns.side_effect = None
+        manager.ns.return_value = completed([{'ifname': 'eth0', 'vlans': [None]}])
+        text = render(show(manager, 'SW1', 'show vlan brief'))
+        self.assertIn('eth0', text); self.assertIn('?', text); self.assertNotIn('Aucune entrée', text)

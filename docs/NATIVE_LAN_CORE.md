@@ -3343,3 +3343,27 @@ filters accept a declared physical switch port or br0; VLAN filters accept
 1..4094. Combined filters and dynamic/static vendor classification are not added.
 
 Schema reference: [iproute2 bridge/fdb.c](https://kernel.googlesource.com/pub/scm/network/iproute2/iproute2-next/+/f46186fd0332640cb09f719627e5e14d38d54472/bridge/fdb.c).
+
+### OSPF show commands
+
+Nodes with a declared OSPF process also support these read-only aliases:
+
+```bash
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show ip ospf neighbor'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show ip ospf interface'
+sudo python3 -m network_labs.appliances show lan-services R1 --text 'show ip ospf'
+sudo python3 -m network_labs.appliances show lan-services SW1 --text 'show ip route ospf'
+```
+
+The aliases call the existing BIRD control adapter with fixed commands and its
+read-only flag, three-second timeout, 64 KiB output bound and daemon-error checks.
+Output is explicitly labeled BIRD, retains its native columns/control codes, and
+escapes terminal control characters in human text; JSON preserves the actual
+text and command. Missing, empty, failed or oversized daemon output stays unknown.
+Nodes without declared OSPF reject these queries before executing a command.
+No neighbor, DR/BDR or convergence state is synthesized from topology. OSPF routes
+here are the BIRD protocol RIB; use `show ip route` for the Linux main table and
+`verify`/`probe` for delivery. This adds no configuration syntax or protocols.
+
+Malformed VLAN entries now render unknown fields rather than disappearing into
+an apparently empty kernel table. Raw observations remain available in JSON.

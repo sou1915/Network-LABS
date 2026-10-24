@@ -16,6 +16,14 @@ COMMANDS = {
 }
 
 
+BIRD_COMMANDS = {
+    'show ip ospf neighbor': 'show ospf neighbors',
+    'show ip ospf interface': 'show ospf interface ospf4',
+    'show ip ospf': 'show protocols all ospf4',
+    'show ip route ospf': 'show route protocol ospf4 all',
+}
+
+
 def show(manager, name, command):
     """Caller holds lab lock. No packet probes, config writes or topology inference."""
     if not isinstance(command, str) or '\n' in command or '\r' in command:
@@ -34,8 +42,8 @@ def show(manager, name, command):
             value = int(value)
         selection = {'field': kind, 'value': value}
         command = 'show mac address-table'
-    if command not in COMMANDS:
-        raise ValueError('Supported commands: ' + '; '.join(COMMANDS))
+    if command not in COMMANDS and command not in BIRD_COMMANDS:
+        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS]))
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('show requires a running lab without pending configuration.')
@@ -47,11 +55,17 @@ def show(manager, name, command):
         raise ValueError('This bridge show command requires a Linux switch; OVS has a separate observation backend.')
     if selection and selection['field'] == 'interface' and selection['value'] not in {*node['interfaces'], 'br0'}:
         raise ValueError('Select a declared Linux switch port or br0.')
+    if command in BIRD_COMMANDS and node.get('ospf') is None:
+        raise ValueError('This node has no declared OSPF process. Configure it before querying BIRD.')
     report = dict(lab=manager.name, node=name, command=command, query=query, selection=selection, revision=state.get('revision', 0),
                   started_at=datetime.now(timezone.utc).isoformat(), status='unknown', observation=None,
-                  kernel_command=list(COMMANDS[command]), configuration_changed=False, test_packets_sent=False,
+                  kernel_command=list(COMMANDS[command]) if command in COMMANDS else None, configuration_changed=False, test_packets_sent=False,
                   source='Actual Linux kernel state; partial IOS-style command adapter, not vendor firmware',
                   scope='Linux interface names and raw kernel protocol/state labels. IPv4 main-table routes only; ARP includes unresolved entries; VLANs include tagged trunks and bridge-self membership; FDB includes local/permanent entries. No delivery or full vendor-feature verdict.')
+    if command in BIRD_COMMANDS:
+        report.update(daemon_command=BIRD_COMMANDS[command],
+                      source='Actual BIRD 2 read-only control socket; partial IOS-style adapter',
+                      scope='Actual BIRD text, not Cisco output. Protocol routes are the daemon RIB, not proof of kernel installation or packet delivery. No inferred neighbor roles or convergence verdict.')
     try:
         container = manager.crun('state', name, check=False, timeout=3)
         if container.returncode:
@@ -62,6 +76,14 @@ def show(manager, name, command):
         report['container_status'] = status['status']
         if status['status'] != 'running':
             report['status'] = 'blocked'
+        elif command in BIRD_COMMANDS:
+            from .ospf import read_cli
+            text = read_cli(manager, name, BIRD_COMMANDS[command])
+            available = isinstance(text, str) and bool(text.strip())
+            report['observation'] = {'status': 'observed' if available else 'unavailable',
+                                     'text': text if available else None,
+                                     'error': None if available else 'BIRD control output unavailable or empty'}
+            report['status'] = 'observed' if available else 'unknown'
         else:
             observation = _json_read(manager, index, *COMMANDS[command])
             report['observation'] = observation
@@ -109,9 +131,14 @@ def _table(headers, rows):
 
 def render(report):
     lines = [report['node'] + '# ' + report.get('query', report['command']),
-             'Source : Linux kernel — adaptateur partiel, noms Linux conservés.']
+             ('Source : BIRD 2 — sortie réelle du daemon, adaptateur partiel.' if report['command'] in BIRD_COMMANDS
+              else 'Source : Linux kernel — adaptateur partiel, noms Linux conservés.')]
     if report['status'] != 'observed':
         lines.append('Observation ' + report['status'] + ' : ' + _cell(report.get('error') or report.get('observation') or report.get('container_status')))
+        return '\n'.join(lines)
+    if report['command'] in BIRD_COMMANDS:
+        lines.extend(_cell(line) for line in report['observation']['text'].splitlines())
+        lines.append('Observation du daemon ; ni convergence globale ni livraison des paquets certifiées.')
         return '\n'.join(lines)
     records = report['observation']['records']
     rows = []
@@ -145,6 +172,8 @@ def render(report):
             for vlan in vlans:
                 if isinstance(vlan, dict):
                     rows.append([row.get('ifname'), vlan.get('vlan'), vlan.get('flags')])
+                else:
+                    rows.append([row.get('ifname'), None, None])
         lines.append('Memberships kernel : ports access/trunk et bridge self ; pas une base VLAN constructeur.')
     else:
         headers = ['MAC', 'VLAN', 'Interface', 'State', 'Flags']
