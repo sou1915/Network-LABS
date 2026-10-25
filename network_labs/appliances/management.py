@@ -8,7 +8,7 @@ import struct
 from .service_config import observe_config
 
 DROPBEAR = '/usr/sbin/dropbear'
-USER_LINE = 'lab:{password}:1000:1000:Network LABS:/home/lab:/bin/sh'
+USER_LINE = 'lab:{password}:65532:65532:Network LABS:/home/lab:/bin/sh'
 
 
 def public_key(value):
@@ -91,7 +91,7 @@ def commands(node):
         result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
                          '-p', listen_address(node) + ':22', '-P', '/run/dropbear.pid']
     if config['telnet_password_hash']:
-        result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-S', '-K', '-b', listen_address(node),
+        result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-K', '-b', listen_address(node),
                             '-p', '23', '-l', '/bin/login']
     return result
 
@@ -107,6 +107,10 @@ def managed_files(node):
         lines = [line for line in raw.splitlines() if not line.startswith('lab:')]
         lines.append(USER_LINE.format(password=config['telnet_password_hash'] or 'x'))
         result['management-passwd'] = '\n'.join(lines) + '\n'
+        with (Path(node['rootfs']) / 'etc/group').open() as source:
+            groups = source.read(65537)
+        if len(groups) > 65536: raise ValueError('Rootfs group file exceeds 64 KiB.')
+        result['management-group'] = '\n'.join([line for line in groups.splitlines() if not line.startswith('lab:')] + ['lab:x:65532:']) + '\n'
     if config['ssh_keys']:
         result['authorized_keys'] = '\n'.join(config['ssh_keys']) + '\n'
     return result
@@ -135,9 +139,14 @@ def start_servers(manager):
         installed = manager.crun('exec', node['name'], '/bin/busybox', '--list', timeout=3).stdout.splitlines()
         if expected - set(installed):
             raise RuntimeFailure(node['name'] + ': missing BusyBox management applets: ' + ', '.join(sorted(expected - set(installed))))
+        for applet, flags in ([('telnetd', ('-F', '-b', '-p', '-l'))] if config['telnet_password_hash'] else []) + ([('syslogd', ('-R', '-L', '-s', '-b'))] if config['syslog_remote'] else []):
+            help_result = manager.crun('exec', node['name'], '/bin/busybox', applet, '--help', check=False, timeout=3)
+            help_text = help_result.stdout + help_result.stderr
+            if any(flag not in help_text for flag in flags):
+                raise RuntimeFailure(node['name'] + ': BusyBox ' + applet + ' lacks required management options.')
         if config['ssh_keys'] or config['telnet_password_hash']:
             manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/home/lab/.ssh', '/etc/dropbear')
-            manager.crun('exec', node['name'], '/bin/busybox', 'chown', '1000:1000', '/home/lab')
+            manager.crun('exec', node['name'], '/bin/busybox', 'chown', '65532:65532', '/home/lab')
         for service in commands(node): start_service(manager, node, service)
 
 
@@ -147,12 +156,13 @@ def observe(manager, node):
     config = node['management']
     if 'management-passwd' in files:
         checks['active_passwd'] = observe_config(manager, node['name'], '/etc/passwd', files['management-passwd'])
+        checks['active_group'] = observe_config(manager, node['name'], '/etc/group', files['management-group'])
     if 'authorized_keys' in files:
         checks['active_authorized_keys'] = observe_config(manager, node['name'], '/home/lab/.ssh/authorized_keys', files['authorized_keys'])
     return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()),
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet expose a Linux shell as uid 1000. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet expose a Linux shell as uid 65532. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
 
 
 def drift(manager, node):

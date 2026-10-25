@@ -3741,7 +3741,7 @@ IPv4/IPv6 global forwarding and nft state are compared before and after cleanup.
 `example --management` creates PC1—SW1—R1 on an internal IPv4 LAN. R1 is
 192.0.2.20/24, PC1 is 192.0.2.10/24. R1 can run real Dropbear SSH, BusyBox
 Telnet with BusyBox login, and a BusyBox syslogd UDP sender. SSH/Telnet expose
-the node's **Linux shell as user lab, uid/gid 1000**. They do not provide Cisco
+the node's **Linux shell as user lab, uid/gid 65532**. They do not provide Cisco
 IOS or another vendor firmware shell. IPv6 coexistence is not added here.
 
 ```bash

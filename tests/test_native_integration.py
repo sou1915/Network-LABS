@@ -107,11 +107,11 @@ class RealContainerTests(unittest.TestCase):
                 return manager.ns(0, sys.executable, '-I', str(client), mode, json.dumps(request), timeout=16)
             def sessions():
                 result = ssh('/bin/busybox id -u; /bin/hostname; /bin/echo SSH-COMMAND-OK')
-                self.assertIn('1000', result.stdout.splitlines()); self.assertIn('R1', result.stdout.splitlines())
+                self.assertIn('65532', result.stdout.splitlines()); self.assertIn('R1', result.stdout.splitlines())
                 self.assertIn('SSH-COMMAND-OK', result.stdout)
                 self.assertIn('SSH-PTY-OK', ssh('/bin/busybox test -t 0 && /bin/echo SSH-PTY-OK', tty=True).stdout)
                 text = json.loads(client_request('telnet', {'address': '192.0.2.20', 'password': password}).stdout)['output']
-                self.assertIn('TELNET-SESSION-OK', text); self.assertIn('\n1000', text); self.assertIn('\nR1', text)
+                self.assertIn('TELNET-SESSION-OK', text); self.assertIn('\n65532', text); self.assertIn('\nR1', text)
             def receive_log(token):
                 ready = folder / ('ready-' + token)
                 future = pool.submit(client_request, 'syslog', {'address': '192.0.2.10', 'ready': str(ready), 'token': token})

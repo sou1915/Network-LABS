@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import management_lab, dual_stack_lab
-from network_labs.appliances.management import public_key, commands, prepare_files, drift
+from network_labs.appliances.management import public_key, commands, prepare_files, drift, start_servers
 from network_labs.appliances.spec import validate
 from network_labs.appliances.service_adapters import adapters
 from network_labs.appliances.runtime import oci_config
@@ -63,12 +63,13 @@ class ManagementTests(unittest.TestCase):
     def test_managed_files_preserve_existing_accounts_and_audit_active_auth_paths(self):
         with tempfile.TemporaryDirectory() as folder:
             rootfs = Path(folder) / 'rootfs'; (rootfs / 'etc').mkdir(parents=True)
+            (rootfs / 'etc/group').write_text('root:x:0:\n')
             (rootfs / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n_lldpd:x:65534:65534::/run:/bin/sh\n')
             node = management_lab(rootfs, KEY, HASH)['nodes'][2]
             bundle = Path(folder) / 'bundle'; (bundle / 'files').mkdir(parents=True)
             prepare_files(bundle, node)
             passwd = (bundle / 'files/management-passwd').read_text()
-            self.assertIn('_lldpd:', passwd); self.assertIn('lab:' + HASH + ':1000:1000:', passwd)
+            self.assertIn('_lldpd:', passwd); self.assertIn('lab:' + HASH + ':65532:65532:', passwd)
             self.assertEqual((bundle / 'files/authorized_keys').read_text(), KEY + '\n')
             self.assertEqual(json.loads((bundle / 'files/management.json').read_text())['commands'], commands(node))
             with patch('network_labs.appliances.management.observe_config', return_value={'configuration_verified': True}) as read:
@@ -77,3 +78,11 @@ class ManagementTests(unittest.TestCase):
                 self.assertTrue(any(c.args[2] == '/home/lab/.ssh/authorized_keys' for c in read.call_args_list))
             with patch('network_labs.appliances.management.observe_config', return_value={'configuration_verified': False}):
                 self.assertTrue(drift(Mock(), node))
+
+    def test_incompatible_busybox_options_fail_before_any_service_is_launched(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        manager = Mock(); manager.state = {'spec': management_lab('/rootfs', KEY, HASH)}
+        manager.crun.return_value.stdout = 'telnetd\nlogin\nsyslogd\nlogger\n'
+        manager.crun.return_value.stderr = ''
+        with self.assertRaises(RuntimeFailure): start_servers(manager)
+        self.assertFalse(any('--detach' in c.args for c in manager.crun.call_args_list))

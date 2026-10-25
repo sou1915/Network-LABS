@@ -59,6 +59,7 @@ def oci_config(spec, node, index, rootfs):
     management = node.get('management') or {}
     if management.get('ssh_keys') or management.get('telnet_password_hash'):
         management_mounts.append({'destination': '/etc/passwd', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files/management-passwd'), 'options': ['bind', 'ro', 'nosuid', 'nodev']})
+        management_mounts.append({'destination': '/etc/group', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files/management-group'), 'options': ['bind', 'ro', 'nosuid', 'nodev']})
     if management.get('ssh_keys'):
         management_mounts.append({'destination': '/home/lab/.ssh/authorized_keys', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files/authorized_keys'), 'options': ['bind', 'ro', 'nosuid', 'nodev']})
     return {
