@@ -230,6 +230,9 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(report['status'], 'blocked', report)
                     self.assertEqual(report['probe_commands_attempted'], 0)
                     manager.ns(0, 'ip', 'link', 'set', 'eth0', 'up')
+                    # Linux may remove global IPv6 addresses on admin-down.
+                    # Restore declared policy explicitly; verify never repairs it.
+                    manager.ns(0, 'ip', '-6', 'addr', 'replace', '2001:db8:10::10/64', 'dev', 'eth0')
                     from network_labs.appliances.ipv6 import wait_addresses
                     wait_addresses(manager, 0, manager.read()['spec']['nodes'][0])
                     manager.ns(0, 'ip', '-6', 'route', 'replace', 'default', 'via', '2001:db8:10::1', 'dev', 'eth0', 'proto', 'static')
