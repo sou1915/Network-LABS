@@ -24,6 +24,22 @@ def unexpected_host_link_changes(before, after, hardware_names=()):
             'added_virtual': {entry for entry in after - before if entry[0] not in hardware_names}}
 
 
+def solicit_ipv6_router(manager, index):
+    """Send a real Router Solicitation after capture readiness, not a fake RA.
+
+    A fixed capture window need not overlap an unsolicited advertisement.
+    Linux supplies the ICMPv6 checksum and the interface link-local source.
+    """
+    code = (
+        "import socket; index=socket.if_nametoindex('eth0'); "
+        "sock=socket.socket(socket.AF_INET6,socket.SOCK_RAW,socket.IPPROTO_ICMPV6); "
+        "sock.settimeout(2); sock.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_MULTICAST_IF,index); "
+        "sock.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_MULTICAST_HOPS,255); "
+        "sock.sendto(bytes([133,0,0,0,0,0,0,0]),('ff02::2',0,0,index)); sock.close()"
+    )
+    manager.ns(index, sys.executable, '-I', '-c', code, timeout=3)
+
+
 def ipv6_default_expired(manager, index, destination):
     """Expired fib6 entries may remain observable until GC releases them.
 
@@ -108,6 +124,7 @@ class RealContainerTests(unittest.TestCase):
                                      seconds=12, packets=300, expression='ip6', ready=event.set)
                 self.assertTrue(event.wait(5), 'DHCPv6 capture did not become ready')
                 with manager.locked():
+                    solicit_ipv6_router(manager, 0)
                     signal('USR2'); wait(lambda: not addresses(), 'release removes global address')
                     report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
                     self.assertEqual(report['status'], 'blocked', report)
@@ -329,7 +346,8 @@ class RealContainerTests(unittest.TestCase):
                 future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', pcap,
                                      seconds=8, packets=200, expression='icmp6', ready=event.set)
                 self.assertTrue(event.wait(5), 'SLAAC capture did not become ready')
-                with manager.locked(): ready()
+                with manager.locked():
+                    solicit_ipv6_router(manager, 0); ready()
                 self.assertGreater(future.result(timeout=11)['captured_packets'], 0)
                 announcements = captured_ras(pcap.read_bytes())
                 relevant = [r for r in announcements if any(p['network'] == '2001:db8:10::/64' for p in r['prefixes'])]
