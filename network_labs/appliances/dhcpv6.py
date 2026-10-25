@@ -49,7 +49,7 @@ def validate_node(node):
             int(end) - int(start) >= 256 or start <= local.ip <= end):
         raise ValueError('DHCPv6 pool requires 1..256 usable local /64 addresses, excluding its router.')
     server.update(start=str(start), end=str(end))
-    integer(server.setdefault('lease_seconds', 120), 60, 86400, 'DHCPv6 lease_seconds')
+    integer(server.setdefault('lease_seconds', 120), 120, 86400, 'DHCPv6 lease_seconds')
 
 
 def validate_lab(spec):

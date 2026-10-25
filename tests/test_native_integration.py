@@ -71,7 +71,7 @@ class RealContainerTests(unittest.TestCase):
                 def acquired():
                     ips, routes = addresses(), defaults()
                     return (len(ips) == 1 and ipaddress.IPv6Address('2001:db8:10::100') <= ipaddress.IPv6Address(ips[0]['local']) <= ipaddress.IPv6Address('2001:db8:10::10f') and
-                            ips[0]['prefixlen'] == 128 and isinstance(ips[0].get('valid_life_time'), int) and 0 < ips[0]['valid_life_time'] <= 60 and
+                            ips[0]['prefixlen'] == 128 and isinstance(ips[0].get('valid_life_time'), int) and 0 < ips[0]['valid_life_time'] <= 120 and
                             not ips[0].get('tentative') and not ips[0].get('dadfailed') and
                             not any(f in ips[0].get('flags', []) for f in ('tentative', 'dadfailed')) and
                             len(routes) == 1 and routes[0].get('protocol') == 'ra' and routes[0].get('dev') == 'eth0' and
@@ -101,7 +101,7 @@ class RealContainerTests(unittest.TestCase):
                     requests = [p for p in packets if p['type'] == kind]
                     self.assertTrue(any(q['xid'] == r['xid'] and q['client_ids'] == r['client_ids'] and q['server_ids'] == r['server_ids']
                                         and q['client_ids'] and q['server_ids'] for q in requests for r in packets if r['type'] == 7), packets)
-                self.assertTrue(any(a['address'] == learned and a['preferred'] == a['valid'] == 60 for p in packets if p['type'] == 7 for a in p['addresses']), packets)
+                self.assertTrue(any(a['address'] == learned and a['preferred'] == a['valid'] == 120 for p in packets if p['type'] == 7 for a in p['addresses']), packets)
                 announcements = [r for r in captured_ras(data) if any(p['network'] == '2001:db8:10::/64' for p in r['prefixes'])]
                 self.assertTrue(announcements)
                 for ra in announcements:
@@ -126,7 +126,7 @@ class RealContainerTests(unittest.TestCase):
                     # Without either daemon the kernel must expire the leased address.
                     signal('TERM')
                     manager.crun('exec', 'R1', '/bin/busybox', 'killall', '-TERM', 'dnsmasq')
-                    wait(lambda: not addresses(), 'finite DHCPv6 address expiry without client/server', seconds=70)
+                    wait(lambda: not addresses(), 'finite DHCPv6 address expiry without client/server', seconds=130)
                     result = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2', '2001:db8:20::20', check=False, timeout=4)
                     self.assertNotEqual(result.returncode, 0)
                     start_ra(manager); start_clients(manager); ready()

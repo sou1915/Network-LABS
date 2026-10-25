@@ -70,7 +70,7 @@ class DHCPv6Tests(unittest.TestCase):
             bad = copy.deepcopy(spec); edit(bad['nodes'][0])
             with self.assertRaises(ValueError): validate(bad)
         for changes in ({'start': '2001:db8:20::100'}, {'end': '2001:db8:10::ffff'},
-                        {'start': '2001:db8:10::1'}, {'lease_seconds': True}, {'interface': 'eth1'}, {'end': '::/0'}):
+                        {'start': '2001:db8:10::1'}, {'lease_seconds': True}, {'lease_seconds': 60}, {'interface': 'eth1'}, {'end': '::/0'}):
             bad = copy.deepcopy(spec); bad['nodes'][1]['dhcpv6_server'].update(changes)
             with self.assertRaises(ValueError): validate(bad)
         bad = copy.deepcopy(spec); bad['nodes'][1]['router_advertisements'] = []
@@ -93,7 +93,7 @@ class DHCPv6Tests(unittest.TestCase):
     def test_config_real_stateful_range_without_dns_and_managed_script_drift(self):
         spec = dhcpv6_lab('/rootfs'); node = spec['nodes'][0]
         text = server_config(spec['nodes'][1])
-        self.assertIn('dhcp-range=2001:db8:10::100,2001:db8:10::10f,64,60s', text)
+        self.assertIn('dhcp-range=2001:db8:10::100,2001:db8:10::10f,64,120s', text)
         self.assertNotIn('ra-only', text); self.assertIn('port=0\n', text)
         self.assertIn('dhcp-option=option6:dns-server\n', text)
         with tempfile.TemporaryDirectory() as folder:

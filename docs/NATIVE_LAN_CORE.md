@@ -3575,9 +3575,9 @@ Node fields:
   stays enabled, with `autoconf=0`. BusyBox `udhcpc6` remains running for renewal;
   no `-q`, information-only mode or prefix-delegation request is used.
 - `dhcpv6_server: {"interface":"eth0", "start":"2001:db8:10::100",
-  "end":"2001:db8:10::10f", "lease_seconds":60}`: a pool of 1..256 usable
+  "end":"2001:db8:10::10f", "lease_seconds":120}`: a pool of 1..256 usable
   addresses on a numbered /64 IPv6-forwarding OCI router. The port must appear
-  in `router_advertisements`. Lease time is 60..86400 seconds. Pools cannot
+  in `router_advertisements`. Lease time is 120..86400 seconds. Pools cannot
   overlap declared static addresses or other declared DHCPv6 pools.
 
 The existing managed dnsmasq RA process serves the pool, advertising M=1 and
