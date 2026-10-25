@@ -310,3 +310,7 @@ Routed application scenario: `example --lan-services` composes eight OCI nodes w
 Native service diagnostics: `python3 -m network_labs.appliances probe lan-services PC1 web.lab.test`
 reports separate real DNS A, TCP connection and HTTP HEAD results. See
 [bounded service probe scope](docs/NATIVE_LAN_CORE.md#explicit-dns-tcp-and-http-service-probes).
+
+Static IPv6 LAN foundation: `example --ipv6-vlan --rootfs PATH` creates an isolated
+six-node VLAN10/20 lab with real IPv6/NDP. This initial profile covers static /64
+hosts and L2 switching only; see [IPv6 scope and commands](docs/NATIVE_LAN_CORE.md#static-ipv6-on-an-isolated-l2-vlan-lan).

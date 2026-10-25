@@ -535,3 +535,20 @@ def lan_services_lab(rootfs):
                        'records': {'web.lab.test': '203.0.113.10', 'dns.lab.test': '198.18.0.4'}}})
     spec['links'].append([['SW2', 'eth3'], ['DNS1', 'eth0']])
     return validate(spec)
+
+
+def ipv6_vlan_lab(rootfs):
+    """Static IPv6, two VLANs over one trunk; no routing or RA services."""
+    def host(name, suffix, vlan):
+        return {'name': name, 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+                'interfaces': {'eth0': ''}, 'ipv6': {'eth0': f'2001:db8:{vlan}::{suffix}/64'}}
+    def switch(name):
+        return {'name': name, 'runtime': 'oci', 'role': 'switch', 'rootfs': str(Path(rootfs).resolve()),
+                'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''}, 'vlans': [10, 20],
+                'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                                'eth2': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}}}
+    return validate({'version': 2, 'name': 'ipv6-vlan-lan', 'nodes': [host('PC1', 10, 10), host('PC2', 20, 10),
+        host('PC3', 10, 20), host('PC4', 20, 20), switch('SW1'), switch('SW2')], 'links': [
+        [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW2', 'eth0']],
+        [['PC3', 'eth0'], ['SW1', 'eth1']], [['PC4', 'eth0'], ['SW2', 'eth1']],
+        [['SW1', 'eth2'], ['SW2', 'eth2']]]})

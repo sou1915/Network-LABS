@@ -19,9 +19,11 @@ def _memberships(records, name):
 
 def drift(manager):
     errors = []
-    for node in manager.read()['spec']['nodes']:
+    for index, node in enumerate(manager.read()['spec']['nodes']):
         if node['runtime'] != 'oci':
             continue
+        from .ipv6 import drift as ipv6_drift
+        errors.extend(ipv6_drift(manager, index, node))
         actual = manager.inspect(node['name'])
         if node.get('firewall') is not None:
             from .firewall import fingerprint

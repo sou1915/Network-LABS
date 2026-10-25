@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('ipv6', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -20,6 +20,8 @@ def addresses(node):
 
 
 def validate_lan(node):
+    from .ipv6 import validate_node
+    validate_node(node)
     role = node['role']
     from .port_security import mac_address
     macs = node.setdefault('interface_macs', {})
@@ -282,6 +284,10 @@ def configure(manager, index, node, previous=None):
         ns('ip', '-4', 'route', 'replace', route['destination'], 'via', route['gateway'],
            'dev', route['interface'], 'proto', 'static')
 
+    if initial and node['ipv6']:
+        from .ipv6 import configure as configure_ipv6
+        configure_ipv6(manager, index, node)
+
     from .svi import configure_arp as configure_svi_arp
     configure_svi_arp(manager, index, node)
     if node.get('dhcp_snooping') is not None or previous.get('dhcp_snooping') is not None:
@@ -295,6 +301,9 @@ def observe(manager, index, node):
               'addresses': json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show').stdout),
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
+    if node['ipv6']:
+        from .ipv6 import observe as observe_ipv6
+        result['addresses_ipv6'] = observe_ipv6(manager, index)
     from .route_lookup import ipv4_settings
     result['ipv4_settings'] = ipv4_settings(manager, index, node)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':

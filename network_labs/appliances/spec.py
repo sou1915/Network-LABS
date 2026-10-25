@@ -106,6 +106,8 @@ def validate(data):
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
             if role != 'host' or list(interfaces) != ['eth0'] or not interfaces['eth0']:
                 raise ValueError('Firecracker initial adapter: host with one static IPv4 eth0 only.')
+    from .ipv6 import validate_lab as validate_ipv6_lab
+    validate_ipv6_lab(data)
     ospf_ids = [n['ospf']['router_id'] for n in data['nodes'] if n.get('ospf')]
     if len(set(ospf_ids)) != len(ospf_ids):
         raise ValueError('OSPF router IDs must be unique within the lab.')

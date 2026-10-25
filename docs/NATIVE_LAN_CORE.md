@@ -3407,3 +3407,45 @@ sequential, not atomic. No topology tree is computed, no BPDUs are sent by the
 command, and local settled state does not certify global convergence or delivery.
 The existing native STP triangle test checks initial blocking/root identity,
 actual failover to the alternate root port and unchanged configuration.
+
+### Static IPv6 on an isolated L2 VLAN LAN
+
+```bash
+python3 -m network_labs.appliances example --ipv6-vlan --rootfs "$HOME/network-labs-rootfs" > ipv6-vlan-lan.json
+sudo python3 -m network_labs.appliances start ipv6-vlan-lan.json
+# Wait for Duplicate Address Detection; startup alone is not address readiness.
+sudo python3 -m network_labs.appliances exec ipv6-vlan-lan PC1 -- /bin/busybox ping6 -c 3 2001:db8:10::20
+sudo python3 -m network_labs.appliances show ipv6-vlan-lan PC1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show ipv6-vlan-lan PC1 --text 'show ipv6 neighbors'
+```
+
+The six-node example has two Linux VLAN switches, one VLAN10/20 trunk and four
+static IPv6 hosts. PC1/PC2 use 2001:db8:10::/64 and PC3/PC4 use
+2001:db8:20::/64. These documentation prefixes are isolated inside the lab.
+The node `ipv6` mapping assigns one explicit unicast /64 address per declared
+physical OCI host interface. IPv4 fields remain compatible. Kernel link-local
+addresses, DAD, ICMPv6 and neighbor discovery are real, not simulated outcomes.
+The rootfs needs only the existing BusyBox tools; Ubuntu's static BusyBox ping6
+applet can send test traffic. No additional guest VM or daemon is required.
+
+This first profile deliberately accepts plain OCI hosts and Linux L2 switches
+only: no router/firewall nodes, startup scripts, IPv6 default/static routes,
+RA/SLAAC, DHCPv6, OSPFv3, DNS AAAA integration, OVS, STP, bundles or security/service
+coexistence. It rejects these compositions rather than implying that IPv4 ACL,
+firewall or source-guard policy protects IPv6. Host RA acceptance and autoconf are
+disabled, per-interface IPv6 forwarding is disabled, and DAD is enabled. These
+settings affect only owned node namespaces. Older labs without `ipv6` retain
+their existing behavior. Live IPv6 host edits require recreation in this profile.
+
+Inspect adds `addresses_ipv6` on configured hosts. IPv6 show commands read the
+actual address/neighbor tables; address presence alone does not prove DAD success
+or packet delivery (inspect JSON includes raw kernel flags). Existing `verify`
+and application `probe` remain IPv4-only. Save audits declared global IPv6
+addresses, DAD state and host interface sysctls; declarative restore recreates
+addresses and reruns DAD, without preserving neighbor caches. This is not a full
+IPv6 routing/security audit or a per-packet host-isolation proof.
+
+The native case checks bidirectional IPv6 within both VLANs, failed same-subnet
+NDP/ping across different VLANs, tagged IPv6/NDP packets on the trunk, refusal to
+save after address drift, and connectivity after save/stop/restore. Host links,
+IPv6 routes/rules/forwarding and nftables are checked after cleanup.

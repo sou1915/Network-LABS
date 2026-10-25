@@ -8,6 +8,8 @@ from .route_lookup import _json_read
 from .runtime import RuntimeFailure
 
 COMMANDS = {
+    'show ipv6 interface brief': ('ip', '-j', '-6', 'addr', 'show'),
+    'show ipv6 neighbors': ('ip', '-j', '-6', 'neigh', 'show', 'nud', 'all'),
     'show ip interface brief': ('ip', '-j', 'addr', 'show'),
     'show ip route': ('ip', '-j', '-4', 'route', 'show', 'table', 'main'),
     'show arp': ('ip', '-j', '-4', 'neigh', 'show', 'nud', 'all'),
@@ -216,12 +218,13 @@ def render(report):
     records = report['observation']['records']
     rows = []
     command = report['command']
-    if command == 'show ip interface brief':
-        headers = ['Interface', 'IPv4/prefix', 'Admin', 'Operstate']
+    if command in ('show ip interface brief', 'show ipv6 interface brief'):
+        family = 'inet6' if command == 'show ipv6 interface brief' else 'inet'
+        headers = ['Interface', 'IPv6/prefix' if family == 'inet6' else 'IPv4/prefix', 'Admin', 'Operstate']
         for row in records:
             addresses = row.get('addr_info')
             if isinstance(addresses, list):
-                values = [str(a.get('local', '?')) + '/' + str(a.get('prefixlen', '?')) for a in addresses if isinstance(a, dict) and a.get('family') == 'inet']
+                values = [str(a.get('local', '?')) + '/' + str(a.get('prefixlen', '?')) for a in addresses if isinstance(a, dict) and a.get('family') == family]
                 address = ', '.join(values) or 'unassigned'
             else:
                 address = None
@@ -232,10 +235,10 @@ def render(report):
         headers = ['Destination', 'Via', 'Interface', 'Protocol', 'Metric', 'Type']
         rows = [[r.get('dst'), r.get('gateway'), r.get('dev'), r.get('protocol'), r.get('metric'), r.get('type')] for r in records]
         lines.append('Table IPv4 main uniquement ; champs non retournés = ?. Détails avancés : --json.')
-    elif command == 'show arp':
-        headers = ['IPv4', 'MAC', 'Interface', 'State']
+    elif command in ('show arp', 'show ipv6 neighbors'):
+        headers = ['IPv6' if command == 'show ipv6 neighbors' else 'IPv4', 'MAC', 'Interface', 'State']
         rows = [[r.get('dst'), r.get('lladdr'), r.get('dev'), r.get('state')] for r in records]
-        lines.append('Cache de voisinage IPv4 observé, y compris les entrées non résolues.')
+        lines.append('Cache de voisinage kernel observé, y compris les entrées non résolues.')
     elif command == 'show vlan brief':
         headers = ['Interface', 'VLAN', 'Flags']
         for row in records:

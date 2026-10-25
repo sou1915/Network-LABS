@@ -33,6 +33,80 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_ipv6_vlan_ndp_isolation_capture_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ipv6_vlan_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.show import show
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout
+        rules = run(['ip', '-j', '-6', 'rule', 'show']).stdout
+        forwarding = run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = ipv6_vlan_lab(rootfs); spec['name'] = 'ipv6-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def ping(source, address, check=True):
+                return manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '2', '-W', '1', '-w', '4', address,
+                                    check=check, timeout=6)
+            def ready():
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    rows = [r for i in range(4) for r in json.loads(manager.ns(i, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0').stdout)]
+                    global_ips = [a for r in rows for a in r.get('addr_info', []) if a.get('scope') == 'global']
+                    if len(global_ips) == 4 and not any(a.get('tentative') or a.get('dadfailed') or any(f in a.get('flags', []) for f in ('tentative', 'dadfailed')) for a in global_ips):
+                        break
+                    time.sleep(.2)
+                else:
+                    self.fail('IPv6 DAD did not complete')
+                for source, target in (('PC1', '2001:db8:10::20'), ('PC2', '2001:db8:10::10'),
+                                       ('PC3', '2001:db8:20::20'), ('PC4', '2001:db8:20::10')):
+                    self.assertIn('0% packet loss', ping(source, target).stdout)
+            try:
+                with manager.locked():
+                    manager.start(spec); ready()
+                    self.assertEqual(show(manager, 'PC1', 'show ipv6 interface brief')['status'], 'observed')
+                    self.assertEqual(show(manager, 'PC1', 'show ipv6 neighbors')['status'], 'observed')
+                    # Deliberately put a same-prefix address in the other VLAN.
+                    # A failed off-subnet ping alone would not prove VLAN isolation.
+                    manager.ns(2, 'ip', '-6', 'addr', 'add', '2001:db8:10::30/64', 'dev', 'eth0')
+                    time.sleep(1.5)
+                    self.assertNotEqual(ping('PC1', '2001:db8:10::30', check=False).returncode, 0)
+                    manager.ns(2, 'ip', '-6', 'addr', 'del', '2001:db8:10::30/64', 'dev', 'eth0')
+                    manager.ns(0, 'ip', '-6', 'neigh', 'flush', 'dev', 'eth0')
+                event = threading.Event(); pcap = Path(folder) / 'ipv6.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'SW1', 'eth2', pcap,
+                                     seconds=5, packets=200, expression='', ready=event.set)
+                self.assertTrue(event.wait(5), 'IPv6 capture did not become ready')
+                with manager.locked():
+                    ready()
+                self.assertGreater(future.result(timeout=8)['captured_packets'], 0)
+                decoded = run(['tcpdump', '-nn', '-e', '-vv', '-r', str(pcap)]).stdout
+                for expected in ('vlan 10', 'vlan 20', 'IPv6', 'neighbor solicitation', 'neighbor advertisement'):
+                    self.assertIn(expected, decoded)
+                with manager.locked():
+                    manager.ns(0, 'ip', '-6', 'addr', 'add', '2001:db8:10::99/64', 'dev', 'eth0')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(0, 'ip', '-6', 'addr', 'del', '2001:db8:10::99/64', 'dev', 'eth0')
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ready()
+                    manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', '-6', 'rule', 'show']).stdout, rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout, forwarding)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_lan_services_routed_dns_http_failures_pcap_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading
