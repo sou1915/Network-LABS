@@ -2,9 +2,9 @@
 
 
 def adapters(node, previous):
-    if node.get('ipv6') or previous.get('ipv6'):
+    if any(node.get(k) or previous.get(k) for k in ('ipv6', 'slaac', 'router_advertisements')):
         if node != previous:
-            raise ValueError('IPv6 host live configuration changes require lab recreation.')
+            raise ValueError('IPv6/SLAAC/RA live configuration changes require lab recreation.')
     from . import ospf, dhcp_relay
     services = {'ospf': ospf, 'dhcp_relay': dhcp_relay}
     active = [key for key in services if node.get(key) is not None or previous.get(key) is not None]

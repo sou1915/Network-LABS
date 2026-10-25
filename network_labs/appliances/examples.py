@@ -572,3 +572,12 @@ def ipv6_routed_lab(rootfs):
         node('PC2', {'eth0': '2001:db8:20::20/64'}, [route('::/0', '2001:db8:20::1', 'eth0')]),
     ], 'links': [[['PC1', 'eth0'], ['R1', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']],
                 [['R2', 'eth1'], ['PC2', 'eth0']]]})
+
+
+def slaac_lab(rootfs):
+    """A kernel SLAAC client reaches a static remote LAN using a real RA router."""
+    spec = ipv6_routed_lab(rootfs)
+    spec['name'] = 'slaac-lan'
+    spec['nodes'][0].update(ipv6={}, ipv6_routes=[], slaac=['eth0'])
+    spec['nodes'][1]['router_advertisements'] = ['eth0']
+    return validate(spec)

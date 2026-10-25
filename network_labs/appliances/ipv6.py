@@ -51,9 +51,12 @@ def validate_node(node):
         route.update(destination=str(network), gateway=str(gateway))
         destinations.add(str(network))
 
+    from .slaac import validate_node as validate_slaac
+    validate_slaac(node)
+
 
 def validate_lab(spec):
-    if not any(n['ipv6'] for n in spec['nodes']):
+    if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] for n in spec['nodes']):
         return
     seen = set()
     for node in spec['nodes']:

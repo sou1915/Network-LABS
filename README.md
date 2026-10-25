@@ -318,3 +318,7 @@ hosts and L2 switching only; see [IPv6 scope and commands](docs/NATIVE_LAN_CORE.
 `example --ipv6-routed --rootfs PATH` adds two internal IPv6 LANs with actual
 physical routers, explicit static/default routes and forwarding/route drift
 checks. [Scope and commands](docs/NATIVE_LAN_CORE.md#static-ipv6-routing-between-internal-lans).
+
+`example --slaac --rootfs PATH` uses real RA-only dnsmasq and kernel SLAAC for
+IPv6 host addressing/default-router discovery, with routed internal-LAN traffic.
+A dnsmasq rootfs is required. [Scope and commands](docs/NATIVE_LAN_CORE.md#slaac-and-real-router-advertisements).

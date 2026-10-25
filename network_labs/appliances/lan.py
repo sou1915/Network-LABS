@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -284,6 +284,9 @@ def configure(manager, index, node, previous=None):
         ns('ip', '-4', 'route', 'replace', route['destination'], 'via', route['gateway'],
            'dev', route['interface'], 'proto', 'static')
 
+    if initial and node['slaac']:
+        from .slaac import configure_client
+        configure_client(manager, index, node)
     if initial and node['ipv6']:
         from .ipv6 import configure as configure_ipv6
         configure_ipv6(manager, index, node)
@@ -301,11 +304,16 @@ def observe(manager, index, node):
               'addresses': json.loads(manager.ns(index, 'ip', '-j', '-4', 'addr', 'show').stdout),
               'routes': json.loads(manager.ns(index, 'ip', '-j', '-4', 'route', 'show').stdout),
               'forwarding': manager.ns(index, 'sysctl', '-n', 'net.ipv4.ip_forward').stdout.strip() == '1'}
-    if node['ipv6']:
+    if node['ipv6'] or node['slaac']:
         from .ipv6 import observe as observe_ipv6
         result['addresses_ipv6'] = observe_ipv6(manager, index)
         result['routes_ipv6'] = json.loads(manager.ns(index, 'ip', '-j', '-6', 'route', 'show', 'table', 'main', timeout=3).stdout)
         result['forwarding_ipv6'] = manager.ns(index, 'sysctl', '-n', 'net/ipv6/conf/all/forwarding', timeout=3).stdout.strip()
+    if node['router_advertisements']:
+        from .slaac import observe_server as observe_ra
+        result['router_advertisements'] = observe_ra(manager, node)
+    if node['slaac']:
+        result['slaac'] = {'interfaces': node['slaac'], 'note': 'Kernel RA acceptance policy; address/default route acquisition must be observed separately.'}
     from .route_lookup import ipv4_settings
     result['ipv4_settings'] = ipv4_settings(manager, index, node)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':

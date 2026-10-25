@@ -264,8 +264,8 @@ class Manager:
         for node in spec['nodes']:
             if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': OSPF requires a rootfs built with --bird and --birdc.')
-            if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
-                raise RuntimeFailure(node['name'] + ': DNS/DHCP relay requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
+            if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
+                raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
             if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
                 raise RuntimeFailure(node['name'] + ': LLDP requires a rootfs built with --lldpd and --lldpcli.')
@@ -338,6 +338,8 @@ class Manager:
                     self.start_vm(node, i)
             from .ipv6 import install_routes as install_ipv6_routes
             install_ipv6_routes(self)
+            from .slaac import start_servers as start_ra_servers
+            start_ra_servers(self)
             from .ovs import start_servers as start_ovs
             start_ovs(self)
             from .dns import start_servers as start_dns
@@ -371,6 +373,8 @@ class Manager:
         prepare_pools(bundle, node)
         from .ospf import prepare_files as prepare_ospf
         prepare_ospf(bundle, node)
+        from .slaac import prepare_files as prepare_ra
+        prepare_ra(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):

@@ -24,6 +24,8 @@ def drift(manager):
             continue
         from .ipv6 import drift as ipv6_drift
         errors.extend(ipv6_drift(manager, index, node))
+        from .slaac import drift as slaac_drift
+        errors.extend(slaac_drift(manager, index, node))
         actual = manager.inspect(node['name'])
         if node.get('firewall') is not None:
             from .firewall import fingerprint

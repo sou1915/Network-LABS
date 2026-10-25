@@ -3430,7 +3430,7 @@ applet can send test traffic. No additional guest VM or daemon is required.
 
 The VLAN example uses plain OCI hosts and Linux L2 switches. The related routed
 profile below adds physical routers and explicit IPv6 routes. Firewall nodes,
-startup scripts, RA/SLAAC, DHCPv6, OSPFv3, DNS AAAA integration, OVS, STP, bundles
+startup scripts, DHCPv6, OSPFv3, DNS AAAA integration, OVS, STP, bundles
 and security/service coexistence remain excluded. It rejects these compositions rather than implying that IPv4 ACL,
 firewall or source-guard policy protects IPv6. Host RA acceptance and autoconf are
 disabled, host IPv6 forwarding is disabled, and DAD is enabled. These
@@ -3491,3 +3491,56 @@ across two routers; disabling IPv6 forwarding, removing a forward route or
 removing the far host's default route must break delivery, followed by explicit
 restoration. Forwarding/route drift blocks save; restore must recover connectivity.
 Baseline host IPv6 links/routes/rules/forwarding/nftables remain checked.
+
+### SLAAC and real router advertisements
+
+```bash
+# Use a trusted rootfs built with --dnsmasq (the prior services rootfs can be reused).
+python3 -m network_labs.appliances example --slaac --rootfs "$HOME/network-labs-services-rootfs" > slaac-lan.json
+sudo python3 -m network_labs.appliances start slaac-lan.json
+# Address/default acquisition is asynchronous; inspect until DAD completes.
+sudo python3 -m network_labs.appliances show slaac-lan PC1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show slaac-lan PC1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances exec slaac-lan PC1 -- /bin/busybox ping6 -c 3 2001:db8:20::20
+```
+
+The four-node reference replaces PC1's static IPv6/default route with kernel
+SLAAC. R1 advertises only its physical eth0 client /64; existing static routes
+carry traffic to PC2's remote internal LAN. `slaac: ["eth0"]` requires a
+single-interface OCI host without static IPv6 or routes. `router_advertisements`
+is a list of numbered physical /64 interfaces on an IPv6-forwarding OCI router.
+Advertised ports and clients must be UP. Existing IPv6 coexistence exclusions
+remain: no firewall/security, OVS, STP, bundles, SVIs/subinterfaces or other
+services. Live edits require recreation. DHCPv6 is not implemented in this step.
+
+A real dnsmasq RA-only process sends prefix/on-link/autonomous information;
+Linux creates the host address and learns its default through the advertising
+router's link-local source. No client address, MAC-derived address or default
+route is injected by the engine. Client policy enables RA/prefix/default
+acceptance, DAD and autoconf with temporary addresses disabled. The fixed lab
+profile requests a five-second RA interval, 15-second router lifetime and
+two-hour prefix lifetime. DNS service is disabled and the default RDNSS option
+is suppressed; resolver configuration is not supplied in this profile.
+
+Startup launches the RA service after static link/route preparation; it does
+not wait for SLAAC acquisition or certify convergence. Inspect provides actual
+IPv6 address/route tables and RA config-file conformity. Correct file contents
+do not prove the daemon is alive or that RAs reached a client. Namespaces,
+not a separate userspace client daemon, provide the host's SLAAC behavior.
+
+Save audits client acceptance policy, global forwarding and unexpected non-RA
+client routes, plus the managed RA config and static-router IPv6 state. Learned
+host addresses/defaults are not configuration snapshots and are not persisted.
+This is not RA authentication, origin attestation, RA Guard, or an exhaustive
+learned-address/lifetime audit. Restore enables policy and reacquires from new
+advertisements. All observations remain separate from delivery proof.
+
+Native validation checks observed address/DAD/default state, routed traffic in
+both directions, and Ethernet PCAP decoding of real RA hop limit 255, source,
+M/O flags, prefix A/L flags, lifetime and absence of RDNSS. It also checks actual
+default withdrawal/expiry after stopping the daemon, failed remote traffic and
+failed fresh acquisition, successful reacquisition after restart, policy drift
+refusal, declarative save/restore and unchanged host IPv6 networking/nftables.
+
+References: [dnsmasq RA modes and options](https://dnsmasq.org/docs/dnsmasq-man.html)
+and [Linux IPv6 sysctls](https://docs.kernel.org/networking/ip-sysctl.html).
