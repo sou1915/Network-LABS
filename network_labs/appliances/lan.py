@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('ipv6', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -304,6 +304,8 @@ def observe(manager, index, node):
     if node['ipv6']:
         from .ipv6 import observe as observe_ipv6
         result['addresses_ipv6'] = observe_ipv6(manager, index)
+        result['routes_ipv6'] = json.loads(manager.ns(index, 'ip', '-j', '-6', 'route', 'show', 'table', 'main', timeout=3).stdout)
+        result['forwarding_ipv6'] = manager.ns(index, 'sysctl', '-n', 'net/ipv6/conf/all/forwarding', timeout=3).stdout.strip()
     from .route_lookup import ipv4_settings
     result['ipv4_settings'] = ipv4_settings(manager, index, node)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':

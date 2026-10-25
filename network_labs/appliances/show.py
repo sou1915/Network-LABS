@@ -8,6 +8,7 @@ from .route_lookup import _json_read
 from .runtime import RuntimeFailure
 
 COMMANDS = {
+    'show ipv6 route': ('ip', '-j', '-6', 'route', 'show', 'table', 'main'),
     'show ipv6 interface brief': ('ip', '-j', '-6', 'addr', 'show'),
     'show ipv6 neighbors': ('ip', '-j', '-6', 'neigh', 'show', 'nud', 'all'),
     'show ip interface brief': ('ip', '-j', 'addr', 'show'),
@@ -231,10 +232,10 @@ def render(report):
             flags = row.get('flags')
             admin = ('up' if 'UP' in flags else 'down') if isinstance(flags, list) else None
             rows.append([row.get('ifname'), address, admin, row.get('operstate')])
-    elif command == 'show ip route':
+    elif command in ('show ip route', 'show ipv6 route'):
         headers = ['Destination', 'Via', 'Interface', 'Protocol', 'Metric', 'Type']
         rows = [[r.get('dst'), r.get('gateway'), r.get('dev'), r.get('protocol'), r.get('metric'), r.get('type')] for r in records]
-        lines.append('Table IPv4 main uniquement ; champs non retournés = ?. Détails avancés : --json.')
+        lines.append('Table main uniquement ; champs non retournés = ?. Détails avancés : --json.')
     elif command in ('show arp', 'show ipv6 neighbors'):
         headers = ['IPv6' if command == 'show ipv6 neighbors' else 'IPv4', 'MAC', 'Interface', 'State']
         rows = [[r.get('dst'), r.get('lladdr'), r.get('dev'), r.get('state')] for r in records]

@@ -3428,14 +3428,14 @@ addresses, DAD, ICMPv6 and neighbor discovery are real, not simulated outcomes.
 The rootfs needs only the existing BusyBox tools; Ubuntu's static BusyBox ping6
 applet can send test traffic. No additional guest VM or daemon is required.
 
-This first profile deliberately accepts plain OCI hosts and Linux L2 switches
-only: no router/firewall nodes, startup scripts, IPv6 default/static routes,
-RA/SLAAC, DHCPv6, OSPFv3, DNS AAAA integration, OVS, STP, bundles or security/service
-coexistence. It rejects these compositions rather than implying that IPv4 ACL,
+The VLAN example uses plain OCI hosts and Linux L2 switches. The related routed
+profile below adds physical routers and explicit IPv6 routes. Firewall nodes,
+startup scripts, RA/SLAAC, DHCPv6, OSPFv3, DNS AAAA integration, OVS, STP, bundles
+and security/service coexistence remain excluded. It rejects these compositions rather than implying that IPv4 ACL,
 firewall or source-guard policy protects IPv6. Host RA acceptance and autoconf are
-disabled, per-interface IPv6 forwarding is disabled, and DAD is enabled. These
+disabled, host IPv6 forwarding is disabled, and DAD is enabled. These
 settings affect only owned node namespaces. Older labs without `ipv6` retain
-their existing behavior. Live IPv6 host edits require recreation in this profile.
+their existing behavior. Live IPv6 node edits require recreation in this profile.
 
 Inspect adds `addresses_ipv6` on configured hosts. IPv6 show commands read the
 actual address/neighbor tables; address presence alone does not prove DAD success
@@ -3449,3 +3449,45 @@ The native case checks bidirectional IPv6 within both VLANs, failed same-subnet
 NDP/ping across different VLANs, tagged IPv6/NDP packets on the trunk, refusal to
 save after address drift, and connectivity after save/stop/restore. Host links,
 IPv6 routes/rules/forwarding and nftables are checked after cleanup.
+
+### Static IPv6 routing between internal LANs
+
+```bash
+python3 -m network_labs.appliances example --ipv6-routed --rootfs "$HOME/network-labs-rootfs" > ipv6-routed-lan.json
+sudo python3 -m network_labs.appliances start ipv6-routed-lan.json
+sudo python3 -m network_labs.appliances exec ipv6-routed-lan PC1 -- /bin/busybox ping6 -c 3 2001:db8:20::20
+sudo python3 -m network_labs.appliances show ipv6-routed-lan R1 --text 'show ipv6 route'
+```
+
+This four-node internal-LAN example connects PC1—R1—R2—PC2 using separate /64
+subnets: client LAN10, router transit100 and client LAN20. R1/R2 have explicit
+static routes to the opposite client LAN; both hosts have explicit IPv6 default
+routes. No external network, WAN provider or Internet connection is added.
+
+`ipv6_forwarding` is a separate boolean (default false), allowed only on a
+numbered OCI router. `ipv6_routes` is a list of up to 32 objects with exactly
+`destination` (canonical IPv6 prefix, including ::/0), `gateway` (remote global
+or ULA on-link address) and `interface` (numbered physical Linux interface).
+Duplicate prefixes, connected-network replacement, off-link/self/link-local
+next hops, unsupported destinations and overlapping local /64 interfaces are
+rejected. IPv4 forwarding remains separate; this profile requires it disabled.
+SVIs, router subinterfaces, dynamic routing, ECMP, route metrics and live edits
+are not added. Use the manifest and recreate the lab for policy changes.
+
+All node links are configured before route installation. The runtime waits for
+observed completion of DAD on numbered route-bearing nodes (eight-second deadline,
+three-second address reads), then installs actual Linux IPv6 static routes.
+Failed DAD or readiness failure aborts startup and uses existing cleanup. No
+synthetic adjacency or route success is substituted. RA/autoconf remain disabled.
+Inspect exposes main-table `routes_ipv6` and raw global `forwarding_ipv6`; show
+ipv6 route reads the actual IPv6 main table. IPv4 verify/probe remain IPv4-only.
+
+Save now audits global/per-interface IPv6 forwarding, expected connected networks,
+explicit static routes and unexpected non-kernel routes in table main, alongside
+address/DAD/sysctl checks. Other policy tables, rules and IPv6 firewall/security
+are outside this bounded audit. Declarative restore recreates routes and DAD.
+The routed native case requires bidirectional delivery and captured hop limit 62
+across two routers; disabling IPv6 forwarding, removing a forward route or
+removing the far host's default route must break delivery, followed by explicit
+restoration. Forwarding/route drift blocks save; restore must recover connectivity.
+Baseline host IPv6 links/routes/rules/forwarding/nftables remain checked.

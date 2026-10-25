@@ -552,3 +552,23 @@ def ipv6_vlan_lab(rootfs):
         [['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW2', 'eth0']],
         [['PC3', 'eth0'], ['SW1', 'eth1']], [['PC4', 'eth0'], ['SW2', 'eth1']],
         [['SW1', 'eth2'], ['SW2', 'eth2']]]})
+
+
+def ipv6_routed_lab(rootfs):
+    """Two internal IPv6 LANs and numbered router transit, all static."""
+    rootfs = str(Path(rootfs).resolve())
+    def route(prefix, via, port):
+        return {'destination': prefix, 'gateway': via, 'interface': port}
+    def node(name, values, routes, role='host'):
+        return {'name': name, 'runtime': 'oci', 'rootfs': rootfs, 'role': role, 'forwarding': False,
+                'interfaces': {p: '' for p in values}, 'ipv6': values, 'ipv6_routes': routes,
+                'ipv6_forwarding': role == 'router'}
+    return validate({'version': 2, 'name': 'ipv6-routed-lan', 'nodes': [
+        node('PC1', {'eth0': '2001:db8:10::10/64'}, [route('::/0', '2001:db8:10::1', 'eth0')]),
+        node('R1', {'eth0': '2001:db8:10::1/64', 'eth1': '2001:db8:100::1/64'},
+             [route('2001:db8:20::/64', '2001:db8:100::2', 'eth1')], 'router'),
+        node('R2', {'eth0': '2001:db8:100::2/64', 'eth1': '2001:db8:20::1/64'},
+             [route('2001:db8:10::/64', '2001:db8:100::1', 'eth0')], 'router'),
+        node('PC2', {'eth0': '2001:db8:20::20/64'}, [route('::/0', '2001:db8:20::1', 'eth0')]),
+    ], 'links': [[['PC1', 'eth0'], ['R1', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']],
+                [['R2', 'eth1'], ['PC2', 'eth0']]]})

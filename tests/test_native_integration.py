@@ -33,6 +33,77 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_ipv6_routed_lans_forwarding_routes_capture_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import ipv6_routed_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.show import show
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links(); routes = run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout
+        rules = run(['ip', '-j', '-6', 'rule', 'show']).stdout
+        forwarding = run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = ipv6_routed_lab(rootfs); spec['name'] = 'ipv6-route-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def ping(source='PC1', target='2001:db8:20::20', check=True):
+                return manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '2', '-W', '1', '-w', '4', target,
+                                    check=check, timeout=6)
+            def healthy():
+                self.assertIn('0% packet loss', ping().stdout)
+                self.assertIn('0% packet loss', ping('PC2', '2001:db8:10::10').stdout)
+            try:
+                with manager.locked():
+                    manager.start(spec); healthy()
+                    report = show(manager, 'R1', 'show ipv6 route')
+                    self.assertEqual(report['status'], 'observed', report)
+                    self.assertTrue(any(r.get('dst') == '2001:db8:20::/64' and r.get('gateway') == '2001:db8:100::2'
+                                        for r in report['observation']['records']), report)
+                    self.assertEqual(manager.inspect('R1')['forwarding_ipv6'], '1')
+                    self.assertEqual(manager.inspect('PC1')['forwarding_ipv6'], '0')
+                event = threading.Event(); pcap = Path(folder) / 'routed-ipv6.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC2', 'eth0', pcap,
+                                     seconds=4, packets=100, expression='icmp6', ready=event.set)
+                self.assertTrue(event.wait(5), 'Routed IPv6 capture did not become ready')
+                with manager.locked(): healthy()
+                self.assertGreater(future.result(timeout=7)['captured_packets'], 0)
+                decoded = run(['tcpdump', '-nn', '-vv', '-r', str(pcap)]).stdout
+                for value in ('2001:db8:10::10', '2001:db8:20::20', 'hlim 62', 'echo request', 'echo reply'):
+                    self.assertIn(value, decoded)
+                with manager.locked():
+                    # A route alone does not prove IPv6 forwarding is enabled.
+                    manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=0')
+                    self.assertNotEqual(ping(check=False).returncode, 0)
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=1'); healthy()
+                    # Remove the forward route, then the far host's return route.
+                    manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:20::/64')
+                    self.assertNotEqual(ping(check=False).returncode, 0)
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:20::/64', 'via', '2001:db8:100::2', 'dev', 'eth1', 'proto', 'static')
+                    healthy()
+                    manager.ns(3, 'ip', '-6', 'route', 'del', 'default')
+                    self.assertNotEqual(ping(check=False).returncode, 0)
+                    manager.ns(3, 'ip', '-6', 'route', 'add', 'default', 'via', '2001:db8:20::1', 'dev', 'eth0', 'proto', 'static')
+                    healthy()
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); healthy(); manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        self.assertEqual(run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout, routes)
+        self.assertEqual(run(['ip', '-j', '-6', 'rule', 'show']).stdout, rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout, forwarding)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_ipv6_vlan_ndp_isolation_capture_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

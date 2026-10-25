@@ -336,6 +336,8 @@ class Manager:
                     self.start_oci(spec, node, i)
                 else:
                     self.start_vm(node, i)
+            from .ipv6 import install_routes as install_ipv6_routes
+            install_ipv6_routes(self)
             from .ovs import start_servers as start_ovs
             start_ovs(self)
             from .dns import start_servers as start_dns
