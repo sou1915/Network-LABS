@@ -340,6 +340,8 @@ class Manager:
             install_ipv6_routes(self)
             from .slaac import start_servers as start_ra_servers
             start_ra_servers(self)
+            from .dhcpv6 import start_clients as start_dhcpv6_clients
+            start_dhcpv6_clients(self)
             from .ovs import start_servers as start_ovs
             start_ovs(self)
             from .dns import start_servers as start_dns
@@ -375,6 +377,8 @@ class Manager:
         prepare_ospf(bundle, node)
         from .slaac import prepare_files as prepare_ra
         prepare_ra(bundle, node)
+        from .dhcpv6 import prepare_files as prepare_dhcpv6
+        prepare_dhcpv6(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):

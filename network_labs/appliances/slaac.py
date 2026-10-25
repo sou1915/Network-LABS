@@ -1,4 +1,4 @@
-"""Kernel SLAAC clients and real dnsmasq RA-only advertisements on physical LANs."""
+"""Kernel RA clients and real dnsmasq RA-only/stateful advertisements on physical LANs."""
 from pathlib import Path
 import json
 
@@ -25,12 +25,16 @@ def validate_node(node):
         raise ValueError('SLAAC and RA interfaces must be administratively UP.')
 
 
+def client_settings(node):
+    return {**CLIENT_SYSCTLS, 'autoconf': 0} if node['dhcpv6_clients'] else CLIENT_SYSCTLS
+
+
 def configure_client(manager, index, node):
-    if not node['slaac']:
+    if not (node['slaac'] or node['dhcpv6_clients']):
         return
     manager.ns(index, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=0')
-    for port in node['slaac']:
-        for key, value in CLIENT_SYSCTLS.items():
+    for port in node['slaac'] + node['dhcpv6_clients']:
+        for key, value in client_settings(node).items():
             manager.ns(index, 'sysctl', '-w', 'net/ipv6/conf/' + port + '/' + key + '=' + str(value))
 
 
@@ -39,8 +43,12 @@ def server_config(node):
              'dhcp-option=option6:dns-server', 'pid-file=/run/ra.pid', 'user=root', 'group=root',
              'log-facility=-', 'log-dhcp']
     for port in sorted(node['router_advertisements']):
-        lines += ['interface=' + port, 'dhcp-range=::,constructor:' + port + ',ra-only,64,2h',
-                  'ra-param=' + port + ',5,15']
+        pool = node['dhcpv6_server']
+        address_range = (pool['start'] + ',' + pool['end'] + ',64,' + str(pool['lease_seconds']) + 's'
+                         if pool and pool['interface'] == port else '::,constructor:' + port + ',ra-only,64,2h')
+        lines += ['interface=' + port, 'dhcp-range=' + address_range, 'ra-param=' + port + ',5,15']
+    if node['dhcpv6_server']:
+        lines.append('dhcp-leasefile=/run/dhcpv6.leases')
     return '\n'.join(lines) + '\n'
 
 
@@ -61,21 +69,21 @@ def start_servers(manager):
 
 def observe_server(manager, node):
     return {**observe_config(manager, node['name'], '/lab/ra.conf', server_config(node)),
-            'interfaces': node['router_advertisements'], 'source': 'Managed dnsmasq RA-only config file',
-            'note': 'File conformity does not prove a loaded policy, actual advertisements or client readiness. No DHCPv6 or DNS service.'}
+            'interfaces': node['router_advertisements'], 'source': 'Managed dnsmasq RA/DHCPv6 config file',
+            'note': 'File conformity does not prove a loaded policy, actual advertisements or client readiness. No DNS service; DHCPv6 only when an explicit pool is declared.'}
 
 
 def drift(manager, index, node):
     errors = []
-    for port in node['slaac']:
-        for key, expected in CLIENT_SYSCTLS.items():
+    for port in node['slaac'] + node['dhcpv6_clients']:
+        for key, expected in client_settings(node).items():
             value = manager.ns(index, 'sysctl', '-n', 'net/ipv6/conf/' + port + '/' + key, timeout=3).stdout.strip()
             if value != str(expected):
-                errors.append(node['name'] + '/' + port + ': SLAAC ' + key + ' differs')
-    if node['slaac']:
+                errors.append(node['name'] + '/' + port + ': IPv6 RA client ' + key + ' differs')
+    if node['slaac'] or node['dhcpv6_clients']:
         value = manager.ns(index, 'sysctl', '-n', 'net/ipv6/conf/all/forwarding', timeout=3).stdout.strip()
         if value != '0':
-            errors.append(node['name'] + ': SLAAC global forwarding differs')
+            errors.append(node['name'] + ': IPv6 RA client global forwarding differs')
         routes = json.loads(manager.ns(index, 'ip', '-j', '-6', 'route', 'show', 'table', 'main', timeout=3).stdout)
         if any(r.get('protocol') not in ('kernel', 'ra') for r in routes):
             errors.append(node['name'] + ': unmanaged non-RA IPv6 client route')

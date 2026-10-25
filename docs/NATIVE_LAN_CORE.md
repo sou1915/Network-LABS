@@ -3544,3 +3544,66 @@ refusal, declarative save/restore and unchanged host IPv6 networking/nftables.
 
 References: [dnsmasq RA modes and options](https://dnsmasq.org/docs/dnsmasq-man.html)
 and [Linux IPv6 sysctls](https://docs.kernel.org/networking/ip-sysctl.html).
+
+## Stateful DHCPv6 on an internal LAN
+
+`example --dhcpv6` extends the four-node routed IPv6 example: PC1 acquires
+an IA_NA address from a real dnsmasq pool on R1/eth0; R1 and R2 retain static
+transit/remote routes, and PC2 is static. All links stay internal.
+
+```bash
+cd ~/Network-LABS
+git pull --ff-only
+# Use a trusted rootfs built with --dnsmasq. Its BusyBox must include udhcpc6.
+python3 -m network_labs.appliances example --dhcpv6 \
+  --rootfs "$HOME/network-labs-services-rootfs" > dhcpv6-lan.json
+sudo python3 -m network_labs.appliances start dhcpv6-lan.json
+# Acquisition and DAD are asynchronous: inspect until the address/default exist.
+sudo python3 -m network_labs.appliances show dhcpv6-lan PC1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show dhcpv6-lan PC1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances exec dhcpv6-lan PC1 -- \
+  /bin/busybox ping6 -c 3 2001:db8:20::20
+sudo python3 -m network_labs.appliances inspect dhcpv6-lan R1
+sudo python3 -m network_labs.appliances save dhcpv6-lan
+sudo python3 -m network_labs.appliances stop dhcpv6-lan
+sudo python3 -m network_labs.appliances restore dhcpv6-lan
+```
+
+Node fields:
+- `dhcpv6_clients: ["eth0"]`: a single-interface OCI host without static IPv6,
+  IPv6 routes or SLAAC address generation. Kernel RA/default/prefix acceptance
+  stays enabled, with `autoconf=0`. BusyBox `udhcpc6` remains running for renewal;
+  no `-q`, information-only mode or prefix-delegation request is used.
+- `dhcpv6_server: {"interface":"eth0", "start":"2001:db8:10::100",
+  "end":"2001:db8:10::10f", "lease_seconds":60}`: a pool of 1..256 usable
+  addresses on a numbered /64 IPv6-forwarding OCI router. The port must appear
+  in `router_advertisements`. Lease time is 60..86400 seconds. Pools cannot
+  overlap declared static addresses or other declared DHCPv6 pools.
+
+The existing managed dnsmasq RA process serves the pool, advertising M=1 and
+A=0 on that subnet. RA supplies the on-link prefix and link-local gateway;
+DHCPv6 does **not** supply a default gateway. DNS/RDNSS are suppressed and the
+client requests no optional configuration. Other declared RA-only router ports
+retain their existing behavior. No host address/default route is injected.
+
+The managed event script assigns the received address as /128, using the
+client-exported `lease` as a finite kernel address lifetime. This bounded
+non-deprecated dnsmasq profile uses equal preferred/valid lifetimes; arbitrary
+external DHCPv6 servers with different preferred/valid lifetimes are outside
+this profile. Release/deconfiguration clears global IPv6 addresses only,
+preserving IPv4, link-local addresses and RA routes. DAD remains enabled.
+An absent `udhcpc6` applet fails startup and triggers cleanup, with no fallback.
+
+Inspect exposes actual addresses/routes plus separate managed-file evidence.
+Save audits RA acceptance/autoconf/forwarding, unexpected non-RA client routes,
+the client hook and server config. File conformity does not prove daemon
+liveness, current leases or received packets; the audit does not authenticate
+address provenance or exhaustively validate learned address lifetimes. Restore
+recreates the client/server declarations and performs fresh acquisition: no
+lease database, client identity, learned address/default or filesystem snapshot
+is persisted. Live policy edits require recreation.
+
+Scope remains physical interfaces on the isolated IPv6 profile. No DHCPv6
+relay, IA_PD, stateless DHCPv6, DNS provisioning, DUID reservations, RA Guard,
+IPv6 firewall/security coexistence, SVIs/subinterfaces or vendor firmware is
+claimed. `verify` and application `probe` remain IPv4-only.

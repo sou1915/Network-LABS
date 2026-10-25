@@ -581,3 +581,13 @@ def slaac_lab(rootfs):
     spec['nodes'][0].update(ipv6={}, ipv6_routes=[], slaac=['eth0'])
     spec['nodes'][1]['router_advertisements'] = ['eth0']
     return validate(spec)
+
+
+def dhcpv6_lab(rootfs):
+    """Stateful DHCPv6 client with an RA-discovered gateway and remote static LAN."""
+    spec = slaac_lab(rootfs)
+    spec['name'] = 'dhcpv6-lan'
+    spec['nodes'][0].update(slaac=[], dhcpv6_clients=['eth0'])
+    spec['nodes'][1]['dhcpv6_server'] = {'interface': 'eth0', 'start': '2001:db8:10::100',
+                                       'end': '2001:db8:10::10f', 'lease_seconds': 60}
+    return validate(spec)

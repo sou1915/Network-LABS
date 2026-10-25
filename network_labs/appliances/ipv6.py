@@ -51,12 +51,16 @@ def validate_node(node):
         route.update(destination=str(network), gateway=str(gateway))
         destinations.add(str(network))
 
+    from .dhcpv6 import validate_node as validate_dhcpv6
+    validate_dhcpv6(node)
     from .slaac import validate_node as validate_slaac
     validate_slaac(node)
 
 
 def validate_lab(spec):
-    if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] for n in spec['nodes']):
+    from .dhcpv6 import validate_lab as validate_dhcpv6_lab
+    validate_dhcpv6_lab(spec)
+    if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes']):
         return
     seen = set()
     for node in spec['nodes']:

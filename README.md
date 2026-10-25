@@ -322,3 +322,7 @@ checks. [Scope and commands](docs/NATIVE_LAN_CORE.md#static-ipv6-routing-between
 `example --slaac --rootfs PATH` uses real RA-only dnsmasq and kernel SLAAC for
 IPv6 host addressing/default-router discovery, with routed internal-LAN traffic.
 A dnsmasq rootfs is required. [Scope and commands](docs/NATIVE_LAN_CORE.md#slaac-and-real-router-advertisements).
+
+`example --dhcpv6 --rootfs PATH` adds a real stateful BusyBox DHCPv6 client and
+managed dnsmasq pool, with RA gateway discovery and finite lease expiry. See
+[DHCPv6 scope and commands](docs/NATIVE_LAN_CORE.md#stateful-dhcpv6-on-an-internal-lan).
