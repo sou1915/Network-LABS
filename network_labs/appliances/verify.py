@@ -14,10 +14,38 @@ def _text(value):
     return (value.decode(errors='replace') if isinstance(value, bytes) else value or '')[:8192]
 
 
-def _endpoint(manager, index, node):
+def _ipv6_candidates(row):
+    values = row.get('addr_info', [])
+    if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+        raise ValueError('Malformed IPv6 address observation.')
+    result = []
+    for item in values:
+        if item.get('family') != 'inet6' or item.get('scope') != 'global':
+            continue
+        prefix = integer(item.get('prefixlen'), 1, 128, 'Observed IPv6 prefix')
+        value = item.get('local')
+        if not isinstance(value, str) or '%' in value:
+            raise ValueError('Expected an unscoped IPv6 address.')
+        interface = ipaddress.IPv6Interface(value + '/' + str(prefix)); ip = interface.ip
+        if (ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_link_local or ip.ipv4_mapped or
+                (prefix < 128 and ip == interface.network.network_address)):
+            continue
+        flags = item.get('flags', [])
+        if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+            raise ValueError('Malformed IPv6 address flags.')
+        if any(key in item and type(item[key]) is not bool for key in ('tentative', 'dadfailed')):
+            raise ValueError('Malformed IPv6 DAD flags.')
+        lifetime = integer(item.get('valid_life_time'), 0, 4294967295, 'Observed IPv6 lifetime')
+        result.append((str(ip), item, flags, lifetime))
+    return result
+
+
+def _endpoint(manager, index, node, family='ipv4'):
     result = {'node': node['name'], 'interface': 'eth0', 'status': 'unknown', 'address': None,
               'dhcp_client_configured': 'eth0' in node['dhcp_clients'], 'reasons': [],
-              'container': None, 'link': None, 'kernel': None}
+              'container': None, 'link': None, 'kernel': None, 'address_family': family,
+              'slaac_client_configured': 'eth0' in node.get('slaac', []),
+              'dhcpv6_client_configured': 'eth0' in node.get('dhcpv6_clients', [])}
     try:
         state = manager.crun('state', node['name'], check=False, timeout=3)
         if state.returncode:
@@ -37,7 +65,7 @@ def _endpoint(manager, index, node):
             raise ValueError('Missing interface flags.')
         if 'UP' not in flags or 'LOWER_UP' not in flags:
             result.update(status='blocked', reasons=['INTERFACE_DOWN']); return result
-        observed = _json_read(manager, index, 'ip', '-j', '-4', 'addr', 'show', 'dev', 'eth0')
+        observed = _json_read(manager, index, 'ip', '-j', '-6' if family == 'ipv6' else '-4', 'addr', 'show', 'dev', 'eth0')
         result['kernel'] = observed
         if observed['status'] != 'observed':
             result['reasons'].append('ADDRESS_READ_UNAVAILABLE'); return result
@@ -48,6 +76,21 @@ def _endpoint(manager, index, node):
         if len(records) > 1 or (records and records[0].get('ifname') != 'eth0'):
             result['reasons'].append('ADDRESS_READ_UNAVAILABLE'); return result
         row = records[0] if records else {}
+        if family == 'ipv6':
+            candidates = _ipv6_candidates(row)
+            if not candidates:
+                result.update(status='blocked', reasons=['NO_USABLE_IPV6']); return result
+            if len(candidates) != 1:
+                result['reasons'].append('AMBIGUOUS_IPV6'); return result
+            address, item, flags, lifetime = candidates[0]
+            result.update(prefixlen=item['prefixlen'], valid_lifetime_seconds=lifetime,
+                          address_flags=flags, tentative=item.get('tentative', False) or 'tentative' in flags,
+                          dadfailed=item.get('dadfailed', False) or 'dadfailed' in flags)
+            reason = ('IPV6_DAD_FAILED' if result['dadfailed'] else 'IPV6_DAD_INCOMPLETE' if result['tentative']
+                      else 'IPV6_ADDRESS_EXPIRED' if lifetime == 0 else None)
+            if reason:
+                result.update(status='blocked', reasons=[reason]); return result
+            result.update(status='ready', address=address); return result
         addresses = []
         for item in row.get('addr_info', []):
             if item.get('family') != 'inet' or item.get('scope') != 'global':
@@ -69,21 +112,29 @@ def _endpoint(manager, index, node):
     return result
 
 
-def _probe(manager, index, source, destination, count):
+def _probe(manager, index, source, destination, count, family='ipv4'):
     address = destination['address']
-    route = _json_read(manager, index, 'ip', '-j', '-4', 'route', 'get', address)
-    command = ['/bin/ping', '-n', '-I', 'eth0', '-c', str(count), '-W', '1', '-w', str(count + 2), address]
+    lookup = ['ip', '-j', '-6' if family == 'ipv6' else '-4', 'route', 'get', address]
+    if family == 'ipv6':
+        lookup += ['from', source['address']]
+    route = _json_read(manager, index, *lookup)
+    command = (['/bin/busybox', 'ping6'] if family == 'ipv6' else ['/bin/ping']) + [
+        '-n', '-I', source['address'] if family == 'ipv6' else 'eth0', '-c', str(count),
+        '-W', '1', '-w', str(count + 2), address]
     result = {'source': source['node'], 'destination': destination['node'], 'destination_address': address,
               'route': route, 'status': 'unknown', 'command': command, 'requested_packets': count,
               'transmitted': None, 'received': None, 'loss_percent': None, 'reply_ttls': [],
+              'reply_hop_limits': [], 'address_family': family, 'source_address': source['address'],
               'returncode': None, 'stdout': '', 'stderr': '', 'attempted': False}
     if route['status'] == 'observed' and any(row.get('type') == 'local' or row.get('dev') == 'lo' for row in route['records']):
         result.update(status='blocked', error='LOCAL_ROUTE_CANNOT_VERIFY_REMOTE_HOST'); return result
+    if family == 'ipv6' and route['status'] == 'observed' and any(row.get('dev') not in (None, 'eth0') for row in route['records']):
+        result.update(status='blocked', error='ROUTE_USES_UNSUPPORTED_INTERFACE'); return result
     try:
         result['attempted'] = True
         ping = manager.crun('exec', source['node'], *command, check=False, timeout=count + 5)
         result.update(returncode=ping.returncode, stdout=_text(ping.stdout), stderr=_text(ping.stderr))
-        matches = re.findall(r'(\d+) packets transmitted,\s*(\d+) (?:packets )?received', result['stdout'])
+        matches = re.findall(r'(?m)^\s*(\d{1,10}) packets transmitted,\s*(\d{1,10}) (?:packets )?received\b', result['stdout'])
         if len(matches) == 1:
             transmitted, received = map(int, matches[0])
             if 0 <= received <= transmitted <= count and transmitted > 0:
@@ -91,8 +142,8 @@ def _probe(manager, index, source, destination, count):
                               loss_percent=100 * (transmitted - received) / transmitted)
                 if ping.returncode in (0, 1):
                     result['status'] = 'passed' if ping.returncode == 0 and transmitted == received == count else 'failed'
-        result['reply_ttls'] = [int(ttl) for ttl in re.findall(r'\bttl=(\d+)\b', result['stdout'], re.I)
-                               if 0 <= int(ttl) <= 255]
+        values = [int(value) for value in re.findall(r'\b(?:ttl|hlim|hoplimit)=(\d{1,3})\b', result['stdout'], re.I) if int(value) <= 255]
+        result['reply_hop_limits' if family == 'ipv6' else 'reply_ttls'] = values
     except subprocess.TimeoutExpired as error:
         result.update(stdout=_text(error.stdout), stderr=_text(error.stderr), error='PING_TIMEOUT')
     except (OSError, RuntimeFailure) as error:
@@ -100,8 +151,10 @@ def _probe(manager, index, source, destination, count):
     return result
 
 
-def verify(manager, source, destination, *, count=3, bidirectional=False):
+def verify(manager, source, destination, *, count=3, bidirectional=False, family='ipv4'):
     """Caller holds the lab lock; ICMP updates counters/caches but not configuration."""
+    if family not in ('ipv4', 'ipv6'):
+        raise ValueError('Verification family must be ipv4 or ipv6.')
     integer(count, 1, 5, 'Verification packet count')
     if type(bidirectional) is not bool:
         raise ValueError('bidirectional must be boolean.')
@@ -120,19 +173,19 @@ def verify(manager, source, destination, *, count=3, bidirectional=False):
         selected.append(match)
     report = {'lab': manager.name, 'started_at': datetime.now(timezone.utc).isoformat(),
               'revision': state.get('revision', 0), 'status': 'unknown', 'directions': [],
-              'endpoints': [_endpoint(manager, i, n) for i, n in selected],
-              'scope': 'Explicit ICMP test between observed host addresses. No inferred topology path, DHCP lease provenance, VLAN isolation, OSPF convergence or application-service verdict.',
+              'address_family': family, 'endpoints': [_endpoint(manager, i, n, family) for i, n in selected],
+              'scope': 'Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.',
               'configuration_changed': False, 'probe_commands_attempted': 0}
     a, b = report['endpoints']
     if a['status'] == b['status'] == 'ready' and a['address'] == b['address']:
         for endpoint in (a, b):
-            endpoint.update(status='blocked', reasons=['DUPLICATE_ENDPOINT_IPV4'])
+            endpoint.update(status='blocked', reasons=['DUPLICATE_ENDPOINT_IPV6' if family == 'ipv6' else 'DUPLICATE_ENDPOINT_IPV4'])
     if any(endpoint['status'] != 'ready' for endpoint in (a, b)):
         report['status'] = 'unknown' if any(endpoint['status'] == 'unknown' for endpoint in (a, b)) else 'blocked'
     else:
         pairs = [(selected[0][0], a, b)] + ([(selected[1][0], b, a)] if bidirectional else [])
         for index, sender, receiver in pairs:
-            report['directions'].append(_probe(manager, index, sender, receiver, count))
+            report['directions'].append(_probe(manager, index, sender, receiver, count, family))
             report['probe_commands_attempted'] += int(report['directions'][-1]['attempted'])
         states = [direction['status'] for direction in report['directions']]
         report['status'] = 'passed' if all(value == 'passed' for value in states) else ('failed' if 'failed' in states else ('unknown' if 'unknown' in states else 'blocked'))
@@ -142,19 +195,27 @@ def verify(manager, source, destination, *, count=3, bidirectional=False):
 
 def render(report):
     labels = {'passed': 'RÉUSSI', 'failed': 'ÉCHEC', 'blocked': 'BLOQUÉ', 'unknown': 'INCONNU'}
-    lines = [f"Vérification ICMP : {labels[report['status']]} — {report['lab']}"]
+    family = report.get('address_family', 'ipv4')
+    lines = [f"Vérification ICMP ({family.upper()}) : {labels[report['status']]} — {report['lab']}"]
     for endpoint in report['endpoints']:
         messages = {'CONTAINER_NOT_RUNNING': 'conteneur arrêté', 'CONTAINER_STATE_UNAVAILABLE': 'état conteneur indisponible',
                     'ADDRESS_READ_UNAVAILABLE': 'lecture adresse indisponible', 'INTERFACE_NOT_OBSERVED': 'interface non observée',
                     'INTERFACE_DOWN': 'interface sans état UP/LOWER_UP', 'NO_USABLE_IPV4': 'aucune IPv4 utilisable observée',
                     'AMBIGUOUS_IPV4': 'plusieurs adresses IPv4 ; sélection ambiguë',
+                    'NO_USABLE_IPV6': 'aucune IPv6 unicast utilisable observée',
+                    'AMBIGUOUS_IPV6': 'plusieurs adresses IPv6 ; sélection ambiguë',
+                    'DUPLICATE_ENDPOINT_IPV6': 'même IPv6 sur les deux endpoints',
+                    'IPV6_DAD_INCOMPLETE': 'DAD IPv6 en cours', 'IPV6_DAD_FAILED': 'DAD IPv6 en échec',
+                    'IPV6_ADDRESS_EXPIRED': 'durée de validité IPv6 expirée',
                     'ENDPOINT_READ_UNAVAILABLE': 'observation incomplète', 'DUPLICATE_ENDPOINT_IPV4': 'même IPv4 sur les deux endpoints'}
-        reasons = ', '.join(messages[reason] for reason in endpoint['reasons']) or 'IPv4 et interface observées'
+        reasons = ', '.join(messages[reason] for reason in endpoint['reasons']) or ('IPv6, interface et DAD observées' if family == 'ipv6' else 'IPv4 et interface observées')
         lines.append(f"{endpoint['node']}/eth0 : {endpoint['address'] or '?'} ; {reasons}.")
     for direction in report['directions']:
         display = lambda key: str(direction[key]) if direction[key] is not None else '?'
         lines.append(f"{direction['source']} → {direction['destination']} ({direction['destination_address']}) : "
                      f"{labels[direction['status']]} ; reçus/envoyés={display('received')}/{display('transmitted')}, perte={display('loss_percent')}%.")
+        if family == 'ipv6':
+            lines.append('  Source IPv6 : ' + direction['source_address'] + ' ; hop limits reçus : ' + json.dumps(direction['reply_hop_limits']))
         lines.append('  Lecture route kernel : ' + direction['route']['status'] + ' ; ' +
                      json.dumps(direction['route']['records'], ensure_ascii=False))
         if direction['stderr'] or direction.get('error'):

@@ -3440,7 +3440,7 @@ their existing behavior. Live IPv6 node edits require recreation in this profile
 Inspect adds `addresses_ipv6` on configured hosts. IPv6 show commands read the
 actual address/neighbor tables; address presence alone does not prove DAD success
 or packet delivery (inspect JSON includes raw kernel flags). Existing `verify`
-and application `probe` remain IPv4-only. Save audits declared global IPv6
+accepts `--family ipv6`; application `probe` remains IPv4-only. Save audits declared global IPv6
 addresses, DAD state and host interface sysctls; declarative restore recreates
 addresses and reruns DAD, without preserving neighbor caches. This is not a full
 IPv6 routing/security audit or a per-packet host-isolation proof.
@@ -3480,7 +3480,7 @@ three-second address reads), then installs actual Linux IPv6 static routes.
 Failed DAD or readiness failure aborts startup and uses existing cleanup. No
 synthetic adjacency or route success is substituted. RA/autoconf remain disabled.
 Inspect exposes main-table `routes_ipv6` and raw global `forwarding_ipv6`; show
-ipv6 route reads the actual IPv6 main table. IPv4 verify/probe remain IPv4-only.
+ipv6 route reads the actual IPv6 main table. `verify --family ipv6` is available; application `probe` remains IPv4-only.
 
 Save now audits global/per-interface IPv6 forwarding, expected connected networks,
 explicit static routes and unexpected non-kernel routes in table main, alongside
@@ -3606,4 +3606,71 @@ is persisted. Live policy edits require recreation.
 Scope remains physical interfaces on the isolated IPv6 profile. No DHCPv6
 relay, IA_PD, stateless DHCPv6, DNS provisioning, DUID reservations, RA Guard,
 IPv6 firewall/security coexistence, SVIs/subinterfaces or vendor firmware is
-claimed. `verify` and application `probe` remain IPv4-only.
+claimed. `verify` accepts `--family ipv6`; application `probe` remains IPv4-only.
+
+
+## Explicit IPv6 connectivity verification
+
+`verify LAB SOURCE DESTINATION --family ipv6` performs bounded real ICMPv6
+between two running single-interface OCI hosts. The default stays `--family ipv4`.
+It observes the current addresses of static, SLAAC and DHCPv6 hosts; no declared
+address is substituted when acquisition is incomplete or a lease has expired.
+The existing endpoint restriction remains one physical `eth0`, with no endpoint
+subinterfaces, bundles, switches, routers or VM guests.
+
+```bash
+# Start the corresponding reference lab first (see --dhcpv6 above).
+sudo python3 -m network_labs.appliances verify dhcpv6-lan PC1 PC2 \
+  --family ipv6 --bidirectional --count 2
+sudo python3 -m network_labs.appliances verify dhcpv6-lan PC1 PC2 \
+  --family ipv6 --bidirectional --json
+# The same command works after starting the other IPv6 reference labs:
+sudo python3 -m network_labs.appliances verify slaac-lan PC1 PC2 --family ipv6
+sudo python3 -m network_labs.appliances verify ipv6-routed-lan PC1 PC2 --family ipv6
+sudo python3 -m network_labs.appliances verify ipv6-vlan-lan PC1 PC2 --family ipv6
+```
+
+A usable endpoint requires an observed UP/LOWER_UP interface, exactly one
+unicast global-scope IPv6 address, an observed positive valid lifetime and
+completed DAD. Link-local, multicast, loopback, unspecified, mapped IPv4 and
+subnet-router anycast addresses are not selected. /128 DHCPv6 addresses are
+accepted. Multiple candidate addresses remain `unknown`, including when one is
+tentative: no guessed source-selection rule or privacy-address preference is
+applied. A unique tentative/DAD-failed/expired address is `blocked`. Missing or
+malformed evidence remains `unknown`; absent addresses and down endpoints are
+`blocked`. No ping command is launched for these endpoint conditions.
+
+For each requested direction, `ip -j -6 route get DEST from SOURCE` records the
+actual kernel route decision for the observed source. BusyBox `ping6 -n -I
+SOURCE` binds the actual source address and uses the same count (1..5), reply
+timeout (one second), deadline (count+2) and wrapper timeout (count+5) as IPv4.
+Observed local/lo routes and unsupported output interfaces are blocked. A
+missing/unavailable route-get does not become a connectivity verdict: bounded
+ping can still run, and its exact outcome/statistics remain separate evidence.
+There is no fallback to IPv4, host ping or a simulated response.
+
+JSON includes `address_family`, raw endpoint/container/link/address evidence,
+DAD flags, valid lifetime, declared SLAAC/DHCPv6 client flags, exact probe argv,
+source/destination addresses, route reads, exit status and packet counts.
+IPv6 reply hop limits appear as `reply_hop_limits`; `reply_ttls` remains the IPv4
+field. Human output labels the address family, DAD/ambiguity failures, selected
+source and received hop limits. Hop limits are observations, not a computed
+hop count or topology path.
+
+`passed` requires all requested replies and ping exit 0 in every requested
+direction. Valid incomplete statistics yield `failed`; unparseable statistics,
+missing applets, timeouts or unavailable observations yield `unknown`. Exit status
+is zero only for `passed`. The lab lock prevents concurrent managed changes;
+external namespace/daemon changes can race sequential observations. Verification
+writes no configuration, journal or revision, and does not repair missing routes,
+addresses or link state. Probes can update caches/counters. No RA/DHCP provenance,
+application health, full VLAN isolation or protocol-wide correctness is certified.
+Application `probe` and the separate `route` command retain their IPv4 profiles.
+
+Native validation covers static routed hosts, kernel SLAAC and real DHCPv6
+acquisition/release/expiry/restore. Verification-generated ICMPv6 requests/replies
+are observed in PCAP across two routers with hop limit 62. Missing forwarding,
+forward and return routes produce failed delivery. Real link-down, lost learned
+addresses and multiple global addresses produce blocked/unknown reports without
+launching ping; restored policy reacquires connectivity. Existing host cleanup
+and declaration/revision assertions remain in force.

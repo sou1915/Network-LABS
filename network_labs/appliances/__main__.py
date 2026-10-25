@@ -82,6 +82,7 @@ def main(arguments=None):
     route.add_argument('--json', action='store_true')
     verify = commands.add_parser('verify', help='Send bounded real ICMP between two observed single-NIC OCI hosts.')
     verify.add_argument('name'); verify.add_argument('source'); verify.add_argument('destination')
+    verify.add_argument('--family', choices=('ipv4', 'ipv6'), default='ipv4')
     verify.add_argument('--count', type=int, default=3)
     verify.add_argument('--bidirectional', action='store_true')
     verify.add_argument('--json', action='store_true')
@@ -206,7 +207,7 @@ def main(arguments=None):
                     result = manager.inspect(args.node)
                 elif args.command == 'verify':
                     from .verify import verify, render
-                    result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional)
+                    result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional, family=args.family)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'probe':

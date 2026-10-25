@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
 from network_labs.appliances.spec import example, namespace
+from network_labs.appliances.verify import verify
 
 
 def unexpected_host_link_changes(before, after, hardware_names=()):
@@ -78,8 +79,12 @@ class RealContainerTests(unittest.TestCase):
                             ipaddress.IPv6Address(routes[0].get('gateway', '::')).is_link_local)
                 wait(acquired, 'actual DHCPv6 /128 with finite lifetime, DAD and RA default')
                 observed = addresses()[0]['local']
-                for source, target in (('PC1', '2001:db8:20::20'), ('PC2', observed)):
-                    manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '2', '-W', '1', '-w', '4', target, timeout=6)
+                report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
+                self.assertEqual(report['status'], 'passed', report)
+                self.assertEqual(report['endpoints'][0]['address'], observed)
+                self.assertEqual(report['directions'][1]['destination_address'], observed)
+                self.assertTrue(all(d['reply_hop_limits'] == [62, 62] for d in report['directions']), report)
+                self.assertFalse(report['configuration_changed'])
                 return observed
             def signal(value):
                 manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -' + value + ' "$(/bin/cat /run/udhcpc6.pid)"')
@@ -91,11 +96,17 @@ class RealContainerTests(unittest.TestCase):
                 self.assertTrue(event.wait(5), 'DHCPv6 capture did not become ready')
                 with manager.locked():
                     signal('USR2'); wait(lambda: not addresses(), 'release removes global address')
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'blocked', report)
+                    self.assertEqual(report['probe_commands_attempted'], 0)
                     self.assertTrue(defaults(), 'DHCPv6 release must preserve RA default')
                     signal('USR1'); learned = ready()
                     signal('USR1'); time.sleep(1); ready()
                 self.assertGreater(future.result(timeout=15)['captured_packets'], 0)
                 data = pcap.read_bytes(); packets = captured_dhcpv6(data)
+                decoded = run(['tcpdump', '-nn', '-vv', '-r', str(pcap)]).stdout
+                for evidence in (learned, '2001:db8:20::20', 'echo request', 'echo reply', 'hlim 62'):
+                    self.assertIn(evidence, decoded)
                 self.assertTrue({1, 2, 3, 5, 7}.issubset({p['type'] for p in packets}), packets)
                 for kind in (3, 5):
                     requests = [p for p in packets if p['type'] == kind]
@@ -127,6 +138,9 @@ class RealContainerTests(unittest.TestCase):
                     signal('TERM')
                     manager.crun('exec', 'R1', '/bin/busybox', 'killall', '-TERM', 'dnsmasq')
                     wait(lambda: not addresses(), 'finite DHCPv6 address expiry without client/server', seconds=130)
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'blocked', report)
+                    self.assertEqual(report['probe_commands_attempted'], 0)
                     result = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2', '2001:db8:20::20', check=False, timeout=4)
                     self.assertNotEqual(result.returncode, 0)
                     start_ra(manager); start_clients(manager); ready()
@@ -167,8 +181,9 @@ class RealContainerTests(unittest.TestCase):
                 return manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '2', '-W', '1', '-w', '4', target,
                                     check=check, timeout=6)
             def healthy():
-                self.assertIn('0% packet loss', ping().stdout)
-                self.assertIn('0% packet loss', ping('PC2', '2001:db8:10::10').stdout)
+                report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
+                self.assertEqual(report['status'], 'passed', report)
+                self.assertTrue(all(d['reply_hop_limits'] == [62, 62] for d in report['directions']), report)
             try:
                 with manager.locked():
                     manager.start(spec); healthy()
@@ -191,17 +206,41 @@ class RealContainerTests(unittest.TestCase):
                     # A route alone does not prove IPv6 forwarding is enabled.
                     manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=0')
                     self.assertNotEqual(ping(check=False).returncode, 0)
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'failed', report)
                     with self.assertRaises(RuntimeFailure): manager.write_startup()
                     manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=1'); healthy()
                     # Remove the forward route, then the far host's return route.
                     manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:20::/64')
                     self.assertNotEqual(ping(check=False).returncode, 0)
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'failed', report)
                     with self.assertRaises(RuntimeFailure): manager.write_startup()
                     manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:20::/64', 'via', '2001:db8:100::2', 'dev', 'eth1', 'proto', 'static')
                     healthy()
                     manager.ns(3, 'ip', '-6', 'route', 'del', 'default')
                     self.assertNotEqual(ping(check=False).returncode, 0)
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'failed', report)
                     manager.ns(3, 'ip', '-6', 'route', 'add', 'default', 'via', '2001:db8:20::1', 'dev', 'eth0', 'proto', 'static')
+                    healthy()
+                    before = json.loads(json.dumps(manager.read()))
+                    manager.ns(0, 'ip', 'link', 'set', 'eth0', 'down')
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'blocked', report)
+                    self.assertEqual(report['probe_commands_attempted'], 0)
+                    manager.ns(0, 'ip', 'link', 'set', 'eth0', 'up')
+                    from network_labs.appliances.ipv6 import wait_addresses
+                    wait_addresses(manager, 0, manager.read()['spec']['nodes'][0])
+                    manager.ns(0, 'ip', '-6', 'route', 'replace', 'default', 'via', '2001:db8:10::1', 'dev', 'eth0', 'proto', 'static')
+                    healthy()
+                    manager.ns(0, 'ip', '-6', 'addr', 'add', '2001:db8:10::99/64', 'dev', 'eth0')
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'unknown', report)
+                    self.assertIn('AMBIGUOUS_IPV6', report['endpoints'][0]['reasons'])
+                    self.assertEqual(report['probe_commands_attempted'], 0)
+                    manager.ns(0, 'ip', '-6', 'addr', 'del', '2001:db8:10::99/64', 'dev', 'eth0')
+                    self.assertEqual(manager.read(), before)
                     healthy()
                     manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
                 manager = Manager(spec['name'])
@@ -258,8 +297,12 @@ class RealContainerTests(unittest.TestCase):
                             ipaddress.IPv6Address(routes[0].get('gateway', '::')).is_link_local)
                 wait(acquired, 'actual global address, completed DAD and RA default')
                 observed = addresses()[0]['local']
-                for source, target in (('PC1', '2001:db8:20::20'), ('PC2', observed)):
-                    manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '2', '-W', '1', '-w', '4', target, timeout=6)
+                report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
+                self.assertEqual(report['status'], 'passed', report)
+                self.assertEqual(report['endpoints'][0]['address'], observed)
+                self.assertEqual(report['directions'][1]['destination_address'], observed)
+                self.assertTrue(all(d['reply_hop_limits'] == [62, 62] for d in report['directions']), report)
+                self.assertFalse(report['configuration_changed'])
                 return observed
             try:
                 with manager.locked():
@@ -298,6 +341,9 @@ class RealContainerTests(unittest.TestCase):
                     manager.ns(0, 'ip', '-6', 'addr', 'flush', 'dev', 'eth0', 'scope', 'global')
                     time.sleep(3)
                     self.assertFalse(addresses()); self.assertFalse(defaults())
+                    report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
+                    self.assertEqual(report['status'], 'blocked', report)
+                    self.assertEqual(report['probe_commands_attempted'], 0)
                     start_ra(manager); ready()
                     manager.write_startup(); saved = load_startup(spec['name'])
                     self.assertEqual(saved['nodes'][0]['ipv6'], {})

@@ -326,3 +326,7 @@ A dnsmasq rootfs is required. [Scope and commands](docs/NATIVE_LAN_CORE.md#slaac
 `example --dhcpv6 --rootfs PATH` adds a real stateful BusyBox DHCPv6 client and
 managed dnsmasq pool, with RA gateway discovery and finite lease expiry. See
 [DHCPv6 scope and commands](docs/NATIVE_LAN_CORE.md#stateful-dhcpv6-on-an-internal-lan).
+
+`verify LAB PC1 PC2 --family ipv6 --bidirectional` now checks actual static,
+SLAAC or DHCPv6 endpoint addresses, DAD readiness and real ICMPv6 delivery with
+source-aware kernel route evidence. See [IPv6 verification](docs/NATIVE_LAN_CORE.md#explicit-ipv6-connectivity-verification).
