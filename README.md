@@ -334,3 +334,9 @@ source-aware kernel route evidence. See [IPv6 verification](docs/NATIVE_LAN_CORE
 `example --dual-stack --rootfs PATH` runs static IPv4 and IPv6 on the same
 four-node routed LAN, with independent forwarding/routes and per-family real
 verification. See [dual-stack scope and commands](docs/NATIVE_LAN_CORE.md#static-dual-stack-routing-on-internal-lans).
+
+`example --management` adds real Dropbear SSH (public-key Linux shell),
+authenticated BusyBox Telnet and remote UDP Syslog sending on an internal LAN.
+Build an optional `--dropbear` rootfs and provide public keys/password hashes;
+see [management commands and limits](docs/NATIVE_LAN_CORE.md#ssh-telnet-and-remote-udp-syslog)
+and [LAN protocol coverage](docs/LAN_PROTOCOL_COVERAGE.md) for remaining protocols.

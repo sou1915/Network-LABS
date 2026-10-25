@@ -28,6 +28,8 @@ def drift(manager):
         errors.extend(slaac_drift(manager, index, node))
         from .dhcpv6 import drift as dhcpv6_drift
         errors.extend(dhcpv6_drift(manager, index, node))
+        from .management import drift as management_drift
+        errors.extend(management_drift(manager, node))
         actual = manager.inspect(node['name'])
         if node.get('firewall') is not None:
             from .firewall import fingerprint

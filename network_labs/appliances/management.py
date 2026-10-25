@@ -1,0 +1,159 @@
+"""Real Dropbear SSH, authenticated BusyBox Telnet and UDP syslog forwarding."""
+import base64
+import ipaddress
+import json
+from pathlib import Path
+import re
+import struct
+from .service_config import observe_config
+
+DROPBEAR = '/usr/sbin/dropbear'
+USER_LINE = 'lab:{password}:1000:1000:Network LABS:/home/lab:/bin/sh'
+
+
+def public_key(value):
+    if not isinstance(value, str) or '\n' in value.strip() or '\r' in value or len(value) > 512:
+        raise ValueError('SSH requires one OpenSSH ed25519 public key per entry, without options.')
+    parts = value.strip().split()
+    if len(parts) < 2 or parts[0] != 'ssh-ed25519':
+        raise ValueError('Initial SSH profile accepts ssh-ed25519 public keys only.')
+    try:
+        raw = base64.b64decode(parts[1], validate=True)
+    except (ValueError, TypeError) as error:
+        raise ValueError('Invalid SSH public key encoding.') from error
+    if len(raw) != 51 or raw[:19] != struct.pack('!I', 11) + b'ssh-ed25519' + struct.pack('!I', 32):
+        raise ValueError('Invalid SSH ed25519 public key wire format.')
+    return 'ssh-ed25519 ' + base64.b64encode(raw).decode()
+
+
+def validate_node(node):
+    from .lan import addresses
+    from .spec import keys
+    config = node.setdefault('management', None)
+    if config is None: return
+    keys(config, ('interface', 'ssh_keys', 'telnet_password_hash', 'syslog_remote'), 'Management')
+    port = config.get('interface')
+    values = addresses(node)
+    if (node['runtime'] != 'oci' or not isinstance(port, str) or port not in values or not values[port] or
+            port in node['shutdown'] or node.get('startup')):
+        raise ValueError('Management requires a numbered, UP OCI IPv4 interface and no unmanaged startup commands.')
+    interface = ipaddress.IPv4Interface(values[port]); local = interface.ip
+    if (local.is_unspecified or local.is_multicast or local.is_loopback or local.is_reserved or
+            (interface.network.prefixlen < 31 and local in (interface.network.network_address, interface.network.broadcast_address))):
+        raise ValueError('Management requires a usable IPv4 address.')
+    keys_list = config.setdefault('ssh_keys', [])
+    if not isinstance(keys_list, list) or len(keys_list) > 16:
+        raise ValueError('ssh_keys requires at most 16 public ed25519 keys.')
+    config['ssh_keys'] = sorted({public_key(key) for key in keys_list})
+    password = config.setdefault('telnet_password_hash', '')
+    if not isinstance(password, str) or (password and not re.fullmatch(r'\$6\$(?:rounds=[0-9]{4,7}\$)?[A-Za-z0-9./]{1,16}\$[A-Za-z0-9./]{86}', password)):
+        raise ValueError('Telnet requires a SHA-512 crypt password hash; plaintext passwords are not accepted.')
+    if password.startswith('$6$rounds=') and not 1000 <= int(password.split('$')[2].split('=')[1]) <= 200000:
+        raise ValueError('Telnet crypt rounds must be between 1000 and 200000.')
+    remote = config.setdefault('syslog_remote', '')
+    if not isinstance(remote, str): raise ValueError('syslog_remote must be IPv4 text.')
+    if remote:
+        address = ipaddress.IPv4Address(remote)
+        if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_reserved or address == local:
+            raise ValueError('Syslog forwarding requires a remote unicast IPv4 collector.')
+        config['syslog_remote'] = str(address)
+    if not (config['ssh_keys'] or password or remote):
+        raise ValueError('Enable at least one management service.')
+
+
+def validate_lab(spec):
+    from .lan import addresses
+    for node in spec['nodes']:
+        remote = (node.get('management') or {}).get('syslog_remote')
+        if remote:
+            peers = [n['name'] for n in spec['nodes'] if remote in {str(ipaddress.IPv4Interface(v).ip) for v in addresses(n).values() if v}]
+            if peers != [name for name in peers if name != node['name']] or len(peers) != 1:
+                raise ValueError('Syslog collector must be one other uniquely numbered managed IPv4 node.')
+
+
+def rootfs_assets(binary):
+    from .dns_rootfs import assets
+    return assets(binary, destination=DROPBEAR, version_args=('-V',), identity='Dropbear SSH',
+                  version_check=lambda r: r.returncode == 0 and 'dropbear v' in (r.stdout + r.stderr).lower())
+
+
+def listen_address(node):
+    from .lan import addresses
+    return str(ipaddress.IPv4Interface(addresses(node)[node['management']['interface']]).ip)
+
+
+def commands(node):
+    config = node['management']; result = {}
+    if config['syslog_remote']:
+        result['syslog'] = ['/bin/busybox', 'syslogd', '-n', '-O', '/run/messages', '-s', '64', '-b', '1',
+                            '-R', config['syslog_remote'] + ':514', '-L']
+    if config['ssh_keys']:
+        result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
+                         '-p', listen_address(node) + ':22', '-P', '/run/dropbear.pid']
+    if config['telnet_password_hash']:
+        result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-S', '-K', '-b', listen_address(node),
+                            '-p', '23', '-l', '/bin/login']
+    return result
+
+
+def managed_files(node):
+    config = node['management']
+    result = {'management.json': json.dumps({'commands': commands(node)}, sort_keys=True, indent=2) + '\n'}
+    if config['ssh_keys'] or config['telnet_password_hash']:
+        # Copy the trusted offline base account file, preserving service users.
+        with (Path(node['rootfs']) / 'etc/passwd').open() as source:
+            raw = source.read(65537)
+        if len(raw) > 65536: raise ValueError('Rootfs account file exceeds 64 KiB.')
+        lines = [line for line in raw.splitlines() if not line.startswith('lab:')]
+        lines.append(USER_LINE.format(password=config['telnet_password_hash'] or 'x'))
+        result['management-passwd'] = '\n'.join(lines) + '\n'
+    if config['ssh_keys']:
+        result['authorized_keys'] = '\n'.join(config['ssh_keys']) + '\n'
+    return result
+
+
+def prepare_files(bundle, node):
+    if node['management']:
+        for name, value in managed_files(node).items():
+            path = Path(bundle) / 'files' / name; path.write_text(value); path.chmod(0o644)
+
+
+def start_service(manager, node, service):
+    argv = commands(node).get(service)
+    if argv is None: raise ValueError('Management service is not enabled.')
+    manager.crun('exec', '--detach', node['name'], *argv,
+                 log=manager.directory / node['name'] / (service + '.log'))
+
+
+def start_servers(manager):
+    from .runtime import RuntimeFailure
+    for node in manager.state['spec']['nodes']:
+        config = node['management']
+        if not config: continue
+        expected = {'syslogd', 'logger'} if config['syslog_remote'] else set()
+        if config['telnet_password_hash']: expected.update(('telnetd', 'login'))
+        installed = manager.crun('exec', node['name'], '/bin/busybox', '--list', timeout=3).stdout.splitlines()
+        if expected - set(installed):
+            raise RuntimeFailure(node['name'] + ': missing BusyBox management applets: ' + ', '.join(sorted(expected - set(installed))))
+        if config['ssh_keys'] or config['telnet_password_hash']:
+            manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/home/lab/.ssh', '/etc/dropbear')
+            manager.crun('exec', node['name'], '/bin/busybox', 'chown', '1000:1000', '/home/lab')
+        for service in commands(node): start_service(manager, node, service)
+
+
+def observe(manager, node):
+    files = managed_files(node)
+    checks = {name: observe_config(manager, node['name'], '/lab/' + name, value) for name, value in files.items()}
+    config = node['management']
+    if 'management-passwd' in files:
+        checks['active_passwd'] = observe_config(manager, node['name'], '/etc/passwd', files['management-passwd'])
+    if 'authorized_keys' in files:
+        checks['active_authorized_keys'] = observe_config(manager, node['name'], '/home/lab/.ssh/authorized_keys', files['authorized_keys'])
+    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()),
+            'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
+            'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet expose a Linux shell as uid 1000. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
+
+
+def drift(manager, node):
+    return [node['name'] + ': management configuration differs or is unavailable'] if node['management'] and not observe(manager, node)['configuration_verified'] else []

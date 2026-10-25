@@ -605,3 +605,14 @@ def dual_stack_lab(rootfs):
               routes=[{'destination': '192.0.2.0/24', 'gateway': '198.18.0.1', 'interface': 'eth0'}])
     pc2.update(interfaces={'eth0': '198.51.100.20/24'}, gateway='198.51.100.1')
     return validate(spec)
+
+
+def management_lab(rootfs, ssh_key=None, telnet_password_hash=''):
+    """Three-node internal IPv4 LAN with real management services on R1."""
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'management-lan'
+    server = spec['nodes'][2]; server.update(name='R1', role='router', forwarding=False)
+    spec['links'][1][1][0] = 'R1'
+    server['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key] if ssh_key else [],
+                            'telnet_password_hash': telnet_password_hash, 'syslog_remote': '192.0.2.10'}
+    return validate(spec)

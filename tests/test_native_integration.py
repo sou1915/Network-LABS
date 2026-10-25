@@ -63,6 +63,115 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_admin_ssh_telnet_auth_syslog_capture_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import management_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.management import start_service
+        from network_labs.appliances.firewall import fingerprint
+        self.assertIsNotNone(shutil.which('dropbear'), 'Install dropbear-bin for native SSH tests')
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder); key = folder / 'identity'; wrong = folder / 'wrong'
+            for path in (key, wrong): run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', path])
+            password = 'native-lab-test-password'
+            password_hash = run(['openssl', 'passwd', '-6', '-salt', 'NetworkLABS', password]).stdout.strip()
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', dropbear=shutil.which('dropbear'))
+            spec = management_lab(rootfs, key.with_suffix('.pub').read_text().strip(), password_hash)
+            spec['name'] = 'management-' + str(os.getpid()); manager = Manager(spec['name'])
+            known = folder / 'known_hosts'; client = Path(__file__).with_name('management_client_worker.py')
+            def trust_host():
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    result = manager.ns(0, 'ssh-keyscan', '-T', '2', '-t', 'ed25519', '192.0.2.20', check=False, timeout=4)
+                    if result.returncode == 0 and 'ssh-ed25519' in result.stdout:
+                        known.write_text(result.stdout); return
+                    time.sleep(.2)
+                log = manager.directory / 'R1/ssh.log'
+                self.fail('SSH not ready: ' + (log.read_text(errors='replace') if log.exists() else 'missing log'))
+            def ssh(command, identity=key, tty=False, check=True):
+                return manager.ns(0, 'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
+                                  '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(known),
+                                  '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=3', '-o', 'LogLevel=ERROR',
+                                  '-i', str(identity), *(['-tt'] if tty else ['-T']), 'lab@192.0.2.20', command,
+                                  timeout=8, check=check)
+            def client_request(mode, request):
+                return manager.ns(0, sys.executable, '-I', str(client), mode, json.dumps(request), timeout=16)
+            def sessions():
+                result = ssh('/bin/busybox id -u; /bin/hostname; /bin/echo SSH-COMMAND-OK')
+                self.assertIn('1000', result.stdout.splitlines()); self.assertIn('R1', result.stdout.splitlines())
+                self.assertIn('SSH-COMMAND-OK', result.stdout)
+                self.assertIn('SSH-PTY-OK', ssh('/bin/busybox test -t 0 && /bin/echo SSH-PTY-OK', tty=True).stdout)
+                text = json.loads(client_request('telnet', {'address': '192.0.2.20', 'password': password}).stdout)['output']
+                self.assertIn('TELNET-SESSION-OK', text); self.assertIn('\n1000', text); self.assertIn('\nR1', text)
+            def receive_log(token):
+                ready = folder / ('ready-' + token)
+                future = pool.submit(client_request, 'syslog', {'address': '192.0.2.10', 'ready': str(ready), 'token': token})
+                deadline = time.monotonic() + 4
+                while not ready.exists() and time.monotonic() < deadline: time.sleep(.05)
+                self.assertTrue(ready.exists(), 'Syslog UDP test receiver not ready')
+                manager.crun('exec', 'R1', '/bin/busybox', 'logger', '-p', 'local0.notice', '-t', 'network-labs', token)
+                rows = json.loads(future.result(timeout=10).stdout)
+                found = [r for r in rows if token in r['text']]
+                self.assertTrue(found, rows); self.assertEqual(found[0]['source'], '192.0.2.20')
+                self.assertTrue(found[0]['text'].startswith('<133>'), found)
+                self.assertIn(token, manager.crun('exec', 'R1', '/bin/busybox', 'tail', '-n', '20', '/run/messages').stdout)
+            try:
+                with manager.locked(): manager.start(spec); trust_host(); sessions()
+                event = threading.Event(); pcap = folder / 'management.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'R1', 'eth0', pcap,
+                                     seconds=10, packets=1000, expression='tcp port 22 or tcp port 23 or udp port 514', ready=event.set)
+                self.assertTrue(event.wait(5), 'Management capture not ready')
+                with manager.locked(): sessions(); receive_log('SYSLOG-WIRE-OK')
+                self.assertGreater(future.result(timeout=13)['captured_packets'], 0)
+                raw = pcap.read_bytes()
+                self.assertIn(b'SSH-2.0-dropbear', raw); self.assertNotIn(b'SSH-COMMAND-OK', raw)
+                self.assertIn(b'TELNET-SESSION-OK', raw); self.assertIn(b'SYSLOG-WIRE-OK', raw); self.assertIn(b'<133>', raw)
+                with manager.locked():
+                    before = json.loads(json.dumps(manager.read()))
+                    rejected = ssh('/bin/echo SHOULD-NOT-RUN', identity=wrong, check=False)
+                    self.assertNotEqual(rejected.returncode, 0); self.assertIn('Permission denied', rejected.stderr)
+                    self.assertNotIn('SHOULD-NOT-RUN', rejected.stdout)
+                    self.assertTrue(json.loads(client_request('telnet', {'address': '192.0.2.20', 'password': 'wrong-password', 'reject': True}).stdout)['rejected'])
+                    keyfile = manager.directory / 'R1/files/authorized_keys'; contents = keyfile.read_text()
+                    keyfile.write_text('')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    self.assertNotEqual(ssh('/bin/echo SHOULD-NOT-RUN', check=False).returncode, 0)
+                    keyfile.write_text(contents); sessions()
+                    self.assertTrue(manager.inspect('R1')['management']['configuration_verified'])
+                    manager.crun('exec', 'R1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/dropbear.pid)"')
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if ssh('/bin/echo STOPPED', check=False).returncode != 0: break
+                        time.sleep(.1)
+                    else: self.fail('SSH still accepts sessions after daemon stop')
+                    self.assertTrue(manager.inspect('R1')['management']['configuration_verified'], 'File conformity is not liveness')
+                    start_service(manager, manager.read()['spec']['nodes'][2], 'ssh'); trust_host(); sessions()
+                    self.assertEqual(manager.read(), before)
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(saved['nodes'][2]['management']['telnet_password_hash'], password_hash)
+                    self.assertNotIn(password, json.dumps(saved))
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); trust_host(); sessions(); receive_log('SYSLOG-RESTORE-OK'); manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_dual_stack_independent_forwarding_routes_capture_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

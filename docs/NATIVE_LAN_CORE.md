@@ -3735,3 +3735,106 @@ that family's delivery while the other remains successful. Each managed drift
 blocks save. Explicit restoration recovers both families, then declarative
 save/stop/restore must pass both again. Host links, both families' routes/rules,
 IPv4/IPv6 global forwarding and nft state are compared before and after cleanup.
+
+## SSH, Telnet and remote UDP Syslog
+
+`example --management` creates PC1—SW1—R1 on an internal IPv4 LAN. R1 is
+192.0.2.20/24, PC1 is 192.0.2.10/24. R1 can run real Dropbear SSH, BusyBox
+Telnet with BusyBox login, and a BusyBox syslogd UDP sender. SSH/Telnet expose
+the node's **Linux shell as user lab, uid/gid 1000**. They do not provide Cisco
+IOS or another vendor firmware shell. IPv6 coexistence is not added here.
+
+```bash
+sudo apt-get install busybox-static dropbear-bin openssh-client openssl
+cd ~/Network-LABS
+git pull --ff-only
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --dropbear /usr/sbin/dropbear --output "$HOME/network-labs-management-rootfs"
+
+# Use a dedicated key; only the public file enters the manifest.
+ssh-keygen -t ed25519 -f "$HOME/.ssh/network-labs-ed25519"
+# OpenSSL prompts on the terminal; the redirected file contains only a hash.
+openssl passwd -6 > telnet-password.hash
+chmod 600 telnet-password.hash
+python3 -m network_labs.appliances example --management \
+  --rootfs "$HOME/network-labs-management-rootfs" \
+  --ssh-authorized-key "$HOME/.ssh/network-labs-ed25519.pub" \
+  --telnet-password-hash-file telnet-password.hash > management-lan.json
+sudo python3 -m network_labs.appliances start management-lan.json
+```
+
+The rootfs destination must be new. The offline builder copies the trusted
+Dropbear ELF and resolved libraries; it does not install/start an SSH daemon on
+the host. Telnet/syslog use compiled BusyBox applets; missing applets fail lab
+startup without a simulated fallback. Omit either credentials option to disable
+that access service. The example still enables the syslog sender.
+
+Connect using the existing isolated PC1 namespace and the host OpenSSH client:
+
+```bash
+LAB_PC1_NS=$(python3 -m network_labs.appliances plan management-lan.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "PC1"))')
+sudo ip netns exec "$LAB_PC1_NS" ssh \
+  -o UserKnownHostsFile="$PWD/management-known_hosts" \
+  -i "$HOME/.ssh/network-labs-ed25519" lab@192.0.2.20
+
+# Native in-node Telnet client; --tty precedes positional arguments.
+sudo python3 -m network_labs.appliances exec --tty management-lan PC1 -- \
+  /bin/busybox telnet 192.0.2.20
+# Login: lab, then the password whose hash was generated above.
+```
+
+SSH binds the selected node IPv4 address on TCP/22. Password/root logins and
+local/remote TCP forwarding are disabled. This first profile accepts up to 16
+OpenSSH ed25519 public keys, without authorized_keys options. Host keys are
+created inside the writable node overlay. They are not part of declarative
+save/restore; recreated nodes have fresh host keys. Verify a recreated node's
+new key before updating the dedicated known-hosts file; host checking is not
+silently disabled by the application.
+
+Telnet binds the same node address on TCP/23 and invokes real `/bin/login`.
+The manifest contains a SHA-512 crypt hash, never a plaintext password. Login
+uses a non-root account; SSH remains key-only even when Telnet is enabled.
+**Telnet sends credentials and terminal traffic in plaintext**, as the real
+protocol does. This is an internal lab service, with no host port publishing.
+
+Syslog sends UDP/514 to the declared uniquely numbered *other managed node*.
+It also keeps a local log in `/run/messages`, with 64 KiB rotation and one
+backup. Generate and inspect actual messages:
+
+```bash
+sudo python3 -m network_labs.appliances exec management-lan R1 -- \
+  /bin/busybox logger -p local0.notice -t network-labs 'LAN management test'
+sudo python3 -m network_labs.appliances exec management-lan R1 -- \
+  /bin/busybox tail -n 20 /run/messages
+sudo python3 -m network_labs.appliances capture management-lan R1 eth0 \
+  --seconds 5 --output management-syslog.pcap --filter 'udp port 514'
+```
+
+This adds a legacy UDP sender, not a persistent collector. Configure a real
+collector in the destination node/rootfs to retain incoming messages. Native
+tests use a bounded independent UDP socket receiver in PC1's namespace and
+check the real packet, priority `<133>`, source and message; they do not invent
+successful delivery. UDP has no acknowledgement. Syslog TCP/TLS, RFC5424
+structured data, central retention/search and automatic vendor-event mapping
+remain future work. SSH daemon diagnostics are recorded separately in ssh.log;
+this profile does not claim every daemon event is forwarded to Syslog.
+
+Node policy is `management: {"interface":"eth0", "ssh_keys":["ssh-ed25519 ..."],
+"telnet_password_hash":"$6$...", "syslog_remote":"192.0.2.10"}`. Omit/empty a
+service field to disable it. The selected physical/SVI address must be static
+and UP. Startup commands are refused on that node, and live changes require
+recreation. Account/key files are mounted read-only; existing base accounts are
+preserved. Inspect/save audit the managed policy and active account/key file
+contents, **not daemon liveness, loaded argv or successful authentication**.
+Save preserves declarations, public keys and the password hash, not private
+keys, logs, sessions, generated host keys or writable filesystem state.
+
+The native case authenticates SSH with a real OpenSSH client (command and PTY),
+rejects a wrong key, authenticates real Telnet and rejects a wrong password,
+receives forwarded Syslog UDP and checks local retention. PCAP contains SSH
+identification, plaintext Telnet output and Syslog, while the SSH command marker
+is absent from the raw traffic. Removing the active authorized key rejects SSH
+and blocks save; restoring it recovers access. Stopping SSH leaves file conformity
+true but rejects connections, then restart and declarative restore recover both
+access protocols and Syslog. Host network cleanup is checked separately.
