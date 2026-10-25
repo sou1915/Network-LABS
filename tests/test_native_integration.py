@@ -75,7 +75,16 @@ class RealContainerTests(unittest.TestCase):
                     # Deliberately put a same-prefix address in the other VLAN.
                     # A failed off-subnet ping alone would not prove VLAN isolation.
                     manager.ns(2, 'ip', '-6', 'addr', 'add', '2001:db8:10::30/64', 'dev', 'eth0')
-                    time.sleep(1.5)
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        addresses = [a for row in json.loads(manager.ns(2, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0').stdout)
+                                     for a in row.get('addr_info', []) if a.get('local') == '2001:db8:10::30']
+                        if len(addresses) == 1 and not (addresses[0].get('tentative') or addresses[0].get('dadfailed') or
+                                any(f in addresses[0].get('flags', []) for f in ('tentative', 'dadfailed'))):
+                            break
+                        time.sleep(.2)
+                    else:
+                        self.fail('Cross-VLAN test address did not finish DAD')
                     self.assertNotEqual(ping('PC1', '2001:db8:10::30', check=False).returncode, 0)
                     manager.ns(2, 'ip', '-6', 'addr', 'del', '2001:db8:10::30/64', 'dev', 'eth0')
                     manager.ns(0, 'ip', '-6', 'neigh', 'flush', 'dev', 'eth0')
