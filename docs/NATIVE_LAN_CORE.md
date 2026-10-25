@@ -3470,7 +3470,7 @@ numbered OCI router. `ipv6_routes` is a list of up to 32 objects with exactly
 or ULA on-link address) and `interface` (numbered physical Linux interface).
 Duplicate prefixes, connected-network replacement, off-link/self/link-local
 next hops, unsupported destinations and overlapping local /64 interfaces are
-rejected. IPv4 forwarding remains separate; this profile requires it disabled.
+rejected. IPv4 forwarding remains separate; the IPv6-only reference keeps it disabled. The static `--dual-stack` reference enables both families explicitly.
 SVIs, router subinterfaces, dynamic routing, ECMP, route metrics and live edits
 are not added. Use the manifest and recreate the lab for policy changes.
 
@@ -3674,3 +3674,64 @@ forward and return routes produce failed delivery. Real link-down, lost learned
 addresses and multiple global addresses produce blocked/unknown reports without
 launching ping; restored policy reacquires connectivity. Existing host cleanup
 and declaration/revision assertions remain in force.
+
+
+## Static dual-stack routing on internal LANs
+
+`example --dual-stack` places static IPv4 and IPv6 on the same four OCI nodes
+and three veth links. PC1 reaches PC2 across R1 and R2 using independent
+IPv4/IPv6 forwarding policies, routes and default gateways. No external network,
+NAT, translation or encapsulation is attached.
+
+| Node/port | IPv4 | IPv6 |
+|---|---|---|
+| PC1 eth0 | 192.0.2.10/24 | 2001:db8:10::10/64 |
+| R1 eth0 | 192.0.2.1/24 | 2001:db8:10::1/64 |
+| R1 eth1 | 198.18.0.1/30 | 2001:db8:100::1/64 |
+| R2 eth0 | 198.18.0.2/30 | 2001:db8:100::2/64 |
+| R2 eth1 | 198.51.100.1/24 | 2001:db8:20::1/64 |
+| PC2 eth0 | 198.51.100.20/24 | 2001:db8:20::20/64 |
+
+```bash
+cd ~/Network-LABS
+git pull --ff-only
+# A trusted BusyBox-only rootfs is sufficient; no service binaries are required.
+python3 -m network_labs.appliances example --dual-stack \
+  --rootfs "$HOME/network-labs-rootfs" > dual-stack-lan.json
+sudo python3 -m network_labs.appliances start dual-stack-lan.json
+sudo python3 -m network_labs.appliances verify dual-stack-lan PC1 PC2 \
+  --family ipv4 --bidirectional --count 2
+sudo python3 -m network_labs.appliances verify dual-stack-lan PC1 PC2 \
+  --family ipv6 --bidirectional --count 2
+sudo python3 -m network_labs.appliances show dual-stack-lan R1 --text 'show ip route'
+sudo python3 -m network_labs.appliances show dual-stack-lan R1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances save dual-stack-lan
+sudo python3 -m network_labs.appliances stop dual-stack-lan
+sudo python3 -m network_labs.appliances restore dual-stack-lan
+```
+
+Existing fields retain their meaning: `interfaces`, `gateway`, `routes` and
+`forwarding` configure IPv4; `ipv6`, `ipv6_routes` and `ipv6_forwarding` configure
+IPv6. Both router families are enabled explicitly in this example. IPv4
+forwarding on an IPv6 lab requires a numbered physical OCI router. Neither flag
+implicitly enables the other. IPv6 routes still wait for observed DAD after all
+links are configured; IPv4 gateways/routes are installed through the existing
+native adapter. Inspect/show/verify expose each family's actual kernel state.
+Save audits both families; restore replays the declarations. Run both verification
+commands again after restore to recheck traffic.
+
+This first routed dual-stack profile uses static IPv6. Mixing IPv4 routing with
+RA/SLAAC/DHCPv6 is refused pending its own coexistence validation. Existing
+IPv6-only RA/SLAAC/DHCPv6 examples retain their behavior. IPv4 DHCP/DNS/OSPF,
+firewall/security, SVIs/subinterfaces, STP, bundles, OVS and VM guests remain
+outside the IPv6/dual-stack profile. Live changes on numbered IPv6 nodes still
+require recreation, including IPv4-only changes on a dual-stack node. This does
+not add complete vendor CLI support or a whole-application resource guarantee.
+
+The dedicated native case verifies bidirectional IPv4 and IPv6 on the same
+links and captures ICMP/ICMPv6 at PC2 (observed TTL/hop limit 62). Disabling only
+one forwarding family or removing only that family's forward route must fail
+that family's delivery while the other remains successful. Each managed drift
+blocks save. Explicit restoration recovers both families, then declarative
+save/stop/restore must pass both again. Host links, both families' routes/rules,
+IPv4/IPv6 global forwarding and nft state are compared before and after cleanup.

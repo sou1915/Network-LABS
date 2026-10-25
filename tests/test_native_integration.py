@@ -63,6 +63,87 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(unexpected_host_link_changes(before, after, hardware),
                          {'removed_or_replaced': set(), 'added_virtual': set()})
 
+    def test_appliance_aa_dual_stack_independent_forwarding_routes_capture_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.examples import dual_stack_lab
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        sysctls = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = dual_stack_lab(rootfs); spec['name'] = 'dual-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def check(family, expected='passed'):
+                report = verify(manager, 'PC1', 'PC2', family=family, count=2, bidirectional=True)
+                self.assertEqual(report['status'], expected, report)
+                if expected == 'passed':
+                    key = 'reply_ttls' if family == 'ipv4' else 'reply_hop_limits'
+                    self.assertTrue(all(d[key] == [62, 62] and d['received'] == d['transmitted'] == 2 for d in report['directions']), report)
+                self.assertFalse(report['configuration_changed'])
+                return report
+            def healthy():
+                check('ipv4'); check('ipv6')
+            try:
+                with manager.locked():
+                    manager.start(spec); healthy()
+                    before = json.loads(json.dumps(manager.read()))
+                    for name in ('R1', 'R2'):
+                        observed = manager.inspect(name)
+                        self.assertTrue(observed['forwarding']); self.assertEqual(observed['forwarding_ipv6'], '1')
+                event = threading.Event(); pcap = Path(folder) / 'dual-stack.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC2', 'eth0', pcap,
+                                     seconds=7, packets=200, expression='icmp or icmp6', ready=event.set)
+                self.assertTrue(event.wait(5), 'Dual-stack capture did not become ready')
+                with manager.locked(): healthy()
+                self.assertGreater(future.result(timeout=10)['captured_packets'], 0)
+                decoded = run(['tcpdump', '-nn', '-vv', '-r', str(pcap)]).stdout
+                for evidence in ('192.0.2.10', '198.51.100.20', '2001:db8:10::10', '2001:db8:20::20',
+                                 'ttl 62', 'hlim 62', 'echo request', 'echo reply'):
+                    self.assertIn(evidence, decoded)
+                with manager.locked():
+                    manager.ns(1, 'sysctl', '-w', 'net.ipv4.ip_forward=0')
+                    check('ipv4', 'failed'); check('ipv6')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'sysctl', '-w', 'net.ipv4.ip_forward=1'); healthy()
+                    manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=0')
+                    check('ipv6', 'failed'); check('ipv4')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'sysctl', '-w', 'net/ipv6/conf/all/forwarding=1'); healthy()
+                    manager.ns(1, 'ip', '-4', 'route', 'del', '198.51.100.0/24')
+                    check('ipv4', 'failed'); check('ipv6')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'ip', '-4', 'route', 'add', '198.51.100.0/24', 'via', '198.18.0.2', 'dev', 'eth1', 'proto', 'static')
+                    healthy()
+                    manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:20::/64')
+                    check('ipv6', 'failed'); check('ipv4')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:20::/64', 'via', '2001:db8:100::2', 'dev', 'eth1', 'proto', 'static')
+                    healthy()
+                    self.assertEqual(manager.read(), before)
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertTrue(saved['nodes'][1]['forwarding']); self.assertTrue(saved['nodes'][1]['ipv6_forwarding'])
+                    self.assertEqual(saved['nodes'][0]['gateway'], '192.0.2.1')
+                    self.assertEqual(saved['nodes'][0]['ipv6_routes'][0]['gateway'], '2001:db8:10::1')
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked(): manager.start(saved); healthy(); manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in sysctls.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_ipv6_dhcpv6_ia_na_ra_renew_expiry_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

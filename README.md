@@ -330,3 +330,7 @@ managed dnsmasq pool, with RA gateway discovery and finite lease expiry. See
 `verify LAB PC1 PC2 --family ipv6 --bidirectional` now checks actual static,
 SLAAC or DHCPv6 endpoint addresses, DAD readiness and real ICMPv6 delivery with
 source-aware kernel route evidence. See [IPv6 verification](docs/NATIVE_LAN_CORE.md#explicit-ipv6-connectivity-verification).
+
+`example --dual-stack --rootfs PATH` runs static IPv4 and IPv6 on the same
+four-node routed LAN, with independent forwarding/routes and per-family real
+verification. See [dual-stack scope and commands](docs/NATIVE_LAN_CORE.md#static-dual-stack-routing-on-internal-lans).

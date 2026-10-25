@@ -591,3 +591,17 @@ def dhcpv6_lab(rootfs):
     spec['nodes'][1]['dhcpv6_server'] = {'interface': 'eth0', 'start': '2001:db8:10::100',
                                        'end': '2001:db8:10::10f', 'lease_seconds': 120}
     return validate(spec)
+
+
+def dual_stack_lab(rootfs):
+    """Independent static IPv4/IPv6 routing across the same two internal routers."""
+    spec = ipv6_routed_lab(rootfs)
+    spec['name'] = 'dual-stack-lan'
+    pc1, r1, r2, pc2 = spec['nodes']
+    pc1.update(interfaces={'eth0': '192.0.2.10/24'}, gateway='192.0.2.1')
+    r1.update(interfaces={'eth0': '192.0.2.1/24', 'eth1': '198.18.0.1/30'}, forwarding=True,
+              routes=[{'destination': '198.51.100.0/24', 'gateway': '198.18.0.2', 'interface': 'eth1'}])
+    r2.update(interfaces={'eth0': '198.18.0.2/30', 'eth1': '198.51.100.1/24'}, forwarding=True,
+              routes=[{'destination': '192.0.2.0/24', 'gateway': '198.18.0.1', 'interface': 'eth0'}])
+    pc2.update(interfaces={'eth0': '198.51.100.20/24'}, gateway='198.51.100.1')
+    return validate(spec)

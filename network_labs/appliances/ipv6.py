@@ -62,16 +62,21 @@ def validate_lab(spec):
     validate_dhcpv6_lab(spec)
     if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes']):
         return
+    if (any(n['forwarding'] or n.get('gateway') or n['routes'] for n in spec['nodes']) and
+            any(n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes'])):
+        raise ValueError('Initial dual-stack routing requires static IPv6; RA/SLAAC/DHCPv6 coexistence is not in this profile.')
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('startup', 'gateway', 'routes', 'subinterfaces', 'svis', 'port_channels', 'firewall',
+        forbidden = ('startup', 'subinterfaces', 'svis', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
-        if (node['runtime'] != 'oci' or node['role'] not in ('host', 'switch', 'router') or node['forwarding'] or
+        if (node['runtime'] != 'oci' or node['role'] not in ('host', 'switch', 'router') or
                 node.get('switch_backend') == 'ovs' or any(node.get(key) for key in forbidden) or
                 node.get('spanning_tree', {}).get('mode', 'off') != 'off'):
-            raise ValueError('Initial IPv6 lab supports plain OCI hosts/physical routers and Linux L2 VLAN switches only; no IPv4 routing, services, security, STP or bundles.')
+            raise ValueError('Initial IPv6 lab supports plain OCI hosts/physical routers and Linux L2 VLAN switches only; no IPv4 services, security, STP or bundles.')
+        if node['forwarding'] and (node['role'] != 'router' or not any(node['interfaces'].values())):
+            raise ValueError('Dual-stack IPv4 forwarding requires a numbered physical OCI router.')
         for value in node['ipv6'].values():
             address = str(ipaddress.IPv6Interface(value).ip)
             if address in seen:
