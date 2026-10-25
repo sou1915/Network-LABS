@@ -24,6 +24,19 @@ def unexpected_host_link_changes(before, after, hardware_names=()):
             'added_virtual': {entry for entry in after - before if entry[0] not in hardware_names}}
 
 
+def ipv6_default_expired(manager, index, destination):
+    """Expired fib6 entries may remain observable until GC releases them.
+
+    Require actual elapsed lifetime (or absence) AND failed kernel selection;
+    never flush the route or confuse an absent source address with this check.
+    """
+    routes = json.loads(manager.ns(index, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout)
+    defaults = [r for r in routes if r.get('dst') == 'default']
+    if any(type(r.get('expires')) is not int or r['expires'] > 0 for r in defaults):
+        return False
+    return manager.ns(index, 'ip', '-6', 'route', 'get', destination, check=False, timeout=3).returncode != 0
+
+
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
     def assertHostLinksUnchanged(self, before, after):
@@ -60,7 +73,7 @@ class RealContainerTests(unittest.TestCase):
                 return [a for row in json.loads(manager.ns(0, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0').stdout)
                         for a in row.get('addr_info', []) if a.get('scope') == 'global']
             def defaults():
-                return [r for r in json.loads(manager.ns(0, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout) if r.get('dst') == 'default']
+                return [r for r in json.loads(manager.ns(0, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout) if r.get('dst') == 'default' and (type(r.get('expires')) is not int or r['expires'] > 0)]
             def wait(predicate, label, seconds=30):
                 deadline = time.monotonic() + seconds
                 while time.monotonic() < deadline:
@@ -132,7 +145,7 @@ class RealContainerTests(unittest.TestCase):
                     signal('USR2'); wait(lambda: not addresses(), 'released while server absent')
                     signal('USR1'); time.sleep(4); self.assertFalse(addresses())
                     self.assertTrue(manager.inspect('R1')['router_advertisements']['configuration_verified'])
-                    wait(lambda: not defaults(), 'RA expiry while server stopped', seconds=25)
+                    wait(lambda: ipv6_default_expired(manager, 0, '2001:db8:20::20'), 'RA expiry and failed kernel route selection while server stopped', seconds=25)
                     start_ra(manager); ready()
                     # Without either daemon the kernel must expire the leased address.
                     signal('TERM')
@@ -282,7 +295,7 @@ class RealContainerTests(unittest.TestCase):
                 return [a for row in json.loads(manager.ns(0, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0').stdout)
                         for a in row.get('addr_info', []) if a.get('scope') == 'global']
             def defaults():
-                return [r for r in json.loads(manager.ns(0, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout) if r.get('dst') == 'default']
+                return [r for r in json.loads(manager.ns(0, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout) if r.get('dst') == 'default' and (type(r.get('expires')) is not int or r['expires'] > 0)]
             def wait(predicate, label, seconds=30):
                 deadline = time.monotonic() + seconds
                 while time.monotonic() < deadline:
@@ -336,14 +349,14 @@ class RealContainerTests(unittest.TestCase):
                     manager.ns(0, 'sysctl', '-w', 'net/ipv6/conf/eth0/accept_ra=1'); ready()
                     # Stopped service has intact declarations but no renewed defaults.
                     manager.crun('exec', 'R1', '/bin/busybox', 'killall', '-TERM', 'dnsmasq')
-                    wait(lambda: not defaults(), 'RA default withdrawal or expiry', seconds=25)
+                    wait(lambda: ipv6_default_expired(manager, 0, '2001:db8:20::20'), 'RA default withdrawal/expiry and failed kernel route selection', seconds=25)
                     result = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
                                           '2001:db8:20::20', check=False, timeout=4)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertTrue(manager.inspect('R1')['router_advertisements']['configuration_verified'])
                     manager.ns(0, 'ip', '-6', 'addr', 'flush', 'dev', 'eth0', 'scope', 'global')
                     time.sleep(3)
-                    self.assertFalse(addresses()); self.assertFalse(defaults())
+                    self.assertFalse(addresses()); self.assertTrue(ipv6_default_expired(manager, 0, '2001:db8:20::20'))
                     report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2)
                     self.assertEqual(report['status'], 'blocked', report)
                     self.assertEqual(report['probe_commands_attempted'], 0)
