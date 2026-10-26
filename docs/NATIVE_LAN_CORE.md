@@ -4165,8 +4165,9 @@ configuration, not daemon liveness, loaded argv or the runtime engine state.
 Save/restore persists the user/master-key policy, not sessions, engine
 identity, boots/time state or interface counter history. Live edits still
 require recreation. IPv6/coexistence profiles, multiple users/roles, algorithm
-selection, writable management, vendor MIBs and v3 notifications remain separate
-work. A separate v2c notification profile is documented below.
+selection, writable management, vendor MIBs and sender-engine v3 traps remain
+separate work. Separate v2c notifications and
+[USM informs](#snmpv3-authpriv-informs) are documented below.
 
 The native v3 case uses the official Net-SNMP client with independently derived
 passphrase credentials as well as the exported master-key config. It verifies
