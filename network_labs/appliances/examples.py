@@ -616,3 +616,10 @@ def management_lab(rootfs, ssh_key=None, telnet_password_hash=''):
     server['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key] if ssh_key else [],
                             'telnet_password_hash': telnet_password_hash, 'syslog_remote': '192.0.2.10'}
     return validate(spec)
+
+
+def syslog_lab(rootfs):
+    """Real UDP sender through a switch to a node-local rsyslog collector."""
+    spec = management_lab(rootfs); spec['name'] = 'syslog-lan'
+    spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.20']}
+    return validate(spec)

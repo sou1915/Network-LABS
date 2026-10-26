@@ -43,3 +43,24 @@ def assets(binary, *, destination='/usr/sbin/dnsmasq', identity='dnsmasq version
         if not libraries:
             raise ValueError('No dynamic service libraries were resolved.')
     return sorted(((source, target) for target, source in planned.items()), key=lambda pair: str(pair[1]))
+
+
+def shared_library_assets(binary, destination):
+    """Offline plan for a trusted dlopen module and its transitive ELF dependencies."""
+    binary = Path(binary).resolve(); raw = binary.read_bytes()
+    if len(raw) < 64 or raw[:4] != b'\x7fELF' or raw[4] not in (1, 2) or raw[5] not in (1, 2):
+        raise ValueError('Trusted service module must be an ELF shared library.')
+    endian = '<' if raw[5] == 1 else '>'
+    if struct.unpack_from(endian + 'H', raw, 16)[0] != 3:
+        raise ValueError('Trusted service module must have ELF ET_DYN type.')
+    environment = {k: v for k, v in os.environ.items() if k not in ('LD_LIBRARY_PATH', 'LD_PRELOAD', 'LD_AUDIT')}
+    result = subprocess.run(['ldd', str(binary)], capture_output=True, text=True, timeout=10, env={**environment, 'LC_ALL': 'C'})
+    if result.returncode or 'not found' in result.stdout:
+        raise ValueError('Cannot resolve all trusted module shared libraries with host ldd.')
+    libraries = [Path(match) for match in re.findall(r'(?:=>\s+|^\s*)(/[^\s()]+)', result.stdout, re.MULTILINE)]
+    planned = {Path(destination): binary}
+    for path in libraries:
+        if not path.is_absolute() or '..' in path.parts or not path.is_file():
+            raise ValueError('Module ELF dependency must be an existing absolute file.')
+        planned[path] = path.resolve()
+    return sorted(((source, target) for target, source in planned.items()), key=lambda pair: str(pair[1]))

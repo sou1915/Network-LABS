@@ -110,6 +110,8 @@ def validate(data):
     validate_ipv6_lab(data)
     from .management import validate_lab as validate_management_lab
     validate_management_lab(data)
+    from .syslog_server import validate_lab as validate_collector_lab
+    validate_collector_lab(data)
     ospf_ids = [n['ospf']['router_id'] for n in data['nodes'] if n.get('ospf')]
     if len(set(ospf_ids)) != len(ospf_ids):
         raise ValueError('OSPF router IDs must be unique within the lab.')

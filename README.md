@@ -340,3 +340,5 @@ authenticated BusyBox Telnet and remote UDP Syslog sending on an internal LAN.
 Build an optional `--dropbear` rootfs and provide public keys/password hashes;
 see [management commands and limits](docs/NATIVE_LAN_CORE.md#ssh-telnet-and-remote-udp-syslog)
 and [LAN protocol coverage](docs/LAN_PROTOCOL_COVERAGE.md) for remaining protocols.
+
+`example --syslog` adds a real node-local rsyslog UDP collector with an explicit sender allowlist and rotating volatile logs. See [collector setup and tests](docs/NATIVE_LAN_CORE.md#node-local-udp-syslog-collector).

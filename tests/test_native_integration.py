@@ -172,6 +172,108 @@ class RealContainerTests(unittest.TestCase):
         for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
 
+    def test_appliance_aa_collector_udp_allowlist_rotation_fault_capture_and_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import copy
+        import threading
+        from network_labs.appliances.examples import syslog_lab
+        from network_labs.appliances.syslog_server import start_server
+        from network_labs.appliances.spec import validate
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        self.assertIsNotNone(shutil.which('rsyslogd'), 'Install rsyslog for native collector tests')
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder)
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', rsyslog=shutil.which('rsyslogd'))
+            spec = syslog_lab(rootfs); spec['name'] = 'syslog-' + str(os.getpid())
+            rogue = copy.deepcopy(spec['nodes'][0]); rogue.update(name='PC2', syslog_server=None, interfaces={'eth0': '192.0.2.30/24'})
+            spec['nodes'].append(rogue); spec['nodes'][1]['interfaces']['eth2'] = ''
+            spec['links'].append([['SW1', 'eth2'], ['PC2', 'eth0']]); spec = validate(spec)
+            manager = Manager(spec['name'])
+            def logs():
+                return manager.crun('exec', 'PC1', '/bin/busybox', 'cat', '/run/remote-syslog.log', check=False).stdout
+            def ready():
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    if '192.0.2.10:514' in manager.ns(0, 'ss', '-H', '-lun', 'sport = :514').stdout: return
+                    time.sleep(.1)
+                log = manager.directory / 'PC1/syslog-server.log'
+                self.fail('Collector not listening: ' + (log.read_text(errors='replace') if log.exists() else 'no log'))
+            def emit(token):
+                manager.crun('exec', 'R1', '/bin/busybox', 'logger', '-p', 'local0.notice', '-t', 'network-labs', token)
+            def received(token):
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    text = logs()
+                    if token in text:
+                        self.assertIn('192.0.2.20 <133>', text); return
+                    time.sleep(.1)
+                self.fail('Collector did not store ' + token + ': ' + logs())
+            try:
+                with manager.locked(): manager.start(spec); ready()
+                event = threading.Event(); pcap = folder / 'syslog.pcap'
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', pcap,
+                                     seconds=5, packets=1000, expression='udp port 514', ready=event.set)
+                self.assertTrue(event.wait(5), 'Syslog capture not ready')
+                with manager.locked():
+                    before = copy.deepcopy(manager.read())
+                    manager.ns(3, sys.executable, '-I', '-c',
+                               "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.sendto(b'<133>ROGUE-SYSLOG-MUST-DROP',('192.0.2.10',514)); s.close()")
+                    emit('SYSLOG-COLLECTOR-WIRE-OK'); received('SYSLOG-COLLECTOR-WIRE-OK')
+                self.assertGreater(future.result(timeout=8)['captured_packets'], 0)
+                self.assertIn(b'ROGUE-SYSLOG-MUST-DROP', pcap.read_bytes())
+                self.assertIn(b'SYSLOG-COLLECTOR-WIRE-OK', pcap.read_bytes())
+                with manager.locked():
+                    self.assertNotIn('ROGUE-SYSLOG-MUST-DROP', logs())
+                    self.assertEqual(manager.read(), before)
+                    manager.crun('exec', 'R1', '/bin/sh', '-c',
+                                 'i=0; while [ "$i" -lt 180 ]; do /bin/busybox logger -p local0.notice -t rotate "ROTATION-$i-' + 'x' * 800 + '"; i=$((i+1)); done', timeout=20)
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        backup = manager.crun('exec', 'PC1', '/bin/busybox', 'wc', '-c', '/run/remote-syslog.log.1', check=False)
+                        if backup.returncode == 0: break
+                        time.sleep(.1)
+                    else: self.fail('Collector did not rotate logs')
+                    self.assertGreater(int(backup.stdout.split()[0]), 60000)
+                    self.assertLess(int(backup.stdout.split()[0]), 80000)
+                    emit('AFTER-ROTATION-OK'); received('AFTER-ROTATION-OK')
+                    config = manager.directory / 'PC1/files/syslog-server.conf'; original = config.read_text()
+                    config.write_text(original + '# drift\n')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    config.write_text(original)
+                    manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/rsyslogd.pid)"')
+                    deadline = time.monotonic() + 5
+                    while '192.0.2.10:514' in manager.ns(0, 'ss', '-H', '-lun', 'sport = :514').stdout:
+                        if time.monotonic() >= deadline: self.fail('Stopped collector still listens')
+                        time.sleep(.1)
+                    emit('COLLECTOR-DOWN-MESSAGE'); time.sleep(.3)
+                    self.assertNotIn('COLLECTOR-DOWN-MESSAGE', logs())
+                    self.assertIn('COLLECTOR-DOWN-MESSAGE', manager.crun('exec', 'R1', '/bin/busybox', 'tail', '-n', '5', '/run/messages').stdout)
+                    self.assertTrue(manager.inspect('PC1')['syslog_server']['configuration_verified'], 'Config conformity is not liveness')
+                    start_server(manager, spec['nodes'][0]); ready(); emit('COLLECTOR-RESTART-OK'); received('COLLECTOR-RESTART-OK')
+                    manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); ready()
+                    self.assertNotIn('COLLECTOR-RESTART-OK', logs(), 'Runtime logs are not restored')
+                    emit('COLLECTOR-RESTORE-OK'); received('COLLECTOR-RESTORE-OK'); manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_dual_stack_independent_forwarding_routes_capture_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

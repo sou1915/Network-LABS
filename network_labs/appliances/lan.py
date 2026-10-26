@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -181,6 +181,8 @@ def validate_lan(node):
     validate_ovs(node)
     from .management import validate_node as validate_management
     validate_management(node)
+    from .syslog_server import validate_node as validate_collector
+    validate_collector(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -321,6 +323,9 @@ def observe(manager, index, node):
         result['dhcpv6_server'] = {'policy': node['dhcpv6_server'], 'note': 'Declared pool; observed RA/server config is separate. No lease snapshot or liveness certification.'}
     if node['slaac']:
         result['slaac'] = {'interfaces': node['slaac'], 'note': 'Kernel RA acceptance policy; address/default route acquisition must be observed separately.'}
+    if node.get('syslog_server'):
+        from .syslog_server import observe as observe_collector
+        result['syslog_server'] = observe_collector(manager, node)
     if node['management']:
         from .management import observe as observe_management
         result['management'] = observe_management(manager, node)

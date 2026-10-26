@@ -129,7 +129,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -167,6 +167,12 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if dropbear is not None:
         from .management import rootfs_assets
         management_additions = rootfs_assets(dropbear)
+    collector_additions = []
+    if rsyslog_modules is not None and rsyslog is None:
+        raise ValueError('--rsyslog-modules requires --rsyslog.')
+    if rsyslog is not None:
+        from .syslog_server import rootfs_assets
+        collector_additions = rootfs_assets(rsyslog, rsyslog_modules)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -175,7 +181,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -188,6 +194,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         with (target / 'etc/group').open('a') as account:
             account.write('_lldpd:x:65534:\n')
         write_json(target / 'etc/network-labs-lldp-assets.json', {'files': [str(path) for _, path in lldp_additions]})
+    if collector_additions:
+        write_json(target / 'etc/network-labs-syslog-assets.json', {'files': [str(destination) for _, destination in collector_additions]})
     if management_additions:
         write_json(target / 'etc/network-labs-management-assets.json', {'binary': '/usr/sbin/dropbear', 'files': [str(destination) for _, destination in management_additions]})
     if additions:
@@ -275,6 +283,8 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
+            if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
+                raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
             if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
@@ -374,6 +384,8 @@ class Manager:
             start_ospf(self)
             from .management import start_servers as start_management
             start_management(self)
+            from .syslog_server import start_servers as start_collectors
+            start_collectors(self)
             self.state['phase'] = 'running'; self.save()
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
@@ -398,6 +410,8 @@ class Manager:
         prepare_dhcpv6(bundle, node)
         from .management import prepare_files as prepare_management
         prepare_management(bundle, node)
+        from .syslog_server import prepare_files as prepare_collector
+        prepare_collector(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):

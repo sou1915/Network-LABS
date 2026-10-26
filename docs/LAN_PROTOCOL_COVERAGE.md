@@ -9,7 +9,7 @@ the educational canvas/Wasm engine remains separate.
 |---|---|---|
 | SSH | Dropbear, ed25519 public-key auth, non-root Linux command/PTY, TCP/22 | Vendor shells, richer account/AAA policy, managed host-key persistence, IPv6/coexistence profiles |
 | Telnet | BusyBox telnetd + login, SHA-512 password hash, non-root Linux terminal, TCP/23 | Vendor CLI adapters and richer account/AAA policy |
-| Syslog | Real local logging + UDP/514 forwarding, bounded rotation, packet/receiver tests | Persistent collector, TCP/TLS, RFC5424, search/retention and structured device events |
+| Syslog | Real local logging + UDP/514 forwarding; node-local rsyslog collector with sender allowlist, rotation and real fault/packet tests | TCP/TLS, richer RFC5424 policy, durable central retention/search and structured device events |
 | SNMP | Planned | v2c/v3 agents, MIBs, polling and traps/informs |
 | NTP/SNTP | Planned | Actual clock-service packets and node-only time representation without altering host time |
 | AAA/access | Planned | RADIUS, TACACS+, 802.1X/EAP and policy tests |

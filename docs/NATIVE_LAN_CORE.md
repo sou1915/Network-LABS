@@ -3807,12 +3807,12 @@ sudo python3 -m network_labs.appliances exec management-lan R1 -- \
   /bin/busybox logger -p local0.notice -t network-labs 'LAN management test'
 sudo python3 -m network_labs.appliances exec management-lan R1 -- \
   /bin/busybox tail -n 20 /run/messages
-sudo python3 -m network_labs.appliances capture management-lan R1 eth0 \
-  --seconds 5 --output management-syslog.pcap --filter 'udp port 514'
 ```
 
-This adds a legacy UDP sender, not a persistent collector. Configure a real
-collector in the destination node/rootfs to retain incoming messages. Native
+Start a capture in another terminal **before** running logger if you want to
+observe that message on the wire. This management profile adds a legacy UDP
+sender. The separate [node-local collector profile](#node-local-udp-syslog-collector)
+provides a managed rsyslog receiver in the destination node. Native
 tests use a bounded independent UDP socket receiver in PC1's namespace and
 check the real packet, priority `<133>`, source and message; they do not invent
 successful delivery. UDP has no acknowledgement. Syslog TCP/TLS, RFC5424
@@ -3838,3 +3838,87 @@ is absent from the raw traffic. Removing the active authorized key rejects SSH
 and blocks save; restoring it recovers access. Stopping SSH leaves file conformity
 true but rejects connections, then restart and declarative restore recover both
 access protocols and Syslog. Host network cleanup is checked separately.
+
+
+## Node-local UDP Syslog collector
+
+`example --syslog` builds a three-node IPv4 LAN: R1 (`192.0.2.20`)
+forwards real BusyBox logger messages through SW1 to PC1 (`192.0.2.10`),
+where **rsyslogd + imudp** listens on that node address, UDP/514. The daemon
+runs inside PC1's OCI PID/mount/network namespaces. It does not start the host
+rsyslog service, bind a host port, or read the host system journal/kernel logs.
+No `imuxsock` or `imklog` input is loaded.
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+sudo apt-get install busybox-static rsyslog
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --rsyslog /usr/sbin/rsyslogd --output "$HOME/network-labs-syslog-rootfs"
+python3 -m network_labs.appliances example --syslog \
+  --rootfs "$HOME/network-labs-syslog-rootfs" > syslog-lan.json
+sudo python3 -m network_labs.appliances start syslog-lan.json
+sudo python3 -m network_labs.appliances exec syslog-lan R1 -- \
+  /bin/busybox logger -p local0.notice -t network-labs 'LAN-SYSLOG-TEST'
+sudo python3 -m network_labs.appliances exec syslog-lan PC1 -- \
+  /bin/busybox tail -n 20 /run/remote-syslog.log
+sudo python3 -m network_labs.appliances inspect syslog-lan PC1
+```
+
+The rootfs destination must be new. Installing the distribution's `rsyslog`
+package can also enable its normal host service according to that package's
+policy; the Network LABS rootfs builder only copies trusted local files and
+never starts or configures a host logging daemon. If rsyslog is already
+installed, reuse it. A matching offline installation is also supported:
+`rootfs --rsyslog /trusted/rsyslogd --rsyslog-modules /trusted/rsyslog-modules`.
+The builder copies `imudp.so`, `lmnet.so` and their resolved shared libraries;
+it does not assume dependencies loaded through `dlopen` appear in rsyslogd's
+own ELF dependency list. The reference configuration requires rsyslog 8.2302+
+(the Ubuntu 24.04 package provides the required rotation syntax). A real
+`rsyslogd -N1` validation inside the node rejects incompatible configurations
+before launching the collector; no substitute receiver is used.
+
+A manifest opts in with:
+
+```json
+"syslog_server": {"interface": "eth0", "senders": ["192.0.2.20"]}
+```
+
+The interface must be numbered and administratively UP. Each of the 1..64
+explicit unicast IPv4 senders must identify exactly one other managed node.
+There is no wildcard listener or sender policy. The collector prepends the
+observed source IP to the original Syslog payload; a `local0.notice` message
+contains priority `<133>`. An IP allowlist is **not sender authentication**;
+UDP packets can be lost or spoofed. It is not an anti-spoofing firewall.
+
+Messages are limited to 1 KiB, the listener has a 1000 messages / 5 seconds
+rate limiter and a 256-entry main queue. `/run/remote-syslog.log` rotates at a
+64 KiB threshold to one backup (`.1`); the threshold can be exceeded by a
+message or batch. Both files live in the existing 8 MiB node `/run` tmpfs.
+This is bounded lab retention, not a total application resource guarantee or
+production archival policy. No logs, queues or received-message history are
+saved by `save`/`restore`. Save audits the managed collector configuration and
+rotation script; `inspect.configuration_verified` is file conformity, **not**
+daemon liveness or proof that a message arrived. Read the log or capture real
+traffic to establish delivery.
+
+For a wire capture, run this in terminal A and wait until capture starts:
+
+```bash
+sudo python3 -m network_labs.appliances capture syslog-lan PC1 eth0 \
+  --seconds 10 --output syslog-collector.pcap --filter 'udp port 514'
+```
+
+Then run `logger` from terminal B during those ten seconds. Use a new output
+filename for each capture. Live collector edits require lab recreation.
+IPv6/dual-stack collector combinations, TCP/TLS, richer RFC5424 policies,
+central search, durable logs and structured device-event mapping remain
+separate work.
+
+The privileged collector test uses actual rsyslog and BusyBox daemons: it
+captures accepted and disallowed senders on the wire, verifies only the
+allowed source is stored, forces file rotation, stops/restarts rsyslog,
+checks sender-local logging while the receiver is down, refuses saving drift,
+and recreates the lab from saved policy with fresh logs. Host links, routes,
+rules, forwarding and nftables are checked after cleanup.
