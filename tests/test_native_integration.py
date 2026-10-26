@@ -283,6 +283,140 @@ class RealContainerTests(unittest.TestCase):
         for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
 
+    def test_appliance_aa_agent_snmp_v3_authpriv_encryption_engine_restart_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import copy
+        import threading
+        from network_labs.appliances.examples import snmpv3_lab
+        from network_labs.appliances.snmp import usm_credentials, client_config, start_server
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        from snmp_wire import captured_v3
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder); auth = 'native-auth-password'; privacy = 'native-privacy-password'
+            user = usm_credentials('monitor', auth, privacy)
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', snmpd=shutil.which('snmpd'))
+            spec = snmpv3_lab(rootfs, user); spec['name'] = 'snmpv3-' + str(os.getpid())
+            server = 'R1-ENCRYPTED-NODE'; spec['nodes'][2]['name'] = server
+            for link in spec['links']:
+                for endpoint in link:
+                    if endpoint[0] == 'R1': endpoint[0] = server
+            manager = Manager(spec['name']); oid = '.1.3.6.1.2.1.1.5.0'
+            # Independent official client derives its own keys from fixture
+            # passphrases; it does not share the production password-to-Ku code.
+            clear = '\n'.join(['defVersion 3', 'defSecurityLevel authPriv', 'defSecurityName monitor',
+                                'defAuthType SHA-256', 'defPrivType AES', 'defAuthPassphrase ' + auth,
+                                'defPrivPassphrase ' + privacy, ''])
+            clients = {}
+            for label, text in {'good': clear, 'master': client_config(user),
+                                'auth': clear.replace(auth, 'wrong-auth-password'),
+                                'privacy': clear.replace(privacy, 'wrong-privacy-password'),
+                                'user': clear.replace('Name monitor', 'Name unknown'),
+                                'no_privacy': clear.replace('authPriv', 'authNoPriv'),
+                                'no_auth': clear.replace('authPriv', 'noAuthNoPriv')}.items():
+                directory = folder / ('client-' + label); directory.mkdir(mode=0o700)
+                path = directory / 'snmp.conf'; path.write_text(text); path.chmod(0o600); clients[label] = directory
+            def query(target=oid, *, label='good', source=0, tool='snmpget', extra=(), check=True):
+                return manager.ns(source, 'env', 'SNMPCONFPATH=' + str(clients[label]), tool, '-m', '',
+                                  '-t', '1', '-r', '0', '-Oqvte', '192.0.2.20', target, *extra, check=check, timeout=4)
+            def ready():
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if query(check=False).stdout.strip().strip('"') == server: return
+                    time.sleep(.1)
+                log = manager.directory / server / 'snmp.log'
+                self.fail('SNMPv3 not ready: ' + (log.read_text(errors='replace') if log.exists() else 'missing log'))
+            def capture_identity(label):
+                event = threading.Event(); path = folder / (label + '.pcap')
+                future = pool.submit(capture, Manager(spec['name']), server, 'eth0', path,
+                                     seconds=5, packets=1000, expression='udp port 161', ready=event.set)
+                self.assertTrue(event.wait(5), 'SNMPv3 capture not ready')
+                with manager.locked():
+                    self.assertEqual(query().stdout.strip().strip('"'), server)
+                    self.assertEqual(query(label='master').stdout.strip().strip('"'), server)
+                    names = query('.1.3.6.1.2.1.31.1.1.1.1', tool='snmpwalk').stdout.splitlines()
+                    self.assertEqual({v.strip().strip('"') for v in names}, {'lo', 'eth0', 'eth1'})
+                self.assertGreater(future.result(timeout=8)['captured_packets'], 0)
+                packets = captured_v3(path.read_bytes())
+                encrypted = [p for p in packets if p['flags'] & 3 == 3]
+                self.assertTrue(any(p['target_port'] == 161 for p in encrypted))
+                responses = [p for p in encrypted if p['source_port'] == 161]
+                self.assertTrue(responses)
+                identities = {p['engine_id'] for p in responses}; self.assertEqual(len(identities), 1)
+                for packet in encrypted:
+                    self.assertEqual(packet['data_tag'], 4); self.assertEqual(packet['auth_length'], 24)
+                    self.assertEqual(packet['privacy_length'], 8); self.assertEqual(packet['username'], b'monitor')
+                    self.assertGreater(packet['boots'], 0); self.assertTrue(5 <= len(packet['engine_id']) <= 32)
+                    self.assertNotIn(server.encode(), packet['data'])
+                for secret in (auth, privacy, user['auth_master_key'], user['privacy_master_key']):
+                    self.assertNotIn(secret.encode(), path.read_bytes())
+                return next(iter(identities))
+            try:
+                with manager.locked(): manager.start(spec); ready()
+                first = capture_identity('initial')
+                with manager.locked():
+                    before = copy.deepcopy(manager.read())
+                    for label in ('auth', 'privacy', 'user', 'no_privacy', 'no_auth'):
+                        rejected = query(label=label, check=False); self.assertNotEqual(rejected.returncode, 0, label)
+                        self.assertNotIn(server, rejected.stdout)
+                    manager.crun('exec', 'PC2', '/bin/ping', '-c', '1', '-W', '2', '192.0.2.20')
+                    self.assertNotEqual(query(source=3, check=False).returncode, 0)
+                    for version in ('1', '2c'):
+                        rejected = manager.ns(0, 'snmpget', '-m', '', '-v', version, '-c', 'network-labs-ro',
+                                              '-t', '1', '-r', '0', '192.0.2.20', oid, check=False, timeout=4)
+                        self.assertNotEqual(rejected.returncode, 0)
+                    index = json.loads(manager.ns(2, 'ip', '-j', 'link', 'show', 'dev', 'eth1').stdout)[0]['ifindex']
+                    self.assertNotEqual(query('.1.3.6.1.2.1.2.2.1.7.' + str(index), tool='snmpset', extra=('i', '2'), check=False).returncode, 0)
+                    self.assertIn('UP', json.loads(manager.ns(2, 'ip', '-j', 'link', 'show', 'dev', 'eth1').stdout)[0]['flags'])
+                    self.assertIn('No Such', query('.1.3.6.1.2.1.25.1.1.0').stdout)
+                    counter_oid = '.1.3.6.1.2.1.31.1.1.1.6.' + str(index); initial_bytes = int(query(counter_oid).stdout.strip())
+                    manager.crun('exec', 'PC2', '/bin/ping', '-c', '5', '-i', '0.05', '-s', '512', '198.51.100.1')
+                    deadline = time.monotonic() + 12
+                    while int(query(counter_oid).stdout.strip()) <= initial_bytes:
+                        if time.monotonic() >= deadline: self.fail('Encrypted Counter64 did not increase')
+                        time.sleep(.3)
+                    self.assertEqual(manager.read(), before)
+                    config = manager.directory / server / 'files/snmpd.conf'; original = config.read_text()
+                    config.write_text(original + '# drift\n')
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    config.write_text(original)
+                    report = manager.inspect(server)['snmp_agent']
+                    for secret in user.values():
+                        if secret != 'monitor': self.assertNotIn(secret, json.dumps(report))
+                    manager.crun('exec', server, '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/snmpd.pid)"')
+                    deadline = time.monotonic() + 5
+                    while manager.ns(2, 'ss', '-H', '-lun', 'sport = :161').stdout:
+                        if time.monotonic() >= deadline: self.fail('Stopped SNMPv3 daemon still listens')
+                        time.sleep(.1)
+                    self.assertNotEqual(query(check=False).returncode, 0)
+                    self.assertTrue(manager.inspect(server)['snmp_agent']['configuration_verified'])
+                    start_server(manager, spec['nodes'][2]); ready()
+                second = capture_identity('restart'); self.assertNotEqual(first, second)
+                with manager.locked():
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertNotIn(auth, json.dumps(saved)); self.assertNotIn(privacy, json.dumps(saved))
+                    self.assertEqual(saved['nodes'][2]['snmp_agent']['usm'], user); manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked(): manager.start(saved); ready()
+                third = capture_identity('restore'); self.assertNotIn(third, (first, second))
+                with manager.locked(): manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_collector_udp_allowlist_rotation_fault_capture_and_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import copy

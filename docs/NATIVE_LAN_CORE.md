@@ -4035,7 +4035,147 @@ wrong-community/source/version rejection, hidden host-resource OIDs, refused
 SET, actual PCAP traffic, daemon restart, config drift/save refusal and restore.
 Host network baseline checks follow cleanup.
 
-SNMPv3/USM, traps/informs, writable management, vendor MIBs, IPv6/dual-stack
-management and broad service coexistence remain separate later work. The
+This v2c profile does not enable v3. The separate [USM authPriv profile](#read-only-snmpv3-with-usm-authpriv) adds v3 authentication/encryption.
+Traps/informs, writable management, vendor MIBs, IPv6/dual-stack management
+and broad service coexistence remain separate later work. The
 reference validation uses Ubuntu's Net-SNMP 5.9 package; no fallback agent is
 used when the trusted binary/rootfs is unavailable.
+
+## Read-only SNMPv3 with USM authPriv
+
+`example --snmpv3` uses the same four-node, two-LAN topology as `--snmp`.
+R1 listens on `192.0.2.20:161/UDP`, with PC1 (`192.0.2.10`) as the allowed
+manager. This is a separate **v3-only** profile: one USM user, HMAC-SHA-256
+(authentication digest truncated to 192 bits) and AES-128 privacy. Both
+authentication and encryption are required. There is no v1/v2c fallback,
+noAuthNoPriv or authNoPriv access, and no write/notification view. The existing
+v2c profile retains its policy and rendered config.
+
+Build a compatible rootfs, or reuse one already built with `--snmpd`:
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+sudo apt-get install busybox-static snmpd snmp
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --snmpd /usr/sbin/snmpd --output "$HOME/network-labs-snmpv3-rootfs"
+```
+
+Use a new output rootfs directory. The same offline copy and distribution
+package-service caveats as the v2c profile apply. The reference uses Ubuntu's
+Net-SNMP 5.9 package with SHA-256/AES and source filtering support; no weaker
+algorithm or protocol is substituted when the supplied build is incompatible.
+
+Create two passphrase files without putting their contents in shell history
+or the example command's argument list. Each passphrase must have 8..128
+printable ASCII characters. The username has 1..32 ASCII identifier characters
+and starts with a letter. Use different authentication/privacy passphrases.
+
+```bash
+umask 077
+read -r -s -p 'SNMP authentication passphrase: ' SNMP_AUTH; printf '\n'
+printf '%s' "$SNMP_AUTH" > snmp-auth.txt
+unset SNMP_AUTH
+read -r -s -p 'SNMP privacy passphrase: ' SNMP_PRIV; printf '\n'
+printf '%s' "$SNMP_PRIV" > snmp-privacy.txt
+unset SNMP_PRIV
+python3 -m network_labs.appliances example --snmpv3 --snmp-user monitor \
+  --snmp-auth-passphrase-file snmp-auth.txt \
+  --snmp-privacy-passphrase-file snmp-privacy.txt \
+  --rootfs "$HOME/network-labs-snmpv3-rootfs" > snmpv3-lan.json
+sudo python3 -m network_labs.appliances start snmpv3-lan.json
+```
+
+The example converts passphrases to SHA-256 USM master keys using the
+RFC 3414/7860 password-to-key procedure. Plaintext passphrases are not stored
+in the manifest/startup declarations. **Master keys are credential-equivalent
+secrets**, not harmless password hashes; protect the manifest, client config,
+source passphrase files and saved configuration. Managed agent config and
+saved startup files are mode 0600. Inspect does not echo either master key.
+
+The agent field uses the same interface/managers contract, replacing
+`community` with `usm`:
+
+```json
+"snmp_agent": {
+  "interface": "eth0",
+  "managers": ["192.0.2.10"],
+  "usm": {
+    "username": "monitor",
+    "auth_master_key": "64 hexadecimal characters",
+    "privacy_master_key": "64 hexadecimal characters"
+  }
+}
+```
+
+The JSON above illustrates field names, not usable keys. Community and USM
+modes cannot coexist in one agent declaration. Keys are 32-byte SHA-256 master
+keys, represented by exactly 64 hex characters. Net-SNMP localizes them for
+the current engine identity; AES uses the resulting 128-bit privacy key.
+The agent's transport acceptlist applies to the explicit manager addresses,
+including unauthenticated discovery packets. It supplements USM authentication
+and is not an anti-spoofing firewall.
+
+To query without placing passwords/master keys in the client command line,
+create a protected **new** client directory from the manifest:
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+from network_labs.appliances.spec import load
+from network_labs.appliances.snmp import client_config
+spec = load('snmpv3-lan.json')
+node = next(n for n in spec['nodes'] if n['name'] == 'R1')
+directory = Path('snmpv3-client')
+directory.mkdir(mode=0o700)
+path = directory / 'snmp.conf'
+with path.open('x') as target:
+    target.write(client_config(node['snmp_agent']['usm']))
+path.chmod(0o600)
+PY
+SNMP_PC1_NS=$(python3 -m network_labs.appliances plan snmpv3-lan.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "PC1"))')
+sudo ip netns exec "$SNMP_PC1_NS" env SNMPCONFPATH="$PWD/snmpv3-client" \
+  snmpget -m '' -t 1 -r 0 -On 192.0.2.20 \
+  .1.3.6.1.2.1.1.5.0 .1.3.6.1.2.1.1.3.0
+sudo ip netns exec "$SNMP_PC1_NS" env SNMPCONFPATH="$PWD/snmpv3-client" \
+  snmpwalk -m '' -t 1 -r 0 -On 192.0.2.20 .1.3.6.1.2.1.31.1.1.1.1
+```
+
+The helper exports Net-SNMP `defAuthMasterKey`/`defPrivMasterKey` settings with
+SHA-256/AES and authPriv defaults. The client process uses PC1's actual
+network namespace, as in the v2c example. Textual MIB packages are unnecessary
+for these numeric OIDs. Agent sysUpTime and the IF-MIB view/counter cache and
+GETBULK limits have the same meaning as in the v2c profile.
+
+Every daemon start generates a fresh 96-bit random engine token, represented
+as 24 ASCII hex characters in Net-SNMP's text engine-ID format. The resulting
+engine ID is public, is not part of startup declarations, and changes after
+agent restart or lab restore. Old persistent runtime files are not loaded
+(`-C`); the supplied master keys are localized again for the new identity.
+This avoids reusing an engine ID with a reset boots/time state. **Clients must
+rediscover the engine after restart/restore**; cached engine pinning/session
+continuity is not preserved. This is not a complete replay-defense test or a
+claim that duplicate requests within a live USM time window are rejected.
+
+The v3 agent starts with its USM config module enabled and requires the
+configured authPriv VACM view. Save/inspect check the deterministic managed
+configuration, not daemon liveness, loaded argv or the runtime engine state.
+Save/restore persists the user/master-key policy, not sessions, engine
+identity, boots/time state or interface counter history. Live edits still
+require recreation. IPv6/coexistence profiles, multiple users/roles, algorithm
+selection, writable management, vendor MIBs and traps/informs remain separate
+work.
+
+The native v3 case uses the official Net-SNMP client with independently derived
+passphrase credentials as well as the exported master-key config. It verifies
+real GET/walk and increasing encrypted Counter64 values; rejects wrong auth
+and privacy keys, unknown user, lower security levels, disallowed source,
+v1/v2c fallback and SET; and checks hidden host-resource OIDs. An independent
+bounded decoder examines actual PCAP USM headers, SHA-256 digest/IV lengths
+and encrypted scoped-PDU tags. Successful responses decrypt in the official
+client, while the long sysName marker and credentials are absent from the
+captured encrypted data. Captures after restart and declarative restore show
+different engine IDs with the same declared credentials. Drift/save refusal,
+stopped-daemon behavior and host network cleanup are also checked.

@@ -637,3 +637,12 @@ def snmp_lab(rootfs, community='network-labs-ro'):
                           'interfaces': {'eth0': '198.51.100.10/24'}, 'gateway': '198.51.100.1'})
     spec['links'].append([['R1', 'eth1'], ['PC2', 'eth0']])
     return validate(spec)
+
+
+def snmpv3_lab(rootfs, user):
+    """USM SHA-256/AES authPriv on the existing two-LAN SNMP topology."""
+    import copy
+    spec = snmp_lab(rootfs); spec['name'] = 'snmpv3-lan'
+    agent = spec['nodes'][2]['snmp_agent']; del agent['community']
+    agent['usm'] = copy.deepcopy(user)
+    return validate(spec)
