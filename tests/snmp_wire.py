@@ -31,12 +31,13 @@ def snmpv3(data):
     if len(security) != 1 or security[0][0] != 0x30: raise ValueError('Expected USM sequence')
     usm = list(fields(security[0][1]))
     if len(usm) != 6 or [v[0] for v in usm] != [4, 2, 2, 4, 4, 4]: raise ValueError('Invalid USM fields')
-    return {'flags': header[2][1][0], 'engine_id': usm[0][1], 'boots': int.from_bytes(usm[1][1], 'big'),
-            'username': usm[3][1], 'auth_length': len(usm[4][1]), 'privacy_length': len(usm[5][1]),
+    return {'message_id': int.from_bytes(header[0][1], 'big'),
+            'flags': header[2][1][0], 'engine_id': usm[0][1], 'boots': int.from_bytes(usm[1][1], 'big'),
+            'engine_time': int.from_bytes(usm[2][1], 'big'), 'username': usm[3][1], 'auth_length': len(usm[4][1]), 'privacy_length': len(usm[5][1]),
             'data_tag': message[3][0], 'data': message[3][1]}
 
 
-def captured_v3(data):
+def captured_v3(data, port=161):
     if data[:4] != b'\xd4\xc3\xb2\xa1' or len(data) < 24 or struct.unpack_from('<I', data, 20)[0] != 1:
         raise ValueError('Expected little-endian Ethernet PCAP')
     offset = 24; result = []
@@ -49,9 +50,10 @@ def captured_v3(data):
         ihl = (frame[14] & 15) * 4; start = 14 + ihl
         if ihl < 20 or start + 8 > len(frame): raise ValueError('Invalid IP/UDP header')
         source, target, length = struct.unpack_from('!HHH', frame, start)
-        if 161 not in (source, target): continue
+        if port not in (source, target): continue
         if length < 8 or start + length > len(frame): raise ValueError('Truncated UDP payload')
-        result.append({'source_port': source, 'target_port': target, **snmpv3(frame[start + 8:start + length])})
+        result.append({'source_port': source, 'target_port': target, 'udp_length': length, 'source_ip': '.'.join(map(str, frame[26:30])),
+                       **snmpv3(frame[start + 8:start + length])})
     return result
 
 
@@ -78,7 +80,7 @@ def captured_notifications(data):
         if message[1][0] != 4 or message[2][0] not in (0xa2, 0xa6, 0xa7): raise ValueError('Invalid v2c notification/response')
         pdu = list(fields(message[2][1]))
         if len(pdu) != 4 or [v[0] for v in pdu] != [2, 2, 2, 0x30]: raise ValueError('Invalid notification PDU')
-        result.append({'source_port': source, 'target_port': target, 'source_ip': '.'.join(map(str, frame[26:30])),
+        result.append({'source_port': source, 'target_port': target, 'udp_length': length, 'source_ip': '.'.join(map(str, frame[26:30])),
                        'community': message[1][1], 'pdu_tag': message[2][0],
                        'request_id': int.from_bytes(pdu[0][1], 'big', signed=True),
                        'error_status': int.from_bytes(pdu[1][1], 'big'), 'varbinds': pdu[3][1]})

@@ -657,3 +657,16 @@ def snmp_notifications_lab(rootfs, mode='trap'):
     spec['nodes'][1]['interfaces']['eth2'] = ''
     spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']])
     return validate(spec)
+
+
+def snmpv3_informs_lab(rootfs, user):
+    """Receiver-authoritative USM informs; no community or trap-user fallback."""
+    import copy
+    spec = snmp_notifications_lab(rootfs, 'inform'); spec['name'] = 'snmpv3-informs'
+    receiver = spec['nodes'][0]['snmp_receiver']; del receiver['community']
+    receiver['usm'] = copy.deepcopy(user)
+    agent = spec['nodes'][2]['snmp_agent']; del agent['community']
+    agent['usm'] = copy.deepcopy(user)
+    del agent['notifications']['community']
+    agent['notifications']['usm'] = copy.deepcopy(user)
+    return validate(spec)

@@ -4258,9 +4258,9 @@ no AgentX connection or notification-log MIB history. Its Net-SNMP
 `authCommunity log` policy also permits **legacy v1 notifications** under the
 same source/community restrictions; this does not enable v1 polling on the
 agent. Automatic generation, retries and the primary reference are v2c.
-SNMPv3/USM polling remains available in its separate profile; v3 notifications
-are not added here, and `notifications` on a USM agent is refused rather than
-silently sending an unencrypted notification.
+SNMPv3/USM polling remains available in its separate profile. The
+[USM inform profile](#snmpv3-authpriv-informs) below adds encrypted informs;
+community notifications on a USM agent remain refused, without downgrade.
 
 Accepted notification payloads and daemon diagnostics go through the node's
 actual local UNIX syslog socket to BusyBox syslogd. The log rotates at a
@@ -4336,6 +4336,142 @@ ongoing daemon health, loaded argv, message acceptance or delivery. Startup
 readiness is only an observation at that time. Save/restore keeps declarations,
 not notification history, retries or acknowledgements; restored nodes start
 fresh logs and agents emit a new coldStart. Live changes require recreation.
-Automatic linkDown/linkUp detection, vendor-specific event mapping, v3
-notifications, multiple sinks, durable retention and broader service/IPv6
-coexistence remain later work.
+Automatic linkDown/linkUp detection, vendor-specific event mapping,
+engine-bound v3 traps, multiple sinks, durable retention and broader
+service/IPv6 coexistence remain later work.
+
+
+## SNMPv3 authPriv informs
+
+`example --snmpv3-informs` adds real **USM informs** using SHA-256
+(HMAC-SHA-256-192) authentication and AES-128 privacy. Its five-node topology
+is the same as the community notification reference. R1 emits an actual
+agent-startup coldStart to PC1, which accepts only the declared user at
+`authPriv`, with an explicit source transport allowlist and logging-only
+permission. It has no community fallback, execution hooks or forwarding.
+
+An inform uses the **receiver's authoritative engine identity**. Each receiver
+start gets a fresh random engine token; Net-SNMP localizes the configured
+master keys for that engine and clients discover it over the real protocol.
+The discovery packets and USM header metadata are visible; the authenticated
+notification varbinds are encrypted. The source-IP allowlist is not
+cryptographic anti-spoofing. An engine identity is not a network-device model.
+
+This increment does not provision SNMPv3 TRAP users, whose identities would
+instead have to be bound to each sender engine. USM sender configuration
+therefore requires `mode: "inform"`; selecting a v3 trap is refused. Changing
+an existing receiver's identity also invalidates the old sender session's
+localization/cache: start a fresh client session, and restart the sending
+agent when replacing its receiver. There is no live session migration or
+pinned/stable engine/boots persistence promise.
+
+Install the Net-SNMP packages and build a new trusted rootfs as in the
+community notification section (both `--snmpd` and `--snmptrapd` are needed).
+Create the two passphrase files locally, with different values of 8..128
+printable ASCII characters. The following interactive prompts keep those
+values out of shell history:
+
+```bash
+cd ~/Network-LABS
+umask 077
+read -r -s -p 'SNMP authentication passphrase: ' snmp_auth_secret; printf '\n'
+printf '%s' "$snmp_auth_secret" > snmp-auth.txt
+unset snmp_auth_secret
+read -r -s -p 'SNMP privacy passphrase: ' snmp_privacy_secret; printf '\n'
+printf '%s' "$snmp_privacy_secret" > snmp-privacy.txt
+unset snmp_privacy_secret
+
+python3 -m network_labs.appliances example --snmpv3-informs \
+  --rootfs "$HOME/network-labs-snmp-rootfs" --snmp-user notify \
+  --snmp-auth-passphrase-file snmp-auth.txt \
+  --snmp-privacy-passphrase-file snmp-privacy.txt > snmpv3-informs.json
+
+sudo python3 -m network_labs.appliances start snmpv3-informs.json
+sudo python3 -m network_labs.appliances exec snmpv3-informs PC1 -- \
+  /bin/busybox tail -n 20 /run/snmp-notifications.log
+```
+
+The manifest stores **credential-equivalent SHA-256 master keys**, not the
+original passphrases; keep the manifest/startup file private too. Managed
+agent/receiver config files are mode 0600 and mounted read-only. Inspect
+omits both polling and notification keys; it audits file conformity rather
+than daemon liveness, loaded policy or delivery. The sender's `trapsess`
+configuration supplies master keys inside that protected file, not the
+launched daemon's command-line arguments. No host SNMP service is started by
+the rootfs builder.
+
+The receiver declaration uses `usm` instead of `community`:
+
+```json
+{
+  "snmp_receiver": {
+    "interface": "eth0",
+    "sources": ["192.0.2.20"],
+    "usm": {
+      "username": "notify",
+      "auth_master_key": "<64 hex characters>",
+      "privacy_master_key": "<64 hex characters>"
+    }
+  }
+}
+```
+
+The USM agent's `notifications` object contains `receiver`, `mode: "inform"`
+and matching `usm` credentials. The receiver must also be in its polling
+manager allowlist so protocol responses are accepted. Polling and notification
+USM credentials can be separately declared; this reference reuses one user.
+No community field can accompany either USM notification object.
+
+To send an explicit operator test, create a protected client configuration
+from the manifest, as for v2c, changing the manifest/client directory names:
+
+```bash
+python3 - <<'PYTHON'
+from pathlib import Path
+from network_labs.appliances.spec import load
+from network_labs.appliances.snmp_notifications import client_config
+spec = load('snmpv3-informs.json')
+node = next(n for n in spec['nodes'] if n['name'] == 'R1')
+directory = Path('snmpv3-inform-client')
+directory.mkdir(mode=0o700, exist_ok=True)
+directory.chmod(0o700)
+path = directory / 'snmp.conf'
+with path.open('x') as target:
+    target.write(client_config(node))
+path.chmod(0o600)
+PYTHON
+SNMP_R1_NS=$(python3 -m network_labs.appliances plan snmpv3-informs.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "R1"))')
+sudo ip netns exec "$SNMP_R1_NS" env SNMPCONFPATH="$PWD/snmpv3-inform-client" \
+  snmptrap -m '' -Ci -t 1 -r 1 192.0.2.10 0 .1.3.6.1.4.1.8072.2.3.0.1 \
+  .1.3.6.1.4.1.8072.2.3.2.1.0 i 30 \
+  .1.3.6.1.4.1.8072.2.3.2.2.0 s OPERATOR-USM-INFORM
+```
+
+Uptime 0 and heartbeat rate 30 are explicit operator test values; this is not
+a periodic heartbeat service or measured device uptime. The official host
+client runs in R1's network namespace, not its guest filesystem/cgroup.
+
+The native test checks automatic coldStart, independent official passphrase
+and master-key clients, encrypted scoped PDUs with a 24-byte authentication
+digest and 8-byte AES privacy parameter, response message-ID/UDP correlation,
+and a private marker absent from packet payloads. It rejects wrong auth and
+privacy keys, users, lower security levels, reachable unlisted sources and
+legacy community fallback. Temporary node-local nft rules distinguish input
+loss from ACK loss. A fixture-specific UDP length predicate lets short
+discovery exchanges through while dropping the larger encrypted messages;
+the capture checks these size boundaries. This is a test fault rule, not a
+general SNMP classifier. These
+observations do not promise complete replay/duplicate defenses or exactly-once
+logging. ACK and accepted logging still do not establish durable storage.
+
+Logs retain the same volatile 64 KiB rotation and one backup as the v2c
+receiver. Restore recreates configuration with a fresh receiver engine and
+fresh logs; no cache, engine session, acknowledgement or notification history
+is restored. Changing credentials or receiver settings requires recreation.
+Automatic link events, sender-engine v3 traps and richer USM policies remain
+future increments.
+
+References: [Net-SNMP v3 notification engine roles](https://www.net-snmp.org/wiki/index.php/TUT:Configuring_snmptrapd_to_receive_SNMPv3_notifications),
+[log-only authUser policy](https://www.net-snmp.org/docs/man/snmptrapd.conf.html),
+and [master-key/client options](https://www.net-snmp.org/docs/man/snmpcmd.html).

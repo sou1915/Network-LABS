@@ -153,7 +153,7 @@ def observe(manager, node):
     return {'configuration_verified': check['configuration_verified'], 'file': check,
             'address': listen_address(node), 'port': 161, 'transport': 'udp', 'version': '3' if user else '2c',
             'managers': node['snmp_agent']['managers'], 'view': list(VIEW), 'read_only': True,
-            'notifications': {k: v for k, v in (node['snmp_agent'].get('notifications') or {}).items() if k != 'community'},
+            'notifications': {k: v for k, v in (node['snmp_agent'].get('notifications') or {}).items() if k not in ('community', 'usm')},
             'security': {'level': 'authPriv', 'username': user['username'], 'authentication': 'SHA-256', 'privacy': 'AES-128',
                          'engine_identity': 'Fresh per daemon start; clients must rediscover.'} if user else {'level': 'community'},
             'note': 'Managed config conformity, not daemon liveness, loaded policy or a successful SNMP query. '
