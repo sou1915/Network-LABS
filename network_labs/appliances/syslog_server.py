@@ -3,7 +3,9 @@ import ipaddress
 from pathlib import Path
 from .service_config import observe_config
 
-BINARY = '/usr/sbin/rsyslogd'
+# Distinct application path: do not attach the host service's pathname profile
+# to an isolated guest with different configuration and log paths.
+BINARY = '/usr/lib/network-labs/rsyslogd'
 MODULES = '/usr/lib/network-labs/rsyslog'
 CONFIG = '/lab/syslog-server.conf'
 LOG = '/run/remote-syslog.log'

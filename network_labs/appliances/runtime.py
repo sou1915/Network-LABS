@@ -283,7 +283,7 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
-            if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
+            if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
                 raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')

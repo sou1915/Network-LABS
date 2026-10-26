@@ -3872,7 +3872,11 @@ policy; the Network LABS rootfs builder only copies trusted local files and
 never starts or configures a host logging daemon. If rsyslog is already
 installed, reuse it. A matching offline installation is also supported:
 `rootfs --rsyslog /trusted/rsyslogd --rsyslog-modules /trusted/rsyslog-modules`.
-The builder copies `imudp.so`, `lmnet.so` and their resolved shared libraries;
+The guest executable is installed at `/usr/lib/network-labs/rsyslogd`, a
+distinct application path so Ubuntu's host-service AppArmor pathname profile
+is not incorrectly attached to a guest with different config/log paths. The
+builder does not disable or edit host AppArmor policy. It copies `imudp.so`,
+`lmnet.so` and their resolved shared libraries;
 it does not assume dependencies loaded through `dlopen` appear in rsyslogd's
 own ELF dependency list. The reference configuration requires rsyslog 8.2302+
 (the Ubuntu 24.04 package provides the required rotation syntax). A real

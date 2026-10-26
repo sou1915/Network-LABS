@@ -43,6 +43,7 @@ class SyslogServerTests(unittest.TestCase):
         self.assertIn('rotation.sizeLimitCommand="/bin/sh /lab/rotate-syslog.sh"', config)
         self.assertIn('/bin/busybox mv -f /run/remote-syslog.log /run/remote-syslog.log.1', values['rotate-syslog.sh'])
         self.assertNotIn('imuxsock', config); self.assertNotIn('imklog', config)
+        self.assertEqual(command()[0], '/usr/lib/network-labs/rsyslogd')
         self.assertEqual(command()[-2:], ['-f', '/lab/syslog-server.conf'])
 
     def test_file_audit_is_not_delivery_or_daemon_liveness(self):
