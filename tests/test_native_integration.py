@@ -178,7 +178,7 @@ class RealContainerTests(unittest.TestCase):
         import threading
         from network_labs.appliances.examples import snmp_notifications_lab
         from network_labs.appliances.snmp import start_server
-        from network_labs.appliances.snmp_notifications import start_trapd, LOG, HEARTBEAT, HEARTBEAT_NAME, client_config
+        from network_labs.appliances.snmp_notifications import start_trapd, LOG, HEARTBEAT, HEARTBEAT_RATE, HEARTBEAT_NAME, client_config
         from network_labs.appliances.persistence import load_startup
         from network_labs.appliances.capture import capture
         from network_labs.appliances.firewall import fingerprint
@@ -215,7 +215,7 @@ class RealContainerTests(unittest.TestCase):
                 def send(token, *, inform=False, label='good', retries=0):
                     return manager.ns(4 if label == 'rogue' else 2, 'env', 'SNMPCONFPATH=' + str(clients[label]),
                                       'snmptrap', '-m', '', '-t', '1', '-r', str(retries), *(['-Ci'] if inform else []),
-                                      '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_NAME, 's', token, check=False, timeout=5)
+                                      '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's', token, check=False, timeout=5)
                 def loss(chain):
                     manager.ns(0, 'nft', 'add', 'table', 'inet', 'nlab_notification_loss')
                     manager.ns(0, 'nft', 'add', 'chain', 'inet', 'nlab_notification_loss', chain,
@@ -275,9 +275,9 @@ class RealContainerTests(unittest.TestCase):
                         # v1 notifications; polling v1 access remains unchanged.
                         legacy = manager.ns(2, 'env', 'SNMPCONFPATH=' + str(clients['good']), 'snmptrap', '-m', '', '-v1',
                                             '192.0.2.10', '.1.3.6.1.4.1.8072.2.3', '192.0.2.20', '6', '1', '0',
-                                            HEARTBEAT_NAME, 's', 'LEGACY-V1-LOG', timeout=4)
+                                            HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's', 'LEGACY-V1-LOG', timeout=4)
                         self.assertEqual(legacy.returncode, 0); received('LEGACY-V1-LOG')
-                        burst = ['snmptrap', '-m', '', '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_NAME, 's']
+                        burst = ['snmptrap', '-m', '', '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's']
                         code = "import os,subprocess,time; os.environ['SNMPCONFPATH']=" + repr(str(clients['good'])) + "; command=" + repr(burst) + "; "
                         code += "[(subprocess.run(command+['ROTATION-'+str(i)+'-'+('x'*180)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE),time.sleep(.002)) for i in range(400)]"
                         manager.ns(2, sys.executable, '-I', '-c', code, timeout=25)

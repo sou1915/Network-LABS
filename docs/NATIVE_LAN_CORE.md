@@ -4295,16 +4295,19 @@ SNMP_R1_NS=$(python3 -m network_labs.appliances plan snmp-notifications.json | \
   python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "R1"))')
 sudo ip netns exec "$SNMP_R1_NS" env SNMPCONFPATH="$PWD/snmp-notification-client" \
   snmptrap -m '' -t 1 -r 0 192.0.2.10 0 .1.3.6.1.4.1.8072.2.3.0.1 \
+  .1.3.6.1.4.1.8072.2.3.2.1.0 i 30 \
   .1.3.6.1.4.1.8072.2.3.2.2.0 s 'OPERATOR-TRAP-TEST'
 sudo ip netns exec "$SNMP_R1_NS" env SNMPCONFPATH="$PWD/snmp-notification-client" \
   snmptrap -m '' -Ci -t 1 -r 1 192.0.2.10 0 .1.3.6.1.4.1.8072.2.3.0.1 \
+  .1.3.6.1.4.1.8072.2.3.2.1.0 i 30 \
   .1.3.6.1.4.1.8072.2.3.2.2.0 s 'OPERATOR-INFORM-TEST'
 sudo python3 -m network_labs.appliances exec snmp-notifications PC1 -- \
   /bin/busybox tail -n 20 /run/snmp-notifications.log
 ```
 
 These commands use the Net-SNMP **example heartbeat** notification and its
-example name varbind. Uptime `0` is an explicit test value, not an observed
+required heartbeat-rate object plus an example name varbind. Rate `30` and
+uptime `0` are explicit test values, not an observed heartbeat interval or
 node uptime. They do not claim a real interface/link event occurred or that
 an automatic periodic heartbeat service exists. The host client uses R1's
 network connectivity but is outside its PID/filesystem/cgroup accounting.

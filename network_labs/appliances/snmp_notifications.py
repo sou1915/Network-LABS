@@ -10,6 +10,7 @@ BINARY = '/usr/lib/network-labs/snmptrapd'
 CONFIG = '/lab/snmp-receiver.conf'
 LOG = '/run/snmp-notifications.log'
 HEARTBEAT = '.1.3.6.1.4.1.8072.2.3.0.1'
+HEARTBEAT_RATE = '.1.3.6.1.4.1.8072.2.3.2.1.0'
 HEARTBEAT_NAME = '.1.3.6.1.4.1.8072.2.3.2.2.0'
 
 
