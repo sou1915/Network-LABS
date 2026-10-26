@@ -54,7 +54,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('snmp_agent', None)
     if config is None: return
-    keys(config, ('interface', 'community', 'managers', 'usm'), 'SNMP agent')
+    keys(config, ('interface', 'community', 'managers', 'usm', 'notifications'), 'SNMP agent')
     port = config.get('interface'); values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or not values.get(port) or
             port in node['shutdown'] or node.get('startup')):
@@ -81,6 +81,8 @@ def validate_node(node):
             raise ValueError('SNMP managers must be remote unicast IPv4 addresses.')
         canonical.append(str(address))
     config['managers'] = sorted(set(canonical))
+    from .snmp_notifications import validate_sender
+    validate_sender(node)
 
 
 def validate_lab(spec):
@@ -111,11 +113,12 @@ def config_text(node):
         policy = [*['com2sec NetworkLabsSecurity ' + ip + ' ' + config['community'] for ip in config['managers']],
                   'group NetworkLabsGroup v2c NetworkLabsSecurity', *views,
                   'access NetworkLabsGroup "" v2c noauth exact NetworkLabsView none none']
+    from .snmp_notifications import sender_lines
     return '\n'.join([
         'agentAddress udp:' + listen_address(node) + ':161', '[snmp] persistentDir /run/snmp',
         'dontLogTCPWrappersConnects yes', 'sysName ' + node['name'],
         'maxGetbulkRepeats 10', 'maxGetbulkResponses 32',
-        *policy, '',
+        *policy, *sender_lines(node), '',
     ])
 
 
@@ -150,11 +153,12 @@ def observe(manager, node):
     return {'configuration_verified': check['configuration_verified'], 'file': check,
             'address': listen_address(node), 'port': 161, 'transport': 'udp', 'version': '3' if user else '2c',
             'managers': node['snmp_agent']['managers'], 'view': list(VIEW), 'read_only': True,
+            'notifications': {k: v for k, v in (node['snmp_agent'].get('notifications') or {}).items() if k != 'community'},
             'security': {'level': 'authPriv', 'username': user['username'], 'authentication': 'SHA-256', 'privacy': 'AES-128',
                          'engine_identity': 'Fresh per daemon start; clients must rediscover.'} if user else {'level': 'community'},
             'note': 'Managed config conformity, not daemon liveness, loaded policy or a successful SNMP query. '
                     + ('USM master keys are credential-equivalent secrets in startup declarations. Fresh engine identity after restart/restore, not a runtime session snapshot. ' if user else 'Community is plaintext on the wire and in startup declarations. ')
-                    + 'Source-IP policy is not anti-spoofing. sysUpTime is agent uptime; IF-MIB is node/kernel data, not vendor hardware. No SNMPv1 access, traps/informs or runtime counter snapshot.'}
+                    + 'Source-IP policy is not anti-spoofing. sysUpTime is agent uptime; IF-MIB is node/kernel data, not vendor hardware. No SNMPv1 polling access or runtime counter snapshot. Notification delivery is separate evidence.'}
 
 
 def drift(manager, node):

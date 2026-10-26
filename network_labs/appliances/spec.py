@@ -114,6 +114,8 @@ def validate(data):
     validate_collector_lab(data)
     from .snmp import validate_lab as validate_snmp_lab
     validate_snmp_lab(data)
+    from .snmp_notifications import validate_lab as validate_notifications_lab
+    validate_notifications_lab(data)
     ospf_ids = [n['ospf']['router_id'] for n in data['nodes'] if n.get('ospf')]
     if len(set(ospf_ids)) != len(ospf_ids):
         raise ValueError('OSPF router IDs must be unique within the lab.')

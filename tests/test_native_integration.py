@@ -172,6 +172,152 @@ class RealContainerTests(unittest.TestCase):
         for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
 
+    def test_appliance_aa_agent_snmp_notifications_trap_inform_ack_loss_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import copy
+        import threading
+        from network_labs.appliances.examples import snmp_notifications_lab
+        from network_labs.appliances.snmp import start_server
+        from network_labs.appliances.snmp_notifications import start_trapd, LOG, HEARTBEAT, HEARTBEAT_NAME, client_config
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        from snmp_wire import captured_notifications
+        self.assertIsNotNone(shutil.which('snmptrapd'), 'Install snmptrapd for native notification tests')
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder)
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', snmpd=shutil.which('snmpd'), snmptrapd=shutil.which('snmptrapd'))
+            for mode in ('trap', 'inform'):
+                spec = snmp_notifications_lab(rootfs, mode); spec['name'] = 'notify-' + mode + '-' + str(os.getpid())
+                manager = Manager(spec['name']); cold = '.1.3.6.1.6.3.1.1.5.1'
+                clients = {}
+                for label, text in {'good': client_config(spec['nodes'][2]),
+                                    'bad': client_config(spec['nodes'][2]).replace('network-labs-notify', 'wrong-notify-token'),
+                                    'rogue': client_config(spec['nodes'][2]).replace('192.0.2.20', '192.0.2.30')}.items():
+                    directory = folder / (mode + '-' + label); directory.mkdir(mode=0o700)
+                    path = directory / 'snmp.conf'; path.write_text(text); path.chmod(0o600); clients[label] = directory
+                def logs(): return manager.crun('exec', 'PC1', '/bin/busybox', 'cat', LOG, check=False).stdout
+                def received(token, minimum=1):
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        text = logs()
+                        if text.count(token) >= minimum: return text
+                        time.sleep(.1)
+                    log = manager.directory / 'PC1/snmptrapd.log'
+                    self.fail('Notification not logged: ' + token + ': ' + logs() + (log.read_text(errors='replace') if log.exists() else ''))
+                def send(token, *, inform=False, label='good', retries=0):
+                    return manager.ns(4 if label == 'rogue' else 2, 'env', 'SNMPCONFPATH=' + str(clients[label]),
+                                      'snmptrap', '-m', '', '-t', '1', '-r', str(retries), *(['-Ci'] if inform else []),
+                                      '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_NAME, 's', token, check=False, timeout=5)
+                def loss(chain):
+                    manager.ns(0, 'nft', 'add', 'table', 'inet', 'nlab_notification_loss')
+                    manager.ns(0, 'nft', 'add', 'chain', 'inet', 'nlab_notification_loss', chain,
+                               '{ type filter hook ' + chain + ' priority -5; policy accept; }')
+                    manager.ns(0, 'nft', 'add', 'rule', 'inet', 'nlab_notification_loss', chain,
+                               'udp', 'dport' if chain == 'input' else 'sport', '162', 'drop')
+                try:
+                    with manager.locked(): manager.start(spec); received(cold)
+                    event = threading.Event(); pcap = folder / (mode + '.pcap')
+                    future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', pcap,
+                                         seconds=20, packets=1000, expression='udp port 162', ready=event.set)
+                    self.assertTrue(event.wait(5), 'Notification capture not ready')
+                    with manager.locked():
+                        before = copy.deepcopy(manager.read()); previous = logs().count(cold)
+                        manager.crun('exec', 'R1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/snmpd.pid)"')
+                        deadline = time.monotonic() + 5
+                        while manager.ns(2, 'ss', '-H', '-lun', 'sport = :161').stdout:
+                            if time.monotonic() >= deadline: self.fail('Old agent still listens')
+                            time.sleep(.05)
+                        start_server(manager, spec['nodes'][2]); received(cold, previous + 1)
+                        self.assertEqual(send('TRAP-OK').returncode, 0); received('TRAP-OK')
+                        self.assertEqual(send('INFORM-OK', inform=True).returncode, 0); received('INFORM-OK')
+                        self.assertNotEqual(send('WRONG-COMMUNITY', inform=True, label='bad').returncode, 0)
+                        manager.crun('exec', 'PC3', '/bin/ping', '-c', '1', '-W', '2', '192.0.2.10')
+                        self.assertNotEqual(send('WRONG-SOURCE', inform=True, label='rogue').returncode, 0)
+                        self.assertNotIn('WRONG-COMMUNITY', logs()); self.assertNotIn('WRONG-SOURCE', logs())
+                        loss('input')
+                        self.assertEqual(send('DROP-TRAP').returncode, 0)
+                        self.assertNotEqual(send('DROP-INFORM', inform=True, retries=1).returncode, 0)
+                        self.assertNotIn('DROP-TRAP', logs()); self.assertNotIn('DROP-INFORM', logs())
+                        manager.ns(0, 'nft', 'delete', 'table', 'inet', 'nlab_notification_loss')
+                        loss('output')
+                        self.assertNotEqual(send('LOST-ACK', inform=True, retries=1).returncode, 0)
+                        received('LOST-ACK')
+                        manager.ns(0, 'nft', 'delete', 'table', 'inet', 'nlab_notification_loss')
+                        self.assertEqual(manager.read(), before)
+                    self.assertGreater(future.result(timeout=23)['captured_packets'], 0)
+                    rows = captured_notifications(pcap.read_bytes())
+                    def requests(token): return [r for r in rows if r['target_port'] == 162 and token.encode() in r['varbinds']]
+                    def replies(request): return [r for r in rows if r['source_port'] == 162 and r['target_port'] == request['source_port'] and r['request_id'] == request['request_id'] and r['pdu_tag'] == 0xa2]
+                    trap = requests('TRAP-OK'); self.assertEqual(len(trap), 1); self.assertEqual(trap[0]['pdu_tag'], 0xa7)
+                    self.assertFalse(replies(trap[0]))
+                    informs = requests('INFORM-OK'); self.assertTrue(informs); self.assertEqual(informs[0]['pdu_tag'], 0xa6)
+                    self.assertTrue(replies(informs[0])); self.assertTrue(all(r['error_status'] == 0 for r in replies(informs[0])))
+                    for token in ('DROP-INFORM', 'LOST-ACK'):
+                        attempts = requests(token); self.assertEqual(len(attempts), 2)
+                        self.assertEqual(len({r['request_id'] for r in attempts}), 1)
+                        self.assertFalse(replies(attempts[0]))
+                    self.assertTrue(requests('WRONG-COMMUNITY')); self.assertTrue(requests('WRONG-SOURCE'))
+                    self.assertEqual(requests('WRONG-SOURCE')[0]['source_ip'], '192.0.2.30')
+                    starts = [r for r in rows if r['target_port'] == 162 and bytes.fromhex('06092b0601060301010501') in r['varbinds']]
+                    self.assertTrue(starts); self.assertEqual(starts[0]['source_ip'], '192.0.2.20')
+                    self.assertEqual(starts[0]['pdu_tag'], 0xa7 if mode == 'trap' else 0xa6)
+                    if mode == 'inform': self.assertTrue(replies(starts[0]))
+                    with manager.locked():
+                        # The underlying authCommunity policy also accepts legacy
+                        # v1 notifications; polling v1 access remains unchanged.
+                        legacy = manager.ns(2, 'env', 'SNMPCONFPATH=' + str(clients['good']), 'snmptrap', '-m', '', '-v1',
+                                            '192.0.2.10', '.1.3.6.1.4.1.8072.2.3', '192.0.2.20', '6', '1', '0',
+                                            HEARTBEAT_NAME, 's', 'LEGACY-V1-LOG', timeout=4)
+                        self.assertEqual(legacy.returncode, 0); received('LEGACY-V1-LOG')
+                        burst = ['snmptrap', '-m', '', '192.0.2.10', '0', HEARTBEAT, HEARTBEAT_NAME, 's']
+                        code = "import os,subprocess,time; os.environ['SNMPCONFPATH']=" + repr(str(clients['good'])) + "; command=" + repr(burst) + "; "
+                        code += "[(subprocess.run(command+['ROTATION-'+str(i)+'-'+('x'*180)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE),time.sleep(.002)) for i in range(400)]"
+                        manager.ns(2, sys.executable, '-I', '-c', code, timeout=25)
+                        deadline = time.monotonic() + 5
+                        while time.monotonic() < deadline:
+                            backup = manager.crun('exec', 'PC1', '/bin/busybox', 'wc', '-c', LOG + '.0', check=False)
+                            if backup.returncode == 0: break
+                            time.sleep(.1)
+                        else: self.fail('Notification log did not rotate')
+                        self.assertGreater(int(backup.stdout.split()[0]), 60000)
+                        self.assertLess(int(backup.stdout.split()[0]), 80000)
+                        config = manager.directory / 'PC1/files/snmp-receiver.conf'; original = config.read_text()
+                        config.write_text(original + '# drift\n')
+                        with self.assertRaises(RuntimeFailure): manager.write_startup()
+                        config.write_text(original)
+                        manager.crun('exec', 'PC1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/snmptrapd.pid)"')
+                        deadline = time.monotonic() + 5
+                        while manager.ns(0, 'ss', '-H', '-lun', 'sport = :162').stdout:
+                            if time.monotonic() >= deadline: self.fail('Stopped receiver still listens')
+                            time.sleep(.05)
+                        self.assertNotEqual(send('RECEIVER-DOWN', inform=True).returncode, 0)
+                        self.assertTrue(manager.inspect('PC1')['snmp_receiver']['configuration_verified'])
+                        start_trapd(manager, spec['nodes'][0], 0)
+                        self.assertEqual(send('RECEIVER-RESTART-OK', inform=True).returncode, 0); received('RECEIVER-RESTART-OK')
+                        manager.write_startup(); saved = load_startup(spec['name']); manager.stop()
+                    manager = Manager(spec['name'])
+                    with manager.locked():
+                        manager.start(saved); received(cold)
+                        self.assertNotIn('RECEIVER-RESTART-OK', logs())
+                        self.assertEqual(send('RESTORE-INFORM-OK', inform=True).returncode, 0); received('RESTORE-INFORM-OK')
+                        manager.write_startup(); self.assertEqual(saved['nodes'][2]['snmp_agent']['notifications']['mode'], mode)
+                finally:
+                    if manager.directory.exists():
+                        with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_agent_snmp_v2c_counters_access_fault_capture_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import copy

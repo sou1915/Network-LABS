@@ -129,7 +129,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -177,6 +177,10 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if snmpd is not None:
         from .snmp import rootfs_assets
         snmp_additions = rootfs_assets(snmpd)
+    notification_additions = []
+    if snmptrapd is not None:
+        from .snmp_notifications import rootfs_assets
+        notification_additions = rootfs_assets(snmptrapd)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -185,7 +189,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -198,6 +202,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         with (target / 'etc/group').open('a') as account:
             account.write('_lldpd:x:65534:\n')
         write_json(target / 'etc/network-labs-lldp-assets.json', {'files': [str(path) for _, path in lldp_additions]})
+    if notification_additions:
+        write_json(target / 'etc/network-labs-snmp-notification-assets.json', {'binary': '/usr/lib/network-labs/snmptrapd', 'files': [str(destination) for _, destination in notification_additions]})
     if snmp_additions:
         write_json(target / 'etc/network-labs-snmp-assets.json', {'binary': '/usr/lib/network-labs/snmpd', 'files': [str(destination) for _, destination in snmp_additions]})
     if collector_additions:
@@ -289,6 +295,8 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
+            if node.get('snmp_receiver') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmptrapd').is_file():
+                raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
             if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
@@ -394,6 +402,8 @@ class Manager:
             start_management(self)
             from .syslog_server import start_servers as start_collectors
             start_collectors(self)
+            from .snmp_notifications import start_receivers as start_notification_receivers
+            start_notification_receivers(self)
             from .snmp import start_servers as start_snmp
             start_snmp(self)
             self.state['phase'] = 'running'; self.save()
@@ -424,6 +434,8 @@ class Manager:
         prepare_collector(bundle, node)
         from .snmp import prepare_files as prepare_snmp
         prepare_snmp(bundle, node)
+        from .snmp_notifications import prepare_files as prepare_notifications
+        prepare_notifications(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):

@@ -346,3 +346,5 @@ and [LAN protocol coverage](docs/LAN_PROTOCOL_COVERAGE.md) for remaining protoco
 `example --snmp` adds a real read-only SNMPv2c agent with source/community access policy and node-local IF-MIB telemetry. See [SNMP setup and polling](docs/NATIVE_LAN_CORE.md#read-only-snmpv2c-on-a-native-node).
 
 `example --snmpv3` adds a separate read-only USM SHA-256/AES authPriv agent with protected master-key configuration and a fresh runtime engine identity. See [SNMPv3 setup and polling](docs/NATIVE_LAN_CORE.md#read-only-snmpv3-with-usm-authpriv).
+
+`example --snmp-notifications` adds actual agent coldStart traps/informs and a node-local log-only receiver, with distinct packet, ACK and log evidence. See [notification setup and loss tests](docs/NATIVE_LAN_CORE.md#snmp-notifications-traps-informs-and-a-node-local-receiver).

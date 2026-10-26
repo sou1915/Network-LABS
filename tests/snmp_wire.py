@@ -53,3 +53,33 @@ def captured_v3(data):
         if length < 8 or start + length > len(frame): raise ValueError('Truncated UDP payload')
         result.append({'source_port': source, 'target_port': target, **snmpv3(frame[start + 8:start + length])})
     return result
+
+
+def captured_notifications(data):
+    """Decode v2c notification/response PDUs, retaining exact request IDs."""
+    if data[:4] != b'\xd4\xc3\xb2\xa1' or len(data) < 24 or struct.unpack_from('<I', data, 20)[0] != 1:
+        raise ValueError('Expected little-endian Ethernet PCAP')
+    offset = 24; result = []
+    while offset < len(data):
+        if offset + 16 > len(data): raise ValueError('Truncated PCAP record')
+        size = struct.unpack_from('<I', data, offset + 8)[0]; offset += 16
+        frame = data[offset:offset + size]; offset += size
+        if len(frame) != size: raise ValueError('Truncated frame')
+        if len(frame) < 42 or frame[12:14] != b'\x08\x00' or frame[14] >> 4 != 4 or frame[23] != 17: continue
+        start = 14 + (frame[14] & 15) * 4
+        if start < 34 or start + 8 > len(frame): raise ValueError('Invalid IP/UDP header')
+        source, target, length = struct.unpack_from('!HHH', frame, start)
+        if 162 not in (source, target): continue
+        if length < 8 or start + length > len(frame): raise ValueError('Truncated UDP payload')
+        outer = list(fields(frame[start + 8:start + length]))
+        if len(outer) != 1 or outer[0][0] != 0x30: raise ValueError('Invalid SNMP sequence')
+        message = list(fields(outer[0][1]))
+        if len(message) != 3 or message[0] != (2, b'\x01'): continue
+        if message[1][0] != 4 or message[2][0] not in (0xa2, 0xa6, 0xa7): raise ValueError('Invalid v2c notification/response')
+        pdu = list(fields(message[2][1]))
+        if len(pdu) != 4 or [v[0] for v in pdu] != [2, 2, 2, 0x30]: raise ValueError('Invalid notification PDU')
+        result.append({'source_port': source, 'target_port': target, 'source_ip': '.'.join(map(str, frame[26:30])),
+                       'community': message[1][1], 'pdu_tag': message[2][0],
+                       'request_id': int.from_bytes(pdu[0][1], 'big', signed=True),
+                       'error_status': int.from_bytes(pdu[1][1], 'big'), 'varbinds': pdu[3][1]})
+    return result

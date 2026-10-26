@@ -4036,8 +4036,8 @@ SET, actual PCAP traffic, daemon restart, config drift/save refusal and restore.
 Host network baseline checks follow cleanup.
 
 This v2c profile does not enable v3. The separate [USM authPriv profile](#read-only-snmpv3-with-usm-authpriv) adds v3 authentication/encryption.
-Traps/informs, writable management, vendor MIBs, IPv6/dual-stack management
-and broad service coexistence remain separate later work. The
+The separate [notification profile](#snmp-notifications-traps-informs-and-a-node-local-receiver) adds v2c traps/informs. Writable management, vendor MIBs,
+IPv6/dual-stack management and broad service coexistence remain later work. The
 reference validation uses Ubuntu's Net-SNMP 5.9 package; no fallback agent is
 used when the trusted binary/rootfs is unavailable.
 
@@ -4165,8 +4165,8 @@ configuration, not daemon liveness, loaded argv or the runtime engine state.
 Save/restore persists the user/master-key policy, not sessions, engine
 identity, boots/time state or interface counter history. Live edits still
 require recreation. IPv6/coexistence profiles, multiple users/roles, algorithm
-selection, writable management, vendor MIBs and traps/informs remain separate
-work.
+selection, writable management, vendor MIBs and v3 notifications remain separate
+work. A separate v2c notification profile is documented below.
 
 The native v3 case uses the official Net-SNMP client with independently derived
 passphrase credentials as well as the exported master-key config. It verifies
@@ -4179,3 +4179,160 @@ client, while the long sysName marker and credentials are absent from the
 captured encrypted data. Captures after restart and declarative restore show
 different engine IDs with the same declared credentials. Drift/save refusal,
 stopped-daemon behavior and host network cleanup are also checked.
+
+## SNMP notifications: traps, informs and a node-local receiver
+
+`example --snmp-notifications` adds a real Net-SNMP `snmptrapd` receiver on
+PC1 (`192.0.2.10:162/UDP`) and a v2c notification destination on R1
+(`192.0.2.20`). The five-node topology also contains SW1, PC2 on R1's second
+LAN and PC3 (`192.0.2.30`) as an unlisted source on the management LAN.
+The polling agent keeps its existing read-only v2c policy and its separate
+polling community. Notification sending uses a distinct community.
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+sudo apt-get install busybox-static snmpd snmp snmptrapd
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --snmpd /usr/sbin/snmpd --snmptrapd /usr/sbin/snmptrapd \
+  --output "$HOME/network-labs-notifications-rootfs"
+python3 -m network_labs.appliances example --snmp-notifications \
+  --rootfs "$HOME/network-labs-notifications-rootfs" > snmp-notifications.json
+sudo python3 -m network_labs.appliances start snmp-notifications.json
+sudo python3 -m network_labs.appliances exec snmp-notifications PC1 -- \
+  /bin/busybox tail -n 20 /run/snmp-notifications.log
+```
+
+Use a new rootfs output directory. The builder copies the trusted receiver ELF
+and its transitive dependencies offline to an application-specific guest path,
+`/usr/lib/network-labs/snmptrapd`. It never starts a host daemon. Installing a
+distribution package can separately enable that package's normal host service;
+an existing trusted installation can be reused. Reference validation uses the
+Ubuntu 24.04 Net-SNMP 5.9 package and BusyBox's compiled syslogd rotation
+support. An incompatible/missing receiver or logger fails without substituting
+a simulated service.
+
+The receiver starts before agents. Startup observes its local log socket and
+actual declared UDP listener with bounded waits. R1's real Net-SNMP process
+then emits `coldStart` to the receiver. This is **agent startup**, not a claim
+that the node's Linux kernel or physical hardware rebooted. The default uses
+a trap; add `--snmp-notification-mode inform` when generating the manifest to
+use acknowledged notifications. This option requires `--snmp-notifications`.
+Only one automatic destination/mode is declared in this first profile.
+
+The node fields are:
+
+```json
+"snmp_receiver": {
+  "interface": "eth0",
+  "community": "network-labs-notify",
+  "sources": ["192.0.2.20"]
+}
+```
+
+```json
+"snmp_agent": {
+  "interface": "eth0",
+  "community": "network-labs-ro",
+  "managers": ["192.0.2.10"],
+  "notifications": {
+    "receiver": "192.0.2.10",
+    "community": "network-labs-notify",
+    "mode": "trap"
+  }
+}
+```
+
+Receiver interfaces must be static, numbered, UP and OCI-backed. The 1..16
+source addresses identify other uniquely numbered managed nodes. The sender
+requires one declared receiver whose bind address, source policy and community
+match. Both community tokens have the existing 8..64 ASCII token restriction.
+Outbound agent sessions bind the declared management source address; the
+receiver uses a source transport acceptlist plus source/community log policy.
+These are plaintext community notifications, not cryptographic authentication
+or anti-spoofing.
+
+The receiver grants **logging only**: no execution hooks or forwarding actions,
+no AgentX connection or notification-log MIB history. Its Net-SNMP
+`authCommunity log` policy also permits **legacy v1 notifications** under the
+same source/community restrictions; this does not enable v1 polling on the
+agent. Automatic generation, retries and the primary reference are v2c.
+SNMPv3/USM polling remains available in its separate profile; v3 notifications
+are not added here, and `notifications` on a USM agent is refused rather than
+silently sending an unencrypted notification.
+
+Accepted notification payloads and daemon diagnostics go through the node's
+actual local UNIX syslog socket to BusyBox syslogd. The log rotates at a
+64 KiB threshold with one backup (`/run/snmp-notifications.log.0`), in the
+existing 8 MiB `/run` tmpfs. The logger starts with a restrictive umask.
+Long notification payloads may be truncated by syslog, and reception/logging
+can fail under load. There is no durable queue, archive, search service or
+exactly-once guarantee. `snmp_receiver` cannot coexist with the management
+profile's BusyBox Syslog sender on the same node, because both would own its
+local logging daemon/socket. Other coexistence profiles remain unvalidated.
+
+To send explicit **operator test notifications**, use the real host Net-SNMP
+client in R1's network namespace. Generate a protected new client directory
+from the declaration so the community is not a command-line argument:
+
+```bash
+umask 077
+python3 - <<'PY'
+from pathlib import Path
+from network_labs.appliances.spec import load
+from network_labs.appliances.snmp_notifications import client_config
+spec = load('snmp-notifications.json')
+node = next(n for n in spec['nodes'] if n['name'] == 'R1')
+directory = Path('snmp-notification-client')
+directory.mkdir(mode=0o700)
+path = directory / 'snmp.conf'
+with path.open('x') as target:
+    target.write(client_config(node))
+path.chmod(0o600)
+PY
+SNMP_R1_NS=$(python3 -m network_labs.appliances plan snmp-notifications.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "R1"))')
+sudo ip netns exec "$SNMP_R1_NS" env SNMPCONFPATH="$PWD/snmp-notification-client" \
+  snmptrap -m '' -t 1 -r 0 192.0.2.10 0 .1.3.6.1.4.1.8072.2.3.0.1 \
+  .1.3.6.1.4.1.8072.2.3.2.2.0 s 'OPERATOR-TRAP-TEST'
+sudo ip netns exec "$SNMP_R1_NS" env SNMPCONFPATH="$PWD/snmp-notification-client" \
+  snmptrap -m '' -Ci -t 1 -r 1 192.0.2.10 0 .1.3.6.1.4.1.8072.2.3.0.1 \
+  .1.3.6.1.4.1.8072.2.3.2.2.0 s 'OPERATOR-INFORM-TEST'
+sudo python3 -m network_labs.appliances exec snmp-notifications PC1 -- \
+  /bin/busybox tail -n 20 /run/snmp-notifications.log
+```
+
+These commands use the Net-SNMP **example heartbeat** notification and its
+example name varbind. Uptime `0` is an explicit test value, not an observed
+node uptime. They do not claim a real interface/link event occurred or that
+an automatic periodic heartbeat service exists. The host client uses R1's
+network connectivity but is outside its PID/filesystem/cgroup accounting.
+The automatically generated agent coldStart does originate inside the guest
+agent process. Numeric OIDs avoid optional textual MIB packages.
+
+A trap does not wait for a response: local send success is not delivery proof.
+An inform expects a matching Response-PDU; `-t 1 -r 1` permits one retry, so a
+lost response can produce two requests with the same request ID. **No ACK is
+not proof of non-delivery**: the receiver may have logged the message while
+the ACK was lost. An ACK is not proof of durable storage, either. Compare
+client outcome, actual capture and receiver log as distinct observations.
+
+Start a bounded capture on PC1 eth0 in another terminal before sending, using
+`--filter 'udp port 162'`. It shows plaintext communities and payloads. The
+native case correlates actual Trap2, Inform and Response PDUs by request ID
+and UDP endpoint, verifies two inform attempts under loss, and verifies that
+traps have no response. It separately drops incoming notifications and outgoing
+ACKs using temporary rules confined to PC1's network namespace; host firewall
+rules are unchanged. Wrong communities and IP-reachable unlisted sources are
+not logged. Both automatic modes, legacy v1 reception, rotating logs, daemon
+stop/restart, managed-config drift and declarative restore are tested.
+
+Save/inspect audit managed receiver config and logger-command metadata, not
+ongoing daemon health, loaded argv, message acceptance or delivery. Startup
+readiness is only an observation at that time. Save/restore keeps declarations,
+not notification history, retries or acknowledgements; restored nodes start
+fresh logs and agents emit a new coldStart. Live changes require recreation.
+Automatic linkDown/linkUp detection, vendor-specific event mapping, v3
+notifications, multiple sinks, durable retention and broader service/IPv6
+coexistence remain later work.

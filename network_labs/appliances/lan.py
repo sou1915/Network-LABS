@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -185,6 +185,8 @@ def validate_lan(node):
     validate_collector(node)
     from .snmp import validate_node as validate_snmp
     validate_snmp(node)
+    from .snmp_notifications import validate_node as validate_snmp_receiver
+    validate_snmp_receiver(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -325,6 +327,9 @@ def observe(manager, index, node):
         result['dhcpv6_server'] = {'policy': node['dhcpv6_server'], 'note': 'Declared pool; observed RA/server config is separate. No lease snapshot or liveness certification.'}
     if node['slaac']:
         result['slaac'] = {'interfaces': node['slaac'], 'note': 'Kernel RA acceptance policy; address/default route acquisition must be observed separately.'}
+    if node.get('snmp_receiver'):
+        from .snmp_notifications import observe as observe_snmp_receiver
+        result['snmp_receiver'] = observe_snmp_receiver(manager, node)
     if node.get('snmp_agent'):
         from .snmp import observe as observe_snmp
         result['snmp_agent'] = observe_snmp(manager, node)

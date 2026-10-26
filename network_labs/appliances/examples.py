@@ -646,3 +646,14 @@ def snmpv3_lab(rootfs, user):
     agent = spec['nodes'][2]['snmp_agent']; del agent['community']
     agent['usm'] = copy.deepcopy(user)
     return validate(spec)
+
+
+def snmp_notifications_lab(rootfs, mode='trap'):
+    """Genuine agent coldStart plus an authorized receiver and an untrusted peer."""
+    spec = snmp_lab(rootfs); spec['name'] = 'snmp-notifications'
+    spec['nodes'][0]['snmp_receiver'] = {'interface': 'eth0', 'community': 'network-labs-notify', 'sources': ['192.0.2.20']}
+    spec['nodes'][2]['snmp_agent']['notifications'] = {'receiver': '192.0.2.10', 'community': 'network-labs-notify', 'mode': mode}
+    spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()), 'interfaces': {'eth0': '192.0.2.30/24'}})
+    spec['nodes'][1]['interfaces']['eth2'] = ''
+    spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']])
+    return validate(spec)
