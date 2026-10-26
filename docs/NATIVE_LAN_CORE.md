@@ -4383,7 +4383,7 @@ printf '%s' "$snmp_privacy_secret" > snmp-privacy.txt
 unset snmp_privacy_secret
 
 python3 -m network_labs.appliances example --snmpv3-informs \
-  --rootfs "$HOME/network-labs-snmp-rootfs" --snmp-user notify \
+  --rootfs "$HOME/network-labs-notifications-rootfs" --snmp-user notify \
   --snmp-auth-passphrase-file snmp-auth.txt \
   --snmp-privacy-passphrase-file snmp-privacy.txt > snmpv3-informs.json
 
