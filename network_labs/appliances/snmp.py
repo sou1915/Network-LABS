@@ -139,7 +139,9 @@ def command(node=None, engine_id=None):
 
 def start_server(manager, node):
     manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/snmp')
-    manager.crun('exec', '--detach', node['name'], *command(node, secrets.token_hex(12)), log=manager.directory / node['name'] / 'snmp.log')
+    from .snmp_traps import is_sender, sender_token
+    token = sender_token(manager, node) if is_sender(node) else secrets.token_hex(12)
+    manager.crun('exec', '--detach', node['name'], *command(node, token), log=manager.directory / node['name'] / 'snmp.log')
 
 
 def start_servers(manager):

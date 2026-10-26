@@ -350,3 +350,5 @@ and [LAN protocol coverage](docs/LAN_PROTOCOL_COVERAGE.md) for remaining protoco
 `example --snmp-notifications` adds actual agent coldStart traps/informs and a node-local log-only receiver, with distinct packet, ACK and log evidence. See [notification setup and loss tests](docs/NATIVE_LAN_CORE.md#snmp-notifications-traps-informs-and-a-node-local-receiver).
 
 `example --snmpv3-informs` adds a USM-only log receiver and real SHA-256/AES authPriv informs, with receiver discovery and fresh engine identities. See [encrypted inform setup](docs/NATIVE_LAN_CORE.md#snmpv3-authpriv-informs).
+
+`example --snmpv3-traps` adds two real authPriv trap agents with fresh sender-engine bindings and a log receiver that retires rotated identities. See [managed sender-engine traps](docs/NATIVE_LAN_CORE.md#snmpv3-authpriv-traps-with-managed-sender-engines).

@@ -318,6 +318,162 @@ class RealContainerTests(unittest.TestCase):
         for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
 
+    def test_appliance_aa_agent_snmp_v3_traps_engine_binding_rotation_loss_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import copy
+        import threading
+        from network_labs.appliances.examples import snmpv3_traps_lab
+        from network_labs.appliances.snmp import usm_credentials, start_server
+        from network_labs.appliances.snmp_traps import wire_engine, stop_receiver
+        from network_labs.appliances.snmp_notifications import start_trapd, LOG, HEARTBEAT, HEARTBEAT_RATE, HEARTBEAT_NAME
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.firewall import fingerprint
+        from snmp_wire import captured_v3
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder); auth, privacy = 'native-trap-auth', 'native-trap-privacy'; user = usm_credentials('notify', auth, privacy)
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', snmpd=shutil.which('snmpd'), snmptrapd=shutil.which('snmptrapd'))
+            spec = snmpv3_traps_lab(rootfs, user); spec['name'] = 'trap-v3-' + str(os.getpid()); manager = Manager(spec['name'])
+            # Independent official clients derive keys from the fixture phrases.
+            clear = '\n'.join(['defVersion 3', 'defSecurityLevel authPriv', 'defSecurityName notify', 'defAuthType SHA-256',
+                                'defPrivType AES', 'defAuthPassphrase ' + auth, 'defPrivPassphrase ' + privacy, ''])
+            clients = {}
+            for label, text in {'good': clear, 'auth': clear.replace(auth, 'wrong-trap-auth'),
+                                'privacy': clear.replace(privacy, 'wrong-trap-privacy'), 'user': clear.replace('Name notify', 'Name unknown'),
+                                'low': clear.replace('authPriv', 'authNoPriv'), 'none': clear.replace('authPriv', 'noAuthNoPriv')}.items():
+                directory = folder / label; directory.mkdir(mode=0o700)
+                path = directory / 'snmp.conf'; path.write_text(text); path.chmod(0o600); clients[label] = directory
+            cold = '.1.3.6.1.6.3.1.1.5.1'
+            def logs(): return manager.crun('exec', 'PC1', '/bin/busybox', 'cat', LOG, check=False).stdout
+            def received(token, minimum=1):
+                deadline = time.monotonic() + 7
+                while time.monotonic() < deadline:
+                    if logs().count(token) >= minimum: return
+                    time.sleep(.1)
+                log = manager.directory / 'PC1/snmptrapd.log'
+                self.fail('USM trap not logged: ' + token + ': ' + logs() + (log.read_text(errors='replace') if log.exists() else ''))
+            def token(name='R1'): return manager.state['snmp_trap_engines'][name]['token']
+            def send(marker, *, name='R1', engine=None, label='good', source=None):
+                # Fixture-only boots/time 1,1 is within the short live window;
+                # it is not an observation or a generic manual-send recipe.
+                index = source if source is not None else (2 if name == 'R1' else 5)
+                return manager.ns(index, 'env', 'SNMPCONFPATH=' + str(clients[label]), 'snmptrap', '-m', '',
+                                  '-e', '0x' + wire_engine(engine or token(name)), '-Z', '1,1', '192.0.2.10', '0', HEARTBEAT,
+                                  HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's', marker, check=False, timeout=4)
+            def stop_agent():
+                manager.crun('exec', 'R1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/snmpd.pid)"')
+                deadline = time.monotonic() + 5
+                while manager.ns(2, 'ss', '-H', '-lun', 'sport = :161').stdout:
+                    if time.monotonic() >= deadline: self.fail('Old trap agent still listens')
+                    time.sleep(.05)
+            def begin(label, seconds):
+                event = threading.Event(); path = folder / (label + '.pcap')
+                future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', path,
+                                     seconds=seconds, packets=1000, expression='udp port 162', ready=event.set)
+                self.assertTrue(event.wait(5)); return path, future
+            def evidence(path, future):
+                self.assertGreater(future.result(timeout=25)['captured_packets'], 0)
+                rows = captured_v3(path.read_bytes(), port=162)
+                self.assertTrue(rows); self.assertFalse(any(r['source_port'] == 162 for r in rows), 'Unconfirmed traps must not acquire an ACK/report')
+                for row in rows:
+                    if row['flags'] & 3 == 3:
+                        self.assertEqual(row['flags'], 3); self.assertEqual(row['auth_length'], 24)
+                        self.assertEqual(row['privacy_length'], 8); self.assertEqual(row['data_tag'], 4)
+                for secret in (auth, privacy, user['auth_master_key'], user['privacy_master_key']): self.assertNotIn(secret.encode(), path.read_bytes())
+                return rows
+            try:
+                with manager.locked():
+                    manager.start(spec); received(cold, 2)
+                    self.assertIn('192.0.2.20', logs()); self.assertIn('192.0.2.40', logs())
+                    first, peer = token(), token('R2'); self.assertNotEqual(first, peer)
+                    before = copy.deepcopy(manager.read())
+                    with self.assertRaises(RuntimeFailure): start_server(manager, spec['nodes'][2])
+                    self.assertEqual(manager.read(), before)
+                path, future = begin('rotation-loss', 15)
+                with manager.locked():
+                    marker = 'PRIVATE-USM-TRAP-NOT-ON-WIRE'
+                    self.assertEqual(send(marker).returncode, 0); received(marker)
+                    self.assertEqual(send('PEER-BEFORE', name='R2').returncode, 0); received('PEER-BEFORE')
+                    for label in ('auth', 'privacy', 'user', 'low', 'none'):
+                        self.assertEqual(send('REJECT-' + label, label=label).returncode, 0)
+                    self.assertEqual(send('UNKNOWN-ENGINE', engine='f' * 24).returncode, 0)
+                    manager.crun('exec', 'PC3', '/bin/ping', '-c', '1', '-W', '2', '192.0.2.10')
+                    self.assertEqual(send('WRONG-SOURCE', source=4).returncode, 0)
+                    stop_agent()
+                    config = manager.directory / 'PC1/files/snmp-trap-users.conf'; original = config.read_text()
+                    config.write_text(original + '# drift\n'); before = copy.deepcopy(manager.read())
+                    with self.assertRaises(RuntimeFailure): manager.write_startup()
+                    with self.assertRaises(RuntimeFailure): start_server(manager, spec['nodes'][2])
+                    self.assertEqual(manager.read(), before); self.assertTrue(manager.ns(0, 'ss', '-H', '-lun', 'sport = :162').stdout)
+                    config.write_text(original); previous = logs().count(cold)
+                    start_server(manager, spec['nodes'][2]); received(cold, previous + 1)
+                    second = token(); self.assertNotEqual(second, first); self.assertEqual(token('R2'), peer)
+                    self.assertNotIn(wire_engine(first), config.read_text()); self.assertIn(wire_engine(peer), config.read_text())
+                    self.assertEqual(send('RETIRED-ENGINE', engine=first).returncode, 0)
+                    self.assertEqual(send('NEW-ENGINE-OK').returncode, 0); received('NEW-ENGINE-OK')
+                    self.assertEqual(send('PEER-PRESERVED', name='R2').returncode, 0); received('PEER-PRESERVED')
+                    manager.ns(0, 'nft', 'add', 'table', 'inet', 'nlab_trap_loss')
+                    manager.ns(0, 'nft', 'add', 'chain', 'inet', 'nlab_trap_loss', 'input', '{ type filter hook input priority -5; policy accept; }')
+                    manager.ns(0, 'nft', 'add', 'rule', 'inet', 'nlab_trap_loss', 'input', 'udp', 'dport', '162', 'drop')
+                    try:
+                        self.assertEqual(send('DROPPED-TRAP').returncode, 0); time.sleep(.3); self.assertNotIn('DROPPED-TRAP', logs())
+                    finally: manager.ns(0, 'nft', 'delete', 'table', 'inet', 'nlab_trap_loss')
+                    self.assertEqual(send('RECOVERED-TRAP').returncode, 0); received('RECOVERED-TRAP')
+                    for rejected in ('auth', 'privacy', 'user', 'low', 'none'):
+                        self.assertNotIn('REJECT-' + rejected, logs())
+                    for rejected in ('UNKNOWN-ENGINE', 'WRONG-SOURCE', 'RETIRED-ENGINE'): self.assertNotIn(rejected, logs())
+                rows = evidence(path, future)
+                for expected in (first, second, peer): self.assertTrue(any(r['engine_id'].hex() == wire_engine(expected) for r in rows))
+                self.assertTrue(any(r['source_ip'] == '192.0.2.40' for r in rows)); self.assertTrue(any(r['source_ip'] == '192.0.2.30' for r in rows))
+                self.assertNotIn(marker.encode(), path.read_bytes())
+                with manager.locked():
+                    # Receiver-only restart reloads current sender bindings;
+                    # its own fresh identity is not authoritative for traps.
+                    stop_receiver(manager, spec['nodes'][0], 0); start_trapd(manager, spec['nodes'][0], 0)
+                    self.assertEqual(send('RECEIVER-RESTART-R1').returncode, 0); received('RECEIVER-RESTART-R1')
+                    self.assertEqual(send('RECEIVER-RESTART-R2', name='R2').returncode, 0); received('RECEIVER-RESTART-R2')
+                    self.assertEqual(token(), second); self.assertEqual(token('R2'), peer)
+                    report = manager.inspect('PC1')['snmp_receiver']; self.assertTrue(report['configuration_verified'])
+                    self.assertEqual(report['provisioned_trap_engines']['R1'], '0x' + wire_engine(second))
+                    for key in (user['auth_master_key'], user['privacy_master_key']): self.assertNotIn(key, json.dumps(report))
+                    self.assertNotEqual(manager.ns(2, 'env', 'SNMPCONFPATH=' + str(clients['good']), 'snmptrap', '-m', '',
+                                                   '-v2c', '-c', 'network-labs-notify', '-Ci', '-t', '1', '-r', '0', '192.0.2.10', '0', HEARTBEAT,
+                                                   HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's', 'COMMUNITY-FALLBACK', check=False, timeout=4).returncode, 0)
+                    self.assertNotIn('COMMUNITY-FALLBACK', logs())
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertNotIn('snmp_trap_engines', saved)
+                    for value in (first, second, peer, auth, privacy): self.assertNotIn(value, json.dumps(saved))
+                    manager.stop()
+                manager = Manager(spec['name'])
+                with manager.locked():
+                    manager.start(saved); received(cold, 2)
+                    self.assertNotIn('RECEIVER-RESTART-R1', logs())
+                    third, new_peer = token(), token('R2'); self.assertNotIn(third, (first, second, peer)); self.assertNotEqual(new_peer, peer)
+                path, future = begin('restore', 4)
+                with manager.locked():
+                    self.assertEqual(send('RESTORED-R1').returncode, 0); received('RESTORED-R1')
+                    self.assertEqual(send('RESTORED-R2', name='R2').returncode, 0); received('RESTORED-R2')
+                    self.assertEqual(send('OLD-LAB-ENGINE', engine=second).returncode, 0)
+                    self.assertEqual(send('RESTORE-BARRIER').returncode, 0); received('RESTORE-BARRIER'); self.assertNotIn('OLD-LAB-ENGINE', logs())
+                rows = evidence(path, future)
+                for expected in (third, new_peer): self.assertTrue(any(r['engine_id'].hex() == wire_engine(expected) for r in rows))
+                with manager.locked(): manager.write_startup()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_agent_snmp_v3_informs_privacy_loss_receiver_restart_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import copy

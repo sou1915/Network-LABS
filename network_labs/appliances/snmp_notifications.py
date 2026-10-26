@@ -1,4 +1,4 @@
-"""Native community notifications or USM authPriv informs, with local logging."""
+"""Native community and USM notifications, with log-only local receivers."""
 import ipaddress
 import json
 from pathlib import Path
@@ -39,7 +39,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('snmp_receiver', None)
     if config is None: return
-    keys(config, ('interface', 'community', 'usm', 'sources'), 'SNMP receiver')
+    keys(config, ('interface', 'community', 'usm', 'sources', 'trap_senders'), 'SNMP receiver')
     port = config.get('interface'); values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or not values.get(port) or
             port in node['shutdown'] or node.get('startup') or (node.get('management') or {}).get('syslog_remote')):
@@ -53,6 +53,12 @@ def validate_node(node):
         validate_usm(config['usm'])
     else:
         community(config.get('community'))
+    if 'trap_senders' in config:
+        senders = config['trap_senders']
+        if (not config.get('usm') or not isinstance(senders, list) or not 1 <= len(senders) <= 16 or
+                not all(isinstance(name, str) for name in senders) or len(set(senders)) != len(senders)):
+            raise ValueError('Trap receivers require USM and 1..16 distinct managed sender names.')
+        config['trap_senders'] = sorted(senders)
     sources = config.get('sources')
     if not isinstance(sources, list) or not 1 <= len(sources) <= 16:
         raise ValueError('SNMP receiver requires 1..16 explicit source IPv4 addresses.')
@@ -72,8 +78,6 @@ def validate_sender(node):
         if 'community' in config or not agent.get('usm'):
             raise ValueError('USM notifications require a USM agent, without community fallback.')
         validate_usm(config['usm'])
-        if config.get('mode') != 'inform':
-            raise ValueError('USM notification profile supports informs only; engine-bound traps require separate provisioning.')
     else:
         if agent.get('usm'): raise ValueError('USM agents cannot downgrade notifications to community security.')
         community(config.get('community'))
@@ -94,6 +98,18 @@ def validate_lab(spec):
                 found = peers(value)
                 if len(found) != 1 or found[0]['name'] == node['name']:
                     raise ValueError('Notification source must be one other uniquely numbered managed IPv4 node.')
+            if receiver.get('trap_senders'):
+                names = {n['name']: n for n in spec['nodes']}
+                expected_sources = set()
+                for name in receiver['trap_senders']:
+                    peer = names.get(name); agent = (peer or {}).get('snmp_agent') or {}
+                    notification = agent.get('notifications') or {}
+                    if (not peer or name == node['name'] or notification.get('mode') != 'trap' or
+                            notification.get('usm') != receiver['usm'] or notification.get('receiver') != listen_address(node)):
+                        raise ValueError('Trap receiver names must identify matching USM trap senders targeting it.')
+                    expected_sources.add(sender_address(peer))
+                if expected_sources != set(receiver['sources']):
+                    raise ValueError('Trap receiver source policy must exactly match its named sender addresses.')
         sender = (node.get('snmp_agent') or {}).get('notifications')
         if sender:
             found = peers(sender['receiver'])
@@ -102,7 +118,10 @@ def validate_lab(spec):
                     destination.get('community') != sender.get('community') or destination.get('usm') != sender.get('usm') or
                     sender_address(node) not in destination['sources']):
                 raise ValueError('Notifications require one matching managed receiver credentials, bind address and source policy.')
-            if sender.get('usm') and sender['receiver'] not in node['snmp_agent']['managers']:
+            if sender.get('usm') and ((sender['mode'] == 'trap') != bool(destination.get('trap_senders')) or
+                                     (sender['mode'] == 'trap' and node['name'] not in destination['trap_senders'])):
+                raise ValueError('Choose a receiver-authoritative inform profile or an explicitly named sender-engine trap profile.')
+            if sender.get('usm') and sender['mode'] == 'inform' and sender['receiver'] not in node['snmp_agent']['managers']:
                 raise ValueError('USM inform receiver must also be an allowed agent manager for session responses.')
 
 
@@ -112,8 +131,9 @@ def sender_lines(node):
     if not config: return []
     if config.get('usm'):
         user = config['usm']
+        flags = '-Ci ' if config['mode'] == 'inform' else ''
         return ['[snmp] clientaddr ' + sender_address(node),
-                'trapsess -v3 -Ci -u ' + user['username'] + ' -l authPriv -a SHA-256 -x AES -3m 0x' + user['auth_master_key']
+                'trapsess -v3 ' + flags + '-u ' + user['username'] + ' -l authPriv -a SHA-256 -x AES -3m 0x' + user['auth_master_key']
                 + ' -3M 0x' + user['privacy_master_key'] + ' -t 1 -r 1 udp:' + config['receiver'] + ':162']
     flags = '-Ci ' if config['mode'] == 'inform' else ''
     return ['[snmp] clientaddr ' + sender_address(node),
@@ -135,6 +155,9 @@ def config_text(node):
     policy = (['createUser ' + user['username'] + ' SHA-256 -m 0x' + user['auth_master_key'] + ' AES -m 0x' + user['privacy_master_key'],
                'authUser log ' + user['username'] + ' priv'] if user else
               ['authCommunity log ' + config['community'] + ' ' + ip for ip in config['sources']])
+    if config.get('trap_senders'):
+        from .snmp_traps import USERS
+        policy = ['includeFile ' + USERS, 'authUser log ' + user['username'] + ' priv']
     return '\n'.join([
         'snmpTrapdAddr udp:' + listen_address(node) + ':162', '[snmp] persistentDir /run/snmptrapd',
         'sourceFilterType acceptlist',
@@ -162,6 +185,8 @@ def prepare_files(bundle, node):
     for name, text in {'snmp-receiver.conf': config_text(node),
                        'snmp-notification-log.json': json.dumps({'command': log_command()}, sort_keys=True, indent=2) + '\n'}.items():
         path = Path(bundle) / 'files' / name; path.write_text(text); path.chmod(0o600)
+    if node['snmp_receiver'].get('trap_senders'):
+        path = Path(bundle) / 'files/snmp-trap-users.conf'; path.write_text(''); path.chmod(0o600)
 
 
 def _wait(manager, node, check, message):
@@ -174,6 +199,9 @@ def _wait(manager, node, check, message):
 
 
 def start_trapd(manager, node, index):
+    if node['snmp_receiver'].get('trap_senders'):
+        from .snmp_traps import verify_users
+        verify_users(manager, node)
     manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/snmptrapd')
     manager.crun('exec', '--detach', node['name'], *command(node, secrets.token_hex(12)), log=manager.directory / node['name'] / 'snmptrapd.log')
     _wait(manager, node, lambda: listen_address(node) + ':162' in manager.ns(index, 'ss', '-H', '-lun', 'sport = :162', timeout=2).stdout.split(),
@@ -182,6 +210,8 @@ def start_trapd(manager, node, index):
 
 def start_receivers(manager):
     from .runtime import RuntimeFailure
+    from .snmp_traps import initialize
+    initialize(manager)
     for index, node in enumerate(manager.state['spec']['nodes']):
         if not node.get('snmp_receiver'): continue
         help_result = manager.crun('exec', node['name'], '/bin/busybox', 'syslogd', '--help', check=False, timeout=3)
@@ -197,14 +227,22 @@ def observe(manager, node):
     expected = {'snmp-receiver.conf': config_text(node),
                 'snmp-notification-log.json': json.dumps({'command': log_command()}, sort_keys=True, indent=2) + '\n'}
     files = {name: observe_config(manager, node['name'], '/lab/' + name, value) for name, value in expected.items()}
+    engines = None
+    if node['snmp_receiver'].get('trap_senders'):
+        from .snmp_traps import observe_users, provisioned_engines
+        files['snmp-trap-users.conf'] = observe_users(manager, node)
+        engines = provisioned_engines(manager, node)
     return {'configuration_verified': all(row['configuration_verified'] for row in files.values()), 'files': files,
             'address': listen_address(node), 'port': 162, 'sources': node['snmp_receiver']['sources'],
             'versions': ['3'] if node['snmp_receiver'].get('usm') else ['1', '2c'], 'log': LOG,
             'security': {'level': 'authPriv', 'username': node['snmp_receiver']['usm']['username'],
-                         'authentication': 'SHA-256', 'privacy': 'AES-128', 'engine_identity': 'Fresh per receiver start; new sessions rediscover.'}
+                         'authentication': 'SHA-256', 'privacy': 'AES-128', 'engine_identity': 'Current sender engines are provisioned; receiver engine is not authoritative for traps.' if node['snmp_receiver'].get('trap_senders') else 'Fresh per receiver start; new sessions rediscover.'}
                         if node['snmp_receiver'].get('usm') else {'level': 'community'},
+            'trap_senders': node['snmp_receiver'].get('trap_senders', []),
+            'provisioned_trap_engines': engines,
             'note': 'Managed config conformity, not ongoing liveness, receipt, authorization or log delivery. '
-                    + ('USM master keys are credential-equivalent secrets; only authPriv logging is authorized, without community fallback. Informs use the receiver engine; no engine-bound trap users are provisioned. Restart sender sessions after receiver replacement. ' if node['snmp_receiver'].get('usm') else 'Community notifications (v1/v2c) are plaintext; ')
+                    + ('USM trap users are bound to current managed sender engines; no receiver-local inform user. Sender identity rotation restarts this receiver; in-flight traps can be lost. ' if node['snmp_receiver'].get('trap_senders') else
+                       'USM master keys are credential-equivalent secrets; only authPriv logging is authorized, without community fallback. Informs use the receiver engine. Restart sender sessions after receiver replacement. ' if node['snmp_receiver'].get('usm') else 'Community notifications (v1/v2c) are plaintext; ')
                     + 'Source policy is not anti-spoofing. INFORM acknowledgement and accepted logging are separate evidence. Logs rotate at 64 KiB with one backup in volatile /run; payloads can be truncated. No execution hooks, forwarding, durable queue/history or automatic link-event mapping.'}
 
 

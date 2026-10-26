@@ -670,3 +670,16 @@ def snmpv3_informs_lab(rootfs, user):
     del agent['notifications']['community']
     agent['notifications']['usm'] = copy.deepcopy(user)
     return validate(spec)
+
+
+def snmpv3_traps_lab(rootfs, user):
+    """Two freshly identified trap senders and one explicitly bound USM sink."""
+    import copy
+    spec = snmpv3_informs_lab(rootfs, user); spec['name'] = 'snmpv3-traps'
+    agent = spec['nodes'][2]['snmp_agent']; agent['notifications']['mode'] = 'trap'
+    spec['nodes'][0]['snmp_receiver'].update(trap_senders=['R1', 'R2'], sources=['192.0.2.20', '192.0.2.40'])
+    spec['nodes'].append({'name': 'R2', 'role': 'router', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+                          'interfaces': {'eth0': '192.0.2.40/24'}, 'snmp_agent': copy.deepcopy(agent)})
+    spec['nodes'][1]['interfaces']['eth3'] = ''
+    spec['links'].append([['SW1', 'eth3'], ['R2', 'eth0']])
+    return validate(spec)

@@ -4165,9 +4165,9 @@ configuration, not daemon liveness, loaded argv or the runtime engine state.
 Save/restore persists the user/master-key policy, not sessions, engine
 identity, boots/time state or interface counter history. Live edits still
 require recreation. IPv6/coexistence profiles, multiple users/roles, algorithm
-selection, writable management, vendor MIBs and sender-engine v3 traps remain
-separate work. Separate v2c notifications and
-[USM informs](#snmpv3-authpriv-informs) are documented below.
+selection, writable management and vendor MIBs remain separate work. Separate
+v2c notifications, [USM informs](#snmpv3-authpriv-informs) and
+[sender-engine USM traps](#snmpv3-authpriv-traps-with-managed-sender-engines) are documented below.
 
 The native v3 case uses the official Net-SNMP client with independently derived
 passphrase credentials as well as the exported master-key config. It verifies
@@ -4338,8 +4338,8 @@ readiness is only an observation at that time. Save/restore keeps declarations,
 not notification history, retries or acknowledgements; restored nodes start
 fresh logs and agents emit a new coldStart. Live changes require recreation.
 Automatic linkDown/linkUp detection, vendor-specific event mapping,
-engine-bound v3 traps, multiple sinks, durable retention and broader
-service/IPv6 coexistence remain later work.
+multiple sinks, durable retention and broader service/IPv6 coexistence remain
+later work. The separate sender-engine v3 trap profile is documented below.
 
 
 ## SNMPv3 authPriv informs
@@ -4358,9 +4358,10 @@ The discovery packets and USM header metadata are visible; the authenticated
 notification varbinds are encrypted. The source-IP allowlist is not
 cryptographic anti-spoofing. An engine identity is not a network-device model.
 
-This increment does not provision SNMPv3 TRAP users, whose identities would
+The inform profile does not provision SNMPv3 TRAP users, whose identities would
 instead have to be bound to each sender engine. USM sender configuration
-therefore requires `mode: "inform"`; selecting a v3 trap is refused. Changing
+in this inform profile therefore requires `mode: "inform"`; use the
+[separate trap receiver profile](#snmpv3-authpriv-traps-with-managed-sender-engines) for sender-engine traps. Changing
 an existing receiver's identity also invalidates the old sender session's
 localization/cache: start a fresh client session, and restart the sending
 agent when replacing its receiver. There is no live session migration or
@@ -4470,9 +4471,107 @@ Logs retain the same volatile 64 KiB rotation and one backup as the v2c
 receiver. Restore recreates configuration with a fresh receiver engine and
 fresh logs; no cache, engine session, acknowledgement or notification history
 is restored. Changing credentials or receiver settings requires recreation.
-Automatic link events, sender-engine v3 traps and richer USM policies remain
-future increments.
+Automatic link events and richer USM policies remain future increments.
+Sender-engine traps use the separate profile below.
 
 References: [Net-SNMP v3 notification engine roles](https://www.net-snmp.org/wiki/index.php/TUT:Configuring_snmptrapd_to_receive_SNMPv3_notifications),
 [log-only authUser policy](https://www.net-snmp.org/docs/man/snmptrapd.conf.html),
 and [master-key/client options](https://www.net-snmp.org/docs/man/snmpcmd.html).
+
+
+## SNMPv3 authPriv traps with managed sender engines
+
+`example --snmpv3-traps` adds a six-node profile with **two actual Net-SNMP
+trap agents**, R1 and R2, and a log-only receiver on PC1. Both agents emit
+real startup coldStart traps with SHA-256 authentication and AES-128 privacy.
+The receiver authorizes the declared USM user at `priv`, only from the two
+explicit managed source addresses. No community or receiver-local inform
+user is provisioned in this profile.
+
+Unlike informs, a v3 trap uses its **sender's authoritative engine identity**.
+The controller allocates a distinct random 96-bit token for each sender before
+starting receivers, and provisions one `createUser -e ENGINEID` entry per
+sender. The tested Net-SNMP text-engine format produces a 29-byte identity;
+the native packet test compares the actual header against the provisioned
+value. This is orchestration of known managed nodes, not discovery of an
+unknown trap sender and not automatic vendor-firmware compatibility.
+
+The receiver adds a `trap_senders` list alongside its existing `usm` and
+`sources` fields. Each name must refer to a USM trap agent targeting this
+receiver with matching notification credentials. Its source addresses must
+exactly match those names. A receiver without this list retains the inform
+profile; mode mixing and community fallback are refused. Up to 16 distinct
+managed senders are allowed, with one credential policy per receiver. The
+reference reuses one username/key pair on both agents, with distinct engine
+localization for each.
+
+The deterministic receiver config includes `/lab/snmp-trap-users.conf`.
+This separate **mode-0600 managed runtime file** contains the current
+engine-bound users and is exposed read-only inside the node. Active engine
+bindings are recorded in the lab's private runtime state, not in its startup
+manifest. Inspect audits both base config and runtime user file and exposes
+public `provisioned_trap_engines` records while omitting master keys. Those
+records describe provisioning, not an independent observation of a running
+agent or loaded receiver policy. Missing bindings fail the audit; no
+configured/default identity is substituted.
+
+After building the notification-capable rootfs and creating the two private
+passphrase files as described in the inform section:
+
+```bash
+cd ~/Network-LABS
+umask 077
+python3 -m network_labs.appliances example --snmpv3-traps \
+  --rootfs "$HOME/network-labs-notifications-rootfs" --snmp-user notify \
+  --snmp-auth-passphrase-file snmp-auth.txt \
+  --snmp-privacy-passphrase-file snmp-privacy.txt > snmpv3-traps.json
+sudo python3 -m network_labs.appliances start snmpv3-traps.json
+sudo python3 -m network_labs.appliances exec snmpv3-traps PC1 -- \
+  /bin/busybox tail -n 30 /run/snmp-notifications.log
+sudo python3 -m network_labs.appliances inspect snmpv3-traps PC1
+
+sudo python3 -m network_labs.appliances save snmpv3-traps
+sudo python3 -m network_labs.appliances stop snmpv3-traps
+sudo python3 -m network_labs.appliances restore snmpv3-traps
+sudo python3 -m network_labs.appliances exec snmpv3-traps PC1 -- \
+  /bin/busybox tail -n 30 /run/snmp-notifications.log
+```
+
+Restore creates new identities for **both** senders and new logs. It does not
+restore notification history, runtime engine caches, boots/time or sessions.
+The coldStart is agent startup, not a Linux kernel or physical-device reboot.
+The JSON declaration and managed config contain credential-equivalent master
+keys; keep those files private even though original passphrases are absent.
+
+A controlled sender restart through the backend requires the old agent's UDP
+listener to be stopped first. The controller checks receiver file conformity,
+verifies the owned receiver PID/executable, stops that receiver, allocates a
+new sender identity, atomically replaces its runtime user file while preserving
+other senders' current bindings, and rebinds the receiver **before** starting
+the new agent. The old identity is removed. Drift blocks this operation before
+trust changes. A rebind failure can leave the receiver/agent unavailable; it
+does not roll back to a retired identity with reset boots/time. Full lab
+stop/restore is the public recovery path; live credential/topology changes
+still require recreation.
+
+This receiver restart creates a brief reception gap for all its senders.
+Unconfirmed traps have **no ACK or delivery retry**, so packets sent during
+that gap can be lost. Keeping peer bindings does not promise uninterrupted
+peer delivery or preservation of a receiver's USM timeliness cache. A
+receiver-only restart reloads the current sender bindings; its own fresh
+engine identity is not authoritative for traps. No complete replay/duplicate
+or exactly-once logging defense is claimed, including across receiver resets.
+Logs retain the same volatile 64 KiB threshold and one backup.
+
+The native case checks genuine coldStart from both sources, actual encrypted
+trap headers with no response packets, wrong keys/user/security-level/source
+and unknown-engine rejection, retirement of a former sender identity while
+preserving the peer, explicit node-local input loss, drift/save/start refusal,
+receiver-only restart and declarative restore. The official manual trap
+clients in that short fixture use explicit test boots/time values; those are
+not measured device values or a general recipe for injecting traps under a
+long-running agent's identity. Interface linkUp/linkDown generation, vendor
+event mapping and durable notification history remain separate work.
+
+References: [Net-SNMP sender-engine trap semantics](https://www.net-snmp.org/tutorial/tutorial-5/commands/snmptrap-v3.html)
+and [engine-localized USM users](https://www.net-snmp.org/docs/man/snmpd.conf.html).
