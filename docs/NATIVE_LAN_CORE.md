@@ -4503,7 +4503,10 @@ exactly match those names. A receiver without this list retains the inform
 profile; mode mixing and community fallback are refused. Up to 16 distinct
 managed senders are allowed, with one credential policy per receiver. The
 reference reuses one username/key pair on both agents, with distinct engine
-localization for each.
+localization for each. If notification and polling usernames differ, the
+agent also creates the local notification USM user without giving it a polling
+VACM group/access rule. One username on the same sender engine cannot carry
+contradictory polling/trap keys; choose distinct usernames for distinct keys.
 
 The deterministic receiver config includes `/lab/snmp-trap-users.conf`.
 This separate **mode-0600 managed runtime file** contains the current

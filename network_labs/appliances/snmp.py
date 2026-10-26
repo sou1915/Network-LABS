@@ -113,6 +113,13 @@ def config_text(node):
         policy = [*['com2sec NetworkLabsSecurity ' + ip + ' ' + config['community'] for ip in config['managers']],
                   'group NetworkLabsGroup v2c NetworkLabsSecurity', *views,
                   'access NetworkLabsGroup "" v2c noauth exact NetworkLabsView none none']
+    notification = config.get('notifications') or {}
+    trap_user = notification.get('usm')
+    if user and trap_user and notification.get('mode') == 'trap' and trap_user['username'] != user['username']:
+        # A sender-authoritative trap needs a local USM user. This extra
+        # credential gets no polling VACM group or access rule.
+        policy.append('createUser ' + trap_user['username'] + ' SHA-256 -m 0x' + trap_user['auth_master_key']
+                      + ' AES -m 0x' + trap_user['privacy_master_key'])
     from .snmp_notifications import sender_lines
     return '\n'.join([
         'agentAddress udp:' + listen_address(node) + ':161', '[snmp] persistentDir /run/snmp',

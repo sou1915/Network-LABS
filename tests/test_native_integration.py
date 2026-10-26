@@ -341,11 +341,12 @@ class RealContainerTests(unittest.TestCase):
             folder = Path(folder); auth, privacy = 'native-trap-auth', 'native-trap-privacy'; user = usm_credentials('notify', auth, privacy)
             rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', snmpd=shutil.which('snmpd'), snmptrapd=shutil.which('snmptrapd'))
             spec = snmpv3_traps_lab(rootfs, user); spec['name'] = 'trap-v3-' + str(os.getpid()); manager = Manager(spec['name'])
+            spec['nodes'][2]['snmp_agent']['usm'] = usm_credentials('polling', 'native-poll-auth', 'native-poll-privacy')
             # Independent official clients derive keys from the fixture phrases.
             clear = '\n'.join(['defVersion 3', 'defSecurityLevel authPriv', 'defSecurityName notify', 'defAuthType SHA-256',
                                 'defPrivType AES', 'defAuthPassphrase ' + auth, 'defPrivPassphrase ' + privacy, ''])
             clients = {}
-            for label, text in {'good': clear, 'auth': clear.replace(auth, 'wrong-trap-auth'),
+            for label, text in {'good': clear, 'poll': clear.replace('Name notify', 'Name polling').replace(auth, 'native-poll-auth').replace(privacy, 'native-poll-privacy'), 'auth': clear.replace(auth, 'wrong-trap-auth'),
                                 'privacy': clear.replace(privacy, 'wrong-trap-privacy'), 'user': clear.replace('Name notify', 'Name unknown'),
                                 'low': clear.replace('authPriv', 'authNoPriv'), 'none': clear.replace('authPriv', 'noAuthNoPriv')}.items():
                 directory = folder / label; directory.mkdir(mode=0o700)
@@ -393,6 +394,14 @@ class RealContainerTests(unittest.TestCase):
                     manager.start(spec); received(cold, 2)
                     self.assertIn('192.0.2.20', logs()); self.assertIn('192.0.2.40', logs())
                     first, peer = token(), token('R2'); self.assertNotEqual(first, peer)
+                    for label in ('poll', 'good'):
+                        result = manager.ns(0, 'env', 'SNMPCONFPATH=' + str(clients[label]), 'snmpget', '-m', '',
+                                            '-t', '1', '-r', '0', '-Oqv', '192.0.2.20', '.1.3.6.1.2.1.1.5.0', check=False, timeout=4)
+                        if label == 'poll':
+                            self.assertEqual(result.returncode, 0); self.assertEqual(result.stdout.strip().strip('"'), 'R1')
+                        else:
+                            self.assertNotEqual(result.stdout.strip().strip('"'), 'R1')
+                            self.assertTrue(result.returncode != 0 or 'No Such' in result.stdout)
                     before = copy.deepcopy(manager.read())
                     with self.assertRaises(RuntimeFailure): start_server(manager, spec['nodes'][2])
                     self.assertEqual(manager.read(), before)
@@ -449,7 +458,7 @@ class RealContainerTests(unittest.TestCase):
                     self.assertNotIn('COMMUNITY-FALLBACK', logs())
                     manager.write_startup(); saved = load_startup(spec['name'])
                     self.assertNotIn('snmp_trap_engines', saved)
-                    for value in (first, second, peer, auth, privacy): self.assertNotIn(value, json.dumps(saved))
+                    for value in (first, second, peer, auth, privacy, 'native-poll-auth', 'native-poll-privacy'): self.assertNotIn(value, json.dumps(saved))
                     manager.stop()
                 manager = Manager(spec['name'])
                 with manager.locked():

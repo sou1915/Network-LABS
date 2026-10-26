@@ -78,6 +78,9 @@ def validate_sender(node):
         if 'community' in config or not agent.get('usm'):
             raise ValueError('USM notifications require a USM agent, without community fallback.')
         validate_usm(config['usm'])
+        if (config.get('mode') == 'trap' and config['usm']['username'] == agent['usm']['username'] and
+                config['usm'] != agent['usm']):
+            raise ValueError('One sender-engine USM username cannot use different polling and trap keys; choose another notification username.')
     else:
         if agent.get('usm'): raise ValueError('USM agents cannot downgrade notifications to community security.')
         community(config.get('community'))

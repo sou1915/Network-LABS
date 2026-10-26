@@ -121,3 +121,15 @@ class USMTrapTests(unittest.TestCase):
                 second = manager.state['snmp_trap_engines']['R1']['token']; self.assertNotEqual(first, second)
                 text = (manager.directory / 'PC1/files/snmp-trap-users.conf').read_text()
                 self.assertNotIn(wire_engine(first), text); self.assertIn(wire_engine(second), text)
+
+    def test_distinct_notification_user_is_created_locally_without_polling_permission(self):
+        spec = self.spec(); spec['nodes'][2]['snmp_agent']['usm'] = usm_credentials('polling', 'other-polling-auth', 'other-polling-privacy')
+        validate(spec); text = agent_text(spec['nodes'][2])
+        self.assertIn('createUser notify SHA-256 -m 0x', text)
+        self.assertIn('createUser polling SHA-256 -m 0x', text)
+        self.assertIn('group NetworkLabsGroup usm polling', text)
+        self.assertNotIn('group NetworkLabsGroup usm notify', text)
+
+    def test_same_sender_username_cannot_have_contradictory_polling_and_trap_keys(self):
+        spec = self.spec(); spec['nodes'][2]['snmp_agent']['usm']['auth_master_key'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'different polling and trap keys'): validate(spec)
