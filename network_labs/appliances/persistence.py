@@ -32,6 +32,8 @@ def drift(manager):
         errors.extend(management_drift(manager, node))
         from .syslog_server import drift as collector_drift
         errors.extend(collector_drift(manager, node))
+        from .snmp import drift as snmp_drift
+        errors.extend(snmp_drift(manager, node))
         actual = manager.inspect(node['name'])
         if node.get('firewall') is not None:
             from .firewall import fingerprint

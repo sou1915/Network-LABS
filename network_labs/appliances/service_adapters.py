@@ -2,6 +2,8 @@
 
 
 def adapters(node, previous):
+    if (node.get('snmp_agent') or previous.get('snmp_agent')) and node != previous:
+        raise ValueError('SNMP agent nodes require lab recreation for live changes.')
     if (node.get('syslog_server') or previous.get('syslog_server')) and node != previous:
         raise ValueError('Syslog collector nodes require lab recreation for live changes.')
     if (node.get('management') or previous.get('management')) and node != previous:

@@ -623,3 +623,17 @@ def syslog_lab(rootfs):
     spec = management_lab(rootfs); spec['name'] = 'syslog-lan'
     spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.20']}
     return validate(spec)
+
+
+def snmp_lab(rootfs, community='network-labs-ro'):
+    """Read-only SNMPv2c management from PC1, with a second monitored LAN."""
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'snmp-lan'
+    router = spec['nodes'][2]; router.update(name='R1', role='router', forwarding=False,
+                                           interfaces={'eth0': '192.0.2.20/24', 'eth1': '198.51.100.1/24'})
+    spec['links'][1][1][0] = 'R1'
+    router['snmp_agent'] = {'interface': 'eth0', 'community': community, 'managers': ['192.0.2.10']}
+    spec['nodes'].append({'name': 'PC2', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+                          'interfaces': {'eth0': '198.51.100.10/24'}, 'gateway': '198.51.100.1'})
+    spec['links'].append([['R1', 'eth1'], ['PC2', 'eth0']])
+    return validate(spec)

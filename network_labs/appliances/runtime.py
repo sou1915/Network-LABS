@@ -129,7 +129,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -173,6 +173,10 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if rsyslog is not None:
         from .syslog_server import rootfs_assets
         collector_additions = rootfs_assets(rsyslog, rsyslog_modules)
+    snmp_additions = []
+    if snmpd is not None:
+        from .snmp import rootfs_assets
+        snmp_additions = rootfs_assets(snmpd)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -181,7 +185,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -194,6 +198,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         with (target / 'etc/group').open('a') as account:
             account.write('_lldpd:x:65534:\n')
         write_json(target / 'etc/network-labs-lldp-assets.json', {'files': [str(path) for _, path in lldp_additions]})
+    if snmp_additions:
+        write_json(target / 'etc/network-labs-snmp-assets.json', {'binary': '/usr/lib/network-labs/snmpd', 'files': [str(destination) for _, destination in snmp_additions]})
     if collector_additions:
         write_json(target / 'etc/network-labs-syslog-assets.json', {'files': [str(destination) for _, destination in collector_additions]})
     if management_additions:
@@ -283,6 +289,8 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
+            if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
+                raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
             if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
                 raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
@@ -386,6 +394,8 @@ class Manager:
             start_management(self)
             from .syslog_server import start_servers as start_collectors
             start_collectors(self)
+            from .snmp import start_servers as start_snmp
+            start_snmp(self)
             self.state['phase'] = 'running'; self.save()
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
@@ -412,6 +422,8 @@ class Manager:
         prepare_management(bundle, node)
         from .syslog_server import prepare_files as prepare_collector
         prepare_collector(bundle, node)
+        from .snmp import prepare_files as prepare_snmp
+        prepare_snmp(bundle, node)
         from .lldp import prepare_files as prepare_lldp
         prepare_lldp(bundle, node)
         for folder in ('upper', 'work', 'rootfs'):

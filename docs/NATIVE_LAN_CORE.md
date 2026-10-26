@@ -3926,3 +3926,116 @@ allowed source is stored, forces file rotation, stops/restarts rsyslog,
 checks sender-local logging while the receiver is down, refuses saving drift,
 and recreates the lab from saved policy with fresh logs. Host links, routes,
 rules, forwarding and nftables are checked after cleanup.
+
+## Read-only SNMPv2c on a native node
+
+`example --snmp` starts a real Net-SNMP agent on R1, UDP/161 bound to
+`192.0.2.20`. PC1 (`192.0.2.10`) is the allowed manager through SW1; PC2
+(`198.51.100.10`) is on R1's second interface and generates measurable traffic.
+R1 has IPv4 forwarding disabled: this scenario monitors two attached LANs,
+without making inter-LAN forwarding a prerequisite for querying the local
+agent. PC2 has a gateway to reach R1's management address, but is not an
+allowed SNMP manager.
+
+```bash
+cd ~/Network-LABS
+git switch feature/hybrid-appliance-runtime
+git pull --ff-only
+sudo apt-get install busybox-static snmpd snmp
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --snmpd /usr/sbin/snmpd --output "$HOME/network-labs-snmp-rootfs"
+python3 -m network_labs.appliances example --snmp \
+  --rootfs "$HOME/network-labs-snmp-rootfs" > snmp-lan.json
+sudo python3 -m network_labs.appliances start snmp-lan.json
+SNMP_PC1_NS=$(python3 -m network_labs.appliances plan snmp-lan.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "PC1"))')
+sudo ip netns exec "$SNMP_PC1_NS" snmpget -m '' -v2c -c network-labs-ro \
+  -t 1 -r 0 -On 192.0.2.20 .1.3.6.1.2.1.1.5.0 .1.3.6.1.2.1.1.3.0
+sudo ip netns exec "$SNMP_PC1_NS" snmpwalk -m '' -v2c -c network-labs-ro \
+  -t 1 -r 0 -On 192.0.2.20 .1.3.6.1.2.1.31.1.1.1.1
+```
+
+Use a new rootfs destination. The builder only copies the trusted executable
+and its resolved ELF dependencies, never starting a host daemon. Installing
+the distribution package can separately enable its normal host service under
+that package's policy; an existing trusted installation can be reused.
+The guest binary lives at `/usr/lib/network-labs/snmpd` to separate it from
+the host service's pathname profile. Host AppArmor policy is unchanged.
+
+The clients in the commands above are the host's real Net-SNMP tools running
+in **PC1's network namespace**. Their packets use PC1's network connectivity;
+the clients are not added to the guest rootfs or included in node resource
+accounting. `-m ''` and numeric OIDs avoid requiring optional textual MIB
+packages. No simulated SNMP response or topology-derived counter is used.
+
+The manifest field is:
+
+```json
+"snmp_agent": {
+  "interface": "eth0",
+  "community": "network-labs-ro",
+  "managers": ["192.0.2.10"]
+}
+```
+
+This first profile accepts 1..16 explicit IPv4 manager addresses, each
+identifying one other uniquely numbered managed node. The agent interface
+must be numbered, administratively UP and OCI-backed. The community token is
+8..64 ASCII letters, digits, underscores or hyphens. The example's token is
+publicly documented lab data. To supply another token, use
+`example --snmp --snmp-community-file PATH --rootfs ROOTFS`.
+
+SNMPv2c carries its community and telemetry in plaintext. The community is
+also present in the generated manifest and declarative startup configuration;
+protect these files accordingly. The managed agent config is mode 0600 and
+mounted in the node's read-only `/lab`. The SNMP inspect section reports file
+conformity without echoing the community. Source-IP access restrictions are
+not anti-spoofing or cryptographic authentication.
+
+The VACM group explicitly permits **v2c only**, with a read view and no write
+or notification view. SNMPv1 is not granted access. Wrong communities and
+unlisted sources are refused; SET requests cannot change interface state.
+The exposed view contains only:
+
+| Object/subtree | Meaning |
+|---|---|
+| `.1.3.6.1.2.1.1.5.0` | Declared node sysName |
+| `.1.3.6.1.2.1.1.3.0` | Agent sysUpTime, not host/node boot time |
+| `.1.3.6.1.2.1.2` | ifNumber and standard ifTable |
+| `.1.3.6.1.2.1.31.1.1` | ifXTable, including ifName and 64-bit octet counters |
+
+IF-MIB values come from the node's Linux network namespace. Interface index,
+state and counters reflect the kernel; they are not vendor hardware
+telemetry. Host-resource, CPU, filesystem, process and arbitrary enterprise
+OID trees are not exposed. Only the system/interface/VACM modules are
+selected; no custom execution extensions, AgentX service or trap destination
+is configured. GETBULK is limited to 10 repetitions and 32 total responses.
+This is not a complete MIB implementation or a query rate limiter.
+
+For the `eth1` ifIndex returned by the walk, query the counter using numeric
+OID `.1.3.6.1.2.1.31.1.1.1.6.INDEX` (ifHCInOctets), then generate traffic:
+
+```bash
+sudo python3 -m network_labs.appliances exec snmp-lan PC2 -- \
+  /bin/ping -c 5 -s 512 198.51.100.1
+```
+
+Poll the counter again; Net-SNMP interface data may be cached for several
+seconds. Do not assume an ifIndex is stable across lab recreation. A PCAP
+capture on R1 eth0 with `--filter 'udp port 161'`, started in another terminal
+before querying, observes the actual plaintext requests and responses.
+
+Save audits the managed config; restore recreates the declared agent policy.
+Agent uptime, runtime state, interface indexes and counters are not startup
+snapshots. `configuration_verified` does not certify liveness, the loaded
+policy or a successful query. Live agent-node changes require recreation.
+The native case verifies real GET/walk responses, node-only interfaces,
+Counter64 growth against kernel byte counters after real ICMP traffic,
+wrong-community/source/version rejection, hidden host-resource OIDs, refused
+SET, actual PCAP traffic, daemon restart, config drift/save refusal and restore.
+Host network baseline checks follow cleanup.
+
+SNMPv3/USM, traps/informs, writable management, vendor MIBs, IPv6/dual-stack
+management and broad service coexistence remain separate later work. The
+reference validation uses Ubuntu's Net-SNMP 5.9 package; no fallback agent is
+used when the trusted binary/rootfs is unavailable.
