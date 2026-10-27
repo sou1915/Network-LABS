@@ -122,6 +122,11 @@ def main(arguments=None):
     service.add_argument('--path', default='/')
     service.add_argument('--timeout', type=int, default=3, help='Deadline per wire stage, 1..5 seconds.')
     service.add_argument('--json', action='store_true')
+    tftp = commands.add_parser('tftp-read', help='Read a bounded TFTP file from a managed host without saving it.')
+    tftp.add_argument('name'); tftp.add_argument('source'); tftp.add_argument('server'); tftp.add_argument('filename')
+    tftp.add_argument('--timeout', type=int, default=5, help='Total transfer deadline, 1..10 seconds.')
+    tftp.add_argument('--sha256', help='Optional expected SHA-256 of the complete transfer.')
+    tftp.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
     sntp_demo.add_argument('--server-offset-seconds', type=int, default=0, help='Temporary educational server offset from host time, -86400..86400 seconds.')
@@ -282,6 +287,11 @@ def main(arguments=None):
                     from .service_probe import probe, render
                     result = probe(manager, args.source, args.target, protocol=args.protocol,
                                    port=args.port, path=args.path, timeout=args.timeout)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'tftp-read':
+                    from .tftp import read, render
+                    result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'sntp-demo':

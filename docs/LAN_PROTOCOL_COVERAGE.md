@@ -13,7 +13,7 @@ the educational canvas/Wasm engine remains separate.
 | SNMP | Separate read-only IPv4 v2c and v3 USM SHA-256/AES authPriv agents; manager policy, sysName/agent uptime, real IF-MIB counters; v2c trap/inform and separate v3 authPriv inform/sender-engine trap profiles with log-only receivers and packet/loss/restore tests; selected physical IF-MIB up/down observations via native DisMan | Vendor-specific events, broader operational states/event sources, richer user/algorithm policy, vendor MIBs, IPv6 and broader coexistence |
 | NTP/SNTP | One unauthenticated IPv4 SNTP query; temporary educational responder; experimental managed chronyd relay and explicitly isolated local-reference lab with allowlisted clients, without clock writes | Validate chronyd end-to-end in native labs, independent node clock representation, broader upstream policy, authentication and IPv6 |
 | AAA/access | Planned | RADIUS, TACACS+, 802.1X/EAP and policy tests |
-| File services | Planned | TFTP, FTP and SFTP/PXE profiles with actual transfers |
+| File services | Bounded read-only IPv4 TFTP octet transfer and optional SHA-256 check against an existing server | Managed TFTP server, file persistence/write, retransmission, FTP, SFTP and PXE |
 | IPv4/IPv6 | Real addressing, ARP/NDP/DAD, ICMP, static routing; static routed dual-stack | Dynamic dual-stack combinations, IPv6 SVIs/subinterfaces, IPv6 policy/security |
 | DHCP/DNS | IPv4 leases/reservations/relay/multi-pool, local DNS A; IPv6 IA_NA and RA/SLAAC subsets | DHCPv6 relay/PD/stateless, IPv6 DNS provisioning, advanced DNS/DNSSEC |
 | HTTP | BusyBox sample service and bounded DNS/TCP/HTTP HEAD probes | HTTPS/TLS, redirects/application profiles, IPv6 service probes |

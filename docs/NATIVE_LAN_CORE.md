@@ -3229,6 +3229,25 @@ reacquire leases and restore name-based HTTP. Host links/routes/rules/nft/forwar
 remain checked after cleanup. No lossless recovery or whole-application resource
 budget is inferred from these checks.
 
+### Bounded TFTP read from a managed node
+
+Given a running lab with a single-interface OCI host and an existing TFTP
+server, `tftp-read` reads one file in octet mode over UDP/69 and the server's
+selected transfer port. Its positional arguments are the actual lab name,
+source node, server IPv4 address and filename. Only a single
+ASCII filename without directories is supported. The response gives byte count
+and SHA-256; use `--sha256 HEX_DIGEST` to compare with a known expected digest,
+or `--json` for structured evidence. Nothing is written to disk.
+
+The deadline is 1..10 seconds (`--timeout`, default 5); at most 65536 bytes and
+256 datagrams are accepted. The sender IP and transfer port are checked after
+the first DATA response. TFTP is unauthenticated: sender checks and a digest
+are not proof of identity or integrity unless the expected digest is trusted.
+There is no DNS, IPv6, file write, retransmission, option negotiation or final
+ACK dally. Timeout, size limit or protocol errors are reported without claiming
+their underlying cause. This client requires a separate existing TFTP server;
+there is no managed server in this profile yet.
+
 ### Explicit DNS, TCP, HTTP and SNTP service probes
 
 An existing reachable NTP server can be queried from a running single-interface

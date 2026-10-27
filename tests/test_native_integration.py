@@ -55,6 +55,46 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_tftp_read_crosses_real_veth_and_bridge(self):
+        import hashlib
+        import selectors
+        from network_labs.appliances.tftp import read as tftp_read
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        server_code = '''import socket,struct
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.bind(("192.0.2.20",69)); s.settimeout(8)
+print("ready",flush=True)
+request,peer=s.recvfrom(1024)
+assert request==b"\\x00\\x01sample.bin\\x00octet\\x00"
+t=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); t.bind(("192.0.2.20",0)); t.settimeout(5)
+t.sendto(struct.pack("!HH",3,1)+b"TFTP lab\\n",peer)
+ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = example(rootfs); spec['name'] = 'tftp-test-' + str(os.getpid()); manager = Manager(spec['name'])
+            process = None
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    process = subprocess.Popen(['ip', 'netns', 'exec', namespace(spec, 2), sys.executable, '-I', '-c', server_code],
+                                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(process.stdout, selectors.EVENT_READ)
+                        self.assertTrue(selector.select(timeout=5), 'TFTP test server not ready')
+                        self.assertEqual(process.stdout.readline().strip(), 'ready')
+                    expected = hashlib.sha256(b'TFTP lab\n').hexdigest()
+                    result = tftp_read(manager, 'PC1', '192.0.2.20', 'sample.bin', expected_sha256=expected)
+                    self.assertEqual(result['status'], 'passed', result)
+                    self.assertTrue(result['hash_matches'])
+                    _, error = process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, 0, error)
+                finally:
+                    if process is not None and process.poll() is None:
+                        process.kill(); process.communicate()
+                    if manager.directory.exists(): manager.stop()
+
     def test_ntp_local_reference_relay_and_client_with_real_chronyd(self):
         from network_labs.appliances.examples import ntp_lab
         from network_labs.appliances.service_probe import probe
