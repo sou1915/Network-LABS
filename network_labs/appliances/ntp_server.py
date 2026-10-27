@@ -1,11 +1,14 @@
 """Bounded chronyd server with an explicit upstream; never controls host time."""
 import ipaddress
 from pathlib import Path
+import re
+import subprocess
 
 from .service_config import observe_config
 
 BINARY = '/usr/lib/network-labs/chronyd'
 CONFIG = '/lab/ntp-server.conf'
+PIDFILE = '/run/network-labs-chronyd.pid'
 
 
 def validate_node(node):
@@ -61,7 +64,7 @@ def config_text(node):
     config = node['ntp_server']
     address = str(ipaddress.IPv4Interface(addresses(node)[config['interface']]).ip)
     source = 'server ' + config['upstream'] + ' iburst' if 'upstream' in config else 'local stratum ' + str(config['local_stratum'])
-    return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress /run/network-labs-chronyd.sock', 'pidfile /run/network-labs-chronyd.pid',
+    return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress /run/network-labs-chronyd.sock', 'pidfile ' + PIDFILE,
                       source,
                       *['allow ' + client + '/32' for client in config['clients']], ''])
 
@@ -87,11 +90,42 @@ def start_servers(manager):
         manager.crun('exec', '--detach', node['name'], *command(), log=manager.directory / node['name'] / 'chronyd.log')
 
 
+def observe_process(manager, node):
+    """A pidfile and matching /proc argv are observations, not service health."""
+    from .runtime import RuntimeFailure
+    result = {'status': 'unknown', 'pid': None, 'detail': None}
+    try:
+        pidfile = manager.crun('exec', node['name'], '/bin/busybox', 'cat', PIDFILE, check=False, timeout=3)
+        if pidfile.returncode or not re.fullmatch(r'[0-9]{1,10}\s*', pidfile.stdout):
+            result['detail'] = 'PID file missing, unreadable or invalid.'
+            return result
+        pid = int(pidfile.stdout.strip())
+        if not 1 <= pid <= 2147483647:
+            result['detail'] = 'PID outside valid range.'
+            return result
+        result['pid'] = pid
+        proc = manager.crun('exec', node['name'], '/bin/busybox', 'cat', '/proc/' + str(pid) + '/cmdline', check=False, timeout=3)
+        if proc.returncode or not proc.stdout:
+            result['detail'] = 'PID command line unavailable; process may have stopped.'
+            return result
+        args = proc.stdout.split('\0')
+        if args[-1] == '':
+            args.pop()
+        if args != command():
+            result.update(status='mismatch', detail='PID command line differs from managed chronyd invocation.')
+            return result
+        result.update(status='observed', detail='PID and expected invocation observed at read time.')
+        return result
+    except (OSError, RuntimeFailure, subprocess.TimeoutExpired, UnicodeError, ValueError) as error:
+        result['detail'] = str(error)[:300]
+        return result
+
+
 def observe(manager, node):
     result = observe_config(manager, node['name'], CONFIG, config_text(node))
-    return {'configuration_verified': result['configuration_verified'], 'file': result,
+    return {'configuration_verified': result['configuration_verified'], 'file': result, 'process': observe_process(manager, node),
             'upstream': node['ntp_server'].get('upstream'), 'local_stratum': node['ntp_server'].get('local_stratum'), 'clients': node['ntp_server']['clients'],
-            'note': 'Configuration conformity only; not daemon liveness, synchronization or delivery. Local reference does not prove accurate time. No clock adjustment; unauthenticated IPv4 NTP.'}
+            'note': 'File and PID/argv are separate point-in-time observations, not proof of NTP readiness, synchronization or delivery. PID reuse or process changes may occur. Local reference does not prove accurate time. No clock adjustment; unauthenticated IPv4 NTP.'}
 
 
 def drift(manager, node):

@@ -3299,8 +3299,12 @@ start the host service. The node starts chronyd with `-x` and without
 `CAP_SYS_TIME`, so it cannot discipline the shared host clock; it does not
 provide an independent node clock. It allows only declared downstream addresses,
 disables the network command port. An upstream that is unreachable or unsynchronized may prevent service
-to clients. Configuration inspection checks the file, not process liveness or
-synchronization. Live configuration changes require lab recreation. This
+to clients. `inspect LAB NODE` checks the configuration file and separately
+reads the PID file and `/proc/PID/cmdline` against the expected invocation.
+Process status is `observed`, `mismatch` or `unknown`. These sequential readings
+are not atomic; the process can exit or its PID can be reused. A matching
+invocation does not prove UDP/123 readiness, synchronization or delivery.
+Live configuration changes require lab recreation. This
 profile is experimental: the chronyd binary and privileged network namespaces
 were unavailable in the development environment, so actual daemon startup and
 end-to-end synchronization have not yet been verified there. NTP is unauthenticated.

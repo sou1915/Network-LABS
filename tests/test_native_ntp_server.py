@@ -12,7 +12,7 @@ from contextlib import redirect_stderr
 
 from network_labs.appliances.spec import example, validate
 from network_labs.appliances.runtime import oci_config, RuntimeFailure
-from network_labs.appliances.ntp_server import command, config_text, prepare_files, start_servers, drift
+from network_labs.appliances.ntp_server import command, config_text, prepare_files, start_servers, drift, observe_process, observe
 
 
 def ntp_spec():
@@ -25,6 +25,29 @@ def ntp_spec():
 
 
 class NtpServerTests(unittest.TestCase):
+    def test_process_evidence_requires_pid_and_exact_managed_arguments(self):
+        node = ntp_spec()['nodes'][2]; manager = Mock()
+        def reply(stdout='', code=0):
+            return subprocess.CompletedProcess([], code, stdout, '')
+        manager.crun.side_effect = [reply('17\n'), reply('\0'.join(command()) + '\0')]
+        evidence = observe_process(manager, node)
+        self.assertEqual(evidence['status'], 'observed'); self.assertEqual(evidence['pid'], 17)
+        manager.crun.side_effect = [reply('17\n'), reply('\0'.join(x for x in command() if x != '-x') + '\0')]
+        self.assertEqual(observe_process(manager, node)['status'], 'mismatch')
+        for bad in ('', '17;id', '0', '99999999999', '-1'):
+            manager.crun.side_effect = [reply(bad)]
+            self.assertEqual(observe_process(manager, node)['status'], 'unknown')
+        manager.crun.side_effect = [reply('17\n'), reply('', 1)]
+        self.assertEqual(observe_process(manager, node)['status'], 'unknown')
+
+    def test_file_conformity_is_independent_of_process_observation(self):
+        node = ntp_spec()['nodes'][2]; manager = Mock()
+        with patch('network_labs.appliances.ntp_server.observe_config', return_value={'configuration_verified': True}), \
+             patch('network_labs.appliances.ntp_server.observe_process', return_value={'status': 'unknown'}):
+            report = observe(manager, node)
+        self.assertTrue(report['configuration_verified'])
+        self.assertEqual(report['process']['status'], 'unknown')
+        self.assertIn('not proof', report['note'])
     def test_isolated_reference_scenario_and_cli(self):
         from network_labs.appliances.examples import ntp_lab
         from network_labs.appliances.__main__ import main

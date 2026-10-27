@@ -79,7 +79,19 @@ class RealContainerTests(unittest.TestCase):
                         if time.monotonic() >= deadline: self.fail('Relay did not synchronize: ' + json.dumps(downstream))
                         time.sleep(.5)
                     self.assertEqual(downstream['stages'][-1]['stratum'], 11)
-                    self.assertTrue(manager.inspect('PC2')['ntp_server']['configuration_verified'])
+                    service = manager.inspect('PC2')['ntp_server']
+                    self.assertTrue(service['configuration_verified'])
+                    self.assertEqual(service['process']['status'], 'observed', service)
+                    pid = service['process']['pid']
+                    manager.crun('exec', 'PC2', '/bin/busybox', 'kill', '-TERM', str(pid))
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        stopped = manager.inspect('PC2')['ntp_server']
+                        if stopped['process']['status'] != 'observed': break
+                        time.sleep(.1)
+                    else: self.fail('Stopped chronyd still observed')
+                    self.assertTrue(stopped['configuration_verified'])
+                    self.assertNotEqual(stopped['process']['status'], 'observed')
                 finally:
                     if manager.directory.exists(): manager.stop()
 
