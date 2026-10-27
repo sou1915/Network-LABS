@@ -3251,6 +3251,7 @@ the existing `micro-lan` example using a prepared BusyBox rootfs, then run:
 python3 -m network_labs.appliances example --rootfs "$HOME/network-labs-rootfs" > micro-lan.json
 sudo python3 -m network_labs.appliances start micro-lan.json
 sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2
+sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2 --server-offset-seconds 45
 ```
 
 Replace the rootfs path with an existing rootfs created by the `rootfs` command.
@@ -3259,7 +3260,10 @@ queries it from PC1. It exits after the exchange or a short deadline. If UDP/123
 is already in use on PC2, it refuses to bind. Its time comes from the host clock
 and its stratum is illustrative: it is not a synchronized NTP server, a durable
 service, an independent node clock or proof of accurate time. It does not set
-any clock. The demo sends real packets in managed network namespaces; `--json`
+any clock. The optional integer offset, between -86400 and 86400 seconds,
+affects only the responder timestamps for that single run. For example, +45
+makes the measured offset approximately +45 seconds. It is not retained and
+does not change any other process's view of time. The demo sends real packets in managed network namespaces; `--json`
 includes both endpoint and probe evidence. Stop the lab separately when done:
 `sudo python3 -m network_labs.appliances stop micro-lan`.
 

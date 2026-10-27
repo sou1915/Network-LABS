@@ -8,12 +8,13 @@ import subprocess
 import sys
 
 from .runtime import RuntimeFailure
-from .spec import namespace
+from .spec import integer, namespace
 from .verify import _endpoint
 
 
-def demo(manager, client, server):
+def demo(manager, client, server, *, server_offset_seconds=0):
     from .service_probe import probe
+    integer(server_offset_seconds, -86400, 86400, 'Server offset seconds')
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('SNTP demo requires a running lab without pending configuration.')
@@ -33,7 +34,7 @@ def demo(manager, client, server):
     if source == target:
         raise ValueError('The two hosts need distinct observed addresses.')
     worker = Path(__file__).with_name('sntp_demo_worker.py').read_text()
-    argv = ['ip', 'netns', 'exec', namespace(state['spec'], endpoints[1][0]), sys.executable, '-I', '-c', worker, target, source, '123']
+    argv = ['ip', 'netns', 'exec', namespace(state['spec'], endpoints[1][0]), sys.executable, '-I', '-c', worker, target, source, '123', str(server_offset_seconds)]
     process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, start_new_session=True)
     try:
@@ -55,8 +56,9 @@ def demo(manager, client, server):
         except ValueError:
             response = {'status': 'unknown'}
         return {'lab': manager.name, 'client': client, 'server': server, 'status': result['status'] if response.get('status') == 'responded' and process.returncode == 0 else 'unknown',
-                'probe': result, 'responder': response, 'temporary': True, 'configuration_changed': False,
-                'scope': 'Educational one-shot server uses the host clock and illustrative stratum; no independent upstream, authentication or clock setting. Not a managed persistent NTP service.'}
+                'probe': result, 'responder': response, 'server_offset_seconds': server_offset_seconds,
+                'temporary': True, 'configuration_changed': False,
+                'scope': 'Educational one-shot server uses host clock plus a temporary offset and illustrative stratum; no independent upstream, authentication or clock setting. Not a managed persistent NTP service or independent node clock.'}
     except subprocess.TimeoutExpired as error:
         raise RuntimeFailure('SNTP demo responder did not finish within its deadline.') from error
     finally:
@@ -70,6 +72,6 @@ def demo(manager, client, server):
 
 def render(report):
     from .service_probe import render as render_probe
-    return ('Serveur SNTP éducatif temporaire : ' + report['server'] + '\n' + render_probe(report['probe']) +
+    return ('Serveur SNTP éducatif temporaire : ' + report['server'] + ' ; décalage simulé : ' + str(report['server_offset_seconds']) + ' s\n' + render_probe(report['probe']) +
             '\nServeur basé sur l’horloge de l’hôte ; stratum illustratif, aucune synchronisation ni authentification.\n'
             'Résultat global : ' + report['status'])

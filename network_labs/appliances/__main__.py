@@ -117,6 +117,7 @@ def main(arguments=None):
     service.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
+    sntp_demo.add_argument('--server-offset-seconds', type=int, default=0, help='Temporary educational server offset from host time, -86400..86400 seconds.')
     sntp_demo.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
@@ -263,7 +264,7 @@ def main(arguments=None):
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'sntp-demo':
                     from .sntp_demo import demo, render
-                    result = demo(manager, args.client, args.server)
+                    result = demo(manager, args.client, args.server, server_offset_seconds=args.server_offset_seconds)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'explain':
