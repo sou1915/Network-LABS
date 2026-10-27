@@ -33,6 +33,7 @@ LOG_ARCHIVE_COMMAND = 'show logging archive'
 LOG_COMMANDS = (LOG_COMMAND, LOG_ARCHIVE_COMMAND)
 
 LLDP_COMMANDS = ('show lldp neighbors', 'show lldp neighbors detail')
+NTP_COMMANDS = {'show ntp status': 'tracking', 'show ntp associations': 'sources'}
 
 
 def show(manager, name, command):
@@ -53,8 +54,8 @@ def show(manager, name, command):
             value = int(value)
         selection = {'field': kind, 'value': value}
         command = 'show mac address-table'
-    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS and command not in (TREE_COMMAND, *LOG_COMMANDS):
-        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS, TREE_COMMAND, *LOG_COMMANDS]))
+    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS and command not in NTP_COMMANDS and command not in (TREE_COMMAND, *LOG_COMMANDS):
+        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS, *NTP_COMMANDS, TREE_COMMAND, *LOG_COMMANDS]))
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('show requires a running lab without pending configuration.')
@@ -64,6 +65,8 @@ def show(manager, name, command):
     index, node = match
     if command in LOG_COMMANDS and not node.get('syslog_server'):
         raise ValueError('This node has no declared syslog collector.')
+    if command in NTP_COMMANDS and not node.get('ntp_server'):
+        raise ValueError('This node has no declared NTP server.')
     if command in ('show vlan brief', 'show mac address-table', TREE_COMMAND) and (node['role'] != 'switch' or node.get('switch_backend') == 'ovs'):
         raise ValueError('This bridge show command requires a Linux switch; OVS has a separate observation backend.')
     if selection and selection['field'] == 'interface' and selection['value'] not in {*node['interfaces'], 'br0'}:
@@ -91,6 +94,9 @@ def show(manager, name, command):
         target = 'rotated backup' if command == LOG_ARCHIVE_COMMAND else 'current log'
         report.update(source='Actual volatile rsyslog collector file', log_file=target,
                       scope='Last 8192 bytes of the ' + target + ' only; first line may be partial. No liveness or delivery verdict; sender IP is not authenticated.')
+    if command in NTP_COMMANDS:
+        report.update(daemon_command=NTP_COMMANDS[command], source='Actual chronyc output via local Unix socket; partial IOS-style adapter',
+                      scope='Raw chronyc tracking or sources, not Cisco output. Local-reference mode does not establish accurate real-world time. No end-to-end delivery or authentication verdict.')
     try:
         container = manager.crun('state', name, check=False, timeout=3)
         if container.returncode:
@@ -135,6 +141,10 @@ def show(manager, name, command):
             raw = read_cli(manager, name, 'neighbors details')
             summary = normalize_neighbors(raw)
             report.update(status=summary['status'], observation={'raw': raw, 'summary': summary})
+        elif command in NTP_COMMANDS:
+            from .ntp_server import read_cli
+            text = read_cli(manager, name, NTP_COMMANDS[command])
+            report.update(status='observed', observation={'status': 'observed', 'text': text})
         elif command in BIRD_COMMANDS:
             from .ospf import read_cli
             text = read_cli(manager, name, BIRD_COMMANDS[command])
@@ -192,6 +202,7 @@ def render(report):
     lines = [report['node'] + '# ' + report.get('query', report['command']),
              ('Source : BIRD 2 — sortie réelle du daemon, adaptateur partiel.' if report['command'] in BIRD_COMMANDS
               else 'Source : lldpd — annonces LLDP reçues.' if report['command'] in LLDP_COMMANDS
+              else 'Source : chronyc — état réel du daemon NTP.' if report['command'] in NTP_COMMANDS
               else 'Source : fichier du collecteur syslog.' if report['command'] in LOG_COMMANDS
               else 'Source : Linux kernel — adaptateur partiel, noms Linux conservés.')]
     if report['command'] in LOG_COMMANDS and report['status'] == 'observed':
@@ -233,6 +244,10 @@ def render(report):
         return '\n'.join(lines)
     if report['status'] != 'observed':
         lines.append('Observation ' + report['status'] + ' : ' + _cell(report.get('error') or report.get('observation') or report.get('container_status')))
+        return '\n'.join(lines)
+    if report['command'] in NTP_COMMANDS:
+        lines.extend(_cell(line) for line in report['observation']['text'].splitlines())
+        lines.append('Sortie chronyc, pas firmware Cisco ; référence locale sans garantie de temps réel ou de livraison.')
         return '\n'.join(lines)
     if report['command'] in BIRD_COMMANDS:
         lines.extend(_cell(line) for line in report['observation']['text'].splitlines())

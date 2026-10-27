@@ -3332,10 +3332,12 @@ PC1 (`192.0.2.10`), relay PC2 (`192.0.2.20`) and local source PC3
 
 ```bash
 python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
-  --chronyd /usr/sbin/chronyd --output "$HOME/network-labs-ntp-rootfs"
+  --chronyd /usr/sbin/chronyd --chronyc /usr/bin/chronyc --output "$HOME/network-labs-ntp-rootfs"
 python3 -m network_labs.appliances example --ntp --rootfs "$HOME/network-labs-ntp-rootfs" > ntp-lan.json
 sudo python3 -m network_labs.appliances start ntp-lan.json
 sudo python3 -m network_labs.appliances probe ntp-lan PC1 192.0.2.20 --protocol sntp --json
+sudo python3 -m network_labs.appliances show ntp-lan PC2 --text 'show ntp status'
+sudo python3 -m network_labs.appliances show ntp-lan PC2 --text 'show ntp associations'
 ```
 
 The rootfs destination must not already exist and the trusted chronyd binary
@@ -3345,6 +3347,16 @@ time to obtain measurements from PC3; an immediate probe may be unavailable.
 Inspect the nodes separately and stop the lab with
 `sudo python3 -m network_labs.appliances stop ntp-lan`. This is an experimental
 profile, not yet validated end-to-end in the development environment.
+
+`show ntp status` and `show ntp associations` issue only `tracking` and
+`sources` through `chronyc -n` and the node-local Unix control socket. They
+display actual chronyc text rather than Cisco firmware output. `observed` means
+the control command returned output; its contents can still say the server is
+unsynchronized. The local reference in PC3 does not establish correct real-world
+time. The optional `--chronyc` rootfs argument requires `--chronyd` and should
+point to a compatible trusted binary. Existing rootfs images without chronyc
+still start the server, but these show commands report unknown until a new
+rootfs is built with both tools. Network command port 323 stays disabled.
 
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.

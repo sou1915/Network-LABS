@@ -2,6 +2,7 @@ import copy
 import io
 import json
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 import tempfile
@@ -25,6 +26,33 @@ def ntp_spec():
 
 
 class NtpServerTests(unittest.TestCase):
+    def test_rootfs_copies_optional_control_client_and_requires_daemon(self):
+        from network_labs.appliances.runtime import static_busybox_rootfs
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); busybox = root / 'busybox'; dst = root / 'rootfs'
+            elf = bytearray(128); elf[:6] = b'\x7fELF\x02\x01'
+            struct.pack_into('<Q', elf, 32, 64); struct.pack_into('<HH', elf, 54, 56, 1)
+            struct.pack_into('<I', elf, 64, 1); busybox.write_bytes(elf)
+            with self.assertRaisesRegex(ValueError, 'requires --chronyd'):
+                static_busybox_rootfs(busybox, dst, chronyc='/bin/chronyc')
+            self.assertFalse(dst.exists())
+            daemon = root / 'daemon'; daemon.write_text('daemon')
+            client = root / 'client'; client.write_text('client')
+            with patch('network_labs.appliances.ntp_server.rootfs_assets', return_value=[(daemon, Path('/usr/lib/network-labs/chronyd'))]), \
+                 patch('network_labs.appliances.ntp_server.client_rootfs_assets', return_value=[(client, Path('/usr/lib/network-labs/chronyc'))]):
+                static_busybox_rootfs(busybox, dst, chronyd=daemon, chronyc=client)
+            self.assertEqual((dst / 'usr/lib/network-labs/chronyc').read_text(), 'client')
+            self.assertEqual((dst / 'usr/lib/network-labs/chronyd').read_text(), 'daemon')
+
+    def test_chronyc_only_allows_fixed_read_commands_and_rejects_empty_or_large_output(self):
+        from network_labs.appliances.ntp_server import read_cli
+        manager = Mock()
+        with self.assertRaises(ValueError): read_cli(manager, 'PC2', 'makestep')
+        manager.crun.assert_not_called()
+        for payload, code in (('', 0), ('x' * 32769, 0), ('Connection refused', 1)):
+            manager.crun.return_value = subprocess.CompletedProcess([], code, payload, '')
+            with self.assertRaises(RuntimeFailure): read_cli(manager, 'PC2', 'tracking')
+
     def test_process_evidence_requires_pid_and_exact_managed_arguments(self):
         node = ntp_spec()['nodes'][2]; manager = Mock()
         def reply(stdout='', code=0):

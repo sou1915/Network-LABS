@@ -129,7 +129,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -182,9 +182,14 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         from .snmp_notifications import rootfs_assets
         notification_additions = rootfs_assets(snmptrapd)
     ntp_additions = []
+    if chronyc is not None and chronyd is None:
+        raise ValueError('--chronyc requires --chronyd.')
     if chronyd is not None:
         from .ntp_server import rootfs_assets
         ntp_additions = rootfs_assets(chronyd)
+    if chronyc is not None:
+        from .ntp_server import client_rootfs_assets
+        ntp_additions += client_rootfs_assets(chronyc)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)

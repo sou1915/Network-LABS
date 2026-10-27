@@ -59,10 +59,10 @@ class RealContainerTests(unittest.TestCase):
         from network_labs.appliances.examples import ntp_lab
         from network_labs.appliances.service_probe import probe
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
-        for tool in ('crun', 'ip', 'busybox', 'chronyd'):
+        for tool in ('crun', 'ip', 'busybox', 'chronyd', 'chronyc'):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
         with tempfile.TemporaryDirectory() as folder:
-            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', chronyd=shutil.which('chronyd'))
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', chronyd=shutil.which('chronyd'), chronyc=shutil.which('chronyc'))
             spec = ntp_lab(rootfs); spec['name'] = 'ntp-test-' + str(os.getpid()); manager = Manager(spec['name'])
             with manager.locked():
                 try:
@@ -79,6 +79,11 @@ class RealContainerTests(unittest.TestCase):
                         if time.monotonic() >= deadline: self.fail('Relay did not synchronize: ' + json.dumps(downstream))
                         time.sleep(.5)
                     self.assertEqual(downstream['stages'][-1]['stratum'], 11)
+                    from network_labs.appliances.show import show
+                    for cmd in ('show ntp status', 'show ntp associations'):
+                        observed = show(manager, 'PC2', cmd)
+                        self.assertEqual(observed['status'], 'observed', observed)
+                        self.assertTrue(observed['observation']['text'].strip())
                     service = manager.inspect('PC2')['ntp_server']
                     self.assertTrue(service['configuration_verified'])
                     self.assertEqual(service['process']['status'], 'observed', service)

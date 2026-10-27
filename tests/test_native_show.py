@@ -11,6 +11,30 @@ from network_labs.appliances.__main__ import main
 
 
 class NativeShowTests(unittest.TestCase):
+    def test_ntp_show_reads_only_chronyc_monitoring_commands_and_escapes_output(self):
+        from network_labs.appliances.ntp_server import CHRONYC, CONTROL_SOCKET
+        for requested, operation in (('show ntp status', 'tracking'), ('show ntp associations', 'sources')):
+            manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
+            node['ntp_server'] = {'interface': 'eth0', 'upstream': '192.0.2.20', 'clients': ['192.0.2.30']}
+            manager.crun.side_effect = [completed({'status': 'running'}), completed('Leap status : Not synchronised\x1b[31m\n')]
+            before = copy.deepcopy(manager.read())
+            result = show(manager, node['name'], requested)
+            self.assertEqual(result['status'], 'observed')
+            self.assertEqual(result['daemon_command'], operation)
+            manager.crun.assert_any_call('exec', node['name'], CHRONYC, '-n', '-h', CONTROL_SOCKET, operation, check=False, timeout=5)
+            self.assertNotIn('\x1b', render(result)); self.assertIn('Not synchronised', render(result))
+            self.assertEqual(manager.read(), before); manager.save.assert_not_called()
+
+    def test_ntp_show_missing_service_or_control_is_not_success(self):
+        manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
+        with self.assertRaises(ValueError): show(manager, node['name'], 'show ntp status')
+        manager.crun.assert_not_called()
+        node['ntp_server'] = {'interface': 'eth0', 'upstream': '192.0.2.20', 'clients': ['192.0.2.30']}
+        manager.crun.side_effect = [completed({'status': 'running'}), completed('', 1)]
+        result = show(manager, node['name'], 'show ntp status')
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('unavailable', result['error'])
+
     def test_syslog_read_is_bounded_and_escapes_untrusted_terminal_content(self):
         manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
         node['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.1']}

@@ -9,6 +9,8 @@ from .service_config import observe_config
 BINARY = '/usr/lib/network-labs/chronyd'
 CONFIG = '/lab/ntp-server.conf'
 PIDFILE = '/run/network-labs-chronyd.pid'
+CONTROL_SOCKET = '/run/network-labs-chronyd.sock'
+CHRONYC = '/usr/lib/network-labs/chronyc'
 
 
 def validate_node(node):
@@ -64,7 +66,7 @@ def config_text(node):
     config = node['ntp_server']
     address = str(ipaddress.IPv4Interface(addresses(node)[config['interface']]).ip)
     source = 'server ' + config['upstream'] + ' iburst' if 'upstream' in config else 'local stratum ' + str(config['local_stratum'])
-    return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress /run/network-labs-chronyd.sock', 'pidfile ' + PIDFILE,
+    return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress ' + CONTROL_SOCKET, 'pidfile ' + PIDFILE,
                       source,
                       *['allow ' + client + '/32' for client in config['clients']], ''])
 
@@ -140,3 +142,19 @@ def rootfs_assets(binary):
     from .dns_rootfs import assets
     return assets(binary, destination=BINARY, identity='chronyd', version_args=('-v',),
                   version_check=lambda r: r.returncode == 0 and (r.stdout + r.stderr).lower().startswith('chronyd '))
+
+
+def client_rootfs_assets(binary):
+    from .dns_rootfs import assets
+    return assets(binary, destination=CHRONYC, identity='chronyc', version_args=('-v',),
+                  version_check=lambda r: r.returncode == 0 and (r.stdout + r.stderr).lower().startswith('chronyc '))
+
+
+def read_cli(manager, node, operation):
+    from .runtime import RuntimeFailure
+    if operation not in ('tracking', 'sources'):
+        raise ValueError('Unsupported chronyc read operation.')
+    result = manager.crun('exec', node, CHRONYC, '-n', '-h', CONTROL_SOCKET, operation, check=False, timeout=5)
+    if result.returncode or not result.stdout.strip() or len(result.stdout) > 32768:
+        raise RuntimeFailure('chronyc or local NTP control socket unavailable; no NTP status can be inferred.')
+    return result.stdout
