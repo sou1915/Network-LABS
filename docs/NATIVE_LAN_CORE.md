@@ -3303,6 +3303,26 @@ source network namespace. JSON output retains the CA bundle fingerprint rather
 than its PEM contents. The separate TCP test does not certify the later TLS
 connection. Certificate errors are reported without bypassing verification.
 
+For a temporary two-node demonstration with no external HTTPS server or CA
+setup, start the existing `micro-lan` example and run:
+
+```bash
+sudo python3 -m network_labs.appliances https-demo micro-lan PC1 PC2
+```
+
+The host must have a trusted `openssl` executable. The command generates a
+one-day self-signed demonstration certificate containing PC2's observed IPv4
+address. It starts host Python in PC2's managed network namespace on TCP/443,
+accepts only PC1's observed source address, and invokes the HTTPS probe with
+explicit trust in that generated certificate. This is a bounded educational
+responder, not a persistent OCI-contained service or a public-CA certificate.
+It does not update host or guest trust stores. The private key and certificate
+are created in a private temporary directory and removed after process cleanup,
+including on errors. An already occupied TCP/443 is refused. Add `--json` for
+the nested probe evidence. The responder exits after one valid HEAD or a short
+deadline; neither endpoint's configuration is changed. Real namespace
+integration still requires the privileged native test environment.
+
 An existing reachable NTP server can be queried from a running single-interface
 OCI host with `sudo python3 -m network_labs.appliances probe LAB PC1 192.0.2.20 --protocol sntp`.
 Use the server's actual address and add `--json` for the measured offset,

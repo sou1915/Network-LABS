@@ -134,6 +134,9 @@ def main(arguments=None):
     sntp_demo.add_argument('--server-offset-seconds', type=int, default=0, help='Temporary educational server offset from host time, -86400..86400 seconds.')
     sntp_demo.add_argument('--samples', type=int, default=1, help='Number of sequential samples, 1..5.')
     sntp_demo.add_argument('--json', action='store_true')
+    https_demo = commands.add_parser('https-demo', help='Temporary HTTPS exchange between two managed hosts with generated demo trust.')
+    https_demo.add_argument('name'); https_demo.add_argument('client'); https_demo.add_argument('server')
+    https_demo.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
@@ -302,6 +305,11 @@ def main(arguments=None):
                 elif args.command == 'sntp-demo':
                     from .sntp_demo import demo, render
                     result = demo(manager, args.client, args.server, server_offset_seconds=args.server_offset_seconds, samples=args.samples)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'https-demo':
+                    from .https_demo import demo, render
+                    result = demo(manager, args.client, args.server)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'explain':

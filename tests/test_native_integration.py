@@ -55,6 +55,25 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_https_demo_between_real_nodes(self):
+        from network_labs.appliances.https_demo import demo
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox', 'openssl'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = example(rootfs); spec['name'] = 'https-test-' + str(os.getpid()); manager = Manager(spec['name'])
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    result = demo(manager, 'PC1', 'PC2')
+                    self.assertEqual(result['status'], 'passed', result)
+                    self.assertTrue(result['probe']['stages'][-1]['certificate_verified'])
+                    self.assertEqual(result['probe']['stages'][-1]['http_status'], 200)
+                    self.assertEqual(manager.ns(2, 'ss', '-H', '-ltn', 'sport = :443').stdout.strip(), '')
+                finally:
+                    if manager.directory.exists(): manager.stop()
+
     def test_managed_dnsmasq_tftp_read_and_write_rejection(self):
         import hashlib
         from network_labs.appliances.examples import tftp_lab
