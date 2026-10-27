@@ -1,4 +1,6 @@
 import copy
+import base64
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -9,11 +11,42 @@ from unittest.mock import Mock, patch
 
 from network_labs.appliances.examples import tftp_lab
 from network_labs.appliances.spec import validate
-from network_labs.appliances.tftp_server import config_text, prepare_files, start_servers, drift
+from network_labs.appliances.tftp_server import config_text, prepare_files, start_servers, drift, observe_file
 from network_labs.appliances.__main__ import main
 
 
 class TftpServerTests(unittest.TestCase):
+    def test_binary_payloads_are_exact_and_bounded(self):
+        spec = tftp_lab('/rootfs'); node = spec['nodes'][2]
+        payload = bytes(range(256)) * 256
+        node['tftp_server']['files']['image.bin'] = {'base64': base64.b64encode(payload).decode('ascii')}
+        spec = validate(spec); node = spec['nodes'][2]
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / 'files').mkdir(); prepare_files(root, node)
+            self.assertEqual((root / 'files/tftp/image.bin').read_bytes(), payload)
+            self.assertEqual((root / 'files/tftp/sample.txt').read_bytes(), b'Network LABS TFTP\n')
+        for value in ({'base64': '???'}, {'base64': 'YQ'}, {'base64': 'YR=='}, {'base64': 'YQ==', 'extra': 1},
+                      {'base64': base64.b64encode(payload + b'x').decode('ascii')}):
+            candidate = tftp_lab('/rootfs'); candidate['nodes'][2]['tftp_server']['files']['image.bin'] = value
+            with self.subTest(value=str(value)[:30]), self.assertRaises(ValueError): validate(candidate)
+
+    def test_binary_file_observation_compares_digest_without_exposing_contents(self):
+        spec = tftp_lab('/rootfs'); node = spec['nodes'][2]; manager = Mock()
+        payload = b'\x00\xffprivate-content'; digest = hashlib.sha256(payload).hexdigest()
+        manager.crun.return_value = Mock(returncode=0, stdout=digest + '  /lab/tftp/image.bin\n')
+        report = observe_file(manager, node, 'image.bin', payload)
+        self.assertTrue(report['configuration_verified']); self.assertTrue(report['configuration_available'])
+        self.assertNotIn('private-content', str(report))
+        manager.crun.assert_called_once_with('exec', 'PC2', '/bin/busybox', 'sha256sum', '/lab/tftp/image.bin', check=False, timeout=3)
+        manager.crun.return_value.stdout = '0' * 64 + '  /lab/tftp/image.bin\n'
+        report = observe_file(manager, node, 'image.bin', payload)
+        self.assertFalse(report['configuration_verified']); self.assertTrue(report['configuration_available'])
+        manager.crun.return_value.stdout = 'invalid'
+        report = observe_file(manager, node, 'image.bin', payload)
+        self.assertFalse(report['configuration_available']); self.assertFalse(report['configuration_verified'])
+        manager.crun.return_value.returncode = 1
+        self.assertFalse(observe_file(manager, node, 'image.bin', payload)['configuration_available'])
+
     def test_reference_lab_and_cli(self):
         spec = tftp_lab('/rootfs'); node = spec['nodes'][2]
         self.assertEqual(spec['name'], 'tftp-lan'); self.assertEqual(node['tftp_server']['files']['sample.txt'], 'Network LABS TFTP\n')

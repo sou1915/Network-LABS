@@ -611,7 +611,7 @@ def tftp_lab(rootfs):
     """Two hosts and a switch with one declared public test file."""
     from .spec import example
     spec = example(rootfs); spec['name'] = 'tftp-lan'
-    spec['nodes'][2]['tftp_server'] = {'interface': 'eth0', 'files': {'sample.txt': 'Network LABS TFTP\n'}}
+    spec['nodes'][2]['tftp_server'] = {'interface': 'eth0', 'files': {'sample.txt': 'Network LABS TFTP\n', 'sample.bin': {'base64': 'AAECA/8='}}}
     return validate(spec)
 
 

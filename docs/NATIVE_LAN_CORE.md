@@ -3258,6 +3258,7 @@ python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
 python3 -m network_labs.appliances example --tftp --rootfs "$HOME/network-labs-tftp-rootfs" > tftp-lan.json
 sudo python3 -m network_labs.appliances start tftp-lan.json
 sudo python3 -m network_labs.appliances tftp-read tftp-lan PC1 192.0.2.20 sample.txt
+sudo python3 -m network_labs.appliances tftp-read tftp-lan PC1 192.0.2.20 sample.bin
 sudo python3 -m network_labs.appliances inspect tftp-lan PC2
 ```
 
@@ -3265,8 +3266,17 @@ The rootfs destination must be new. Package installation may affect the host's
 normal dnsmasq service according to distribution policy; the rootfs builder
 copies a trusted binary and does not start that host service. The server uses
 `port=0` to disable DNS, limits TFTP to the declared interface and read-only
-root `/lab/tftp`, and exports 1..8 manifest-declared UTF-8 text files of at most
-4096 bytes each. It runs as root inside the OCI node for this initial profile;
+root `/lab/tftp`, and exports 1..8 manifest-declared files. Each file can be a
+UTF-8 text string of at most 4096 bytes, or an object such as
+`{"base64": "AAECA/8="}` containing canonical Base64 for at most 65536 decoded
+bytes. The example exposes both `sample.txt` and a five-byte `sample.bin`.
+Base64 is encoding, not encryption; manifest contents and exported files are
+public to reachable clients. `inspect` compares each declared file's SHA-256
+using the BusyBox `sha256sum` applet without printing its contents. Missing
+applet, unreadable file or timed-out digest gives unavailable evidence. These
+sequential checks do not prove daemon liveness or delivery.
+
+The daemon runs as root inside the OCI node for this initial profile;
 no TFTP authentication or client IP allowlist is supplied, so all reachable
 clients on the permitted interface may read the exported files. Never put secrets
 in the manifest or files. IPv6 TFTP exposure and coexistence with other services

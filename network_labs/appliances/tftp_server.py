@@ -1,13 +1,37 @@
 """Scoped read-only dnsmasq TFTP service with declared text files."""
 import ipaddress
+import base64
+import binascii
+import hashlib
 from pathlib import Path
 import re
+import subprocess
 
 from .service_config import observe_config
 
 BINARY = '/usr/sbin/dnsmasq'
 CONFIG = '/lab/tftp-server.conf'
 ROOT = '/lab/tftp'
+MAX_BINARY_BYTES = 65536
+
+
+def file_bytes(value):
+    if isinstance(value, str):
+        encoded = value.encode('utf-8')
+        if len(encoded) > 4096: raise ValueError('TFTP text file exceeds 4096 UTF-8 bytes.')
+        return encoded
+    if not isinstance(value, dict) or set(value) != {'base64'} or not isinstance(value['base64'], str):
+        raise ValueError('TFTP file must be UTF-8 text or an object containing base64.')
+    encoded = value['base64']
+    if len(encoded) > 4 * ((MAX_BINARY_BYTES + 2) // 3):
+        raise ValueError('TFTP binary file exceeds 65536 bytes.')
+    try:
+        decoded = base64.b64decode(encoded.encode('ascii'), validate=True)
+    except (UnicodeError, binascii.Error, ValueError) as error:
+        raise ValueError('TFTP binary file requires canonical base64.') from error
+    if len(decoded) > MAX_BINARY_BYTES or base64.b64encode(decoded).decode('ascii') != encoded:
+        raise ValueError('TFTP binary file requires canonical base64 and at most 65536 bytes.')
+    return decoded
 
 
 def validate_node(node):
@@ -33,8 +57,7 @@ def validate_node(node):
     for name, content in files.items():
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name) or name in ('.', '..'):
             raise ValueError('TFTP filenames must be single ASCII names without directories.')
-        if not isinstance(content, str) or len(content.encode('utf-8')) > 4096:
-            raise ValueError('Each TFTP text file must be at most 4096 UTF-8 bytes.')
+        file_bytes(content)
     policy['files'] = dict(sorted(files.items()))
 
 
@@ -51,7 +74,7 @@ def prepare_files(bundle, node):
     base = Path(bundle) / 'files'; (base / 'tftp').mkdir(mode=0o755)
     (base / 'tftp-server.conf').write_text(config_text(node), encoding='utf-8')
     for name, content in node['tftp_server']['files'].items():
-        path = base / 'tftp' / name; path.write_text(content, encoding='utf-8'); path.chmod(0o644)
+        path = base / 'tftp' / name; path.write_bytes(file_bytes(content)); path.chmod(0o644)
 
 
 def start_servers(manager):
@@ -62,9 +85,27 @@ def start_servers(manager):
         manager.crun('exec', '--detach', node['name'], BINARY, '--keep-in-foreground', '--conf-file=' + CONFIG, log=log)
 
 
+def observe_file(manager, node, name, expected):
+    """Compare bounded-process SHA-256 without decoding or returning file data."""
+    from .runtime import RuntimeFailure
+    evidence = {'configuration_verified': False, 'configuration_available': False, 'detail': None}
+    path = ROOT + '/' + name
+    try:
+        result = manager.crun('exec', node['name'], '/bin/busybox', 'sha256sum', path, check=False, timeout=3)
+        match = re.fullmatch(r'([0-9a-f]{64})  ' + re.escape(path) + r'\n?', result.stdout)
+        if result.returncode or not match:
+            evidence['detail'] = 'File digest unavailable or malformed.'
+            return evidence
+        evidence['configuration_available'] = True
+        evidence['configuration_verified'] = match.group(1) == hashlib.sha256(expected).hexdigest()
+    except (OSError, RuntimeFailure, subprocess.TimeoutExpired, UnicodeError, ValueError) as error:
+        evidence['detail'] = str(error)[:300]
+    return evidence
+
+
 def observe(manager, node):
     config = observe_config(manager, node['name'], CONFIG, config_text(node))
-    files = {name: observe_config(manager, node['name'], ROOT + '/' + name, content)
+    files = {name: observe_file(manager, node, name, file_bytes(content))
              for name, content in node['tftp_server']['files'].items()}
     return {'configuration_verified': config['configuration_verified'] and all(item['configuration_verified'] for item in files.values()),
             'config': config, 'files': files,

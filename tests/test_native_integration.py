@@ -76,6 +76,11 @@ class RealContainerTests(unittest.TestCase):
                         if time.monotonic() >= deadline: self.fail('TFTP service unavailable: ' + json.dumps(result))
                         time.sleep(.2)
                     self.assertTrue(result['hash_matches'])
+                    binary = b'\x00\x01\x02\x03\xff'
+                    binary_result = tftp_read(manager, 'PC1', '192.0.2.20', 'sample.bin', timeout=2, expected_sha256=hashlib.sha256(binary).hexdigest())
+                    self.assertEqual(binary_result['status'], 'passed', binary_result)
+                    self.assertEqual(binary_result['transfer']['bytes_received'], len(binary))
+                    self.assertTrue(binary_result['hash_matches'])
                     missing = tftp_read(manager, 'PC1', '192.0.2.20', 'missing.txt', timeout=2)
                     self.assertEqual(missing['status'], 'failed')
                     self.assertEqual(missing['transfer'].get('error_code'), 1)
