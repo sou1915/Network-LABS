@@ -3229,7 +3229,20 @@ reacquire leases and restore name-based HTTP. Host links/routes/rules/nft/forwar
 remain checked after cleanup. No lossless recovery or whole-application resource
 budget is inferred from these checks.
 
-### Explicit DNS, TCP and HTTP service probes
+### Explicit DNS, TCP, HTTP and SNTP service probes
+
+An existing reachable NTP server can be queried from a running single-interface
+OCI host with `sudo python3 -m network_labs.appliances probe LAB PC1 192.0.2.20 --protocol sntp`.
+Use the server's actual address and add `--json` for the measured offset,
+round-trip calculation, server timestamp and stratum. This sends one real
+IPv4 UDP/123 request from the node's network namespace; it does not create a
+server or synchronize any clock. The host Python process reads the host clock,
+so the offset compares the server against that shared clock, not an independent
+simulated node clock. No host or guest clock is set. The response is not
+authenticated; a single exchange is not proof of server identity or accuracy.
+This bounded client accepts 48-byte NTPv3/v4 server replies, rejects unmatched
+originate timestamps, unsynchronised servers and invalid stratum/timestamps;
+extensions, NTS, IPv6 and continuous clock discipline are not supported.
 
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.

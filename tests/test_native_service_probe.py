@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
 
 from network_labs.appliances.service_probe import probe, render
-from network_labs.appliances.service_probe_worker import dns_answers, run_probe
+from network_labs.appliances.service_probe_worker import dns_answers, run_probe, ntp_encode, ntp_decode, sntp_response
 from network_labs.appliances.__main__ import main
 from test_native_verify import manager_for, completed
 
@@ -22,7 +22,7 @@ def manager_with_probes():
     def ns(index, *args, **kwargs):
         if len(args) > 2 and args[1:3] == ('-I', '-c'):
             request = json.loads(args[-1]); stage = request['stage']
-            return completed({'stage': stage, 'status': 'passed', **({'rcode': 0, 'addresses': ['203.0.113.10']} if stage == 'dns' else {'connected': True}), **({'http_status': 200} if stage == 'http' else {})})
+            return completed({'stage': stage, 'status': 'passed', **({'rcode': 0, 'addresses': ['203.0.113.10']} if stage == 'dns' else {'connected': True}), **({'http_status': 200} if stage == 'http' else {}), **({'offset_seconds': .25, 'round_trip_seconds': .1, 'stratum': 2} if stage == 'sntp' else {})})
         return original_ns(index, *args, **kwargs)
     manager.ns.side_effect = ns
     manager.crun.side_effect = lambda *a, **k: completed('nameserver 198.18.0.4\n') if a[:3] == ('exec', 'PC1', '/bin/cat') else original_crun(*a, **k)
@@ -30,6 +30,53 @@ def manager_with_probes():
 
 
 class ServiceProbeTests(unittest.TestCase):
+    def test_sntp_selection_uses_udp_stage_without_tcp_or_clock_mutation(self):
+        manager = manager_with_probes(); before = copy.deepcopy(manager.read())
+        result = probe(manager, 'PC1', '203.0.113.10', protocol='sntp')
+        self.assertEqual([s['stage'] for s in result['stages']], ['sntp'])
+        self.assertEqual(result['port'], 123); self.assertEqual(manager.read(), before)
+        self.assertIn('+0.250000 s', render(result))
+        manager.save.assert_not_called()
+        with self.assertRaises(ValueError): probe(manager, 'PC1', '203.0.113.10', protocol='sntp', port=123)
+
+    def test_sntp_response_checks_matching_and_2036_era(self):
+        t1 = 2085978497.0; sent = ntp_encode(t1)
+        packet = bytearray(48); packet[0] = 0x24; packet[1] = 2
+        packet[24:32] = sent; packet[32:40] = ntp_encode(t1 + .2); packet[40:48] = ntp_encode(t1 + .3)
+        result = sntp_response(bytes(packet), sent, t1, t1 + .5)
+        self.assertAlmostEqual(result['offset_seconds'], 0, places=5)
+        self.assertAlmostEqual(result['round_trip_seconds'], .4, places=5)
+        self.assertAlmostEqual(ntp_decode(ntp_encode(t1), t1), t1, places=5)
+        for index, value in ((0, 0xe4), (0, 0x23), (1, 0), (24, packet[24] ^ 1)):
+            bad = bytearray(packet); bad[index] = value
+            with self.assertRaises(ValueError): sntp_response(bytes(bad), sent, t1, t1 + .5)
+        with self.assertRaises(ValueError): sntp_response(bytes(packet[:47]), sent, t1, t1 + .5)
+
+    def test_sntp_real_udp_exchange_with_isolated_test_responder(self):
+        import time
+        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); server.bind(('127.0.0.1', 0)); server.settimeout(3)
+        port = server.getsockname()[1]; seen = []
+        def respond():
+            request, peer = server.recvfrom(1024); seen.append(request)
+            reply = bytearray(48); reply[0] = 0x24; reply[1] = 2
+            reply[24:32] = request[40:48]; reply[32:40] = ntp_encode(time.time()); reply[40:48] = ntp_encode(time.time())
+            server.sendto(reply, peer)
+        thread = threading.Thread(target=respond); thread.start()
+        real_socket = socket.socket
+        class TestSocket:
+            def __init__(self, *args): self.sock = real_socket(*args)
+            def __enter__(self): return self
+            def __exit__(self, *args): self.sock.close()
+            def __getattr__(self, name): return getattr(self.sock, name)
+            def connect(self, address): self.sock.connect((address[0], port))
+        try:
+            with patch('network_labs.appliances.service_probe_worker.socket.socket', TestSocket):
+                result = run_probe({'stage': 'sntp', 'source': '127.0.0.1', 'address': '127.0.0.1', 'timeout': 2})
+            thread.join(3)
+            self.assertEqual(result['status'], 'passed'); self.assertEqual(result['stratum'], 2)
+            self.assertEqual(len(seen[0]), 48); self.assertEqual(seen[0][0], 0x23)
+        finally:
+            thread.join(3); server.close()
     def test_layered_success_uses_guest_resolver_and_observed_source_without_mutation(self):
         manager = manager_with_probes(); before = copy.deepcopy(manager.read())
         result = probe(manager, 'PC1', 'web.lab.test')

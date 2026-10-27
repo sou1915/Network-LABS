@@ -22,13 +22,15 @@ def unicast(value):
 
 def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3):
     """Caller holds lab lock. Sequential probes are evidence, not root-cause proof."""
-    if protocol not in ('dns', 'tcp', 'http'):
-        raise ValueError('Choose dns, tcp or http.')
+    if protocol not in ('dns', 'tcp', 'http', 'sntp'):
+        raise ValueError('Choose dns, tcp, http or sntp.')
     integer(timeout, 1, 5, 'Probe timeout')
     if port is not None:
         integer(port, 1, 65535, 'Destination port')
     if protocol == 'dns' and port is not None:
         raise ValueError('DNS uses UDP port 53; omit --port.')
+    if protocol == 'sntp' and port is not None:
+        raise ValueError('SNTP uses UDP port 123; omit --port.')
     if protocol == 'tcp' and port is None:
         raise ValueError('TCP requires an explicit --port.')
     if not isinstance(path, str) or not re.fullmatch(r'/[!-~]{0,1023}', path) or '#' in path:
@@ -58,9 +60,9 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     endpoint = _endpoint(manager, index, node)
     report = {'lab': manager.name, 'node': source, 'revision': state.get('revision', 0),
               'started_at': datetime.now(timezone.utc).isoformat(), 'target': target, 'protocol': protocol,
-              'port': port or (53 if protocol == 'dns' else 80), 'path': path if protocol == 'http' else None,
+              'port': port or (53 if protocol == 'dns' else 123 if protocol == 'sntp' else 80), 'path': path if protocol == 'http' else None,
               'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
-              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP HEAD are separate connections. HTTP 2xx only; no redirects, TLS or body validation. Failures do not prove a routing/firewall/service root cause.'}
+              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP HEAD are separate connections. HTTP 2xx only; no redirects, TLS or body validation. SNTP is one unauthenticated UDP exchange, not clock synchronization; local and host clocks are never set. Failures do not prove a routing/firewall/service root cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         from .service_findings import findings
@@ -110,6 +112,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     if address == endpoint['address'] or any(row.get('type') in ('local', 'broadcast', 'multicast') or row.get('dev') == 'lo' for row in route['records'] or []):
         report['stages'].append({'stage': 'target', 'status': 'blocked', 'error': 'Remote target required'})
         return finish('blocked')
+    if protocol == 'sntp':
+        return finish(execute('sntp', address=address)['status'])
     tcp = execute('tcp', address=address, port=report['port'])
     if tcp['status'] != 'passed' or protocol == 'tcp':
         return finish(tcp['status'])
@@ -126,6 +130,9 @@ def render(report):
         lines.append('[' + labels[finding['status']] + '] ' + finding['message'])
         if finding['next_step']:
             lines.append('  À vérifier / limite : ' + finding['next_step'])
+    for stage in report['stages']:
+        if stage['stage'] == 'sntp' and stage['status'] == 'passed':
+            lines.append(f"  Décalage estimé : {stage['offset_seconds']:+.6f} s ; délai calculé : {stage['round_trip_seconds']:.6f} s ; stratum : {stage['stratum']}.")
     lines.append('Utiliser --json pour les adresses, codes, erreurs et preuves détaillées.')
-    lines.append('Observations successives ; un échec ne prouve pas sa cause. HTTP teste HEAD et le statut 2xx, sans télécharger la page.')
+    lines.append('Observations successives ; un échec ne prouve pas sa cause. HTTP teste HEAD ; SNTP ne règle aucune horloge et ne certifie pas la source.')
     return '\n'.join(lines)

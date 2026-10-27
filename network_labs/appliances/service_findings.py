@@ -32,6 +32,13 @@ def findings(report):
             else:
                 add('DNS_NO_ANSWER', status, 'La sonde n’a pas obtenu de réponse DNS exploitable dans son délai.',
                     'Vérifier le résolveur du node, le service DNS, UDP/53, les routes et le chemin retour ; la cause n’est pas déterminée.', stage)
+        elif kind == 'sntp':
+            if status == 'passed':
+                add('SNTP_REPLY_RECEIVED', status, 'Une réponse SNTP valide a été reçue ; le décalage estimé est disponible en JSON.',
+                    'Un seul échange non authentifié ne synchronise aucune horloge et ne garantit ni précision ni identité du serveur.', stage)
+            else:
+                add('SNTP_NO_ANSWER', status, 'La sonde SNTP n’a pas obtenu de réponse exploitable dans son délai.',
+                    'Vérifier UDP/123, les routes et le serveur ; cet échec ne détermine pas sa cause.', stage)
         elif kind == 'tcp':
             if status == 'passed':
                 add('TCP_CONNECTED', status, 'Une connexion TCP a été établie vers l’adresse et le port demandés.',

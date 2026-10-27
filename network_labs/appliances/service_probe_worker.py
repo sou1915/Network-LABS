@@ -11,6 +11,38 @@ import struct
 import sys
 import time
 
+NTP_EPOCH = 2208988800
+NTP_ERA = 1 << 32
+
+
+def ntp_encode(timestamp):
+    seconds = timestamp + NTP_EPOCH
+    whole = int(seconds)
+    return struct.pack('!II', whole % NTP_ERA, int((seconds - whole) * NTP_ERA))
+
+
+def ntp_decode(value, near):
+    seconds, fraction = struct.unpack('!II', value)
+    # Resolve the 32-bit era nearest the local receive time, including 2036.
+    era = round((near + NTP_EPOCH - seconds) / NTP_ERA)
+    return era * NTP_ERA + seconds + fraction / NTP_ERA - NTP_EPOCH
+
+
+def sntp_response(packet, sent, t1, t4):
+    if len(packet) != 48:
+        raise ValueError('Expected a 48-byte unauthenticated NTP response')
+    leap, version, mode = packet[0] >> 6, (packet[0] >> 3) & 7, packet[0] & 7
+    stratum = packet[1]
+    if leap == 3 or version not in (3, 4) or mode != 4 or not 1 <= stratum <= 15:
+        raise ValueError('Unsynchronised or unsupported NTP server response')
+    if packet[24:32] != sent or packet[32:40] == bytes(8) or packet[40:48] == bytes(8):
+        raise ValueError('Unmatched or missing NTP timestamps')
+    t2, t3 = ntp_decode(packet[32:40], t4), ntp_decode(packet[40:48], t4)
+    if t3 < t2:
+        raise ValueError('Server transmit precedes receive')
+    return {'stratum': stratum, 'version': version, 'offset_seconds': ((t2 - t1) + (t3 - t4)) / 2,
+            'round_trip_seconds': (t4 - t1) - (t3 - t2), 'server_unix_seconds': t3}
+
 
 def dns_name(packet, offset):
     labels, seen, end = [], set(), None
@@ -74,7 +106,7 @@ def run_probe(request):
             raise TimeoutError('Probe deadline reached')
         sock.settimeout(remaining)
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if stage == 'dns' else socket.SOCK_STREAM) as sock:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if stage in ('dns', 'sntp') else socket.SOCK_STREAM) as sock:
             sock.bind((request['source'], 0))
             bounded(sock)
             if stage == 'dns':
@@ -87,6 +119,15 @@ def run_probe(request):
                 code, addresses = dns_answers(sock.recv(4096), ident, name)
                 result.update(status='passed' if code == 0 and addresses else 'failed', rcode=code, addresses=addresses,
                               detail='A response' if addresses else 'No direct A answer; CNAME chains are not followed')
+            elif stage == 'sntp':
+                sock.connect((request['address'], 123))
+                t1 = time.time(); monotonic_start = time.monotonic(); sent = ntp_encode(t1)
+                sock.send(b'\x23' + bytes(39) + sent)
+                bounded(sock)
+                packet = sock.recv(1024); t4 = time.time(); monotonic_end = time.monotonic()
+                if abs((t4 - t1) - (monotonic_end - monotonic_start)) > 0.1:
+                    raise ValueError('Local wall clock changed during observation')
+                result.update(status='passed', **sntp_response(packet, sent, t1, t4))
             else:
                 sock.connect((request['address'], request['port']))
                 result.update(status='passed', connected=True)
