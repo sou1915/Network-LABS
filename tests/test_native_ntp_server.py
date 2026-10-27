@@ -102,10 +102,14 @@ class NtpServerTests(unittest.TestCase):
     def test_installed_chronyd_accepts_generated_config(self):
         from network_labs.appliances.examples import ntp_lab
         with tempfile.TemporaryDirectory() as folder:
+            # Exercise the same executable bytes without attaching the host
+            # service's pathname-based AppArmor profile to this temporary config.
+            binary = Path(folder) / 'chronyd'
+            shutil.copyfile(shutil.which('chronyd'), binary); binary.chmod(0o755)
             path = Path(folder) / 'chrony.conf'
             for node in (ntp_spec()['nodes'][2], ntp_lab('/rootfs')['nodes'][3]):
                 path.write_text(config_text(node))
-                result = subprocess.run([shutil.which('chronyd'), '-p', '-f', str(path)], capture_output=True, text=True, timeout=5)
+                result = subprocess.run([str(binary), '-p', '-f', str(path)], capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_valid_profile_is_bounded_and_cannot_adjust_host_time(self):
