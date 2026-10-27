@@ -264,9 +264,9 @@ class Manager:
                 message = (
                     f'Lab {self.name}: aucun état actif trouvé. '
                     'Le lab doit être démarré avant cette commande.\n'
-                    'Depuis le dossier du projet :\n'
-                    '  sudo python3 -m network_labs.appliances start CHEMIN_MANIFEST.json\n'
-                    f'Choisissez un manifeste dont le champ name vaut "{self.name}".'
+                    'Depuis le dossier du projet, listez les manifestes disponibles :\n'
+                    '  python3 -m network_labs.appliances manifests\n'
+                    f'Puis démarrez le fichier associé au lab "{self.name}".'
                 )
                 if (CONFIG_ROOT / self.name / 'startup.json').is_file():
                     message += (

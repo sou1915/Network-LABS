@@ -3261,6 +3261,12 @@ sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2 --server-off
 `labs` lists recorded lab names, phases and node names. Its reported phase is
 persisted state, not proof that containers or links are still running; incomplete
 or corrupt lab state is reported as unknown. Add `--json` for structured output.
+To locate startable manifest candidates in the current directory, run
+`python3 -m network_labs.appliances manifests`. It reports schema-valid JSON
+manifest names, nodes and a quoted start command. Validation does not check
+rootfs assets, host prerequisites, running state or packet delivery. It does not
+follow symbolic links, reads at most 1 MiB per file and considers at most 200
+JSON files. `--json` gives structured output without exposing manifest contents.
 
 Replace the rootfs path with an existing rootfs created by the `rootfs` command.
 The demo starts a temporary IPv4 UDP/123 responder on PC2 and queries it from
