@@ -3864,11 +3864,14 @@ sudo python3 -m network_labs.appliances exec syslog-lan R1 -- \
 sudo python3 -m network_labs.appliances exec syslog-lan PC1 -- \
   /bin/busybox tail -n 20 /run/remote-syslog.log
 sudo python3 -m network_labs.appliances show syslog-lan PC1 --text 'show logging'
+sudo python3 -m network_labs.appliances show syslog-lan PC1 --text 'show logging archive'
 sudo python3 -m network_labs.appliances inspect syslog-lan PC1
 ```
 
 `show logging` reads up to the last 8192 bytes of the current collector file;
-the first line may be incomplete and the rotated backup is excluded. It escapes
+`show logging archive` reads the same bounded tail of the previous rotated file
+instead. There is only one backup, which may not yet exist and is replaced at
+the next rotation. The first line may be incomplete. The CLI escapes
 control characters in terminal output. A missing file is reported as unknown,
 not an empty successful log. Neither an empty log nor file contents prove daemon
 liveness or delivery. Add `--json` to inspect the raw observation and its scope.

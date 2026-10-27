@@ -32,6 +32,22 @@ class NativeShowTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unknown')
         self.assertIn('unavailable', result['error'])
 
+    def test_syslog_archive_reads_only_rotated_file_and_reports_missing_backup(self):
+        manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
+        node['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.1']}
+        manager.crun.side_effect = [completed({'status': 'running'}), completed('192.0.2.1 old event\n')]
+        result = show(manager, node['name'], 'show logging archive')
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(result['log_file'], 'rotated backup')
+        self.assertIn('old event', render(result))
+        manager.crun.assert_any_call('exec', node['name'], '/bin/busybox', 'tail', '-c', '8192', '/run/remote-syslog.log.1', check=False, timeout=3)
+        missing = completed(''); missing.returncode = 1
+        manager.crun.side_effect = [completed({'status': 'running'}), missing]
+        result = show(manager, node['name'], 'show logging archive')
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('rotated backup unavailable', result['error'])
+        manager.save.assert_not_called()
+
     def test_allowlisted_reads_preserve_state_and_return_kernel_evidence(self):
         for command, argv in COMMANDS.items():
             manager = manager_for(); before = copy.deepcopy(manager.read())

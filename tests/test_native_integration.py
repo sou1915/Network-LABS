@@ -1009,6 +1009,7 @@ class RealContainerTests(unittest.TestCase):
         import threading
         from network_labs.appliances.examples import syslog_lab
         from network_labs.appliances.syslog_server import start_server
+        from network_labs.appliances.show import show
         from network_labs.appliances.spec import validate
         from network_labs.appliances.capture import capture
         from network_labs.appliances.persistence import load_startup
@@ -1075,6 +1076,10 @@ class RealContainerTests(unittest.TestCase):
                     else: self.fail('Collector did not rotate logs')
                     self.assertGreater(int(backup.stdout.split()[0]), 60000)
                     self.assertLess(int(backup.stdout.split()[0]), 80000)
+                    archive = show(manager, 'PC1', 'show logging archive')
+                    self.assertEqual(archive['status'], 'observed')
+                    self.assertIn('ROTATION-', archive['observation']['text'])
+                    self.assertLessEqual(len(archive['observation']['text'].encode()), 8192)
                     emit('AFTER-ROTATION-OK'); received('AFTER-ROTATION-OK')
                     config = manager.directory / 'PC1/files/syslog-server.conf'; original = config.read_text()
                     config.write_text(original + '# drift\n')
