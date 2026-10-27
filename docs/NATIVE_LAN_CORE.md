@@ -3863,8 +3863,15 @@ sudo python3 -m network_labs.appliances exec syslog-lan R1 -- \
   /bin/busybox logger -p local0.notice -t network-labs 'LAN-SYSLOG-TEST'
 sudo python3 -m network_labs.appliances exec syslog-lan PC1 -- \
   /bin/busybox tail -n 20 /run/remote-syslog.log
+sudo python3 -m network_labs.appliances show syslog-lan PC1 --text 'show logging'
 sudo python3 -m network_labs.appliances inspect syslog-lan PC1
 ```
+
+`show logging` reads up to the last 8192 bytes of the current collector file;
+the first line may be incomplete and the rotated backup is excluded. It escapes
+control characters in terminal output. A missing file is reported as unknown,
+not an empty successful log. Neither an empty log nor file contents prove daemon
+liveness or delivery. Add `--json` to inspect the raw observation and its scope.
 
 The rootfs destination must be new. Installing the distribution's `rsyslog`
 package can also enable its normal host service according to that package's

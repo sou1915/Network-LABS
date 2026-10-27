@@ -28,6 +28,7 @@ BIRD_COMMANDS = {
 
 
 TREE_COMMAND = 'show spanning-tree'
+LOG_COMMAND = 'show logging'
 
 LLDP_COMMANDS = ('show lldp neighbors', 'show lldp neighbors detail')
 
@@ -50,8 +51,8 @@ def show(manager, name, command):
             value = int(value)
         selection = {'field': kind, 'value': value}
         command = 'show mac address-table'
-    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS and command != TREE_COMMAND:
-        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS, TREE_COMMAND]))
+    if command not in COMMANDS and command not in BIRD_COMMANDS and command not in LLDP_COMMANDS and command not in (TREE_COMMAND, LOG_COMMAND):
+        raise ValueError('Supported commands: ' + '; '.join([*COMMANDS, *BIRD_COMMANDS, *LLDP_COMMANDS, TREE_COMMAND, LOG_COMMAND]))
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('show requires a running lab without pending configuration.')
@@ -59,6 +60,8 @@ def show(manager, name, command):
     if match is None or match[1]['runtime'] != 'oci':
         raise ValueError('show requires an existing OCI node.')
     index, node = match
+    if command == LOG_COMMAND and not node.get('syslog_server'):
+        raise ValueError('This node has no declared syslog collector.')
     if command in ('show vlan brief', 'show mac address-table', TREE_COMMAND) and (node['role'] != 'switch' or node.get('switch_backend') == 'ovs'):
         raise ValueError('This bridge show command requires a Linux switch; OVS has a separate observation backend.')
     if selection and selection['field'] == 'interface' and selection['value'] not in {*node['interfaces'], 'br0'}:
@@ -82,6 +85,9 @@ def show(manager, name, command):
         report.update(daemon_command='show neighbors details',
                       source='Received lldpd JSON0 advertisements; no topology-derived neighbors',
                       scope='Advertised names and identifiers, not authenticated inventory. TTL is advertised, not remaining time. An empty table does not prove link failure or absent equipment.')
+    if command == LOG_COMMAND:
+        report.update(source='Actual volatile rsyslog collector file',
+                      scope='Last 8192 bytes of the current log only; first line may be partial. Rotated log excluded. No liveness or delivery verdict; sender IP is not authenticated.')
     try:
         container = manager.crun('state', name, check=False, timeout=3)
         if container.returncode:
@@ -92,6 +98,12 @@ def show(manager, name, command):
         report['container_status'] = status['status']
         if status['status'] != 'running':
             report['status'] = 'blocked'
+        elif command == LOG_COMMAND:
+            from .syslog_server import LOG
+            result = manager.crun('exec', name, '/bin/busybox', 'tail', '-c', '8192', LOG, check=False, timeout=3)
+            if result.returncode:
+                raise ValueError('Current collector log unavailable; it may not have been created yet.')
+            report.update(status='observed', observation={'text': result.stdout})
         elif command == TREE_COMMAND:
             from .spanning_tree import kernel_ids, observe
             links = _json_read(manager, index, 'ip', '-j', '-d', 'link', 'show')
@@ -176,7 +188,13 @@ def render(report):
     lines = [report['node'] + '# ' + report.get('query', report['command']),
              ('Source : BIRD 2 — sortie réelle du daemon, adaptateur partiel.' if report['command'] in BIRD_COMMANDS
               else 'Source : lldpd — annonces LLDP reçues.' if report['command'] in LLDP_COMMANDS
+              else 'Source : fichier courant du collecteur syslog.' if report['command'] == LOG_COMMAND
               else 'Source : Linux kernel — adaptateur partiel, noms Linux conservés.')]
+    if report['command'] == LOG_COMMAND and report['status'] == 'observed':
+        lines.append('Derniers 8192 octets au maximum ; première ligne potentiellement partielle, archive exclue.')
+        lines.extend(_cell(line) for line in report['observation']['text'].splitlines())
+        lines.append('Adresse source non authentifiée ; ce relevé ne prouve ni disponibilité ni livraison.')
+        return '\n'.join(lines)
     if report['command'] == TREE_COMMAND and report['status'] in ('observed', 'partial'):
         tree = report['observation']['tree']
         lines.append('STP commun Linux, pas PVST/MSTP/RSTP. Relevés successifs, sans arbre calculé.')

@@ -11,6 +11,27 @@ from network_labs.appliances.__main__ import main
 
 
 class NativeShowTests(unittest.TestCase):
+    def test_syslog_read_is_bounded_and_escapes_untrusted_terminal_content(self):
+        manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
+        node['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.1']}
+        manager.crun.side_effect = [completed({'status': 'running'}), completed('192.0.2.1 hello\x1b[31m\n')]
+        report = show(manager, node['name'], 'show logging')
+        self.assertEqual(report['status'], 'observed')
+        manager.crun.assert_any_call('exec', node['name'], '/bin/busybox', 'tail', '-c', '8192', '/run/remote-syslog.log', check=False, timeout=3)
+        self.assertIn('hello\\u001b', render(report)); self.assertNotIn('\x1b', render(report))
+        manager.save.assert_not_called()
+
+    def test_syslog_absence_or_unavailable_file_does_not_claim_success(self):
+        manager = manager_for(); node = manager.read.return_value['spec']['nodes'][0]
+        with self.assertRaises(ValueError): show(manager, node['name'], 'show logging')
+        manager.crun.assert_not_called()
+        node['syslog_server'] = {'interface': 'eth0', 'senders': ['192.0.2.1']}
+        missing = completed(''); missing.returncode = 1
+        manager.crun.side_effect = [completed({'status': 'running'}), missing]
+        result = show(manager, node['name'], 'show logging')
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('unavailable', result['error'])
+
     def test_allowlisted_reads_preserve_state_and_return_kernel_evidence(self):
         for command, argv in COMMANDS.items():
             manager = manager_for(); before = copy.deepcopy(manager.read())
