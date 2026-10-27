@@ -5353,6 +5353,11 @@ class RealContainerTests(unittest.TestCase):
                     self.assertTrue(all(n['state']['status'] == 'running' for n in manager.status()['nodes']))
                     # Actual ICMP request/reply crosses two veth pairs and an in-namespace bridge.
                     self.assertEqual(manager.execute('PC1', ['/bin/ping', '-c', '2', '-W', '2', '192.0.2.20']), 0)
+                    from network_labs.appliances.sntp_demo import demo
+                    result = demo(manager, 'PC1', 'PC2')
+                    self.assertEqual(result['status'], 'passed', result)
+                    self.assertEqual(result['responder']['status'], 'responded')
+                    self.assertEqual(manager.ns(2, 'ss', '-H', '-lun', 'sport = :123').stdout.strip(), '')
                     self.assertEqual(manager.execute('PC1', ['/bin/sh', '-c', 'echo persistent > /root/marker']), 0)
                     value = manager.crun('exec', 'PC1', '/bin/cat', '/root/marker').stdout
                     self.assertEqual(value.strip(), 'persistent')

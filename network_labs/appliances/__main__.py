@@ -115,6 +115,9 @@ def main(arguments=None):
     service.add_argument('--path', default='/')
     service.add_argument('--timeout', type=int, default=3, help='Deadline per wire stage, 1..5 seconds.')
     service.add_argument('--json', action='store_true')
+    sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
+    sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
+    sntp_demo.add_argument('--json', action='store_true')
     explain = commands.add_parser('explain', help='Explain observed native state in French, without sending test packets.')
     explain.add_argument('name'); explain.add_argument('node', nargs='?')
     explain.add_argument('--json', action='store_true', help='Structured observations for scripts and future UI.')
@@ -256,6 +259,11 @@ def main(arguments=None):
                     from .service_probe import probe, render
                     result = probe(manager, args.source, args.target, protocol=args.protocol,
                                    port=args.port, path=args.path, timeout=args.timeout)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'sntp-demo':
+                    from .sntp_demo import demo, render
+                    result = demo(manager, args.client, args.server)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'explain':

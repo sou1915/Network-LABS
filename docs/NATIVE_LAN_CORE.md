@@ -3244,6 +3244,25 @@ This bounded client accepts 48-byte NTPv3/v4 server replies, rejects unmatched
 originate timestamps, unsynchronised servers and invalid stratum/timestamps;
 extensions, NTS, IPv6 and continuous clock discipline are not supported.
 
+For a self-contained demonstration without an external server, create and start
+the existing `micro-lan` example using a prepared BusyBox rootfs, then run:
+
+```bash
+python3 -m network_labs.appliances example --rootfs "$HOME/network-labs-rootfs" > micro-lan.json
+sudo python3 -m network_labs.appliances start micro-lan.json
+sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2
+```
+
+Replace the rootfs path with an existing rootfs created by the `rootfs` command.
+The demo starts a temporary single-reply IPv4 UDP/123 responder on PC2 and
+queries it from PC1. It exits after the exchange or a short deadline. If UDP/123
+is already in use on PC2, it refuses to bind. Its time comes from the host clock
+and its stratum is illustrative: it is not a synchronized NTP server, a durable
+service, an independent node clock or proof of accurate time. It does not set
+any clock. The demo sends real packets in managed network namespaces; `--json`
+includes both endpoint and probe evidence. Stop the lab separately when done:
+`sudo python3 -m network_labs.appliances stop micro-lan`.
+
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.
 The host Python standard library runs in the owned node network namespace; no
