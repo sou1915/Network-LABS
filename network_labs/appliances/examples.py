@@ -607,6 +607,19 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
+def ntp_lab(rootfs):
+    """Isolated client, relay and deliberately unsynchronised local reference."""
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'ntp-lan'
+    spec['nodes'][1]['interfaces']['eth2'] = ''
+    spec['nodes'][2]['ntp_server'] = {'interface': 'eth0', 'upstream': '192.0.2.30', 'clients': ['192.0.2.10']}
+    spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()),
+                          'interfaces': {'eth0': '192.0.2.30/24'},
+                          'ntp_server': {'interface': 'eth0', 'local_stratum': 10, 'clients': ['192.0.2.20']}})
+    spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']])
+    return validate(spec)
+
+
 def management_lab(rootfs, ssh_key=None, telnet_password_hash=''):
     """Three-node internal IPv4 LAN with real management services on R1."""
     from .spec import example

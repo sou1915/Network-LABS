@@ -3291,20 +3291,42 @@ explicit IPv4 upstream and a bounded list of permitted IPv4 clients:
 ```
 
 The configured addresses must belong to distinct other managed nodes; the
-upstream must actually run a synchronized NTP service. This snippet alone does
+upstream must actually run an NTP service. This snippet alone does
 not create that service, addressing, routes or links. Build a new trusted rootfs
 with `rootfs --busybox /usr/bin/busybox --chronyd /usr/sbin/chronyd --output PATH`,
 and assign it to the server node. Network LABS does not install chrony or
 start the host service. The node starts chronyd with `-x` and without
 `CAP_SYS_TIME`, so it cannot discipline the shared host clock; it does not
 provide an independent node clock. It allows only declared downstream addresses,
-disables the network command port and does not enable an artificial local time
-source. An upstream that is unreachable or unsynchronized may prevent service
+disables the network command port. An upstream that is unreachable or unsynchronized may prevent service
 to clients. Configuration inspection checks the file, not process liveness or
 synchronization. Live configuration changes require lab recreation. This
 profile is experimental: the chronyd binary and privileged network namespaces
 were unavailable in the development environment, so actual daemon startup and
 end-to-end synchronization have not yet been verified there. NTP is unauthenticated.
+
+For an isolated teaching network, a node may declare `local_stratum` instead of
+`upstream`. This explicitly enables chrony's local reference using the host's
+clock; it can appear synchronized even without an external reference and does
+not prove accurate real-world time. The reference scenario creates a client
+PC1 (`192.0.2.10`), relay PC2 (`192.0.2.20`) and local source PC3
+(`192.0.2.30`, stratum 10):
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --chronyd /usr/sbin/chronyd --output "$HOME/network-labs-ntp-rootfs"
+python3 -m network_labs.appliances example --ntp --rootfs "$HOME/network-labs-ntp-rootfs" > ntp-lan.json
+sudo python3 -m network_labs.appliances start ntp-lan.json
+sudo python3 -m network_labs.appliances probe ntp-lan PC1 192.0.2.20 --protocol sntp --json
+```
+
+The rootfs destination must not already exist and the trusted chronyd binary
+must already be installed. Installing the distribution package may affect the
+normal host time service according to system package policy. The relay needs
+time to obtain measurements from PC3; an immediate probe may be unavailable.
+Inspect the nodes separately and stop the lab with
+`sudo python3 -m network_labs.appliances stop ntp-lan`. This is an experimental
+profile, not yet validated end-to-end in the development environment.
 
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.

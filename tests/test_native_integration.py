@@ -55,6 +55,34 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_ntp_local_reference_relay_and_client_with_real_chronyd(self):
+        from network_labs.appliances.examples import ntp_lab
+        from network_labs.appliances.service_probe import probe
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox', 'chronyd'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', chronyd=shutil.which('chronyd'))
+            spec = ntp_lab(rootfs); spec['name'] = 'ntp-test-' + str(os.getpid()); manager = Manager(spec['name'])
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    upstream = probe(manager, 'PC2', '192.0.2.30', protocol='sntp', timeout=2)
+                    self.assertEqual(upstream['status'], 'passed', upstream)
+                    self.assertEqual(upstream['stages'][-1]['stratum'], 10)
+                    denied = probe(manager, 'PC1', '192.0.2.30', protocol='sntp', timeout=1)
+                    self.assertNotEqual(denied['status'], 'passed', denied)
+                    deadline = time.monotonic() + 50
+                    while True:
+                        downstream = probe(manager, 'PC1', '192.0.2.20', protocol='sntp', timeout=2)
+                        if downstream['status'] == 'passed': break
+                        if time.monotonic() >= deadline: self.fail('Relay did not synchronize: ' + json.dumps(downstream))
+                        time.sleep(.5)
+                    self.assertEqual(downstream['stages'][-1]['stratum'], 11)
+                    self.assertTrue(manager.inspect('PC2')['ntp_server']['configuration_verified'])
+                finally:
+                    if manager.directory.exists(): manager.stop()
+
     def assertHostLinksUnchanged(self, before, after):
         # Hosted runners may hotplug a hardware-backed Azure VF mid-job.
         # Preserve every baseline identity and reject all added virtual links;
