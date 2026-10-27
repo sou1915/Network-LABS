@@ -5354,9 +5354,10 @@ class RealContainerTests(unittest.TestCase):
                     # Actual ICMP request/reply crosses two veth pairs and an in-namespace bridge.
                     self.assertEqual(manager.execute('PC1', ['/bin/ping', '-c', '2', '-W', '2', '192.0.2.20']), 0)
                     from network_labs.appliances.sntp_demo import demo
-                    result = demo(manager, 'PC1', 'PC2', server_offset_seconds=45)
+                    result = demo(manager, 'PC1', 'PC2', server_offset_seconds=45, samples=3)
                     self.assertEqual(result['status'], 'passed', result)
                     self.assertEqual(result['responder']['status'], 'responded')
+                    self.assertEqual(len(result['probes']), 3)
                     self.assertAlmostEqual(result['probe']['stages'][-1]['offset_seconds'], 45, delta=1)
                     self.assertEqual(manager.ns(2, 'ss', '-H', '-lun', 'sport = :123').stdout.strip(), '')
                     self.assertEqual(manager.execute('PC1', ['/bin/sh', '-c', 'echo persistent > /root/marker']), 0)

@@ -1,4 +1,4 @@
-"""One-shot educational NTP responder; executed in a managed network namespace."""
+"""Bounded educational NTP responder; executed in a managed network namespace."""
 import json
 import socket
 import struct
@@ -12,12 +12,13 @@ def timestamp(offset):
     return struct.pack('!II', whole % (1 << 32), int((seconds - whole) * (1 << 32)))
 
 
-def serve(address, allowed, port=123, offset=0):
+def serve(address, allowed, port=123, offset=0, samples=1):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.bind((address, port))
         sock.settimeout(8)
         print(json.dumps({'status': 'ready', 'port': sock.getsockname()[1]}), flush=True)
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + 20
+        answered = 0
         while time.monotonic() < deadline:
             sock.settimeout(max(.001, deadline - time.monotonic()))
             request, peer = sock.recvfrom(1024)
@@ -32,13 +33,15 @@ def serve(address, allowed, port=123, offset=0):
             reply[32:40] = received
             reply[40:48] = timestamp(offset)
             sock.sendto(reply, peer)
-            print(json.dumps({'status': 'responded'}), flush=True)
-            return
+            answered += 1
+            if answered == samples:
+                print(json.dumps({'status': 'responded', 'count': answered}), flush=True)
+                return
 
 
 if __name__ == '__main__':
     try:
-        serve(sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]))
+        serve(sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
     except (OSError, ValueError) as error:
         print(json.dumps({'status': 'error', 'detail': str(error)[:300]}), flush=True)
         sys.exit(1)
