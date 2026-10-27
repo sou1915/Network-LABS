@@ -4578,3 +4578,105 @@ event mapping and durable notification history remain separate work.
 
 References: [Net-SNMP sender-engine trap semantics](https://www.net-snmp.org/tutorial/tutorial-5/commands/snmptrap-v3.html)
 and [engine-localized USM users](https://www.net-snmp.org/docs/man/snmpd.conf.html).
+
+
+## Automatic SNMP link events from real interfaces
+
+`example --snmp-link-events` adds opt-in native Net-SNMP DisMan monitoring
+on R1's **eth1**. Management/notifications remain on eth0. The default uses
+the sender-engine authPriv trap profile; `--snmp-link-mode inform` selects
+the receiver-authoritative authPriv inform profile. Both reuse real
+SHA-256/AES notification sessions and their existing receiver/log lifecycle.
+
+The optional `snmp_agent.link_events` declaration is:
+
+```json
+"link_events": {"interfaces": ["eth1"], "interval": 2}
+```
+
+Choose 1..16 distinct physical interfaces and a 2..60 second observation
+interval. The management interface is excluded so its administrative shutdown
+does not silently remove the notification path. This increment requires a
+USM agent and USM notifications. IPv6, firewall and bridge-security
+composition remains outside this profile.
+
+The controller reads actual kernel **ifIndex** values in the owned namespace,
+then creates a mode-0600 managed `/lab/snmp-link-events.conf`. Numeric OIDs
+and exact instances configure native `notificationEvent` and `monitor`
+entries; no textual MIB package is needed. The event payload contains actual
+ifIndex, ifAdminStatus and ifOperStatus for the selected interface. DisMan
+observes up(1) and down(2), producing standard linkUp/linkDown notifications
+when their respective conditions become true. Other IF-MIB states are not
+classified as down by this implementation. The initial sample is a baseline,
+not an invented state-change event. Rapid changes between samples, agent
+cache refresh, scheduling delays and protocol loss can affect observation
+and delivery; this is not an instantaneous interrupt stream or vendor event
+emulation.
+
+DisMan's local callback queries use a reserved no-key USM principal,
+`_network_labs_links`, with a separate **auth-level read-only VACM view**
+limited to the selected ifIndex/admin/oper instances. These callback queries
+are internal agent operations, not authenticated network messages. The
+principal has no network authentication/privacy keys; noAuth requests cannot
+satisfy its VACM level, and higher-security network requests cannot
+authenticate. The existing polling user's authPriv policy is retained.
+The native test checks that the internal principal cannot read the monitored
+object from the network at any of the three SNMPv3 security levels.
+
+The tested Ubuntu Net-SNMP transport allowlist blocks these local callbacks.
+For link-enabled agents only, an owned `inet nlab_snmp_links` nft table
+instead drops UDP/161 packets to the declared agent address from unlisted
+manager IPv4 addresses. The controller refuses a pre-existing table with that
+name, validates its script with nft before applying it, records its structural
+fingerprint and audits subsequent drift. The script is also managed and
+mode 0600. This source-IP policy is not anti-spoofing; it does not change the
+host firewall, receiver policy, other ports, or the agent's USM/VACM rules.
+Agents without link events retain their previous transport filtering.
+
+After building the notification rootfs and creating private passphrase files
+as in the SNMPv3 sections:
+
+```bash
+cd ~/Network-LABS
+umask 077
+python3 -m network_labs.appliances example --snmp-link-events \
+  --rootfs "$HOME/network-labs-notifications-rootfs" --snmp-user monitor \
+  --snmp-auth-passphrase-file snmp-auth.txt \
+  --snmp-privacy-passphrase-file snmp-privacy.txt > snmp-link-events.json
+sudo python3 -m network_labs.appliances start snmp-link-events.json
+```
+
+Use `--snmp-link-mode inform` when generating the manifest to test informs.
+Wait for the initial observation baseline before changing the port. From the
+project directory, find R1's owned namespace and change the actual kernel
+interface in that namespace:
+
+```bash
+SNMP_R1_NS=$(python3 -m network_labs.appliances plan snmp-link-events.json | \
+  python3 -c 'import json,sys; print(next(n["namespace"] for n in json.load(sys.stdin)["nodes"] if n["name"] == "R1"))')
+sudo ip netns exec "$SNMP_R1_NS" ip link set dev eth1 down
+sudo python3 -m network_labs.appliances exec snmp-link-events PC1 -- \
+  /bin/busybox tail -n 20 /run/snmp-notifications.log
+sudo ip netns exec "$SNMP_R1_NS" ip link set dev eth1 up
+```
+
+Allow several seconds for the observation/cache interval before reading the
+log. These commands change **operational test state**, not the declared
+startup shutdown policy; restore eth1 to UP before saving. The interface must
+remain in its namespace and retain its ifIndex. Replacing/deleting it causes
+an audit mismatch; recreate the lab to rebind monitors. Missing native
+DisMan modules fail startup without simulated notifications.
+
+Inspect/save audit the deterministic agent config, event/source files,
+actual interface-index binding and managed source table. File/table conformity
+does not establish daemon/monitor liveness, receipt or log delivery. Drift
+blocks controlled restart before sender-engine rotation. Startup saves the
+selected ports/interval, not runtime indices, source-table fingerprints,
+event history or monitor baseline. Restart/restore reobserve indices and
+establish a fresh baseline; changes while monitoring is stopped are not
+replayed. The new native case exercises both trap/inform modes, actual
+administrative interface down/up, mandatory payload values, stable-state
+suppression, encrypted packet/ACK evidence, source/user restrictions, stopped
+monitor behavior, drift refusal and declarative restore with host isolation.
+
+Reference: [Net-SNMP DisMan monitoring and notificationEvent](https://www.net-snmp.org/docs/man/snmpd.conf.html).

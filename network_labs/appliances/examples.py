@@ -683,3 +683,12 @@ def snmpv3_traps_lab(rootfs, user):
     spec['nodes'][1]['interfaces']['eth3'] = ''
     spec['links'].append([['SW1', 'eth3'], ['R2', 'eth0']])
     return validate(spec)
+
+
+def snmp_links_lab(rootfs, user, mode='trap'):
+    """Real IF-MIB link observations on R1 eth1; management uses eth0."""
+    spec = snmpv3_traps_lab(rootfs, user) if mode == 'trap' else snmpv3_informs_lab(rootfs, user)
+    if mode not in ('trap', 'inform'): raise ValueError('Choose trap or inform link events.')
+    spec['name'] = 'snmp-link-events'
+    spec['nodes'][2]['snmp_agent']['link_events'] = {'interfaces': ['eth1'], 'interval': 2}
+    return validate(spec)

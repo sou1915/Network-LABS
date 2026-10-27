@@ -320,6 +320,8 @@ class Manager:
             raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
+        if any((n.get('snmp_agent') or {}).get('link_events') for n in spec['nodes']) and not shutil.which('nft'):
+            raise RuntimeFailure('SNMP link events require host nftables for the owned-node source policy.')
         existing = {line.split()[0] for line in run(['ip', 'netns', 'list']).stdout.splitlines() if line.strip()}
         if any(namespace(spec, i) in existing for i in range(len(spec['nodes']))):
             raise RuntimeFailure('A lab namespace already exists; refusing to adopt or delete it.')

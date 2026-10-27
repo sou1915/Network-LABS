@@ -172,6 +172,129 @@ class RealContainerTests(unittest.TestCase):
         for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
         self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
 
+    def test_appliance_aa_agent_snmp_link_events_real_interfaces_security_restore(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        import re
+        from network_labs.appliances.examples import snmp_links_lab
+        from network_labs.appliances.snmp import usm_credentials, client_config, start_server
+        from network_labs.appliances.snmp_links import UP, DOWN, TABLE, INTERNAL, FILTER
+        from network_labs.appliances.snmp_notifications import LOG
+        from network_labs.appliances.persistence import load_startup
+        from network_labs.appliances.capture import capture
+        from network_labs.appliances.firewall import fingerprint
+        from snmp_wire import captured_v3
+        host_links = lambda: {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        links = host_links()
+        baseline = {(family, kind): run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
+                    for family in ('-4', '-6') for kind in ('route', 'rule')}
+        forwarding = {key: run(['sysctl', '-n', key]).stdout for key in ('net.ipv4.ip_forward', 'net.ipv6.conf.all.forwarding')}
+        nft = fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout))
+        with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=1) as pool, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            folder = Path(folder); user = usm_credentials('monitor', 'native-link-auth', 'native-link-privacy')
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), folder / 'rootfs', snmpd=shutil.which('snmpd'), snmptrapd=shutil.which('snmptrapd'))
+            directory = folder / 'client'; directory.mkdir(mode=0o700)
+            path = directory / 'snmp.conf'; path.write_text(client_config(user)); path.chmod(0o600)
+            for mode in ('trap', 'inform'):
+                spec = snmp_links_lab(rootfs, user, mode); spec['name'] = 'links-' + mode + '-' + str(os.getpid()); manager = Manager(spec['name'])
+                def logs(): return manager.crun('exec', 'PC1', '/bin/busybox', 'cat', LOG, check=False).stdout
+                def wait_event(oid, minimum=1):
+                    deadline = time.monotonic() + 18
+                    while time.monotonic() < deadline:
+                        rows = [row for row in logs().splitlines() if 'OID: ' + oid in row]
+                        if len(rows) >= minimum: return rows[-1]
+                        time.sleep(.2)
+                    log = manager.directory / 'R1/snmp.log'
+                    self.fail('Missing native link event ' + oid + ': ' + logs() + (log.read_text(errors='replace')[-4000:] if log.exists() else ''))
+                def query(oid, source=0, extra=()):
+                    return manager.ns(source, 'env', 'SNMPCONFPATH=' + str(directory), 'snmpget', '-m', '', '-t', '1', '-r', '0',
+                                      '-Oqv', *extra, '192.0.2.20', oid, check=False, timeout=4)
+                def state(up): manager.ns(2, 'ip', 'link', 'set', 'dev', 'eth1', 'up' if up else 'down')
+                def payload(row, index, admin, oper):
+                    for column, value in (('1', index), ('7', admin), ('8', oper)):
+                        self.assertRegex(row, re.escape(TABLE + column + '.' + str(index)) + r' = INTEGER: (?:[A-Za-z]+\()?' + str(value) + r'\)?(?:\s|$)')
+                try:
+                    with manager.locked():
+                        manager.start(spec); time.sleep(7)
+                        self.assertNotIn('OID: ' + UP, logs()); self.assertNotIn('OID: ' + DOWN, logs())
+                        index = json.loads(manager.ns(2, 'ip', '-j', 'link', 'show', 'dev', 'eth1').stdout)[0]['ifindex']
+                        self.assertEqual(query(TABLE + '8.' + str(index)).stdout.strip(), '1')
+                        # Same credentials from an IP-reachable unlisted manager
+                        # must be denied by the owned-node UDP/161 source rule.
+                        manager.crun('exec', 'PC3', '/bin/ping', '-c', '1', '-W', '2', '192.0.2.20')
+                        self.assertNotEqual(query(TABLE + '8.' + str(index), source=4).returncode, 0)
+                        for level in ('noAuthNoPriv', 'authNoPriv', 'authPriv'):
+                            rejected = query(TABLE + '8.' + str(index), extra=('-u', INTERNAL, '-l', level))
+                            self.assertTrue(rejected.returncode != 0 or 'No Such' in rejected.stdout)
+                        report = manager.inspect('R1')['snmp_agent']; self.assertTrue(report['configuration_verified'])
+                        self.assertEqual(report['link_events']['provisioned_indices'], {'eth1': index})
+                    event = threading.Event(); pcap = folder / (mode + '.pcap')
+                    future = pool.submit(capture, Manager(spec['name']), 'PC1', 'eth0', pcap, seconds=40, packets=1000,
+                                         expression='udp port 162', ready=event.set)
+                    self.assertTrue(event.wait(5))
+                    with manager.locked():
+                        state(False); payload(wait_event(DOWN), index, 2, 2)
+                        count = logs().count('OID: ' + DOWN); time.sleep(5)
+                        self.assertEqual(logs().count('OID: ' + DOWN), count, 'Stable sampled state must not repeatedly fire')
+                        state(True); payload(wait_event(UP), index, 1, 1)
+                        manager.crun('exec', 'PC2', '/bin/ping', '-c', '1', '-W', '2', '198.51.100.1')
+                    self.assertGreater(future.result(timeout=45)['captured_packets'], 0)
+                    packets = captured_v3(pcap.read_bytes(), port=162)
+                    requests = [p for p in packets if p['target_port'] == 162 and p['flags'] & 3 == 3]
+                    self.assertGreaterEqual(len(requests), 2)
+                    for packet in requests:
+                        self.assertEqual(packet['data_tag'], 4); self.assertEqual(packet['auth_length'], 24); self.assertEqual(packet['privacy_length'], 8)
+                    if mode == 'trap': self.assertFalse(any(p['source_port'] == 162 for p in packets))
+                    else:
+                        for request in requests:
+                            self.assertTrue(any(p['source_port'] == 162 and p['target_port'] == request['source_port'] and
+                                                p['message_id'] == request['message_id'] and p['flags'] & 3 == 3 for p in packets))
+                    with manager.locked():
+                        config = manager.directory / 'R1/files/snmp-link-events.conf'; original = config.read_text()
+                        config.write_text(original + '# drift\n')
+                        with self.assertRaises(RuntimeFailure): manager.write_startup()
+                        before = json.dumps(manager.read(), sort_keys=True)
+                        with self.assertRaises(RuntimeFailure): start_server(manager, spec['nodes'][2])
+                        self.assertEqual(json.dumps(manager.read(), sort_keys=True), before)
+                        config.write_text(original)
+                        # A daemon stop is not a link event. A stopped monitor
+                        # cannot report changes, even if its files still match.
+                        manager.crun('exec', 'R1', '/bin/sh', '-c', '/bin/kill -TERM "$(/bin/cat /run/snmpd.pid)"')
+                        deadline = time.monotonic() + 5
+                        while manager.ns(2, 'ss', '-H', '-lun', 'sport = :161').stdout:
+                            if time.monotonic() >= deadline: self.fail('Old monitored agent still listens')
+                            time.sleep(.05)
+                        count = logs().count('OID: ' + DOWN); state(False); time.sleep(4)
+                        self.assertEqual(logs().count('OID: ' + DOWN), count)
+                        self.assertTrue(manager.inspect('R1')['snmp_agent']['configuration_verified'])
+                        state(True); start_server(manager, spec['nodes'][2]); time.sleep(7)
+                        self.assertEqual(logs().count('OID: ' + DOWN), count)
+                        manager.write_startup(); saved = load_startup(spec['name'])
+                        for field in ('snmp_link_indices', 'snmp_link_filters'): self.assertNotIn(field, saved)
+                        # Structural changes to the managed source table are
+                        # detected even when no packet counters are involved.
+                        manager.ns(2, 'nft', 'add', 'rule', 'inet', FILTER, 'input', 'ip', 'saddr', '192.0.2.10', 'counter')
+                        with self.assertRaises(RuntimeFailure): manager.write_startup()
+                        manager.stop()
+                    manager = Manager(spec['name'])
+                    with manager.locked():
+                        manager.start(saved); time.sleep(7)
+                        self.assertNotIn('OID: ' + UP, logs()); self.assertNotIn('OID: ' + DOWN, logs())
+                        index = json.loads(manager.ns(2, 'ip', '-j', 'link', 'show', 'dev', 'eth1').stdout)[0]['ifindex']
+                        self.assertEqual(manager.inspect('R1')['snmp_agent']['link_events']['provisioned_indices'], {'eth1': index})
+                        state(False); payload(wait_event(DOWN), index, 2, 2)
+                        state(True); payload(wait_event(UP), index, 1, 1)
+                        manager.write_startup()
+                finally:
+                    if manager.directory.exists():
+                        with manager.locked(): manager.stop()
+        self.assertHostLinksUnchanged(links, host_links())
+        for (family, kind), expected in baseline.items():
+            self.assertEqual(run(['ip', '-j', family, kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, expected)
+        for key, expected in forwarding.items(): self.assertEqual(run(['sysctl', '-n', key]).stdout, expected)
+        self.assertEqual(fingerprint(json.loads(run(['nft', '-j', 'list', 'ruleset']).stdout)), nft)
+
     def test_appliance_aa_agent_snmp_notifications_trap_inform_ack_loss_restore(self):
         from concurrent.futures import ThreadPoolExecutor
         import copy

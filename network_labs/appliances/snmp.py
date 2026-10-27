@@ -54,7 +54,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('snmp_agent', None)
     if config is None: return
-    keys(config, ('interface', 'community', 'managers', 'usm', 'notifications'), 'SNMP agent')
+    keys(config, ('interface', 'community', 'managers', 'usm', 'notifications', 'link_events'), 'SNMP agent')
     port = config.get('interface'); values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or not values.get(port) or
             port in node['shutdown'] or node.get('startup')):
@@ -83,6 +83,8 @@ def validate_node(node):
     config['managers'] = sorted(set(canonical))
     from .snmp_notifications import validate_sender
     validate_sender(node)
+    from .snmp_links import validate_node as validate_links
+    validate_links(node)
 
 
 def validate_lab(spec):
@@ -113,6 +115,8 @@ def config_text(node):
         policy = [*['com2sec NetworkLabsSecurity ' + ip + ' ' + config['community'] for ip in config['managers']],
                   'group NetworkLabsGroup v2c NetworkLabsSecurity', *views,
                   'access NetworkLabsGroup "" v2c noauth exact NetworkLabsView none none']
+    if config.get('link_events'):
+        policy = [line for line in policy if not line.startswith(('sourceFilterType ', 'sourceFilterAddress '))]
     notification = config.get('notifications') or {}
     trap_user = notification.get('usm')
     if user and trap_user and notification.get('mode') == 'trap' and trap_user['username'] != user['username']:
@@ -120,6 +124,9 @@ def config_text(node):
         # credential gets no polling VACM group or access rule.
         policy.append('createUser ' + trap_user['username'] + ' SHA-256 -m 0x' + trap_user['auth_master_key']
                       + ' AES -m 0x' + trap_user['privacy_master_key'])
+    if config.get('link_events'):
+        from .snmp_links import CONFIG as link_config
+        policy.append('includeFile ' + link_config)
     from .snmp_notifications import sender_lines
     return '\n'.join([
         'agentAddress udp:' + listen_address(node) + ':161', '[snmp] persistentDir /run/snmp',
@@ -132,6 +139,8 @@ def config_text(node):
 def prepare_files(bundle, node):
     if node.get('snmp_agent'):
         path = Path(bundle) / 'files/snmpd.conf'; path.write_text(config_text(node)); path.chmod(0o600)
+        if node['snmp_agent'].get('link_events'):
+            path = Path(bundle) / 'files/snmp-link-events.conf'; path.write_text(''); path.chmod(0o600)
 
 
 def command(node=None, engine_id=None):
@@ -140,14 +149,20 @@ def command(node=None, engine_id=None):
     v3 = bool(node and node['snmp_agent'].get('usm'))
     if v3 and (not isinstance(engine_id, str) or not re.fullmatch(r'[0-9a-f]{24}', engine_id)):
         raise ValueError('SNMPv3 startup requires a fresh runtime engine token.')
+    from .snmp_links import EXTRA_MODULES
+    links = bool(node and node['snmp_agent'].get('link_events'))
     return [BINARY, '-f', '-Lo', '-C', '-c', CONFIG, '-p', '/run/snmpd.pid', '-m', '', '-I',
-            MODULES + (',usmConf' if v3 else '')] + (['--engineID=' + engine_id] if v3 else [])
+            MODULES + (',usmConf' if v3 else '') + (',' + EXTRA_MODULES if links else '')] + (['--engineID=' + engine_id] if v3 else [])
 
 
 def start_server(manager, node):
     manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/snmp')
+    from .snmp_links import check_restart
+    check_restart(manager, node)
     from .snmp_traps import is_sender, sender_token
     token = sender_token(manager, node) if is_sender(node) else secrets.token_hex(12)
+    from .snmp_links import prepare as prepare_links
+    prepare_links(manager, node)
     manager.crun('exec', '--detach', node['name'], *command(node, token), log=manager.directory / node['name'] / 'snmp.log')
 
 
@@ -159,7 +174,9 @@ def start_servers(manager):
 def observe(manager, node):
     check = observe_config(manager, node['name'], CONFIG, config_text(node))
     user = node['snmp_agent'].get('usm')
-    return {'configuration_verified': check['configuration_verified'], 'file': check,
+    from .snmp_links import observe as observe_links
+    links = observe_links(manager, node) if node['snmp_agent'].get('link_events') else None
+    return {'configuration_verified': check['configuration_verified'] and (links is None or links['configuration_verified']), 'link_events': links, 'file': check,
             'address': listen_address(node), 'port': 161, 'transport': 'udp', 'version': '3' if user else '2c',
             'managers': node['snmp_agent']['managers'], 'view': list(VIEW), 'read_only': True,
             'notifications': {k: v for k, v in (node['snmp_agent'].get('notifications') or {}).items() if k not in ('community', 'usm')},
