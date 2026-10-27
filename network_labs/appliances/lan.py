@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -183,6 +183,8 @@ def validate_lan(node):
     validate_management(node)
     from .syslog_server import validate_node as validate_collector
     validate_collector(node)
+    from .ntp_server import validate_node as validate_ntp
+    validate_ntp(node)
     from .snmp import validate_node as validate_snmp
     validate_snmp(node)
     from .snmp_notifications import validate_node as validate_snmp_receiver
@@ -336,6 +338,9 @@ def observe(manager, index, node):
     if node.get('syslog_server'):
         from .syslog_server import observe as observe_collector
         result['syslog_server'] = observe_collector(manager, node)
+    if node.get('ntp_server'):
+        from .ntp_server import observe as observe_ntp
+        result['ntp_server'] = observe_ntp(manager, node)
     if node['management']:
         from .management import observe as observe_management
         result['management'] = observe_management(manager, node)

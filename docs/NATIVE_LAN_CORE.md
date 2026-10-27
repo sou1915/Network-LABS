@@ -3277,6 +3277,35 @@ does not change any other process's view of time. The demo sends real packets in
 includes both endpoint and probe evidence. Stop the lab separately when done:
 `sudo python3 -m network_labs.appliances stop micro-lan`.
 
+### Experimental managed chronyd server
+
+The `ntp_server` node manifest field declares a chronyd service with one
+explicit IPv4 upstream and a bounded list of permitted IPv4 clients:
+
+```json
+"ntp_server": {
+  "interface": "eth0",
+  "upstream": "192.0.2.30",
+  "clients": ["192.0.2.10"]
+}
+```
+
+The configured addresses must belong to distinct other managed nodes; the
+upstream must actually run a synchronized NTP service. This snippet alone does
+not create that service, addressing, routes or links. Build a new trusted rootfs
+with `rootfs --busybox /usr/bin/busybox --chronyd /usr/sbin/chronyd --output PATH`,
+and assign it to the server node. Network LABS does not install chrony or
+start the host service. The node starts chronyd with `-x` and without
+`CAP_SYS_TIME`, so it cannot discipline the shared host clock; it does not
+provide an independent node clock. It allows only declared downstream addresses,
+disables the network command port and does not enable an artificial local time
+source. An upstream that is unreachable or unsynchronized may prevent service
+to clients. Configuration inspection checks the file, not process liveness or
+synchronization. Live configuration changes require lab recreation. This
+profile is experimental: the chronyd binary and privileged network namespaces
+were unavailable in the development environment, so actual daemon startup and
+end-to-end synchronization have not yet been verified there. NTP is unauthenticated.
+
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.
 The host Python standard library runs in the owned node network namespace; no

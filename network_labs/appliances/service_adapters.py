@@ -2,6 +2,8 @@
 
 
 def adapters(node, previous):
+    if (node.get('ntp_server') or previous.get('ntp_server')) and node != previous:
+        raise ValueError('NTP server nodes require lab recreation for live changes.')
     if (node.get('snmp_receiver') or previous.get('snmp_receiver')) and node != previous:
         raise ValueError('SNMP receiver nodes require lab recreation for live changes.')
     if (node.get('snmp_agent') or previous.get('snmp_agent')) and node != previous:

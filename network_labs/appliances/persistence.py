@@ -32,6 +32,8 @@ def drift(manager):
         errors.extend(management_drift(manager, node))
         from .syslog_server import drift as collector_drift
         errors.extend(collector_drift(manager, node))
+        from .ntp_server import drift as ntp_drift
+        errors.extend(ntp_drift(manager, node))
         from .snmp import drift as snmp_drift
         errors.extend(snmp_drift(manager, node))
         from .snmp_notifications import drift as notifications_drift

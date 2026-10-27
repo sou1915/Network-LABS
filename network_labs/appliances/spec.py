@@ -112,6 +112,8 @@ def validate(data):
     validate_management_lab(data)
     from .syslog_server import validate_lab as validate_collector_lab
     validate_collector_lab(data)
+    from .ntp_server import validate_lab as validate_ntp_lab
+    validate_ntp_lab(data)
     from .snmp import validate_lab as validate_snmp_lab
     validate_snmp_lab(data)
     from .snmp_notifications import validate_lab as validate_notifications_lab
