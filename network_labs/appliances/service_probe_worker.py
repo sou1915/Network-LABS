@@ -3,10 +3,12 @@
 No host resolver, environment proxy, redirects, shell, or guest Python dependency.
 """
 import ipaddress
+from contextlib import ExitStack
 import json
 import re
 import secrets
 import socket
+import ssl
 import struct
 import sys
 import time
@@ -107,7 +109,8 @@ def run_probe(request):
             raise TimeoutError('Probe deadline reached')
         sock.settimeout(remaining)
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if stage in ('dns', 'sntp') else socket.SOCK_STREAM) as sock:
+        with ExitStack() as resources:
+            sock = resources.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM if stage in ('dns', 'sntp') else socket.SOCK_STREAM))
             sock.bind((request['source'], 0))
             bounded(sock)
             if stage == 'dns':
@@ -132,9 +135,17 @@ def run_probe(request):
             else:
                 sock.connect((request['address'], request['port']))
                 result.update(status='passed', connected=True)
-                if stage == 'http':
+                if stage in ('http', 'https'):
                     result['status'] = 'unknown'
-                    host = request['target'] + (':' + str(request['port']) if request['port'] != 80 else '')
+                    if stage == 'https':
+                        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                        context.minimum_version = ssl.TLSVersion.TLSv1_2
+                        context.load_verify_locations(cadata=request['ca_pem'])
+                        bounded(sock)
+                        sock = resources.enter_context(context.wrap_socket(sock, server_hostname=request['target']))
+                        result.update(certificate_verified=True, tls_version=sock.version(), cipher=sock.cipher()[0])
+                    default_port = 443 if stage == 'https' else 80
+                    host = request['target'] + (':' + str(request['port']) if request['port'] != default_port else '')
                     bounded(sock)
                     sock.sendall(('HEAD ' + request['path'] + ' HTTP/1.0\r\nHost: ' + host + '\r\nConnection: close\r\n\r\n').encode('ascii'))
                     line = b''
@@ -151,6 +162,8 @@ def run_probe(request):
                     code = int(match[1])
                     result.update(status='passed' if 200 <= code < 300 else 'failed', http_status=code,
                                   detail='HEAD response; redirects are not followed')
+    except ssl.SSLCertVerificationError as error:
+        result.update(status='failed', certificate_verified=False, error='CERTIFICATE_VERIFY_FAILED', detail=str(error)[:300])
     except (TimeoutError, ConnectionError, OSError) as error:
         result.update(status='failed', error=type(error).__name__, errno=getattr(error, 'errno', None), detail=str(error)[:300])
     except (ValueError, UnicodeError, struct.error) as error:

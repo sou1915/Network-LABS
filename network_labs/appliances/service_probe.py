@@ -1,10 +1,12 @@
 """Layered, bounded DNS/TCP/HTTP observations from a managed OCI host."""
 from datetime import datetime, timezone
 import ipaddress
+import hashlib
 import json
 from pathlib import Path
 import re
 import subprocess
+import ssl
 import sys
 
 from .runtime import RuntimeFailure
@@ -20,10 +22,25 @@ def unicast(value):
     return str(address)
 
 
-def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3):
+def load_ca(path):
+    with Path(path).open('rb') as source:
+        data = source.read(65537)
+    if len(data) > 65536:
+        raise ValueError('CA bundle exceeds 64 KiB.')
+    return data.decode('ascii')
+
+
+def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3, ca_pem=None):
     """Caller holds lab lock. Sequential probes are evidence, not root-cause proof."""
-    if protocol not in ('dns', 'tcp', 'http', 'sntp'):
-        raise ValueError('Choose dns, tcp, http or sntp.')
+    if protocol not in ('dns', 'tcp', 'http', 'https', 'sntp'):
+        raise ValueError('Choose dns, tcp, http, https or sntp.')
+    if protocol == 'https':
+        if not isinstance(ca_pem, str) or len(ca_pem.encode('utf-8')) > 65536 or 'PRIVATE KEY' in ca_pem:
+            raise ValueError('HTTPS requires an explicit PEM CA bundle of at most 64 KiB, without private keys.')
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=ca_pem)
+    elif ca_pem is not None:
+        raise ValueError('A CA bundle is only supported with HTTPS.')
     integer(timeout, 1, 5, 'Probe timeout')
     if port is not None:
         integer(port, 1, 65535, 'Destination port')
@@ -35,8 +52,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
         raise ValueError('TCP requires an explicit --port.')
     if not isinstance(path, str) or not re.fullmatch(r'/[!-~]{0,1023}', path) or '#' in path:
         raise ValueError('Use an ASCII HTTP path beginning with /; percent-encode spaces and Unicode.')
-    if protocol != 'http' and path != '/':
-        raise ValueError('--path is only supported for HTTP.')
+    if protocol not in ('http', 'https') and path != '/':
+        raise ValueError('--path is only supported for HTTP/HTTPS.')
     if not isinstance(target, str):
         raise ValueError('Expected an IPv4 address or DNS name, not a URL.')
     try:
@@ -60,9 +77,9 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     endpoint = _endpoint(manager, index, node)
     report = {'lab': manager.name, 'node': source, 'revision': state.get('revision', 0),
               'started_at': datetime.now(timezone.utc).isoformat(), 'target': target, 'protocol': protocol,
-              'port': port or (53 if protocol == 'dns' else 123 if protocol == 'sntp' else 80), 'path': path if protocol == 'http' else None,
+              'port': port or (53 if protocol == 'dns' else 123 if protocol == 'sntp' else 443 if protocol == 'https' else 80), 'path': path if protocol in ('http', 'https') else None,
               'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
-              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP HEAD are separate connections. HTTP 2xx only; no redirects, TLS or body validation. SNTP is one unauthenticated UDP exchange, not clock synchronization; local and host clocks are never set. Failures do not prove a routing/firewall/service root cause.'}
+              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP(S) HEAD are separate connections. HTTP 2xx only; no redirects or body validation. HTTPS uses only the explicit CA bundle and verifies the target hostname/IP; no guest/host default CA fallback, revocation checking or mutual TLS. SNTP never sets clocks. Failures do not prove a routing/firewall/service root cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         from .service_findings import findings
@@ -78,9 +95,13 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
             value = json.loads(process.stdout)
             if process.returncode or not isinstance(value, dict) or value.get('stage') != stage or value.get('status') not in ('passed', 'failed', 'unknown'):
                 raise ValueError('Probe worker output unavailable')
+            if stage == 'https' and value['status'] == 'passed' and value.get('certificate_verified') is not True:
+                raise ValueError('HTTPS success lacks verified certificate evidence')
         except (OSError, RuntimeFailure, ValueError, subprocess.TimeoutExpired) as error:
             value = {'stage': stage, 'status': 'unknown', 'error': str(error)[:300]}
-        value['request'] = request
+        value['request'] = {k: v for k, v in request.items() if k != 'ca_pem'}
+        if 'ca_pem' in request:
+            value['request']['ca_sha256'] = hashlib.sha256(request['ca_pem'].encode('utf-8')).hexdigest()
         report['stages'].append(value)
         return value
     if address is None:
@@ -117,7 +138,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     tcp = execute('tcp', address=address, port=report['port'])
     if tcp['status'] != 'passed' or protocol == 'tcp':
         return finish(tcp['status'])
-    return finish(execute('http', address=address, port=report['port'], path=path)['status'])
+    extra = {'ca_pem': ca_pem} if protocol == 'https' else {}
+    return finish(execute(protocol, address=address, port=report['port'], path=path, **extra)['status'])
 
 
 def render(report):

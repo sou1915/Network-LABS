@@ -49,7 +49,13 @@ def findings(report):
             else:
                 add('TCP_NOT_CONNECTED', status, 'La connexion TCP n’a pas été établie par cette sonde.',
                     'Vérifier les routes aller/retour, le filtrage et le service à l’écoute ; ne pas déduire la cause du seul échec.', stage)
-        elif kind == 'http':
+        elif kind == 'https' and stage.get('error') == 'CERTIFICATE_VERIFY_FAILED':
+            add('HTTPS_CERTIFICATE_REJECTED', status, 'La vérification du certificat TLS a échoué.',
+                'Vérifier la CA fournie, le nom/IP du certificat et sa validité. Aucun contournement du contrôle TLS.', stage)
+        elif kind in ('http', 'https'):
+            if kind == 'https' and stage.get('certificate_verified') is True:
+                add('HTTPS_TLS_VERIFIED', 'passed', 'Le certificat a été validé avec la CA fournie et le nom/IP demandé.',
+                    'Cette validation ne vérifie pas la révocation ni le contenu de la page.', stage)
             code = stage.get('http_status')
             if code is not None:
                 message = ('Le serveur a répondu à HEAD avec un statut HTTP 2xx.' if status == 'passed'

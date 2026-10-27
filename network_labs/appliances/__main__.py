@@ -116,9 +116,10 @@ def main(arguments=None):
     verify.add_argument('--count', type=int, default=3)
     verify.add_argument('--bidirectional', action='store_true')
     verify.add_argument('--json', action='store_true')
-    service = commands.add_parser('probe', help='Bounded DNS A, TCP, HTTP HEAD and SNTP from an OCI host.')
+    service = commands.add_parser('probe', help='Bounded DNS A, TCP, HTTP(S) HEAD and SNTP from an OCI host.')
     service.add_argument('name'); service.add_argument('source'); service.add_argument('target')
-    service.add_argument('--protocol', choices=('dns', 'tcp', 'http', 'sntp'), default='http')
+    service.add_argument('--protocol', choices=('dns', 'tcp', 'http', 'https', 'sntp'), default='http')
+    service.add_argument('--ca-file', type=Path, help='Explicit trusted PEM CA bundle for HTTPS; required with --protocol https.')
     service.add_argument('--port', type=int)
     service.add_argument('--path', default='/')
     service.add_argument('--timeout', type=int, default=3, help='Deadline per wire stage, 1..5 seconds.')
@@ -285,9 +286,12 @@ def main(arguments=None):
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'probe':
-                    from .service_probe import probe, render
+                    from .service_probe import probe, render, load_ca
+                    if args.ca_file and args.protocol != 'https':
+                        raise ValueError('--ca-file requires --protocol https.')
+                    trust = {'ca_pem': load_ca(args.ca_file)} if args.ca_file else {}
                     result = probe(manager, args.source, args.target, protocol=args.protocol,
-                                   port=args.port, path=args.path, timeout=args.timeout)
+                                   port=args.port, path=args.path, timeout=args.timeout, **trust)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':

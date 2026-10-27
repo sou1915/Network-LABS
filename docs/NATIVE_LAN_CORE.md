@@ -3287,6 +3287,22 @@ test have not yet run in the development environment. Stop the lab when done:
 
 ### Explicit DNS, TCP, HTTP and SNTP service probes
 
+HTTPS is available through `probe --protocol https --ca-file PATH_TO_CA_PEM`.
+The positional arguments remain the running lab, source host and target DNS
+name or IPv4 address. It requires an existing HTTPS server; no managed HTTPS
+server is created by this command. The default destination port is 443, with
+optional `--port` and `--path`. The trust bundle is explicitly supplied from
+the local filesystem and is limited to 64 KiB. Only that CA bundle is trusted;
+there is no fallback to host or guest CA stores and no insecure bypass. Private
+keys are rejected. The certificate chain and target hostname/IP are verified,
+with TLS 1.2 or newer, before sending HTTP HEAD. A successful result requires
+HTTP 2xx as well. Revocation, mutual TLS, redirects and page-body validation
+are not supported. DNS resolution, when needed, uses the guest's declared
+resolver, while the TLS implementation and clock come from host Python in the
+source network namespace. JSON output retains the CA bundle fingerprint rather
+than its PEM contents. The separate TCP test does not certify the later TLS
+connection. Certificate errors are reported without bypassing verification.
+
 An existing reachable NTP server can be queried from a running single-interface
 OCI host with `sudo python3 -m network_labs.appliances probe LAB PC1 192.0.2.20 --protocol sntp`.
 Use the server's actual address and add `--json` for the measured offset,

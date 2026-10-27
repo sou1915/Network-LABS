@@ -16,7 +16,7 @@ the educational canvas/Wasm engine remains separate.
 | File services | Bounded TFTP octet read with optional SHA-256; experimental managed read-only dnsmasq server with declared text or Base64 binary files | Validate managed TFTP end-to-end in native labs; direct binary file imports, write, retransmission, FTP, SFTP and PXE |
 | IPv4/IPv6 | Real addressing, ARP/NDP/DAD, ICMP, static routing; static routed dual-stack | Dynamic dual-stack combinations, IPv6 SVIs/subinterfaces, IPv6 policy/security |
 | DHCP/DNS | IPv4 leases/reservations/relay/multi-pool, local DNS A; IPv6 IA_NA and RA/SLAAC subsets | DHCPv6 relay/PD/stateless, IPv6 DNS provisioning, advanced DNS/DNSSEC |
-| HTTP | BusyBox sample service and bounded DNS/TCP/HTTP HEAD probes | HTTPS/TLS, redirects/application profiles, IPv6 service probes |
+| HTTP/HTTPS | BusyBox HTTP sample service; bounded DNS/TCP/HTTP(S) HEAD, HTTPS with explicit CA and hostname/IP validation | Managed HTTPS server, revocation/mutual TLS, redirects/application profiles, IPv6 service probes |
 | VLAN/switching | Access/trunk dot1Q, Linux bridges, LACP, common STP; scoped OVS RSTP | MSTP/PVST, broader switching interactions and vendor details |
 | Discovery/multicast | Received LLDP and scoped Linux IGMPv2 snooping/querier | CDP, MLD, broader multicast and discovery profiles |
 | Internal routing | Static IPv4/IPv6, BIRD OSPFv2 area 0 subsets | OSPFv3, broader IGP features, VRRP/gateway redundancy and failover |
