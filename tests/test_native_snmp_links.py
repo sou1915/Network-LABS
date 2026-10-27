@@ -77,6 +77,21 @@ class LinkEventTests(unittest.TestCase):
             with self.assertRaises(RuntimeFailure): check_restart(manager, manager.state['spec']['nodes'][2])
         self.assertEqual(manager.state, before)
 
+    def test_failed_config_publication_does_not_record_binding_and_can_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = Mock(); manager.directory = Path(folder); manager.state = {'spec': self.spec(), 'phase': 'starting'}
+            node = manager.state['spec']['nodes'][2]; files = manager.directory / 'R1/files'; files.mkdir(parents=True)
+            manager.crun.return_value = Mock(stdout='iquerySecName x\niquerySecLevel x\nmonitor x\nnotificationEvent x\n', stderr='', returncode=0)
+            with patch('network_labs.appliances.snmp_links.indices', return_value={'eth1': 7}), \
+                 patch('network_labs.appliances.snmp_links.install_source_filter'):
+                with patch('network_labs.appliances.snmp_links.os.replace', side_effect=OSError('disk error')):
+                    with self.assertRaises(OSError): prepare(manager, node)
+                self.assertNotIn('snmp_link_indices', manager.state)
+                self.assertEqual(list(files.iterdir()), [])
+                prepare(manager, node)
+            self.assertEqual(manager.state['snmp_link_indices']['R1'], {'eth1': 7})
+            self.assertEqual((files / 'snmp-link-events.conf').read_text(), config_text(node, {'eth1': 7}))
+
     def test_source_table_collision_is_not_adopted(self):
         manager = Mock(); manager.state = {'spec': self.spec()}; manager.ns.return_value.stdout = json.dumps({'nftables': [{'table': {'family': 'inet', 'name': FILTER}}]})
         with self.assertRaisesRegex(RuntimeFailure, 'adopt'): install_source_filter(manager, manager.state['spec']['nodes'][2])

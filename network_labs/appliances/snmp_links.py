@@ -2,6 +2,8 @@
 import json
 import re
 import subprocess
+import os
+import tempfile
 from .service_config import observe_config
 
 CONFIG = '/lab/snmp-link-events.conf'
@@ -95,11 +97,20 @@ def prepare(manager, node):
         raise RuntimeFailure('Required native Net-SNMP DisMan modules are unavailable; no simulated link events.')
     observed = indices(manager, node); content = config_text(node, observed)
     install_source_filter(manager, node)
+    path = manager.directory / node['name'] / 'files/snmp-link-events.conf'
+    # Publish a complete private file before recording the binding. A failed write
+    # must not leave a state entry that makes a subsequent start report drift.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix=path.name + '.', delete=False) as output:
+            temporary = output.name
+            output.write(content)
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
     manager.state.setdefault('snmp_link_indices', {})[node['name']] = observed; manager.save()
-    path = manager.directory / node['name'] / 'files/snmp-link-events.conf'; temporary = path.with_suffix('.tmp')
-    with temporary.open('x') as output:
-        temporary.chmod(0o600); output.write(content)
-    temporary.replace(path)
 
 
 def source_text(node):
