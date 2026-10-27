@@ -14,6 +14,8 @@ def main(arguments=None):
     parser = argparse.ArgumentParser(description='Network LABS native experimental appliances')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
+    labs = commands.add_parser('labs', help='List recorded native lab names, phases and nodes; no liveness checks.')
+    labs.add_argument('--json', action='store_true')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--snmp-notifications', action='store_true', help='Real v2c agent coldStart and log-only trap/inform receiver.')
@@ -167,6 +169,11 @@ def main(arguments=None):
     try:
         if args.command == 'doctor':
             result = capabilities()
+        elif args.command == 'labs':
+            from .labs import list_labs, render
+            result = list_labs()
+            print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+            return 0
         elif args.command == 'example':
             from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab, rstp_lab, svi_lab, static_routing_lab, dhcp_relay_lab, dhcp_multi_lab, ospf_lab, ospf_cli_lab, ospf_broadcast_lab, ospf_svi_lab, ospf_dhcp_lab, ospf_dhcp_multi_lab, ospf_dhcp_lldp_lab, lan_services_lab, ipv6_vlan_lab, ipv6_routed_lab, slaac_lab, dhcpv6_lab, dual_stack_lab, management_lab, syslog_lab, snmp_lab, snmpv3_lab, snmp_notifications_lab, snmpv3_informs_lab, snmpv3_traps_lab, snmp_links_lab
             if sum((args.snmp_link_events, args.snmpv3_traps, args.snmpv3_informs, args.snmp_notifications, args.snmpv3, args.snmp, args.syslog, args.management, args.dual_stack, args.dhcpv6, args.slaac, args.ipv6_routed, args.ipv6_vlan, args.lan_services, args.ospf_dhcp_lldp, args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp, args.svi, args.static_routing, args.dhcp_relay, args.dhcp_multi, args.ospf, args.ospf_cli, args.ospf_broadcast, args.ospf_svi, args.ospf_dhcp, args.ospf_dhcp_multi)) > 1:

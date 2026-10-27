@@ -46,6 +46,10 @@ class ServiceProbeTests(unittest.TestCase):
         result = sntp_response(bytes(packet), sent, t1, t1 + .5)
         self.assertAlmostEqual(result['offset_seconds'], 0, places=5)
         self.assertAlmostEqual(result['round_trip_seconds'], .4, places=5)
+        times = result['timestamps_unix_seconds']
+        for key, expected in [('client_send', t1), ('server_receive', t1 + .2),
+                              ('server_send', t1 + .3), ('client_receive', t1 + .5)]:
+            self.assertAlmostEqual(times[key], expected, places=5)
         self.assertAlmostEqual(ntp_decode(ntp_encode(t1), t1), t1, places=5)
         for index, value in ((0, 0xe4), (0, 0x23), (1, 0), (24, packet[24] ^ 1)):
             bad = bytearray(packet); bad[index] = value

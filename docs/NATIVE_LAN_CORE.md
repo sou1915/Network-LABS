@@ -3234,7 +3234,9 @@ budget is inferred from these checks.
 An existing reachable NTP server can be queried from a running single-interface
 OCI host with `sudo python3 -m network_labs.appliances probe LAB PC1 192.0.2.20 --protocol sntp`.
 Use the server's actual address and add `--json` for the measured offset,
-round-trip calculation, server timestamp and stratum. This sends one real
+round-trip calculation, server timestamp, stratum and all four observed NTP
+timestamps. The offset estimate assumes comparable forward and reverse path
+delays; one exchange cannot establish clock accuracy. This sends one real
 IPv4 UDP/123 request from the node's network namespace; it does not create a
 server or synchronize any clock. The host Python process reads the host clock,
 so the offset compares the server against that shared clock, not an independent
@@ -3248,11 +3250,16 @@ For a self-contained demonstration without an external server, create and start
 the existing `micro-lan` example using a prepared BusyBox rootfs, then run:
 
 ```bash
+sudo python3 -m network_labs.appliances labs
 python3 -m network_labs.appliances example --rootfs "$HOME/network-labs-rootfs" > micro-lan.json
 sudo python3 -m network_labs.appliances start micro-lan.json
 sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2
 sudo python3 -m network_labs.appliances sntp-demo micro-lan PC1 PC2 --server-offset-seconds 45
 ```
+
+`labs` lists recorded lab names, phases and node names. Its reported phase is
+persisted state, not proof that containers or links are still running; incomplete
+or corrupt lab state is reported as unknown. Add `--json` for structured output.
 
 Replace the rootfs path with an existing rootfs created by the `rootfs` command.
 The demo starts a temporary single-reply IPv4 UDP/123 responder on PC2 and

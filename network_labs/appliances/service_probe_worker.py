@@ -41,7 +41,8 @@ def sntp_response(packet, sent, t1, t4):
     if t3 < t2:
         raise ValueError('Server transmit precedes receive')
     return {'stratum': stratum, 'version': version, 'offset_seconds': ((t2 - t1) + (t3 - t4)) / 2,
-            'round_trip_seconds': (t4 - t1) - (t3 - t2), 'server_unix_seconds': t3}
+            'round_trip_seconds': (t4 - t1) - (t3 - t2), 'server_unix_seconds': t3,
+            'timestamps_unix_seconds': {'client_send': t1, 'server_receive': t2, 'server_send': t3, 'client_receive': t4}}
 
 
 def dns_name(packet, offset):

@@ -133,6 +133,9 @@ def render(report):
     for stage in report['stages']:
         if stage['stage'] == 'sntp' and stage['status'] == 'passed':
             lines.append(f"  Décalage estimé : {stage['offset_seconds']:+.6f} s ; délai calculé : {stage['round_trip_seconds']:.6f} s ; stratum : {stage['stratum']}.")
+            if 'timestamps_unix_seconds' in stage:
+                lines.append('  Quatre horodatages réels disponibles avec --json : émission client, réception serveur, émission serveur, réception client.')
+                lines.append('  Le décalage suppose des délais aller/retour comparables ; une seule mesure ne garantit pas la précision.')
     lines.append('Utiliser --json pour les adresses, codes, erreurs et preuves détaillées.')
     lines.append('Observations successives ; un échec ne prouve pas sa cause. HTTP teste HEAD ; SNTP ne règle aucune horloge et ne certifie pas la source.')
     return '\n'.join(lines)
