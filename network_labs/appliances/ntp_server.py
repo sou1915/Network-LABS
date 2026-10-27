@@ -122,10 +122,14 @@ def observe_process(manager, node):
 
 
 def observe(manager, node):
+    from .lan import addresses
+    from .ntp_socket import observe_socket
     result = observe_config(manager, node['name'], CONFIG, config_text(node))
+    address = str(ipaddress.IPv4Interface(addresses(node)[node['ntp_server']['interface']]).ip)
     return {'configuration_verified': result['configuration_verified'], 'file': result, 'process': observe_process(manager, node),
+            'udp_socket': observe_socket(manager, node, address),
             'upstream': node['ntp_server'].get('upstream'), 'local_stratum': node['ntp_server'].get('local_stratum'), 'clients': node['ntp_server']['clients'],
-            'note': 'File and PID/argv are separate point-in-time observations, not proof of NTP readiness, synchronization or delivery. PID reuse or process changes may occur. Local reference does not prove accurate time. No clock adjustment; unauthenticated IPv4 NTP.'}
+            'note': 'File, PID/argv and IPv4 UDP bindings are separate sequential observations. A binding is not attributed to chronyd and does not prove synchronization or delivery. PID reuse or state changes may occur. Local reference does not prove accurate time. No clock adjustment; unauthenticated IPv4 NTP.'}
 
 
 def drift(manager, node):

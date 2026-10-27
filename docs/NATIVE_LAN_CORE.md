@@ -3304,6 +3304,14 @@ reads the PID file and `/proc/PID/cmdline` against the expected invocation.
 Process status is `observed`, `mismatch` or `unknown`. These sequential readings
 are not atomic; the process can exit or its PID can be reused. A matching
 invocation does not prove UDP/123 readiness, synchronization or delivery.
+The separate `udp_socket` observation reads the node's IPv4 kernel UDP table.
+`observed` means an unconnected UDP/123 socket bound to the configured address
+was present; `absent` means that exact binding was not present in a successful
+read, and `unknown` means the read or decoding failed. Other UDP/123 bindings,
+including wildcard addresses, are listed as evidence. The table does not
+identify which process owns the socket. These observations are sequential and
+do not establish that chronyd owns the socket, that a client can reach it, or
+that the server is synchronized.
 Live configuration changes require lab recreation. This
 profile is experimental: the chronyd binary and privileged network namespaces
 were unavailable in the development environment, so actual daemon startup and

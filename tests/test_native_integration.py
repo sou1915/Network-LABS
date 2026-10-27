@@ -82,6 +82,7 @@ class RealContainerTests(unittest.TestCase):
                     service = manager.inspect('PC2')['ntp_server']
                     self.assertTrue(service['configuration_verified'])
                     self.assertEqual(service['process']['status'], 'observed', service)
+                    self.assertEqual(service['udp_socket']['status'], 'observed', service)
                     pid = service['process']['pid']
                     manager.crun('exec', 'PC2', '/bin/busybox', 'kill', '-TERM', str(pid))
                     deadline = time.monotonic() + 5

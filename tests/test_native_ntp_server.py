@@ -47,7 +47,7 @@ class NtpServerTests(unittest.TestCase):
             report = observe(manager, node)
         self.assertTrue(report['configuration_verified'])
         self.assertEqual(report['process']['status'], 'unknown')
-        self.assertIn('not proof', report['note'])
+        self.assertIn('does not prove', report['note'])
     def test_isolated_reference_scenario_and_cli(self):
         from network_labs.appliances.examples import ntp_lab
         from network_labs.appliances.__main__ import main
