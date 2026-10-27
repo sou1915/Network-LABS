@@ -316,8 +316,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
             if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': OSPF requires a rootfs built with --bird and --birdc.')
-            if (node.get('dns_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
-                raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
+            if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
+                raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA/TFTP requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
             if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
                 raise RuntimeFailure(node['name'] + ': LLDP requires a rootfs built with --lldpd and --lldpcli.')
@@ -400,6 +400,8 @@ class Manager:
             start_ovs(self)
             from .dns import start_servers as start_dns
             start_dns(self)
+            from .tftp_server import start_servers as start_tftp
+            start_tftp(self)
             from .lldp import start_servers as start_lldp
             start_lldp(self)
             from .dhcp import start_clients, start_servers
@@ -433,6 +435,8 @@ class Manager:
         prepare_files(bundle, node)
         from .dns import prepare_files as prepare_dns
         prepare_dns(bundle, node)
+        from .tftp_server import prepare_files as prepare_tftp
+        prepare_tftp(bundle, node)
         from .dhcp_relay import prepare_files as prepare_relay
         prepare_relay(bundle, node)
         from .dhcp_multi import prepare_files as prepare_pools

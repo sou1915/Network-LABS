@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -189,6 +189,8 @@ def validate_lan(node):
     validate_snmp(node)
     from .snmp_notifications import validate_node as validate_snmp_receiver
     validate_snmp_receiver(node)
+    from .tftp_server import validate_node as validate_tftp_server
+    validate_tftp_server(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -341,6 +343,9 @@ def observe(manager, index, node):
     if node.get('ntp_server'):
         from .ntp_server import observe as observe_ntp
         result['ntp_server'] = observe_ntp(manager, node)
+    if node.get('tftp_server'):
+        from .tftp_server import observe as observe_tftp
+        result['tftp_server'] = observe_tftp(manager, node)
     if node['management']:
         from .management import observe as observe_management
         result['management'] = observe_management(manager, node)

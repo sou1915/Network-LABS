@@ -607,6 +607,14 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
+def tftp_lab(rootfs):
+    """Two hosts and a switch with one declared public test file."""
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'tftp-lan'
+    spec['nodes'][2]['tftp_server'] = {'interface': 'eth0', 'files': {'sample.txt': 'Network LABS TFTP\n'}}
+    return validate(spec)
+
+
 def ntp_lab(rootfs):
     """Isolated client, relay and deliberately unsynchronised local reference."""
     from .spec import example

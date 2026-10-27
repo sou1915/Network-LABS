@@ -3245,8 +3245,35 @@ the first DATA response. TFTP is unauthenticated: sender checks and a digest
 are not proof of identity or integrity unless the expected digest is trusted.
 There is no DNS, IPv6, file write, retransmission, option negotiation or final
 ACK dally. Timeout, size limit or protocol errors are reported without claiming
-their underlying cause. This client requires a separate existing TFTP server;
-there is no managed server in this profile yet.
+their underlying cause.
+
+The experimental `tftp-lan` example adds a separate dnsmasq TFTP server on
+PC2 and a declared `sample.txt`, using a new rootfs built with a trusted local
+dnsmasq binary. PC1 is the client. For example, when `/usr/sbin/dnsmasq` and
+static BusyBox are already available:
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --dnsmasq /usr/sbin/dnsmasq --output "$HOME/network-labs-tftp-rootfs"
+python3 -m network_labs.appliances example --tftp --rootfs "$HOME/network-labs-tftp-rootfs" > tftp-lan.json
+sudo python3 -m network_labs.appliances start tftp-lan.json
+sudo python3 -m network_labs.appliances tftp-read tftp-lan PC1 192.0.2.20 sample.txt
+sudo python3 -m network_labs.appliances inspect tftp-lan PC2
+```
+
+The rootfs destination must be new. Package installation may affect the host's
+normal dnsmasq service according to distribution policy; the rootfs builder
+copies a trusted binary and does not start that host service. The server uses
+`port=0` to disable DNS, limits TFTP to the declared interface and read-only
+root `/lab/tftp`, and exports 1..8 manifest-declared UTF-8 text files of at most
+4096 bytes each. It runs as root inside the OCI node for this initial profile;
+no TFTP authentication or client IP allowlist is supplied, so all reachable
+clients on the permitted interface may read the exported files. Never put secrets
+in the manifest or files. IPv6 TFTP exposure and coexistence with other services
+are not established. Inspection verifies configuration and declared files, not
+daemon liveness or network delivery. The real dnsmasq service and privileged lab
+test have not yet run in the development environment. Stop the lab when done:
+`sudo python3 -m network_labs.appliances stop tftp-lan`.
 
 ### Explicit DNS, TCP, HTTP and SNTP service probes
 

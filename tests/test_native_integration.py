@@ -55,6 +55,39 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_managed_dnsmasq_tftp_read_and_write_rejection(self):
+        import hashlib
+        from network_labs.appliances.examples import tftp_lab
+        from network_labs.appliances.tftp import read as tftp_read
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox', 'dnsmasq'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs', dnsmasq=shutil.which('dnsmasq'))
+            spec = tftp_lab(rootfs); spec['name'] = 'tftp-managed-' + str(os.getpid()); manager = Manager(spec['name'])
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    expected = hashlib.sha256(b'Network LABS TFTP\n').hexdigest()
+                    deadline = time.monotonic() + 12
+                    while True:
+                        result = tftp_read(manager, 'PC1', '192.0.2.20', 'sample.txt', timeout=2, expected_sha256=expected)
+                        if result['status'] == 'passed': break
+                        if time.monotonic() >= deadline: self.fail('TFTP service unavailable: ' + json.dumps(result))
+                        time.sleep(.2)
+                    self.assertTrue(result['hash_matches'])
+                    missing = tftp_read(manager, 'PC1', '192.0.2.20', 'missing.txt', timeout=2)
+                    self.assertEqual(missing['status'], 'failed')
+                    self.assertEqual(missing['transfer'].get('error_code'), 1)
+                    code = ("import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2); "
+                            "s.sendto(b'\\x00\\x02upload.txt\\x00octet\\x00',('192.0.2.20',69)); "
+                            "p,a=s.recvfrom(1024); print(p[:2].hex())")
+                    rejected = manager.ns(0, sys.executable, '-I', '-c', code, check=False, timeout=4)
+                    self.assertTrue(rejected.returncode != 0 or rejected.stdout.strip() == '0005')
+                    self.assertTrue(manager.inspect('PC2')['tftp_server']['configuration_verified'])
+                finally:
+                    if manager.directory.exists(): manager.stop()
+
     def test_tftp_read_crosses_real_veth_and_bridge(self):
         import hashlib
         import selectors
