@@ -5581,7 +5581,7 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                             and tree['root_id'] == peer['spanning_tree']['bridge_id']
                             and tree['root_port'] == ('eth4' if spare else 'bond1') and tree['local_state_settled']
                             and tree['ports']['eth4']['state'] == ('forwarding' if spare else 'blocking')
-                            and len(channel['negotiated_members']) == members):
+                            and (members is None or len(channel['negotiated_members']) == members)):
                         return
                     if time.monotonic() >= deadline:
                         self.fail('STP/LACP did not converge: ' + json.dumps(actual))
@@ -5664,6 +5664,26 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     for index in (4, 5):
                         records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
                         self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost at min-links recovery')
+                    stop_captures(); captures.clear()
+                    # Shutting down the logical port must keep both physical
+                    # members administratively up; LACP state while the bond
+                    # is down is evidence, not a required negotiated count.
+                    disabled = manager.configure_ios('SW1', 'conf t\ninterface po1\nshutdown\nend')
+                    self.assertNotIn('stp_recovery', disabled)
+                    wait_path(True, None); ping(); ping(reverse=True)
+                    actual = manager.inspect('SW1')
+                    self.assertNotIn('UP', actual['port_channels']['bond1']['kernel']['flags'])
+                    physical = {row['ifname']: row for row in actual['links']}
+                    for member in ('eth2', 'eth3'):
+                        self.assertIn('UP', physical[member]['flags'])
+                    trace_restore()
+                    enabled = manager.configure_ios('SW1', 'conf t\ninterface po1\nno shutdown\nend')
+                    self.assertEqual(enabled['stp_recovery']['channels'], ['bond1'])
+                    self.assertEqual(enabled['stp_recovery']['bridges'], ['SW1', 'SW2'])
+                    wait_path(False, 2); ping(reverse=True); ping()
+                    for index in (4, 5):
+                        records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+                        self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost at logical-port recovery')
                     stop_captures(); captures.clear()
                 except BaseException:
                     stop_captures()
