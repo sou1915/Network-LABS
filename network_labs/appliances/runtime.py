@@ -321,6 +321,8 @@ class Manager:
                     ('usr/lib/network-labs/freeradius/server', 'usr/lib/network-labs/freeradius/modules/rlm_pap.so',
                      'usr/lib/network-labs/freeradius/dictionary/dictionary', 'etc/network-labs-radius-assets.json')):
                 raise RuntimeFailure(node['name'] + ': RADIUS requires a rootfs built with --freeradius and matching modules/dictionaries.')
+            if (node.get('radius_server') or {}).get('accounting') and not (Path(node['rootfs']) / 'usr/lib/network-labs/freeradius/modules/rlm_detail.so').is_file():
+                raise RuntimeFailure(node['name'] + ': RADIUS accounting requires rebuilding the rootfs with the trusted rlm_detail module.')
             if node.get('snmp_receiver') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmptrapd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():

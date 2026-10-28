@@ -44,6 +44,8 @@ class FreeRadiusInterop(unittest.TestCase):
         self.assertRegex(version.stdout + version.stderr, r'(?:FreeRADIUS Version|radiusd: FreeRADIUS Version) 3\.')
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
             reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as accounting_reservation:
+                accounting_reservation.bind(('127.0.0.1', 0)); accounting_port = accounting_reservation.getsockname()[1]
         with tempfile.TemporaryDirectory(prefix='radius-interop-') as folder:
             root = Path(folder); root.chmod(0o700)
             # Exercise identical executable bytes without attaching a host
@@ -52,12 +54,15 @@ class FreeRadiusInterop(unittest.TestCase):
             shutil.copyfile(binary, executable); executable.chmod(0o755)
             logfile = root / 'daemon.log'; logfile.touch(mode=0o600)
             node = {'interfaces': {'eth0': '127.0.0.1/8'}, 'radius_server': {
+                'accounting': True,
                 'interface': 'eth0', 'clients': [{'address': '127.0.0.1', 'secret': SECRET}],
                 'users': {name: {'password_sha256': hashlib.sha256(password.encode()).hexdigest()}
                           for name, password in PASSWORDS.items()}}}
             # Same generated policy used by native nodes; only paths/port and
             # loopback endpoints are adapted to this unprivileged fixture.
-            config = config_text(node, modules=str(modules), run_directory=str(root), port=port)
+            self.assertTrue((modules / 'rlm_detail.so').is_file(), 'Accounting detail module required')
+            (root / 'network-labs-radius-accounting').mkdir(mode=0o700)
+            config = config_text(node, modules=str(modules), run_directory=str(root), port=port, accounting_port=accounting_port)
             path = root / 'radiusd.conf'; path.write_text(config); path.chmod(0o600)
             (root / 'dictionary').write_text('# Isolated test; installed base dictionary is loaded with -D.\n')
             args = [str(executable), '-f', '-s', '-d', str(root), '-D', str(dictionary)]
@@ -75,6 +80,23 @@ class FreeRadiusInterop(unittest.TestCase):
                 else:
                     self.fail('FreeRADIUS not ready: ' + self.safe_log(logfile))
                 cases = [(name, password, 'passed') for name, password in PASSWORDS.items()]
+                from network_labs.appliances.radius_accounting_worker import account
+                for event in ('start', 'stop'):
+                    receipt = account(dict(source='127.0.0.1', address='127.0.0.1', port=accounting_port,
+                                           username='learner', secret=SECRET, session_id='aaa-independent', event=event,
+                                           session_seconds=2, terminate_cause=1, timeout=2))
+                    self.assertEqual(receipt['status'], 'passed', receipt)
+                records = root / 'network-labs-radius-accounting/sessions'
+                text = records.read_text()
+                self.assertEqual(text.count('aaa-independent'), 2)
+                self.assertIn('Acct-Status-Type = Start', text); self.assertIn('Acct-Status-Type = Stop', text)
+                self.assertEqual(records.stat().st_mode & 0o777, 0o600)
+                self.assertNotIn(SECRET, text)
+                bad = account(dict(source='127.0.0.1', address='127.0.0.1', port=accounting_port,
+                                   username='learner', secret='incorrect-shared-secret', session_id='aaa-wrong-secret',
+                                   event='start', session_seconds=0, terminate_cause=1, timeout=.1))
+                self.assertEqual(bad['status'], 'unknown')
+                self.assertNotIn('aaa-wrong-secret', records.read_text())
                 cases += [('learner', 'incorrect-password', 'failed'), ('unknown', 'incorrect-password', 'failed')]
                 for username, password, expected in cases:
                     with self.subTest(username=username, expected=expected):

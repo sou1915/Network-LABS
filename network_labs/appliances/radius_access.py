@@ -11,8 +11,10 @@ ACTIONS = ('identity', 'hostname', 'security-context', 'shell')
 def validate_node(node):
     policy = node.get('radius_access')
     if policy is None: return
-    keys(policy, ('server', 'users', 'session_seconds'), 'RADIUS access')
+    keys(policy, ('server', 'users', 'session_seconds', 'accounting'), 'RADIUS access')
     integer(policy.setdefault('session_seconds', 300), 1, 3600, 'RADIUS shell session seconds')
+    if type(policy.setdefault('accounting', False)) is not bool:
+        raise ValueError('RADIUS access accounting must be boolean.')
     if (node['runtime'] != 'oci' or node['role'] != 'host' or set(node['interfaces']) != {'eth0'}
             or node.get('subinterfaces') or node.get('port_channels')):
         raise ValueError('RADIUS access requires a single-interface OCI host.')

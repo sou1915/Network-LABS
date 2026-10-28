@@ -69,7 +69,7 @@ class RealContainerTests(unittest.TestCase):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
                 freeradius=shutil.which('freeradius'), freeradius_modules='/usr/lib/freeradius',
                 freeradius_dictionaries='/usr/share/freeradius')
-            spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest(), allow_shell=True)
+            spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest(), allow_shell=True, accounting=True)
             spec['nodes'][0]['radius_access']['users']['learner'] = ['identity', 'security-context', 'shell']
             spec['name'] = 'radius-managed-' + str(os.getpid())
             spec['nodes'][1]['interfaces']['eth2'] = ''
@@ -102,6 +102,7 @@ class RealContainerTests(unittest.TestCase):
                     observed = manager.inspect('PC2')['radius_server']
                     self.assertEqual(observed['process']['status'], 'observed', observed)
                     self.assertEqual(observed['udp_socket']['status'], 'observed', observed)
+                    self.assertEqual(observed['accounting']['udp_socket']['status'], 'observed', observed)
                     from network_labs.appliances.radius_exec import execute as radius_execute
                     for action in ('identity', 'security-context'):
                         allowed = radius_execute(manager, 'PC1', '192.0.2.20', action=action,
@@ -136,6 +137,12 @@ class RealContainerTests(unittest.TestCase):
                     self.assertEqual(manager.state['spec']['nodes'][0]['radius_access']['users']['learner'],
                                      ['identity', 'security-context', 'shell'])
                     from network_labs.appliances.radius_login import login as radius_login
+                    accounted = []
+                    def verify_accounting(session):
+                        self.assertTrue(session['accounting']['enabled'])
+                        self.assertEqual(session['accounting']['start']['status'], 'passed', session)
+                        self.assertEqual(session['accounting']['stop']['status'], 'passed', session)
+                        accounted.append(session['session_id'])
                     output = []
                     def shell(args, **options):
                         completed = subprocess.run(args, input='/bin/busybox id\n/bin/busybox cat /proc/self/status\n/bin/busybox cat /proc/self/cgroup\nexit\n',
@@ -149,6 +156,7 @@ class RealContainerTests(unittest.TestCase):
                                                secret=secret, terminal=False)
                     self.assertEqual(session['status'], 'passed', session)
                     self.assertTrue(session['cleanup_complete'], session)
+                    verify_accounting(session)
                     self.assertIn(session['session_id'], output[0])
                     self.assertIn('uid=65532', output[0])
                     context = dict(line.split(':', 1) for line in output[0].splitlines() if ':' in line)
@@ -186,6 +194,7 @@ class RealContainerTests(unittest.TestCase):
                                                secret=secret, terminal=True)
                     self.assertEqual(session['status'], 'passed', session)
                     self.assertTrue(session['cleanup_complete'], session)
+                    verify_accounting(session)
                     from network_labs.appliances.radius_session import session_parent
                     for ending, expected in (('normal', 'passed'), ('expired', 'expired'), ('interrupted', 'interrupted')):
                         transcript = Path(folder) / ('session-' + ending + '.log')
@@ -211,6 +220,7 @@ class RealContainerTests(unittest.TestCase):
                         self.assertEqual(closed['status'], expected, closed)
                         self.assertIn('SESSION-JOB-READY', transcript.read_text())
                         self.assertTrue(closed['cleanup_complete'], closed)
+                        verify_accounting(closed)
                         self.assertFalse((session_parent(manager, 'PC1') / closed['session_id']).exists())
                         processes = manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'args').stdout
                         self.assertNotIn('sleep 37', processes, 'Session background job survived cleanup')
@@ -218,6 +228,30 @@ class RealContainerTests(unittest.TestCase):
                         rejected = radius_login(manager, 'PC1', '192.0.2.20', username='learner',
                                                 password='incorrect-password', secret=secret)
                     self.assertEqual(rejected['status'], 'blocked'); launch.assert_not_called()
+                    from network_labs.appliances.radius_server import ACCOUNTING_FILE, ACCOUNTING_DIRECTORY
+                    records = manager.crun('exec', 'PC2', '/bin/busybox', 'cat', ACCOUNTING_FILE).stdout
+                    for session_id in accounted: self.assertEqual(records.count(session_id), 2)
+                    self.assertEqual(records.count('Acct-Status-Type = Start'), len(accounted))
+                    self.assertEqual(records.count('Acct-Status-Type = Stop'), len(accounted))
+                    self.assertIn('Acct-Terminate-Cause = Session-Timeout', records)
+                    self.assertIn('Acct-Terminate-Cause = Admin-Reset', records)
+                    self.assertNotIn(secret, records); self.assertNotIn(password, records)
+                    modes = manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', ACCOUNTING_FILE, ACCOUNTING_DIRECTORY).stdout
+                    self.assertEqual(modes, '600\n700\n')
+                    # A full ephemeral log filesystem must not acknowledge an
+                    # unrecorded Start or allow a shell through the gate.
+                    full = manager.crun('exec', 'PC2', '/bin/busybox', 'dd', 'if=/dev/zero', 'of=/run/accounting-fill',
+                                        'bs=1024', 'count=9000', check=False)
+                    self.assertNotEqual(full.returncode, 0)
+                    try:
+                        with patch('network_labs.appliances.radius_login.subprocess.call') as launch:
+                            unavailable = radius_login(manager, 'PC1', '192.0.2.20', username='learner',
+                                                       password=password, secret=secret, timeout=1)
+                        self.assertEqual(unavailable['status'], 'blocked', unavailable)
+                        self.assertEqual(unavailable['error'], 'ACCOUNTING_START_UNCONFIRMED')
+                        launch.assert_not_called()
+                    finally:
+                        manager.crun('exec', 'PC2', '/bin/busybox', 'rm', '-f', '/run/accounting-fill')
                     result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password, secret=secret)
                     self.assertEqual(result['status'], 'passed', result)
                     service = manager.inspect('PC2')['radius_server']

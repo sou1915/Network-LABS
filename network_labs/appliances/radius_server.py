@@ -10,13 +10,17 @@ MODULES = '/usr/lib/network-labs/freeradius/modules'
 DICTIONARY = '/usr/lib/network-labs/freeradius/dictionary'
 DIRECTORY = '/lab/radius'
 CONFIG = DIRECTORY + '/radiusd.conf'
+ACCOUNTING_DIRECTORY = '/run/network-labs-radius-accounting'
+ACCOUNTING_FILE = ACCOUNTING_DIRECTORY + '/sessions'
 
 
 def validate_node(node):
     from .spec import keys
     policy = node.setdefault('radius_server', None)
     if policy is None: return
-    keys(policy, ('interface', 'clients', 'users'), 'RADIUS server')
+    keys(policy, ('interface', 'clients', 'users', 'accounting'), 'RADIUS server')
+    if type(policy.setdefault('accounting', False)) is not bool:
+        raise ValueError('RADIUS server accounting must be boolean.')
     port = policy.get('interface')
     if (node['runtime'] != 'oci' or node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or
             port != 'eth0' or not node['interfaces']['eth0'] or port in node['shutdown'] or node.get('startup') or
@@ -68,7 +72,7 @@ def validate_lab(spec):
                 raise ValueError('Each RADIUS client must identify exactly one other managed OCI host.')
 
 
-def config_text(node, *, modules=MODULES, run_directory='/run', port=1812):
+def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accounting_port=1813):
     policy = node['radius_server']; address = str(ipaddress.IPv4Interface(node['interfaces'][policy['interface']]).ip)
     clients = '\n'.join('''client lab_%d {
     ipaddr = %s
@@ -80,6 +84,27 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812):
                 SHA2-Password := 0x%s
             }
         }''' % (name, user['password_sha256']) for name, user in policy['users'].items())
+    accounting_module = accounting_server = ''
+    if policy.get('accounting'):
+        accounting_module = '''
+    detail session_accounting {
+        filename = "%s/network-labs-radius-accounting/sessions"
+        permissions = 0600
+        dir_permissions = 0700
+        locking = yes
+        suppress {
+            User-Password
+        }
+    }''' % run_directory
+        accounting_server = '''
+    listen {
+        type = acct
+        ipaddr = %s
+        port = %d
+    }
+    accounting {
+        session_accounting
+    }''' % (address, accounting_port)
     return '''prefix = /usr
 logdir = "%(run)s"
 run_dir = "%(run)s"
@@ -103,7 +128,7 @@ security {
 modules {
     pap {
         normalise = no
-    }
+    }%(accounting_module)s
 }
 server lab {
     listen {
@@ -129,9 +154,10 @@ server lab {
                 Message-Authenticator := 0x00000000000000000000000000000000
             }
         }
-    }
+    }%(accounting_server)s
 }
-''' % dict(run=run_directory, modules=modules, address=address, port=port, clients=clients, users=users)
+''' % dict(run=run_directory, modules=modules, address=address, port=port, clients=clients, users=users,
+           accounting_module=accounting_module, accounting_server=accounting_server)
 
 
 def prepare_files(bundle, node):
@@ -149,6 +175,8 @@ def start_servers(manager):
     from .runtime import RuntimeFailure
     for node in manager.state['spec']['nodes']:
         if not node.get('radius_server'): continue
+        if node['radius_server'].get('accounting'):
+            manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '-m', '700', ACCOUNTING_DIRECTORY)
         args = command()
         checked = manager.crun('exec', node['name'], *args, '-C', check=False, timeout=5)
         if checked.returncode:
@@ -204,6 +232,9 @@ def observe(manager, node):
     address = str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
     return {**evidence, 'process': observe_process(manager, node),
             'udp_socket': observe_socket(manager, node, address, port=1812),
+            'accounting': {'enabled': True, 'udp_socket': observe_socket(manager, node, address, port=1813),
+                           'storage': 'Private ephemeral detail file; not saved with lab configuration.'}
+                          if node['radius_server'].get('accounting') else {'enabled': False},
             'clients': [client['address'] for client in node['radius_server']['clients']],
             'user_count': len(node['radius_server']['users']),
             'note': 'Configuration, PID/argv and UDP/1812 are separate sequential observations. A socket is not attributed to FreeRADIUS; PID reuse and state changes may occur. None proves authentication or access. No shared secret or password digest is returned.'}

@@ -193,9 +193,10 @@ That result covers this bounded RADIUS scenario, not the entire native suite;
 managed STP/LACP restore-path reconciliation and its separate validation are
 described in [Native LAN core](NATIVE_LAN_CORE.md#configuration-live-partielle).
 
-This is still PAP authentication observation only: no SSH/Telnet login adapter,
-port admission, EAP/802.1X, accounting, challenge continuation, authorization
-enforcement, TACACS+ or RadSec is provided.
+`radius-auth` remains a PAP diagnostic. Separate [local CLI login](RADIUS_LOGIN.md)
+and [optional session accounting](RADIUS_ACCOUNTING.md) add declared authorization
+and session events. SSH/Telnet AAA adapters, port admission, EAP/802.1X, challenge
+continuation, TACACS+ and RadSec remain unimplemented.
 
 
 ## Passive daemon and listener evidence

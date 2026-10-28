@@ -72,7 +72,8 @@ The lifetime is enforced by the live CLI supervisor. A host CLI crash or
 uncatchable SIGKILL cannot run cleanup; stopping the lab remains necessary in
 that case. No automatic stale-session recovery is implemented. Signal handling
 requires the main Python thread. This profile does not implement remote
-revocation, an idle timer or RADIUS accounting.
+revocation or an idle timer. Optional [session accounting](RADIUS_ACCOUNTING.md)
+adds acknowledged Start/Stop events when explicitly enabled.
 As with existing administrative `exec`, the lab lock stays held throughout
 the foreground session; close it before other native management commands.
 

@@ -54,11 +54,12 @@ class RadiusLoginTests(unittest.TestCase):
             password = Path(folder) / 'password'; password.write_text('disposable-password'); password.chmod(0o600)
             secret = Path(folder) / 'secret'; secret.write_text('private-shared-secret'); secret.chmod(0o600)
             with redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(main(['example', '--rootfs', '/rootfs', '--radius', '--radius-shell',
+                self.assertEqual(main(['example', '--rootfs', '/rootfs', '--radius', '--radius-shell', '--radius-accounting',
                                        '--radius-user', 'learner', '--radius-password-file', str(password),
                                        '--radius-secret-file', str(secret)]), 0)
             policy = json.loads(output.getvalue())['nodes'][0]['radius_access']
             self.assertIn('shell', policy['users']['learner'])
+            self.assertTrue(policy['accounting'])
 
     def test_reject_timeout_challenge_and_unverified_accept_never_open_session(self):
         reports = [{'status': 'unknown', 'authentication': None},
@@ -147,3 +148,63 @@ class RadiusLoginTests(unittest.TestCase):
                 result = self.login(self.manager(folder))
         self.assertEqual(result['status'], 'interrupted'); self.assertTrue(result['cleanup_complete'])
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def test_accounting_ack_gates_launch_and_stop_follows_confirmed_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = self.manager(folder)
+            manager.read.return_value['spec']['nodes'][0]['radius_access']['accounting'] = True
+            groups = []
+            def group(*_): groups.append(FakeGroup()); return groups[-1]
+            self.groups.side_effect = group
+            events = []
+            def account(*_, **request):
+                events.append(request)
+                if request['event'] == 'stop': self.assertTrue(groups[-1].closed)
+                return {'status': 'passed', 'requests_sent': 1}
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.account', side_effect=account), \
+                 patch('network_labs.appliances.radius_login.subprocess.call', return_value=0):
+                result = self.login(manager)
+            self.assertEqual(result['status'], 'passed')
+            self.assertEqual([event['event'] for event in events], ['start', 'stop'])
+            self.assertEqual(events[0]['session_id'], events[1]['session_id'])
+            self.assertEqual(events[1]['terminate_cause'], 1)
+
+    def test_unacknowledged_start_never_launches_and_compensates_possible_record(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = self.manager(folder)
+            manager.read.return_value['spec']['nodes'][0]['radius_access']['accounting'] = True
+            for sent, count in ((0, 1), (1, 2), (None, 2)):
+                events = []
+                def account(*_, **request):
+                    events.append(request)
+                    return {'status': 'unknown', 'requests_sent': sent} if request['event'] == 'start' else {'status': 'passed'}
+                with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                     patch('network_labs.appliances.radius_login.account', side_effect=account), \
+                     patch('network_labs.appliances.radius_login.subprocess.call') as launch:
+                    result = self.login(manager)
+                self.assertEqual(result['status'], 'blocked'); self.assertTrue(result['cleanup_complete'])
+                launch.assert_not_called(); self.assertEqual(len(events), count)
+                if count == 2:
+                    self.assertEqual(events[1]['terminate_cause'], 9)
+                    self.assertEqual(events[1]['session_seconds'], 0)
+
+    def test_stop_failure_is_unknown_and_unconfirmed_cleanup_withholds_stop(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        with tempfile.TemporaryDirectory() as folder:
+            manager = self.manager(folder)
+            manager.read.return_value['spec']['nodes'][0]['radius_access']['accounting'] = True
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.account', side_effect=[{'status': 'passed', 'requests_sent': 1}, {'status': 'unknown'}]), \
+                 patch('network_labs.appliances.radius_login.subprocess.call', return_value=0):
+                result = self.login(manager)
+            self.assertEqual(result['error'], 'ACCOUNTING_STOP_UNCONFIRMED'); self.assertTrue(result['cleanup_complete'])
+            class FailedCleanup(FakeGroup):
+                def __exit__(self, *_): raise RuntimeFailure('unavailable')
+            self.groups.side_effect = lambda *_: FailedCleanup()
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.account', return_value={'status': 'passed', 'requests_sent': 1}) as account, \
+                 patch('network_labs.appliances.radius_login.subprocess.call', return_value=0):
+                result = self.login(manager)
+            account.assert_called_once()
+            self.assertEqual(result['accounting']['stop']['status'], 'withheld')
