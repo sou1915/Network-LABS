@@ -5543,7 +5543,9 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
     def test_common_stp_uses_lacp_as_one_port_and_fails_over_to_spare_trunk(self):
         from network_labs.appliances.examples import lacp_lab
         from network_labs.appliances.spec import validate
-        with tempfile.TemporaryDirectory() as folder:
+        from network_labs.appliances.persistence import load_startup
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
             spec = lacp_lab(rootfs); spec['name'] = 'stp-lacp-' + str(os.getpid())
             for i, node in enumerate(spec['nodes'][4:]):
@@ -5684,6 +5686,27 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     for index in (4, 5):
                         records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
                         self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost at logical-port recovery')
+                    stop_captures(); captures.clear()
+                    # Save the deliberately disabled logical bundle. Restart
+                    # must preserve its policy, rebuild the STP spare path and
+                    # discard the manually added runtime-only static marker.
+                    manager.configure_ios('SW1', 'conf t\ninterface po1\nshutdown\nend')
+                    wait_path(True, None); ping(); ping(reverse=True)
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    saved_switch = next(n for n in saved['nodes'] if n['name'] == 'SW1')
+                    self.assertIn('bond1', saved_switch['shutdown'])
+                    self.assertEqual(saved_switch['port_channels']['bond1']['min_links'], 2)
+                    manager.stop(); manager.start(saved)
+                    wait_path(True, None); ping(); ping(reverse=True)
+                    actual = manager.inspect('SW1')
+                    self.assertNotIn('UP', actual['port_channels']['bond1']['kernel']['flags'])
+                    for index in (4, 5):
+                        records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+                        self.assertFalse(any(row['mac'] == marker for row in records), 'Runtime FDB marker entered saved configuration')
+                    trace_restore()
+                    enabled = manager.configure_ios('SW1', 'conf t\ninterface po1\nno shutdown\nend')
+                    self.assertEqual(enabled['stp_recovery']['bridges'], ['SW1', 'SW2'])
+                    wait_path(False, 2); ping(reverse=True); ping()
                     stop_captures(); captures.clear()
                 except BaseException:
                     stop_captures()
