@@ -12,6 +12,8 @@ jobs:
           uname -r
           ip -Version
           sudo modprobe bonding max_bonds=0
+      - name: Verify real trunk VLAN edits, tags, native pruning, rollback and restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_trunk_vlan.py -v
       - name: Verify common STP and LACP restore packet path
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
   radius-interop:

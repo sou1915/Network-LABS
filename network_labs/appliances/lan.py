@@ -242,7 +242,11 @@ def configure(manager, index, node, previous=None):
         verify_kernel(manager, index, node)
         ns('ip', 'link', 'set', 'dev', 'br0', 'up')
         for interface, port in node['switchports'].items():
-            if not initial and interface not in recreated and port == previous['switchports'].get(interface):
+            old_port = previous['switchports'].get(interface)
+            # A VLAN declaration can activate an unchanged all/reserved trunk
+            # list; rollback must also remove those effective memberships.
+            if (not initial and interface not in recreated and port == old_port
+                    and memberships(node, port) == memberships(previous, old_port)):
                 continue
             ns('ip', 'link', 'set', 'dev', interface, 'master', 'br0')
             current = json.loads(ns('bridge', '-j', 'vlan', 'show', 'dev', interface).stdout)

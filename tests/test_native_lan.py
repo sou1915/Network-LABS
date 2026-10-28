@@ -126,6 +126,36 @@ class LANContracts(unittest.TestCase):
         self.assertEqual(down, ['eth3'])
         self.assertFalse(any(args[:3] == ('ip', '-4', 'addr') for args in manager.calls))
 
+    def test_vlan_table_edits_refresh_effective_trunks_and_rollback(self):
+        from network_labs.appliances.examples import lacp_lab
+        for bundled in (False, True):
+            for allowed in ('all', [10, 20, 30], [10, 20]):
+                previous = (lacp_lab('/rootfs') if bundled else campus('/rootfs'))['nodes'][4]
+                port = 'bond1' if bundled else 'eth3'
+                previous['switchports'][port].update(allowed=allowed, native_vlan=30)
+                desired = copy.deepcopy(previous); desired['vlans'].append(30)
+                class FakeManager:
+                    def __init__(self): self.calls = []
+                    def ns(self, index, *args, **kwargs):
+                        self.calls.append(args)
+                        return subprocess.CompletedProcess(args, 0, '[]', '')
+                manager = FakeManager()
+                with patch('network_labs.appliances.lacp.configure', return_value=set()):
+                    configure(manager, 4, desired, previous)
+                edits = [args for args in manager.calls if args[:3] == ('bridge', 'vlan', 'add')]
+                expected = [] if allowed == [10, 20] else [
+                    ('bridge', 'vlan', 'add', 'dev', port, 'vid', '30', 'pvid', 'untagged')]
+                self.assertEqual([args for args in edits if args[6] == '30'], expected,
+                                 (bundled, allowed, edits))
+                self.assertTrue(all(args[4] == port for args in edits), edits)
+                # Undoing a partially applied VLAN declaration must also visit
+                # the trunk, even though its switchport object never changed.
+                manager.calls.clear()
+                with patch('network_labs.appliances.lacp.configure', return_value=set()):
+                    configure(manager, 4, previous, desired)
+                reads = [args for args in manager.calls if args[:4] == ('bridge', '-j', 'vlan', 'show')]
+                self.assertEqual(reads, [] if not expected else [('bridge', '-j', 'vlan', 'show', 'dev', port)])
+
     def test_failed_rollback_retains_recoverable_state(self):
         with tempfile.TemporaryDirectory() as folder:
             manager = Manager('campus-lan'); manager.directory = Path(folder)
