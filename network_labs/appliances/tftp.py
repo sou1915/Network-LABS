@@ -32,7 +32,7 @@ def read(manager, source, address, filename, *, timeout=5, expected_sha256=None)
     report = {'lab': manager.name, 'node': source, 'server': address, 'filename': filename, 'port': 69,
               'endpoint': endpoint, 'status': endpoint['status'], 'transfer': None, 'hash_matches': None,
               'started_at': datetime.now(timezone.utc).isoformat(), 'configuration_changed': False,
-              'scope': 'One unauthenticated IPv4 TFTP octet read, at most 65536 bytes and 256 received datagrams. At most three timeout retransmissions per block with exponential backoff within the overall deadline. No file is saved, no writes, option negotiation, dally, IPv6 or DNS. A failed transfer does not establish its cause.'}
+              'scope': 'One unauthenticated IPv4 TFTP octet read, at most 65536 bytes and 256 received datagrams including final ACK dally. At most three timeout retransmissions per block with exponential backoff within the overall deadline. Identical final DATA may be acknowledged again for up to one second within the same deadline. Passed means content received locally and initial final ACK sent, not confirmed server receipt. No file is saved, no writes, option negotiation, IPv6 or DNS. A failed transfer does not establish its cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         return report
@@ -73,6 +73,9 @@ def render(report):
     if transfer:
         lines.append('Octets reçus : ' + str(transfer.get('bytes_received', 0)))
         if 'retransmissions' in transfer: lines.append('Retransmissions : ' + str(transfer['retransmissions']))
+        if transfer.get('final_ack'):
+            lines.append('Dernier ACK : ' + str(transfer['final_ack']['duplicate_acks']) +
+                         ' confirmation(s) répétée(s) ; ' + transfer['final_ack']['status'])
         if transfer.get('sha256'): lines.append('SHA-256 : ' + transfer['sha256'])
         if transfer.get('error'): lines.append('Erreur : ' + json.dumps(transfer['error'], ensure_ascii=True))
         if transfer.get('error_code') is not None: lines.append('Code TFTP : ' + str(transfer['error_code']))

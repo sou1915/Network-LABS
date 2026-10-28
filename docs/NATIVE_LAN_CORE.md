@@ -3251,7 +3251,20 @@ deadline. Duplicate DATA is acknowledged without hashing or counting it twice.
 JSON and text reports include the timeout retransmission count (duplicate DATA
 ACKs are not counted). Real UDP tests exercise lost requests, lost DATA and
 duplicate DATA after a lost ACK, along with silent-server retry/deadline limits.
-There is no DNS, IPv6, file write, option negotiation or final ACK dally.
+After accepting final DATA and sending its ACK, the socket remains open for
+up to one second, within the original deadline and 256-datagram budget.
+Only an identical final packet from the selected server IP/transfer port
+receives another ACK. Duplicate packets do not alter the file length or hash
+and cannot extend this wait. JSON `transfer.final_ack` records the reason the
+wait ended (`elapsed`, `deadline`, `packet_limit` or `socket_error`) and its
+`duplicate_acks` count. This count is separate from timeout retransmissions.
+`passed` means the content was received locally and the initial final ACK was
+sent; it cannot prove the server received an ACK. Ending the extra wait early
+does not invalidate already received content. UDP tests cover lost final ACKs
+for empty files, exact 512-byte multiples and multiple blocks, plus peer/payload
+filtering and the fixed time/packet limits. A privileged integration test also
+exercises a repeated final packet across the actual bridge.
+There is no DNS, IPv6, file write or option negotiation.
 Timeout, retry limit, size limit or protocol errors are reported without
 claiming their underlying cause. See [RFC 1350](https://www.rfc-editor.org/rfc/rfc1350.html).
 

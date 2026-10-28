@@ -9,6 +9,34 @@ import time
 MAX_BYTES = 65536
 RETRY_SECONDS = 0.5
 MAX_RETRIES = 3
+DALLY_SECONDS = 1.0
+
+
+def dally(sock, peer, final_packet, ack, deadline, received):
+    """Re-ACK an identical final DATA; never extend either time/packet budget."""
+    evidence = {'status': 'elapsed', 'duplicate_acks': 0}
+    end = min(deadline, time.monotonic() + DALLY_SECONDS)
+    while received < 256:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            evidence['status'] = 'deadline' if time.monotonic() >= deadline else 'elapsed'
+            return evidence
+        try:
+            sock.settimeout(remaining)
+            packet, sender = sock.recvfrom(517)
+            received += 1
+            if sender == peer and packet == final_packet:
+                sock.sendto(ack, peer)
+                evidence['duplicate_acks'] += 1
+        except socket.timeout:
+            continue
+        except OSError:
+            # Content and the first final ACK were already processed. Preserve
+            # that local read result, while exposing incomplete dally evidence.
+            evidence['status'] = 'socket_error'
+            return evidence
+    evidence['status'] = 'packet_limit'
+    return evidence
 
 
 def read(request):
@@ -66,6 +94,7 @@ def read(request):
                 sock.sendto(pending, destination)
                 if len(data) < 512:
                     result.update(status='passed', sha256=digest.hexdigest(), blocks=expected)
+                    result['final_ack'] = dally(sock, peer, packet, pending, deadline, received)
                     return result
                 expected += 1
                 # Only a new block advances the transfer. Unrelated traffic

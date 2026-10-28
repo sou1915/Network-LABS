@@ -15,7 +15,7 @@ from network_labs.appliances.__main__ import main
 from test_native_verify import manager_for, completed
 
 
-def exchange(data, *, error=None, inject_other_tid=False):
+def exchange(data, *, error=None, inject_other_tid=False, repeat_final=False):
     listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); listener.bind(('127.0.0.1', 0)); listener.settimeout(3)
     port = listener.getsockname()[1]; received = []; faults = []
     def server():
@@ -36,7 +36,16 @@ def exchange(data, *, error=None, inject_other_tid=False):
                     ack, sender = transfer.recvfrom(1024)
                     if sender != peer or ack != struct.pack('!HH', 4, block):
                         raise AssertionError('Incorrect TFTP acknowledgement')
-                    if len(chunk) < 512: return
+                    if len(chunk) < 512:
+                        if repeat_final:
+                            # Discard the first final ACK as if lost in flight,
+                            # then retransmit final DATA after a short delay.
+                            time.sleep(.03)
+                            transfer.sendto(struct.pack('!HH', 3, block) + chunk, peer)
+                            ack, sender = transfer.recvfrom(1024)
+                            if (ack, sender) != (struct.pack('!HH', 4, block), peer):
+                                raise AssertionError('Missing repeated final ACK')
+                        return
                     block += 1
         except Exception as exc:
             faults.append(str(exc))
@@ -52,6 +61,46 @@ def exchange(data, *, error=None, inject_other_tid=False):
 
 
 class NativeTftpTests(unittest.TestCase):
+    def test_final_ack_loss_with_empty_exact_block_and_multiblock_files(self):
+        for data in (b'', b'x' * 512, b'bin\x00' * 170):
+            with self.subTest(size=len(data)):
+                result, _ = exchange(data, repeat_final=True)
+                self.assertEqual(result['status'], 'passed', result)
+                self.assertEqual(result['bytes_received'], len(data))
+                self.assertEqual(result['sha256'], hashlib.sha256(data).hexdigest())
+                self.assertEqual(result['final_ack'], {'status': 'elapsed', 'duplicate_acks': 1})
+                self.assertEqual(result['retransmissions'], 0)
+
+    def test_dally_ignores_wrong_peer_and_changed_data_and_keeps_packet_budget(self):
+        from network_labs.appliances.tftp_worker import dally
+        final = struct.pack('!HH', 3, 2) + b'file'; ack = struct.pack('!HH', 4, 2)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client, \
+             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server, \
+             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as rogue:
+            for sock in (client, server, rogue): sock.bind(('127.0.0.1', 0))
+            server.settimeout(.05); rogue.settimeout(.05)
+            rogue.sendto(final, client.getsockname())
+            server.sendto(final + b'changed', client.getsockname())
+            server.sendto(struct.pack('!HH', 3, 3) + b'file', client.getsockname())
+            server.sendto(final, client.getsockname())
+            result = dally(client, server.getsockname(), final, ack, time.monotonic() + 2, 252)
+            self.assertEqual(result, {'status': 'packet_limit', 'duplicate_acks': 1})
+            self.assertEqual(server.recvfrom(1024)[0], ack)
+            with self.assertRaises(socket.timeout): server.recvfrom(1024)
+            with self.assertRaises(socket.timeout): rogue.recvfrom(1024)
+
+    def test_dally_respects_original_deadline_even_with_duplicate_traffic(self):
+        from network_labs.appliances.tftp_worker import dally
+        final = struct.pack('!HH', 3, 1) + b'file'; ack = struct.pack('!HH', 4, 1)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client, \
+             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
+            for sock in (client, server): sock.bind(('127.0.0.1', 0))
+            server.sendto(final, client.getsockname())
+            started = time.monotonic()
+            result = dally(client, server.getsockname(), final, ack, started + .08, 1)
+            self.assertEqual(result, {'status': 'deadline', 'duplicate_acks': 1})
+            self.assertLess(time.monotonic() - started, .6)
+
     def test_real_udp_recovers_lost_request_data_and_ack_without_double_hashing(self):
         data = b'A' * 512 + b'final block'
         for loss in ('request', 'data', 'ack'):

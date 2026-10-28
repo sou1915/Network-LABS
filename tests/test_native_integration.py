@@ -119,12 +119,15 @@ class RealContainerTests(unittest.TestCase):
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
         for tool in ('crun', 'ip', 'busybox'):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
-        server_code = '''import socket,struct
+        server_code = '''import socket,struct,time
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.bind(("192.0.2.20",69)); s.settimeout(8)
 print("ready",flush=True)
 request,peer=s.recvfrom(1024)
 assert request==b"\\x00\\x01sample.bin\\x00octet\\x00"
 t=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); t.bind(("192.0.2.20",0)); t.settimeout(5)
+t.sendto(struct.pack("!HH",3,1)+b"TFTP lab\\n",peer)
+ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
+time.sleep(.1)
 t.sendto(struct.pack("!HH",3,1)+b"TFTP lab\\n",peer)
 ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
 '''
@@ -145,6 +148,7 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     result = tftp_read(manager, 'PC1', '192.0.2.20', 'sample.bin', expected_sha256=expected)
                     self.assertEqual(result['status'], 'passed', result)
                     self.assertTrue(result['hash_matches'])
+                    self.assertEqual(result['transfer']['final_ack']['duplicate_acks'], 1)
                     _, error = process.communicate(timeout=5)
                     self.assertEqual(process.returncode, 0, error)
                 finally:
