@@ -99,6 +99,19 @@ class RealContainerTests(unittest.TestCase):
                         result = radius_probe(manager, client, '192.0.2.20', username='learner', password=password, secret=token, timeout=1)
                         self.assertEqual(result['status'], 'unknown', result)
                     observed = manager.inspect('PC2')['radius_server']
+                    from network_labs.appliances.radius_exec import execute as radius_execute
+                    for action in ('identity', 'security-context'):
+                        allowed = radius_execute(manager, 'PC1', '192.0.2.20', action=action,
+                                                 username='learner', password=password, secret=secret)
+                        self.assertEqual(allowed['status'], 'passed', allowed)
+                        if action == 'identity': self.assertIn('uid=65532', allowed['stdout'])
+                        else:
+                            context = dict(line.split(':', 1) for line in allowed['stdout'].splitlines() if ':' in line)
+                            self.assertEqual(context['NoNewPrivs'].strip(), '1')
+                            self.assertEqual(context['CapEff'].strip(), '0000000000000000')
+                    denied = radius_execute(manager, 'PC1', '192.0.2.20', action='identity',
+                                            username='learner', password='incorrect-password', secret=secret)
+                    self.assertEqual(denied['status'], 'blocked'); self.assertFalse(denied['executed'])
                     self.assertTrue(observed['configuration_verified'], observed)
                     self.assertNotIn(secret, json.dumps(observed))
                     self.assertEqual(manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', '/lab/radius/radiusd.conf').stdout.strip(), '600')

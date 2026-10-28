@@ -143,6 +143,14 @@ def main(arguments=None):
     radius.add_argument('--password-file', type=Path, required=True)
     radius.add_argument('--secret-file', type=Path, required=True)
     radius.add_argument('--timeout', type=int, default=3, help='Overall deadline, 1..5 seconds; no retries.')
+    access = commands.add_parser('radius-exec', help='Require a verified RADIUS Accept before one fixed non-root diagnostic; no device login policy changes.')
+    access.add_argument('name'); access.add_argument('source'); access.add_argument('server')
+    access.add_argument('--action', choices=('identity', 'hostname', 'security-context'), default='identity')
+    access.add_argument('--username', required=True)
+    access.add_argument('--password-file', type=Path, required=True)
+    access.add_argument('--secret-file', type=Path, required=True)
+    access.add_argument('--timeout', type=int, default=3)
+    access.add_argument('--json', action='store_true')
     radius.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
@@ -335,6 +343,15 @@ def main(arguments=None):
                                    password=load_credential(args.password_file), secret=load_credential(args.secret_file),
                                    timeout=args.timeout)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'radius-exec':
+                    from .radius import load_credential
+                    from .radius_exec import execute
+                    result = execute(manager, args.source, args.server, action=args.action, username=args.username,
+                                     password=load_credential(args.password_file), secret=load_credential(args.secret_file),
+                                     timeout=args.timeout)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else
+                          'RADIUS execution: ' + result['status'].upper() + '\n' + result.get('stdout', ''))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
                     from .tftp import read, render
