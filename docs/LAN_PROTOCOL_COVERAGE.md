@@ -12,6 +12,9 @@ socket corrections alongside the other native scenarios:
 [pull request](https://github.com/sou1915/Network-LABS/actions/runs/40716014900/job/122913781926).
 This records those bounded profiles, not completion of the remaining columns.
 
+The [STP/LACP validation matrix](STP_LACP_VALIDATION.md) describes the additional
+partial-flush rollback, min-links, logical shutdown and saved restart scenarios.
+
 | Family | Current bounded profile | Remaining work |
 |---|---|---|
 | SSH | Dropbear, ed25519 public-key auth, non-root Linux command/PTY, TCP/22 | Vendor shells, richer account/AAA policy, managed host-key persistence, IPv6/coexistence profiles |
