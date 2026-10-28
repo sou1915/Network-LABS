@@ -190,7 +190,8 @@ its result must be checked separately from the passing localhost daemon test.
 Both checks passed for the provider-copy fix in commit `8e33f51`: see the
 [dedicated RADIUS CI job](https://github.com/sou1915/Network-LABS/actions/runs/40709234559/job/122889633874).
 That result covers this bounded RADIUS scenario, not the entire native suite;
-a separate STP/LACP restore-path packet failure remains under investigation.
+managed STP/LACP restore-path reconciliation and its separate validation are
+described in [Native LAN core](NATIVE_LAN_CORE.md#configuration-live-partielle).
 
 This is still PAP authentication observation only: no SSH/Telnet login adapter,
 port admission, EAP/802.1X, accounting, challenge continuation, authorization

@@ -483,8 +483,8 @@ de mode/min-links interrompt temporairement ce bond (DOWN, paramètres, état
 administratif déclaré) et peut nécessiter une nouvelle négociation ; les autres
 interfaces ne sont pas volontairement interrompues.
 
-Quand une remise en service administrative des membres fait repasser un
-bundle sous/sur son seuil `min_links`, le gestionnaire attend deux observations
+Quand une remise en service administrative fait passer un bundle de sous son
+seuil `min_links` à suffisamment de membres actifs déclarés, le gestionnaire attend deux observations
 stables de STP commun et un LACP prêt, puis invalide uniquement la FDB dynamique
 des switches Linux administrativement connectés dans ce composant. Cette étape
 évite de conserver une destination MAC sur le trunk de secours désormais bloqué.
@@ -501,6 +501,14 @@ bridges concernés. Le gestionnaire ne calcule pas le root ni les ports STP,
 ne teste pas des paquets dans cette étape et n'installe pas de watchdog pour
 les pannes de carrier sans édition administrative. Un flush peut provoquer un
 réapprentissage/flood temporaire conforme aux VLANs et aux politiques d'accès.
+
+Le job [switching-interop](https://github.com/sou1915/Network-LABS/actions/runs/40715015277/job/122910210843)
+a validé trois cycles successifs de coupure/reprise, les pings dans les deux sens
+sur les VLANs 10 et 20 et la conservation d'entrées FDB statiques ; le second run
+de ce commit a également réussi. Le runner observé utilisait
+`7.0.0-1017-azure`. La panne initiale avait été observée avec
+`6.17.0-1022-azure` : ces résultats bornés ne remplacent pas la validation sur
+chaque kernel cible ni celle des pannes physiques sans commande de gestion.
 
 ```bash
 # Couper un membre ; l'autre doit continuer à transporter les deux VLAN.
