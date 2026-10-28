@@ -76,11 +76,17 @@ def configure(manager, index, node, previous):
         if name not in links or (name in old and old[name]['members'] != channel['members']):
             ns('ip', 'link', 'add', 'name', name, 'type', 'bond', 'mode', '802.3ad', *options)
             recreated.add(name)
-        elif channel != old.get(name):
+        elif (channel != old.get(name) or
+              (all(member in previous.get('shutdown', []) for member in channel['members']) and
+               any(member not in node.get('shutdown', []) for member in channel['members']))):
             # Bonding options can require IFF_DOWN; only this logical bundle
             # is interrupted. The LAN apply restores its declared admin state.
+            # A complete administrative member outage also needs a fresh
+            # logical-port transition on recovery. Keeping the master UP can
+            # leave STP/fdb state from the spare path when members return.
             ns('ip', 'link', 'set', 'dev', name, 'down')
-            ns('ip', 'link', 'set', 'dev', name, 'type', 'bond', *options)
+            if channel != old.get(name):
+                ns('ip', 'link', 'set', 'dev', name, 'type', 'bond', *options)
         for member in channel['members']:
             # Enslaving requires DOWN. Unchanged members must not be flapped.
             if name not in recreated and links[member].get('master') in (name, links[name].get('ifindex')):

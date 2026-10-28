@@ -109,6 +109,28 @@ details partner lacp pdu:
         links[-1]['linkinfo']['info_data']['miimon'] = 200
         self.assertIn('bonding configuration differs', drift(node, {'links': links})[0])
 
+    def test_complete_member_admin_outage_recovery_restarts_only_logical_port(self):
+        import json
+        import subprocess
+        from types import SimpleNamespace
+        for old_shutdown, new_shutdown, restart in (([], [], False), (['eth2'], [], False),
+                (['eth2', 'eth3'], ['eth2', 'eth3'], False), (['eth2', 'eth3'], ['eth3'], True),
+                (['eth2', 'eth3'], [], True)):
+            with self.subTest(old=old_shutdown, new=new_shutdown):
+                node = lacp_lab('/rootfs')['nodes'][4]; previous = copy.deepcopy(node)
+                previous['shutdown'] = old_shutdown; node['shutdown'] = new_shutdown
+                calls = []
+                links = [{'ifname': 'bond1', 'ifindex': 5}, {'ifname': 'eth2', 'master': 'bond1'},
+                         {'ifname': 'eth3', 'master': 'bond1'}]
+                def ns(index, *args, **kwargs):
+                    calls.append(args)
+                    return subprocess.CompletedProcess(args, 0, json.dumps(links) if '-j' in args else '', '')
+                recreated = configure(SimpleNamespace(ns=ns), 0, node, previous)
+                downs = [call for call in calls if call[-1:] == ('down',)]
+                self.assertEqual(downs, [('ip', 'link', 'set', 'dev', 'bond1', 'down')] if restart else [])
+                self.assertEqual(recreated, set())
+                self.assertFalse(any('delete' in call or 'nomaster' in call or 'fdb' in call for call in calls))
+
     def test_ready_requires_current_kernel_active_slave_not_stale_port_bits(self):
         import subprocess
         from types import SimpleNamespace

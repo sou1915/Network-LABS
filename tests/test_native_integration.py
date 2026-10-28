@@ -5567,8 +5567,7 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     path = Path(folder) / (name + '-restore.log')
                     with path.open('w') as output:
                         process = subprocess.Popen(['ip', 'netns', 'exec', namespace(spec, index),
-                            'tcpdump', '-l', '-nn', '-e', '-i', 'any', '-s', '128', '-c', '256',
-                            'arp or icmp or (vlan and (arp or icmp))'],
+                            'tcpdump', '-l', '-nn', '-e', '-i', 'any', '-s', '128', '-c', '1024'],
                             stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
                     captures.append((process, path))
             def wait_path(spare, members):
@@ -5612,7 +5611,9 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                 except BaseException:
                     stop_captures()
                     for _, path in captures:
-                        print('STP/LACP restore capture ' + path.name + ':\n' + path.read_text()[-6000:], file=sys.stderr)
+                        lines = path.read_text().splitlines()
+                        evidence = '\n'.join(lines[:4] + [line for line in lines if 'ICMP' in line or 'ARP' in line])
+                        print('STP/LACP restore capture ' + path.name + ':\n' + evidence[-6000:], file=sys.stderr)
                     if manager.directory.exists():
                         print('STP/LACP diagnostics:', manager.inspect('SW1'), manager.inspect('SW2'), file=sys.stderr)
                     raise
