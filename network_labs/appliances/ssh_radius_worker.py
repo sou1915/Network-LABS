@@ -74,14 +74,20 @@ def serve(config):
             try: connection, _ = listener.accept()
             except socket.timeout: continue
             with connection:
+                stage = 'framing'
                 try:
                     action, username, password = request(connection)
+                    stage = 'state'
                     manager = BridgeManager(config); manager.current()
-                    result = dispatch(manager, config['node'], action, username, password)
+                    stage = 'dispatch'
+                    result = dispatch(manager, config['node'], action, username, password,
+                                      audit=lambda code: print('SSH_RADIUS_' + code, flush=True))
                     password = None
+                    stage = 'reply'
                     connection.settimeout(1)
                     connection.sendall(b'DENY\n' if result is None else b'OK\n' + result.encode())
-                except (OSError, ValueError, RuntimeError, KeyError, StopIteration):
+                except (OSError, ValueError, RuntimeError, KeyError, StopIteration) as error:
+                    print('SSH_RADIUS_' + stage.upper() + '_' + type(error).__name__, flush=True)
                     try: connection.sendall(b'DENY\n')
                     except OSError: pass
 

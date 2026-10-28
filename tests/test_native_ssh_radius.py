@@ -61,7 +61,9 @@ class NativeSSHRadiusTests(unittest.TestCase):
                                   '-i', str(identity), *extra, 'lab@192.0.2.10', action, timeout=20, check=False,
                                   input_text=(username + '\n' + credential + '\n') if data is None else data)
             def allowed():
-                result = ssh('identity'); self.assertEqual(result.returncode, 0, result)
+                result = ssh('identity')
+                log = manager.directory / 'PC1.ssh-radius.log'
+                self.assertEqual(result.returncode, 0, (result, log.read_text(errors='replace')[-2000:]))
                 self.assertIn('uid=65532', result.stdout)
                 hostname = ssh('hostname', username='viewer'); self.assertEqual(hostname.returncode, 0, hostname)
                 self.assertEqual(hostname.stdout.strip(), 'PC1')

@@ -46,20 +46,27 @@ def managed_secret(spec, node):
     raise ValueError('SSH RADIUS requires a managed server with a matching NAS client.')
 
 
-def dispatch(manager, source, action, username, password):
+def dispatch(manager, source, action, username, password, *, audit=None):
     from .radius_exec import execute, verified_accept
     from .ssh_access import ACTIONS
     node = next(n for n in manager.read()['spec']['nodes'] if n['name'] == source)
     management = node.get('management') or {}
     if (management.get('ssh_radius') is not True or action not in ACTIONS or
             action not in (management.get('ssh_actions') or [])):
+        if audit: audit('POLICY_DENIED')
         return None
     address, secret = managed_secret(manager.state['spec'], node)
     result = execute(manager, source, address, action=action, username=username, password=password, secret=secret, timeout=2)
     if (result.get('status') == 'passed' and result.get('executed') is True and result.get('returncode') == 0
             and verified_accept(result.get('authentication') or {})):
         output = result.get('stdout')
-        if isinstance(output, str) and len(output.encode()) <= 4096: return output
+        if isinstance(output, str) and len(output.encode()) <= 4096:
+            if audit: audit('VERIFIED_ACCEPT_EXECUTED')
+            return output
+    if audit:
+        authentication = result.get('authentication') or {}
+        audit('AUTHENTICATION_' + (authentication.get('status') if authentication.get('status') in
+              ('passed', 'failed', 'blocked', 'unknown', 'ready', 'unavailable') else 'unavailable').upper())
     return None
 
 
