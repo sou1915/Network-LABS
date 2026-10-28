@@ -141,6 +141,8 @@ class RealContainerTests(unittest.TestCase):
                         completed = subprocess.run(args, input='/bin/busybox id\n/bin/busybox cat /proc/self/status\n/bin/busybox cat /proc/self/cgroup\nexit\n',
                                                    capture_output=True, text=True, timeout=min(8, options['timeout']))
                         output.append(completed.stdout)
+                        if completed.returncode:
+                            print('RADIUS session fixture runtime: ' + completed.stderr[-2000:], file=sys.stderr)
                         return completed.returncode
                     with patch('network_labs.appliances.radius_login.subprocess.call', side_effect=shell):
                         session = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
