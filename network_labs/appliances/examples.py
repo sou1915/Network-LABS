@@ -616,11 +616,12 @@ def radius_lab(rootfs, secret, password_sha256, username='learner'):
     return validate(spec)
 
 
-def tftp_lab(rootfs):
-    """Two hosts and a switch with one declared public test file."""
+def tftp_lab(rootfs, files=None):
+    """Two hosts and a switch serving declared public files."""
     from .spec import example
     spec = example(rootfs); spec['name'] = 'tftp-lan'
     spec['nodes'][2]['tftp_server'] = {'interface': 'eth0', 'files': {'sample.txt': 'Network LABS TFTP\n', 'sample.bin': {'base64': 'AAECA/8='}}}
+    if files is not None: spec['nodes'][2]['tftp_server']['files'] = files
     return validate(spec)
 
 

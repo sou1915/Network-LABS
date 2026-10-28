@@ -1,10 +1,12 @@
-"""Scoped read-only dnsmasq TFTP service with declared text files."""
+"""Scoped read-only dnsmasq TFTP service with declared text or binary files."""
 import ipaddress
 import base64
 import binascii
 import hashlib
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 
 from .service_config import observe_config
@@ -13,6 +15,39 @@ BINARY = '/usr/sbin/dnsmasq'
 CONFIG = '/lab/tftp-server.conf'
 ROOT = '/lab/tftp'
 MAX_BINARY_BYTES = 65536
+
+
+def validate_filename(name):
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name) or name in ('.', '..'):
+        raise ValueError('TFTP filenames must be single ASCII names without directories.')
+
+
+def import_files(entries):
+    """Embed explicitly selected regular files; retain no host filesystem paths."""
+    if not 1 <= len(entries) <= 8:
+        raise ValueError('TFTP imports require 1..8 NAME=PATH entries.')
+    paths = {}
+    for entry in entries:
+        name, separator, path = entry.partition('=')
+        validate_filename(name)
+        if not separator or not path: raise ValueError('TFTP import requires NAME=PATH.')
+        if name in paths: raise ValueError('Duplicate TFTP import filename: ' + name)
+        paths[name] = path
+    files = {}
+    for name, path in paths.items():
+        # NONBLOCK avoids hanging on FIFOs before checking the opened object.
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError('TFTP imports require regular files.')
+            with os.fdopen(descriptor, 'rb', closefd=False) as source:
+                payload = source.read(MAX_BINARY_BYTES + 1)
+        finally:
+            os.close(descriptor)
+        if len(payload) > MAX_BINARY_BYTES:
+            raise ValueError('TFTP binary file exceeds 65536 bytes.')
+        files[name] = {'base64': base64.b64encode(payload).decode('ascii')}
+    return files
 
 
 def file_bytes(value):
@@ -53,10 +88,9 @@ def validate_node(node):
         raise ValueError('Initial TFTP server profile requires a separate service node.')
     files = policy.get('files')
     if not isinstance(files, dict) or not 1 <= len(files) <= 8:
-        raise ValueError('TFTP requires 1..8 declared text files.')
+        raise ValueError('TFTP requires 1..8 declared text or binary files.')
     for name, content in files.items():
-        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name) or name in ('.', '..'):
-            raise ValueError('TFTP filenames must be single ASCII names without directories.')
+        validate_filename(name)
         file_bytes(content)
     policy['files'] = dict(sorted(files.items()))
 

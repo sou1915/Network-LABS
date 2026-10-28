@@ -3,6 +3,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,11 +12,56 @@ from unittest.mock import Mock, patch
 
 from network_labs.appliances.examples import tftp_lab
 from network_labs.appliances.spec import validate
-from network_labs.appliances.tftp_server import config_text, prepare_files, start_servers, drift, observe_file
+from network_labs.appliances.tftp_server import config_text, prepare_files, start_servers, drift, observe_file, import_files
 from network_labs.appliances.__main__ import main
 
 
 class TftpServerTests(unittest.TestCase):
+    def test_cli_import_embeds_exact_binary_and_replaces_samples(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'source=payload.bin'
+            payload = bytes(range(256)) * 256
+            source.write_bytes(payload)
+            empty = Path(folder) / 'empty'; empty.touch()
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['example', '--tftp', '--rootfs', '/rootfs',
+                                       '--tftp-file', 'image.bin=' + str(source),
+                                       '--tftp-file', 'empty.bin=' + str(empty)]), 0)
+            manifest = output.getvalue(); spec = json.loads(manifest)
+            self.assertNotIn(str(source), manifest)
+            self.assertNotIn('sample.txt', manifest)
+            source.unlink(); empty.unlink()
+            root = Path(folder) / 'bundle'; (root / 'files').mkdir(parents=True)
+            prepare_files(root, validate(spec)['nodes'][2])
+            self.assertEqual((root / 'files/tftp/image.bin').read_bytes(), payload)
+            self.assertEqual((root / 'files/tftp/empty.bin').read_bytes(), b'')
+
+    def test_import_rejects_invalid_names_duplicates_and_count_before_io(self):
+        for entries in ([], ['missing-equals'], ['name='], ['../x=/missing'],
+                        ['x=/missing', 'x=/other'], [str(i) + '=/missing' for i in range(9)]):
+            with self.subTest(entries=entries), patch('os.open') as opened:
+                with self.assertRaises(ValueError): import_files(entries)
+                opened.assert_not_called()
+        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(['example', '--rootfs', '/rootfs', '--tftp-file', 'x=/missing']), 1)
+        self.assertEqual(output.getvalue(), '')
+
+    def test_import_bounds_regular_files_and_rejects_fifo_without_blocking(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'payload'; path.write_bytes(b'x' * 65537)
+            with self.assertRaisesRegex(ValueError, '65536'): import_files(['x=' + str(path)])
+            with self.assertRaises(ValueError): import_files(['x=' + folder])
+            fifo = Path(folder) / 'fifo'; os.mkfifo(fifo)
+            with self.assertRaisesRegex(ValueError, 'regular'): import_files(['x=' + str(fifo)])
+            path.write_bytes(b'x')
+            files = import_files([str(i) + '=' + str(path) for i in range(8)])
+            self.assertEqual(len(files), 8)
+            self.assertEqual(files['0'], {'base64': 'eA=='})
+            with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['example', '--rootfs', '/rootfs', '--tftp', '--tftp-file', 'x=' + str(path),
+                                       '--tftp-file', 'y=' + str(path) + '.missing']), 1)
+            self.assertEqual(output.getvalue(), '')
+
     def test_binary_payloads_are_exact_and_bounded(self):
         spec = tftp_lab('/rootfs'); node = spec['nodes'][2]
         payload = bytes(range(256)) * 256
