@@ -4,6 +4,7 @@ import json
 import socket
 import struct
 import threading
+import time
 import unittest
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from unittest.mock import patch
@@ -51,6 +52,74 @@ def exchange(data, *, error=None, inject_other_tid=False):
 
 
 class NativeTftpTests(unittest.TestCase):
+    def test_real_udp_recovers_lost_request_data_and_ack_without_double_hashing(self):
+        data = b'A' * 512 + b'final block'
+        for loss in ('request', 'data', 'ack'):
+            with self.subTest(loss=loss), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
+                server.bind(('127.0.0.1', 0)); server.settimeout(3)
+                faults = []
+                def serve():
+                    try:
+                        rrq, client = server.recvfrom(1024)
+                        if loss == 'request':
+                            repeated, sender = server.recvfrom(1024)
+                            self.assertEqual((repeated, sender), (rrq, client))
+                        # Use a separate transfer port, just like a real server.
+                        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transfer:
+                            transfer.bind(('127.0.0.1', 0)); transfer.settimeout(3)
+                            first = struct.pack('!HH', 3, 1) + data[:512]
+                            transfer.sendto(first, client)
+                            ack, sender = transfer.recvfrom(1024)
+                            self.assertEqual((ack, sender), (struct.pack('!HH', 4, 1), client))
+                            if loss == 'ack':
+                                # Simulate an ACK lost on its way to the server.
+                                transfer.sendto(first, client)
+                                repeated, sender = transfer.recvfrom(1024)
+                                self.assertEqual((repeated, sender), (ack, client))
+                            if loss == 'data':
+                                # DATA 2 is dropped. Client retries ACK 1 to
+                                # the selected transfer port, never UDP/69.
+                                repeated, sender = transfer.recvfrom(1024)
+                                self.assertEqual((repeated, sender), (ack, client))
+                            transfer.sendto(struct.pack('!HH', 3, 2) + data[512:], client)
+                            final, sender = transfer.recvfrom(1024)
+                            self.assertEqual((final, sender), (struct.pack('!HH', 4, 2), client))
+                    except Exception as error:
+                        faults.append(error)
+                thread = threading.Thread(target=serve, daemon=True); thread.start()
+                result = wire_read({'source': '127.0.0.1', 'address': '127.0.0.1',
+                                    'port': server.getsockname()[1], 'filename': 'f', 'timeout': 3})
+                thread.join(4)
+                self.assertFalse(thread.is_alive()); self.assertEqual(faults, [])
+                self.assertEqual(result['status'], 'passed', result)
+                self.assertEqual(result['bytes_received'], len(data))
+                self.assertEqual(result['sha256'], hashlib.sha256(data).hexdigest())
+                self.assertEqual(result['retransmissions'], 0 if loss == 'ack' else 1)
+
+    def test_retry_limit_and_absolute_deadline_on_silent_real_udp_server(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
+            server.bind(('127.0.0.1', 0)); server.settimeout(.05)
+            request = {'source': '127.0.0.1', 'address': '127.0.0.1',
+                       'port': server.getsockname()[1], 'filename': 'f', 'timeout': 2}
+            with patch('network_labs.appliances.tftp_worker.RETRY_SECONDS', .02):
+                result = wire_read(request)
+            self.assertEqual(result['error'], 'RETRY_LIMIT', result)
+            self.assertEqual(result['retransmissions'], 3)
+            packets = []
+            try:
+                while True: packets.append(server.recvfrom(1024)[0])
+            except socket.timeout:
+                pass
+            self.assertEqual(len(packets), 4)
+            self.assertTrue(all(packet == packets[0] for packet in packets))
+            request['timeout'] = .12
+            started = time.monotonic()
+            result = wire_read(request)
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual(result['error'], 'TimeoutError')
+            self.assertIsNone(result['sha256'])
+            self.assertLess(time.monotonic() - started, .7)
+
     def test_real_udp_read_empty_multiblock_and_wrong_transfer_id(self):
         for data in (b'', b'A' * 512, b'hello' * 150, b'z' * 65536):
             with self.subTest(size=len(data)):

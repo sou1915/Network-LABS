@@ -9,7 +9,10 @@ from .service_config import observe_config
 BINARY = '/usr/lib/network-labs/chronyd'
 CONFIG = '/lab/ntp-server.conf'
 PIDFILE = '/run/network-labs-chronyd.pid'
-CONTROL_SOCKET = '/run/network-labs-chronyd.sock'
+# chronyd refuses a Unix control socket in a directory accessible to other
+# users. /run itself is shared (normally 0755); let chronyd create its private
+# subdirectory with the required permissions.
+CONTROL_SOCKET = '/run/network-labs-chrony/chronyd.sock'
 CHRONYC = '/usr/lib/network-labs/chronyc'
 
 

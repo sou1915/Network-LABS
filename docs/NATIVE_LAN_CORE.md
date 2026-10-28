@@ -3243,9 +3243,17 @@ The deadline is 1..10 seconds (`--timeout`, default 5); at most 65536 bytes and
 256 datagrams are accepted. The sender IP and transfer port are checked after
 the first DATA response. TFTP is unauthenticated: sender checks and a digest
 are not proof of identity or integrity unless the expected digest is trusted.
-There is no DNS, IPv6, file write, retransmission, option negotiation or final
-ACK dally. Timeout, size limit or protocol errors are reported without claiming
-their underlying cause.
+On timeout the client retransmits its last RRQ or ACK, with at most three
+retries per block and waits of 0.5, 1, 2 and 4 seconds. The overall deadline
+still applies and may stop the transfer earlier. Only new DATA resets that
+block's retry budget; unrelated senders and duplicate DATA cannot extend the
+deadline. Duplicate DATA is acknowledged without hashing or counting it twice.
+JSON and text reports include the timeout retransmission count (duplicate DATA
+ACKs are not counted). Real UDP tests exercise lost requests, lost DATA and
+duplicate DATA after a lost ACK, along with silent-server retry/deadline limits.
+There is no DNS, IPv6, file write, option negotiation or final ACK dally.
+Timeout, retry limit, size limit or protocol errors are reported without
+claiming their underlying cause. See [RFC 1350](https://www.rfc-editor.org/rfc/rfc1350.html).
 
 The experimental `tftp-lan` example adds a separate dnsmasq TFTP server on
 PC2 and a declared `sample.txt`, using a new rootfs built with a trusted local
@@ -3281,8 +3289,9 @@ no TFTP authentication or client IP allowlist is supplied, so all reachable
 clients on the permitted interface may read the exported files. Never put secrets
 in the manifest or files. IPv6 TFTP exposure and coexistence with other services
 are not established. Inspection verifies configuration and declared files, not
-daemon liveness or network delivery. The real dnsmasq service and privileged lab
-test have not yet run in the development environment. Stop the lab when done:
+daemon liveness or network delivery. GitHub native CI has passed the actual
+dnsmasq text/binary read and write-rejection scenario; local development cannot
+run the privileged lab test. Stop the lab when done:
 `sudo python3 -m network_labs.appliances stop tftp-lan`.
 
 ### Explicit DNS, TCP, HTTP and SNTP service probes
@@ -3320,8 +3329,8 @@ It does not update host or guest trust stores. The private key and certificate
 are created in a private temporary directory and removed after process cleanup,
 including on errors. An already occupied TCP/443 is refused. Add `--json` for
 the nested probe evidence. The responder exits after one valid HEAD or a short
-deadline; neither endpoint's configuration is changed. Real namespace
-integration still requires the privileged native test environment.
+deadline; neither endpoint's configuration is changed. The real namespace
+integration scenario passed in GitHub native CI, including listener cleanup.
 
 An existing reachable NTP server can be queried from a running single-interface
 OCI host with `sudo python3 -m network_labs.appliances probe LAB PC1 192.0.2.20 --protocol sntp`.
@@ -3411,9 +3420,11 @@ identify which process owns the socket. These observations are sequential and
 do not establish that chronyd owns the socket, that a client can reach it, or
 that the server is synchronized.
 Live configuration changes require lab recreation. This
-profile is experimental: the chronyd binary and privileged network namespaces
-were unavailable in the development environment, so actual daemon startup and
-end-to-end synchronization have not yet been verified there. NTP is unauthenticated.
+profile is experimental. GitHub native CI has exercised the local reference,
+relay synchronization (stratum 11) and downstream allowlist. Its later control
+query exposed an invalid Unix socket location, now moved to a private directory;
+the complete corrected test still requires a successful native CI run.
+NTP is unauthenticated.
 
 For an isolated teaching network, a node may declare `local_stratum` instead of
 `upstream`. This explicitly enables chrony's local reference using the host's
@@ -3438,7 +3449,7 @@ normal host time service according to system package policy. The relay needs
 time to obtain measurements from PC3; an immediate probe may be unavailable.
 Inspect the nodes separately and stop the lab with
 `sudo python3 -m network_labs.appliances stop ntp-lan`. This is an experimental
-profile, not yet validated end-to-end in the development environment.
+profile; local development cannot run the privileged integration tests.
 
 `show ntp status` and `show ntp associations` issue only `tracking` and
 `sources` through `chronyc -n` and the node-local Unix control socket. They
@@ -3449,6 +3460,12 @@ time. The optional `--chronyc` rootfs argument requires `--chronyd` and should
 point to a compatible trusted binary. Existing rootfs images without chronyc
 still start the server, but these show commands report unknown until a new
 rootfs is built with both tools. Network command port 323 stays disabled.
+The control socket is `/run/network-labs-chrony/chronyd.sock`; chronyd creates
+its private parent directory. Putting the socket directly in shared `/run`
+prevents its creation because chrony requires a directory accessible only by
+root or its service user. See [chrony bindcmdaddress](https://chrony-project.org/doc/4.8/chrony.conf.html#bindcmdaddress).
+Existing NTP labs must be stopped and recreated to use the corrected generated
+configuration; a code update does not rewrite an active daemon configuration.
 
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
 its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.

@@ -122,6 +122,16 @@ class NtpServerTests(unittest.TestCase):
         caps = oci_config(spec, node, 2, Path('/rootfs'))['process']['capabilities']
         self.assertTrue(all('CAP_SYS_TIME' not in values for values in caps.values()))
 
+    def test_control_socket_uses_private_directory_and_matching_client_path(self):
+        from network_labs.appliances.ntp_server import CONTROL_SOCKET, CHRONYC, read_cli
+        self.assertEqual(CONTROL_SOCKET, '/run/network-labs-chrony/chronyd.sock')
+        self.assertIn('bindcmdaddress ' + CONTROL_SOCKET + '\n', config_text(ntp_spec()['nodes'][2]))
+        manager = Mock()
+        manager.crun.return_value = subprocess.CompletedProcess([], 0, 'Reference ID : C000021E\n', '')
+        self.assertIn('Reference ID', read_cli(manager, 'PC2', 'tracking'))
+        manager.crun.assert_called_once_with('exec', 'PC2', CHRONYC, '-n', '-h', CONTROL_SOCKET,
+                                             'tracking', check=False, timeout=5)
+
     def test_rejects_nonmanaged_peers_and_invalid_policy(self):
         for update in ({'upstream': '192.0.2.99'}, {'clients': []}, {'clients': ['192.0.2.20']},
                        {'clients': ['192.0.2.30']}, {'upstream': '127.0.0.1'}, {'interface': 'missing'}):
