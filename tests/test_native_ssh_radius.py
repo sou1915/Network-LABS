@@ -63,7 +63,14 @@ class NativeSSHRadiusTests(unittest.TestCase):
             def allowed():
                 result = ssh('identity')
                 log = manager.directory / 'PC1.ssh-radius.log'
-                self.assertEqual(result.returncode, 0, (result, log.read_text(errors='replace')[-2000:]))
+                if result.returncode:
+                    from network_labs.appliances.radius_exec import execute
+                    direct = execute(manager, 'PC1', '192.0.2.20', action='identity', username='learner',
+                                     password=password, secret=secret)
+                    # The diagnostic API intentionally omits credentials.
+                    detail = json.dumps(direct).replace(secret, '[redacted]').replace(password, '[redacted]')
+                    self.fail(repr(result) + '\nBridge: ' + log.read_text(errors='replace')[-2000:] + '\nDirect: ' + detail)
+
                 self.assertIn('uid=65532', result.stdout)
                 hostname = ssh('hostname', username='viewer'); self.assertEqual(hostname.returncode, 0, hostname)
                 self.assertEqual(hostname.stdout.strip(), 'PC1')

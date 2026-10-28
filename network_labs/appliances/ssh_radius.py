@@ -67,6 +67,12 @@ def dispatch(manager, source, action, username, password, *, audit=None):
         authentication = result.get('authentication') or {}
         audit('AUTHENTICATION_' + (authentication.get('status') if authentication.get('status') in
               ('passed', 'failed', 'blocked', 'unknown', 'ready', 'unavailable') else 'unavailable').upper())
+        error = authentication.get('error')
+        if error in ('WORKER_UNAVAILABLE', 'REMOTE_TARGET_REQUIRED'): audit('AUTH_ERROR_' + error)
+        decision = authentication.get('authentication') or {}
+        if decision.get('error') in ('TIMEOUT', 'PACKET_LIMIT', 'TRANSPORT_ERROR'): audit('WIRE_' + decision['error'])
+        endpoint = authentication.get('endpoint') or {}
+        if endpoint.get('status') in ('ready', 'unknown', 'unavailable', 'stopped'): audit('ENDPOINT_' + endpoint['status'].upper())
     return None
 
 
