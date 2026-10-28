@@ -19,10 +19,11 @@ class AccountingWriterTests(unittest.TestCase):
             log = root / 'sessions'
             environment = dict(os.environ, USER_NAME='"learner"', ACCT_SESSION_ID='"aaa-first"',
                                NAS_IP_ADDRESS='192.0.2.10', ACCT_STATUS_TYPE='Start')
-            args = ['/bin/busybox', 'sh', str(writer), str(log)]
+            args = ['/bin/busybox', 'sh', '-x', str(writer), str(log)]
             def run(**overrides):
                 return subprocess.run(args, env=dict(environment, **overrides), capture_output=True, timeout=3)
-            self.assertEqual(run().returncode, 0)
+            first = run()
+            self.assertEqual(first.returncode, 0, first.stderr.decode())
             before = log.read_bytes()
             self.assertEqual(before, b'Start|aaa-first|learner|192.0.2.10|0|0\n')
             self.assertEqual(log.stat().st_mode & 0o777, 0o600)
