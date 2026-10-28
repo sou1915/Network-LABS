@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import tempfile
 from .service_config import observe_config
 
 DROPBEAR = '/usr/sbin/dropbear'
@@ -139,8 +140,14 @@ def prepare_files(bundle, node):
 def start_service(manager, node, service):
     argv = commands(node).get(service)
     if argv is None: raise ValueError('Management service is not enabled.')
-    manager.crun('exec', '--detach', node['name'], *argv,
-                 log=manager.directory / node['name'] / (service + '.log'))
+    log = manager.directory / node['name'] / (service + '.log')
+    if service == 'ssh' and node['management'].get('ssh_actions') is not None:
+        from .ssh_access import service_process
+        with tempfile.NamedTemporaryFile(mode='w+', prefix='ssh-process-', suffix='.json', dir=manager.directory) as process:
+            json.dump(service_process(argv), process); process.flush()
+            manager.crun('exec', '--detach', '--process', process.name, node['name'], log=log)
+    else:
+        manager.crun('exec', '--detach', node['name'], *argv, log=log)
 
 
 def start_servers(manager):

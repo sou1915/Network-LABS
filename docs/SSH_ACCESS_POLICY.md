@@ -26,8 +26,11 @@ ssh -i ./identity lab@192.0.2.20 security-context
 reads `/proc/self/status`. No user-supplied command is evaluated or added to
 argv. Extra arguments, shell syntax, interactive shell requests, SCP commands
 and SFTP subsystem requests are denied with exit 126. PTY allocation, TCP
-forwarding and agent forwarding are disabled for these keys. The existing
-non-root UID/GID 65532 and inherited OCI no-new-privileges policy still apply.
+forwarding and agent forwarding are disabled for these keys. The restricted daemon is explicitly launched with OCI no-new-privileges and
+only SETUID, SETGID and NET_BIND_SERVICE capabilities; its authenticated child
+drops to UID/GID 65532 and empty effective capabilities. The child inherits
+no-new-privileges. Container init settings alone do not constrain a later
+`crun exec`, so the daemon launch supplies its own process configuration.
 All keys share this node's action list and Linux identity.
 
 An empty list denies every command. Omitting the field, or using null, retains

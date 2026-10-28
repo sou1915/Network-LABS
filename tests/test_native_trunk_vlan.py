@@ -56,12 +56,21 @@ class NativeTrunkVLANTests(unittest.TestCase):
                     result = manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', address, check=False)
                     self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
                 def wait_pairs():
+                    stable = 0
                     deadline = time.monotonic() + 20
                     while time.monotonic() < deadline:
                         results = [manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
                                    for source, target in (('PC1', '192.0.2.20'), ('PC2', '198.18.0.20'))]
-                        if all(result.returncode == 0 for result in results): return
-                        time.sleep(.1)
+                        # One successful packet can precede the final LACP
+                        # aggregator selection. Require both members on both
+                        # peers plus repeated packet success before capture.
+                        negotiated = True
+                        if bundled:
+                            reports = [manager.inspect(name)['port_channels']['bond1'] for name in ('SW1', 'SW2')]
+                            negotiated = all(report['ready'] and len(report['negotiated_members']) == 2 for report in reports)
+                        stable = stable + 1 if negotiated and all(result.returncode == 0 for result in results) else 0
+                        if stable >= 2: return
+                        time.sleep(.2)
                     self.fail('VLAN packet path did not recover: ' + repr(results))
                 def wire(filename, expression):
                     ready = threading.Event(); path = Path(folder) / filename

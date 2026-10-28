@@ -23,3 +23,15 @@ case "${SSH_ORIGINAL_COMMAND-}" in
     *) printf 'SSH action denied.\\n' >&2; exit 126;;
 esac
 ''' % branches
+
+
+def service_process(args):
+    # crun exec starts from a host process, not the container init's privilege
+    # context. Explicitly set NNP; Dropbear needs only these capabilities to
+    # bind SSH and switch the authenticated child's UID/groups.
+    caps = ['CAP_SETUID', 'CAP_SETGID', 'CAP_NET_BIND_SERVICE']
+    return {'terminal': False, 'user': {'uid': 0, 'gid': 0, 'additionalGids': []},
+            'args': list(args), 'cwd': '/', 'env': ['PATH=/bin:/usr/bin', 'HOME=/root'],
+            'noNewPrivileges': True,
+            'capabilities': {**{name: list(caps) for name in ('bounding', 'effective', 'permitted')},
+                             'inheritable': [], 'ambient': []}}

@@ -134,6 +134,27 @@ class ManagementTests(unittest.TestCase):
                 manager.crun.side_effect = subprocess.TimeoutExpired('stat', 3)
                 self.assertFalse(observe(manager, node)['configuration_verified'])
 
+    def test_restricted_daemon_exec_uses_explicit_privilege_config(self):
+        from network_labs.appliances.management import start_service
+        node = management_lab('/rootfs', KEY, ssh_actions=['identity'])['nodes'][2]
+        manager = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            manager.directory = Path(folder)
+            def launch(*args, **kwargs):
+                self.assertEqual(args[:3], ('exec', '--detach', '--process'))
+                path = Path(args[3]); self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                process = json.loads(path.read_text())
+                self.assertTrue(process['noNewPrivileges'])
+                self.assertEqual(process['user'], {'uid': 0, 'gid': 0, 'additionalGids': []})
+                self.assertEqual(process['args'], commands(node)['ssh'])
+                for name in ('bounding', 'effective', 'permitted'):
+                    self.assertEqual(set(process['capabilities'][name]), {'CAP_SETUID', 'CAP_SETGID', 'CAP_NET_BIND_SERVICE'})
+                self.assertEqual(process['capabilities']['inheritable'], [])
+                self.assertEqual(process['capabilities']['ambient'], [])
+            manager.crun.side_effect = launch
+            start_service(manager, node, 'ssh')
+            self.assertFalse(list(manager.directory.glob('ssh-process-*')))
+
     def test_incompatible_busybox_options_fail_before_any_service_is_launched(self):
         from network_labs.appliances.runtime import RuntimeFailure
         manager = Mock(); manager.state = {'spec': management_lab('/rootfs', KEY, HASH)}
