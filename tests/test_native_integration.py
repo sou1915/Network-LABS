@@ -5600,13 +5600,15 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
             with manager.locked():
                 try:
                     manager.start(spec); wait_path(False, 2); ping()
-                    manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nshutdown\nend')
-                    wait_path(False, 1); ping()
-                    manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
-                    wait_path(True, 0); ping()
-                    trace_restore()
-                    manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
-                    wait_path(False, 2); ping()
+                    for cycle in range(3):
+                        manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nshutdown\nend')
+                        wait_path(False, 1); ping()
+                        manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
+                        wait_path(True, 0); ping()
+                        trace_restore()
+                        manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
+                        wait_path(False, 2); ping()
+                        stop_captures(); captures.clear()
                 except BaseException:
                     stop_captures()
                     for _, path in captures:
