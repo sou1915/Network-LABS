@@ -137,20 +137,22 @@ class RealContainerTests(unittest.TestCase):
                                      ['identity', 'security-context', 'shell'])
                     from network_labs.appliances.radius_login import login as radius_login
                     output = []
-                    def shell(args):
-                        completed = subprocess.run(args, input='/bin/busybox id\n/bin/busybox cat /proc/self/status\nexit\n',
-                                                   capture_output=True, text=True, timeout=8)
+                    def shell(args, **options):
+                        completed = subprocess.run(args, input='/bin/busybox id\n/bin/busybox cat /proc/self/status\n/bin/busybox cat /proc/self/cgroup\nexit\n',
+                                                   capture_output=True, text=True, timeout=min(8, options['timeout']))
                         output.append(completed.stdout)
                         return completed.returncode
                     with patch('network_labs.appliances.radius_login.subprocess.call', side_effect=shell):
                         session = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
                                                secret=secret, terminal=False)
                     self.assertEqual(session['status'], 'passed', session)
+                    self.assertTrue(session['cleanup_complete'], session)
+                    self.assertIn(session['session_id'], output[0])
                     self.assertIn('uid=65532', output[0])
                     context = dict(line.split(':', 1) for line in output[0].splitlines() if ':' in line)
                     self.assertEqual(context['NoNewPrivs'].strip(), '1')
                     self.assertEqual(context['CapEff'].strip(), '0000000000000000')
-                    def tty_shell(args):
+                    def tty_shell(args, **options):
                         import pty
                         import select
                         master, slave = pty.openpty(); child = None; transcript = bytearray(); sent = False
@@ -181,6 +183,35 @@ class RealContainerTests(unittest.TestCase):
                         session = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
                                                secret=secret, terminal=True)
                     self.assertEqual(session['status'], 'passed', session)
+                    self.assertTrue(session['cleanup_complete'], session)
+                    from network_labs.appliances.radius_session import session_parent
+                    for ending, expected in (('normal', 'passed'), ('expired', 'expired'), ('interrupted', 'interrupted')):
+                        transcript = Path(folder) / ('session-' + ending + '.log')
+                        script = Path(folder) / 'session-input'
+                        script.write_text('/bin/busybox sleep 37 &\necho SESSION-JOB-READY\n' +
+                                          ('exit\n' if ending == 'normal' else 'wait\n'))
+                        def background(args, **options):
+                            with script.open() as source, transcript.open('w') as output_file:
+                                child = subprocess.Popen(args, stdin=source, stdout=output_file, stderr=output_file)
+                                try:
+                                    if ending == 'interrupted':
+                                        deadline = time.monotonic() + 3
+                                        while 'SESSION-JOB-READY' not in transcript.read_text():
+                                            if time.monotonic() >= deadline: self.fail('Shell job did not start')
+                                            time.sleep(.05)
+                                        raise KeyboardInterrupt
+                                    return child.wait(timeout=options['timeout'])
+                                finally:
+                                    if child.poll() is None: child.kill(); child.wait(timeout=2)
+                        with patch('network_labs.appliances.radius_login.subprocess.call', side_effect=background):
+                            closed = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
+                                                  secret=secret, seconds=2 if ending == 'expired' else 5)
+                        self.assertEqual(closed['status'], expected, closed)
+                        self.assertIn('SESSION-JOB-READY', transcript.read_text())
+                        self.assertTrue(closed['cleanup_complete'], closed)
+                        self.assertFalse((session_parent(manager, 'PC1') / closed['session_id']).exists())
+                        processes = manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'args').stdout
+                        self.assertNotIn('sleep 37', processes, 'Session background job survived cleanup')
                     with patch('network_labs.appliances.radius_login.subprocess.call') as launch:
                         rejected = radius_login(manager, 'PC1', '192.0.2.20', username='learner',
                                                 password='incorrect-password', secret=secret)

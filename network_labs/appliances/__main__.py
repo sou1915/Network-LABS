@@ -159,6 +159,7 @@ def main(arguments=None):
     login.add_argument('--secret-file', type=Path, required=True)
     login.add_argument('--timeout', type=int, default=3, help='Authentication deadline, 1..5 seconds; not session lifetime.')
     login.add_argument('--no-tty', action='store_true', help='Read shell commands from stdin without a terminal.')
+    login.add_argument('--seconds', type=int, help='Session lifetime, 1..3600 seconds, at most the declared node limit (default policy: 300).')
     radius.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
@@ -368,10 +369,11 @@ def main(arguments=None):
                     from .radius_login import login
                     result = login(manager, args.source, args.server, username=args.username,
                                    password=load_credential(args.password_file), secret=load_credential(args.secret_file),
-                                   timeout=args.timeout, terminal=not args.no_tty and sys.stdin.isatty() and sys.stdout.isatty())
+                                   timeout=args.timeout, terminal=not args.no_tty and sys.stdin.isatty() and sys.stdout.isatty(),
+                                   seconds=args.seconds)
                     if result['status'] != 'passed':
                         print('RADIUS login: ' + result['status'].upper() + ' ' + result.get('error', ''), file=sys.stderr)
-                    return 130 if result['status'] == 'interrupted' else 0 if result['status'] == 'passed' else 1
+                    return 130 if result['status'] == 'interrupted' else 124 if result['status'] == 'expired' else 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
                     from .tftp import read, render
                     result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256)

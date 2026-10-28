@@ -11,6 +11,7 @@ RADIUS username and declare the same server address supplied to the command:
 ```json
 "radius_access": {
   "server": "192.0.2.20",
+  "session_seconds": 300,
   "users": {"learner": ["identity", "shell"]}
 }
 ```
@@ -50,14 +51,35 @@ RADIUS password or shared secret in its argv, environment or private temporary
 process file. All allowed users currently share this Linux UID; they do not
 have separate home directories or filesystem isolation from each other.
 
-Authentication's `--timeout` does not limit the shell's lifetime. There is no
-idle timeout, remote revocation or RADIUS accounting yet. Background jobs follow
-the lab/container lifecycle; logging out is not a guarantee of killing all jobs.
-Interrupting the host CLI is likewise not a verified guest-job teardown.
+The node policy's `session_seconds` caps foreground session lifetime at
+1..3600 seconds, default 300. `radius-login --seconds N` can shorten this
+limit, but cannot extend it. Authentication's separate `--timeout` remains
+1..5 seconds. Expiry returns CLI status 124; interruption returns 130 when
+session cleanup completes. This is a total lifetime, not an inactivity timer.
+
+Each session uses a generated cgroup-v2 child of its existing node cgroup.
+The host verifies the subtree's kill interface before launch; the non-root
+shell checks its own cgroup membership before reading user commands. There is
+no uncontrolled fallback if the runtime ignores `--cgroup`. On normal exit,
+expiry or handled Ctrl-C/SIGTERM interruption, the host kills only that session subtree, waits up to
+two seconds for it to become empty and removes it, including background jobs.
+A failed cleanup is `unknown` / `SESSION_CLEANUP_UNCONFIRMED`, not a successful
+logout. Guest processes cannot write this root-owned cgroup hierarchy.
+
+This profile requires writable cgroup v2, `cgroup.kill` and crun's `exec
+--cgroup` support; unavailable session control prevents launching a shell.
+The lifetime is enforced by the live CLI supervisor. A host CLI crash or
+uncatchable SIGKILL cannot run cleanup; stopping the lab remains necessary in
+that case. No automatic stale-session recovery is implemented. Signal handling
+requires the main Python thread. This profile does not implement remote
+revocation, an idle timer or RADIUS accounting.
 As with existing administrative `exec`, the lab lock stays held throughout
 the foreground session; close it before other native management commands.
 
+The implementation follows the [kernel cgroup-v2 kill interface](https://docs.kernel.org/admin-guide/cgroup-v2.html)
+and [crun sub-cgroup execution option](https://github.com/containers/crun/blob/main/crun.1.md).
+
 The native FreeRADIUS test checks successful non-terminal and PTY sessions,
 actual UID/capabilities/no-new-privileges, saved shell permission and denied
-password behavior. The new session cases require successful native CI; local
+password behavior, plus background-job cleanup after logout, expiry and host interruption. The new session cases require successful native CI; local
 unit tests alone do not establish OCI or terminal interoperability.

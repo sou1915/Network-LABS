@@ -78,7 +78,8 @@ class RadiusExecTests(unittest.TestCase):
         for change in ({'server': 'localhost'}, {'server': '::1'}, {'server': '127.0.0.1'},
                        {'server': '192.0.2.10'}, {'server': 3221226004}, {'users': {}},
                        {'users': {'bad user': ['identity']}}, {'users': {'learner': ['root-shell']}},
-                       {'users': {'learner': ['identity', 'identity']}}, {'secret': 'unexpected'}):
+                       {'users': {'learner': ['identity', 'identity']}}, {'secret': 'unexpected'},
+                       {'session_seconds': True}, {'session_seconds': 0}, {'session_seconds': 3601}):
             spec = example('/rootfs'); spec['nodes'][0]['radius_access'] = {**copy.deepcopy(base), **change}
             with self.subTest(change=change), self.assertRaises(ValueError): validate(spec)
         spec = example('/rootfs'); spec['nodes'][0]['radius_access'] = base

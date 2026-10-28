@@ -2,6 +2,8 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import signal
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import Mock, patch
@@ -14,7 +16,18 @@ from network_labs.appliances.__main__ import main
 ACCEPT = {'status': 'passed', 'authentication': {'decision': 'accepted', 'response_verified': True, 'response_code': 2}}
 
 
+class FakeGroup:
+    name = 'aaa-test'
+    closed = False
+    def __enter__(self): return self
+    def __exit__(self, *_): self.closed = True; return False
+
+
 class RadiusLoginTests(unittest.TestCase):
+    def setUp(self):
+        scope = patch('network_labs.appliances.radius_login.SessionGroup', side_effect=lambda *_: FakeGroup())
+        self.groups = scope.start(); self.addCleanup(scope.stop)
+
     def manager(self, folder):
         manager = Mock(); manager.directory = Path(folder)
         spec = radius_lab('/rootfs', 'private-shared-secret', 'a' * 64, allow_shell=True)
@@ -64,13 +77,17 @@ class RadiusLoginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             manager = self.manager(folder)
             for terminal in (False, True):
-                def launch(args):
+                def launch(args, **options):
                     self.assertEqual(args[:4], ['crun', '--root', str(Path(folder) / 'crun'), 'exec'])
                     process_file = Path(args[5])
                     self.assertEqual(process_file.stat().st_mode & 0o777, 0o600)
                     process = json.loads(process_file.read_text())
                     self.assertEqual(process['terminal'], terminal)
-                    self.assertEqual(process['args'], ['/bin/busybox', 'sh', *(['-i'] if terminal else [])])
+                    tail = ['/bin/busybox', 'sh', *(['-i'] if terminal else [])]
+                    self.assertEqual(process['args'][-len(tail):], tail)
+                    self.assertIn('/proc/self/cgroup', process['args'][3])
+                    self.assertEqual(args[-3:], ['--cgroup', 'aaa-test', 'PC1'])
+                    self.assertEqual(options['timeout'], 300)
                     self.assertEqual(process['user'], {'uid': 65532, 'gid': 65532, 'additionalGids': []})
                     self.assertTrue(process['noNewPrivileges'])
                     self.assertTrue(all(value == [] for value in process['capabilities'].values()))
@@ -84,9 +101,49 @@ class RadiusLoginTests(unittest.TestCase):
     def test_session_failure_and_interrupt_remove_process_file_and_never_retry(self):
         with tempfile.TemporaryDirectory() as folder:
             manager = self.manager(folder)
-            for error, status in ((OSError('private-error'), 'unknown'), (KeyboardInterrupt(), 'interrupted')):
+            for error, status in ((OSError('private-error'), 'unknown'), (KeyboardInterrupt(), 'interrupted'),
+                                  (subprocess.TimeoutExpired(['crun'], 1), 'expired')):
                 with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
                      patch('network_labs.appliances.radius_login.subprocess.call', side_effect=error) as launch:
                     result = self.login(manager)
                 self.assertEqual(result['status'], status); self.assertNotIn('private-error', str(result))
+                self.assertTrue(result['cleanup_complete'])
                 launch.assert_called_once(); self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_session_limit_cannot_be_extended_and_missing_control_never_launches(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        with tempfile.TemporaryDirectory() as folder:
+            manager = self.manager(folder)
+            with patch('network_labs.appliances.radius_login.probe') as auth:
+                for seconds in (0, True, 301, 3601):
+                    with self.subTest(seconds=seconds), self.assertRaises(ValueError): self.login(manager, seconds=seconds)
+                auth.assert_not_called()
+            self.groups.side_effect = RuntimeFailure('session control unavailable')
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.subprocess.call') as launch:
+                result = self.login(manager, seconds=1)
+            self.assertEqual(result['status'], 'unknown'); launch.assert_not_called()
+            self.assertFalse(result['session_attempted'])
+
+    def test_cleanup_failure_overrides_a_successful_shell_exit(self):
+        from network_labs.appliances.runtime import RuntimeFailure
+        class FailedCleanup(FakeGroup):
+            def __exit__(self, *_): raise RuntimeFailure('cleanup failed')
+        self.groups.side_effect = lambda *_: FailedCleanup()
+        with tempfile.TemporaryDirectory() as folder:
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.subprocess.call', return_value=0):
+                result = self.login(self.manager(folder))
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(result['error'], 'SESSION_CLEANUP_UNCONFIRMED')
+        self.assertFalse(result['cleanup_complete'])
+
+    def test_sigterm_uses_cleanup_path_and_restores_previous_handler(self):
+        previous = signal.getsignal(signal.SIGTERM)
+        def launch(*_, **__): signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        with tempfile.TemporaryDirectory() as folder:
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.subprocess.call', side_effect=launch):
+                result = self.login(self.manager(folder))
+        self.assertEqual(result['status'], 'interrupted'); self.assertTrue(result['cleanup_complete'])
+        self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
