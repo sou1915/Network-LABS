@@ -5609,7 +5609,34 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                         manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
                         wait_path(True, 0); ping()
                         trace_restore()
-                        restored = manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
+                        restore = 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend'
+                        if cycle == 0:
+                            # Fail only after the first bridge's real dynamic
+                            # flush. Rollback restores policy, not lost learning.
+                            original_ns = manager.ns; flushed = []; armed = [True]
+                            def interrupted(index, *args, **kwargs):
+                                if args == ('bridge', 'fdb', 'flush', 'dev', 'br0', 'dynamic'):
+                                    if index == 5 and armed[0]:
+                                        armed[0] = False
+                                        raise RuntimeFailure('Injected second-bridge FDB flush failure')
+                                    result = original_ns(index, *args, **kwargs)
+                                    flushed.append(index)
+                                    return result
+                                return original_ns(index, *args, **kwargs)
+                            before = json.loads(json.dumps(manager.state['spec']))
+                            revision = manager.state['revision']
+                            with patch.object(manager, 'ns', side_effect=interrupted), \
+                                 self.assertRaisesRegex(RuntimeFailure, 'rolled back.*second-bridge'):
+                                manager.configure_ios('SW1', restore)
+                            self.assertEqual(flushed, [4]); self.assertFalse(armed[0])
+                            persisted = manager.read()
+                            self.assertEqual(persisted['spec'], before)
+                            self.assertEqual(persisted['revision'], revision)
+                            self.assertEqual(persisted['phase'], 'running')
+                            self.assertNotIn('pending_spec', persisted)
+                            self.assertNotIn('pending_node', persisted)
+                            wait_path(True, 0); ping(); ping(reverse=True)
+                        restored = manager.configure_ios('SW1', restore)
                         self.assertEqual(restored['stp_recovery']['bridges'], ['SW1', 'SW2'])
                         wait_path(False, 2); ping(reverse=True); ping()
                         for index in (4, 5):
