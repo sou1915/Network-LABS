@@ -27,11 +27,14 @@ class RuntimeFailure(RuntimeError):
     pass
 
 
-def run(args, *, check=True, timeout=30, log=None):
+def run(args, *, check=True, timeout=30, log=None, input_text=None):
     command = [str(a) for a in args]
     if log is None:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        options = {'input': input_text} if input_text is not None else {}
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, **options)
     else:
+        if input_text is not None:
+            raise ValueError('Stdin payloads cannot be combined with persistent command logs.')
         # Detached init processes and daemons can inherit stdout/stderr. Pipes
         # would keep communicate() waiting for the lifetime of the container.
         with Path(log).open('a') as output:

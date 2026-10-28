@@ -55,6 +55,64 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_radius_pap_accept_and_reject_cross_real_bridge(self):
+        import selectors
+        from network_labs.appliances.radius import probe as radius_probe
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        # A deterministic test responder, not a managed FreeRADIUS service.
+        server_code = '''import hashlib,hmac,socket,struct
+secret=b"radius-native-test-secret"
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.bind(("192.0.2.20",1812)); s.settimeout(10)
+print("ready",flush=True)
+for attempt in range(2):
+    request,peer=s.recvfrom(4097)
+    assert peer[0]=="192.0.2.10" and request[0]==1 and request[20:22]==b"\\x50\\x12"
+    unsigned=request[:22]+b"\\0"*16+request[38:]
+    assert hmac.compare_digest(request[22:38],hmac.new(secret,unsigned,hashlib.md5).digest())
+    attrs={}; pos=20
+    while pos<len(request):
+        kind,size=request[pos:pos+2]; assert size>=2
+        attrs[kind]=request[pos+2:pos+size]; pos+=size
+    assert attrs[1]==b"learner"
+    encrypted=attrs[2]; previous=request[4:20]; password=b""
+    for pos in range(0,len(encrypted),16):
+        chunk=encrypted[pos:pos+16]; mask=hashlib.md5(secret+previous).digest()
+        password+=bytes(a^b for a,b in zip(chunk,mask)); previous=chunk
+    code=2 if password.rstrip(b"\\0")==b"radius-native-test-password" else 3
+    header=struct.pack("!BBH",code,request[1],38)
+    attributes=b"\\x50\\x12"+b"\\0"*16
+    mac=hmac.new(secret,header+request[4:20]+attributes,hashlib.md5).digest()
+    attributes=attributes[:2]+mac
+    authenticator=hashlib.md5(header+request[4:20]+attributes+secret).digest()
+    s.sendto(header+authenticator+attributes,peer)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs')
+            spec = example(rootfs); spec['name'] = 'radius-test-' + str(os.getpid()); manager = Manager(spec['name'])
+            process = None
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    process = subprocess.Popen(['ip', 'netns', 'exec', namespace(spec, 2), sys.executable, '-I', '-c', server_code],
+                                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(process.stdout, selectors.EVENT_READ)
+                        self.assertTrue(selector.select(timeout=5), 'RADIUS test responder not ready')
+                        self.assertEqual(process.stdout.readline().strip(), 'ready')
+                    for password, status in (('radius-native-test-password', 'passed'), ('incorrect-password', 'failed')):
+                        report = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password,
+                                              secret='radius-native-test-secret')
+                        self.assertEqual(report['status'], status, report)
+                        self.assertTrue(report['authentication']['response_verified'])
+                    _, error = process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, 0, error)
+                finally:
+                    if process is not None and process.poll() is None:
+                        process.kill(); process.communicate()
+                    if manager.directory.exists(): manager.stop()
+
     def test_https_demo_between_real_nodes(self):
         from network_labs.appliances.https_demo import demo
         self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')

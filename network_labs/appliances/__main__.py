@@ -129,6 +129,13 @@ def main(arguments=None):
     tftp.add_argument('--timeout', type=int, default=5, help='Total transfer deadline, 1..10 seconds.')
     tftp.add_argument('--sha256', help='Optional expected SHA-256 of the complete transfer.')
     tftp.add_argument('--json', action='store_true')
+    radius = commands.add_parser('radius-auth', help='One explicit PAP authentication request to an existing RADIUS server; no node access changes.')
+    radius.add_argument('name'); radius.add_argument('source'); radius.add_argument('server')
+    radius.add_argument('--username', required=True)
+    radius.add_argument('--password-file', type=Path, required=True)
+    radius.add_argument('--secret-file', type=Path, required=True)
+    radius.add_argument('--timeout', type=int, default=3, help='Overall deadline, 1..5 seconds; no retries.')
+    radius.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
     sntp_demo.add_argument('--server-offset-seconds', type=int, default=0, help='Temporary educational server offset from host time, -86400..86400 seconds.')
@@ -295,6 +302,13 @@ def main(arguments=None):
                     trust = {'ca_pem': load_ca(args.ca_file)} if args.ca_file else {}
                     result = probe(manager, args.source, args.target, protocol=args.protocol,
                                    port=args.port, path=args.path, timeout=args.timeout, **trust)
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
+                    return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'radius-auth':
+                    from .radius import probe, render, load_credential
+                    result = probe(manager, args.source, args.server, username=args.username,
+                                   password=load_credential(args.password_file), secret=load_credential(args.secret_file),
+                                   timeout=args.timeout)
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
