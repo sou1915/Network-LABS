@@ -142,7 +142,7 @@ def prepare_files(bundle, node):
 
 
 def command():
-    return [BINARY, '-f', '-s', '-d', DIRECTORY, '-D', DICTIONARY]
+    return [BINARY, '-f', '-s', '-P', '-d', DIRECTORY, '-D', DICTIONARY]
 
 
 def start_servers(manager):

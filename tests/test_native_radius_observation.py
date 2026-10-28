@@ -9,6 +9,7 @@ from network_labs.appliances.radius_server import command
 
 class RadiusObservationTests(unittest.TestCase):
     def test_pid_requires_exact_invocation_and_does_not_echo_unknown_argv(self):
+        self.assertIn('-P', command())
         for args, status in [(command(), 'observed'), (['wrong', 'private-secret'], 'mismatch'), ([], 'unknown')]:
             manager = Mock()
             manager.crun.side_effect = [subprocess.CompletedProcess([], 0, '42\n', ''),

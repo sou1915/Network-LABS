@@ -220,3 +220,9 @@ a server readiness guarantee. `radius-exec` must still receive a verified
 Accept on every invocation, with no local fallback. The native test now covers
 wrong shared secret and actual daemon termination, asserting no diagnostic
 process is invoked in either case. These additional cases await native CI.
+
+The managed invocation uses `-P` so FreeRADIUS writes its PID even in
+foreground (`-f -s`) mode, as documented in the
+[FreeRADIUS manual](https://www.freeradius.org/radiusd/man/radiusd.html).
+Without it a working foreground daemon may have no PID file; the first
+native observation test exposed this and correctly reported `unknown`.
