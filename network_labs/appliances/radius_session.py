@@ -30,9 +30,11 @@ class SessionGroup:
         try:
             if not (self.path / 'cgroup.kill').is_file():
                 raise RuntimeFailure('RADIUS login requires cgroup.kill; no shell launched.')
-            # Exercise the kill interface on the new, empty subtree before
-            # permitting a process to enter it (threaded/unsupported groups fail).
-            (self.path / 'cgroup.kill').write_text('1')
+            if (self.path / 'cgroup.type').read_text().strip() != 'domain':
+                raise RuntimeFailure('RADIUS login requires a domain session cgroup.')
+            # Verify writable control without issuing a kill before clone.
+            # Actual writes are reserved for session teardown.
+            with (self.path / 'cgroup.kill').open('w'): pass
         except (OSError, RuntimeFailure) as error:
             try: self.path.rmdir()
             except OSError: pass

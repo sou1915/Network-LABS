@@ -7,6 +7,16 @@ from network_labs.appliances.runtime import RuntimeFailure
 
 
 class RadiusSessionTests(unittest.TestCase):
+    def test_entry_checks_control_without_killing_before_a_process_is_cloned(self):
+        group = SessionGroup.__new__(SessionGroup); group.path = MagicMock()
+        kill = MagicMock(); kind = Mock(); kind.read_text.return_value = 'domain\n'
+        group.path.__truediv__.side_effect = lambda name: {'cgroup.kill': kill, 'cgroup.type': kind}[name]
+        with patch('network_labs.appliances.radius_session.CGROUP_ROOT') as root:
+            (root / 'cgroup.controllers').is_file.return_value = True
+            self.assertIs(group.__enter__(), group)
+        kill.open.assert_called_once_with('w')
+        kill.write_text.assert_not_called()
+
     def group(self, events):
         group = SessionGroup.__new__(SessionGroup); group.closed = False
         group.path = MagicMock(); kill = Mock(); observed = Mock()
