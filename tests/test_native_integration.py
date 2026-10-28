@@ -79,7 +79,10 @@ class RealContainerTests(unittest.TestCase):
             def diagnostic_crun(*args, **options):
                 result = real_crun(*args, **options)
                 if '-C' in args and result.returncode:
-                    detail = result.stdout + result.stderr
+                    # Debug only this synthetic fixture's failed parse, never
+                    # production startup or authentication traffic.
+                    debug = real_crun(*args, '-X', **options)
+                    detail = 'returncode=' + str(result.returncode) + '\n' + debug.stdout + debug.stderr
                     for value in (secret, password, hashlib.sha256(password.encode()).hexdigest()):
                         detail = detail.replace(value, '[redacted]')
                     self.fail('Managed RADIUS fixture parser failed: ' + detail[-3000:])
