@@ -5,6 +5,8 @@ import re
 import subprocess
 import time
 
+from .radius_accounting_writer import SCRIPT, WRITER
+
 BINARY = '/usr/lib/network-labs/freeradius/server'
 MODULES = '/usr/lib/network-labs/freeradius/modules'
 DICTIONARY = '/usr/lib/network-labs/freeradius/dictionary'
@@ -72,7 +74,7 @@ def validate_lab(spec):
                 raise ValueError('Each RADIUS client must identify exactly one other managed OCI host.')
 
 
-def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accounting_port=1813):
+def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accounting_port=1813, accounting_writer=SCRIPT):
     policy = node['radius_server']; address = str(ipaddress.IPv4Interface(node['interfaces'][policy['interface']]).ip)
     clients = '\n'.join('''client lab_%d {
     ipaddr = %s
@@ -87,15 +89,13 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accou
     accounting_module = accounting_server = ''
     if policy.get('accounting'):
         accounting_module = '''
-    detail session_accounting {
-        filename = "%s/network-labs-radius-accounting/sessions"
-        permissions = 0600
-        dir_permissions = 0700
-        locking = yes
-        suppress {
-            User-Password
-        }
-    }''' % run_directory
+    exec session_accounting {
+        wait = yes
+        program = "/bin/busybox sh '%s' '%s/network-labs-radius-accounting/sessions'"
+        input_pairs = request
+        shell_escape = yes
+        timeout = 2
+    }''' % (accounting_writer, run_directory)
         accounting_server = '''
     listen {
         type = acct
@@ -164,6 +164,8 @@ def prepare_files(bundle, node):
     if not node.get('radius_server'): return
     root = Path(bundle) / 'files/radius'; root.mkdir(mode=0o700)
     path = root / 'radiusd.conf'; path.write_text(config_text(node)); path.chmod(0o600)
+    if node['radius_server'].get('accounting'):
+        writer = root / 'accounting-write.sh'; writer.write_text(WRITER); writer.chmod(0o700)
     (root / 'dictionary').write_text('# Installed base dictionary selected with -D.\n')
 
 
@@ -176,6 +178,9 @@ def start_servers(manager):
     for node in manager.state['spec']['nodes']:
         if not node.get('radius_server'): continue
         if node['radius_server'].get('accounting'):
+            applets = manager.crun('exec', node['name'], '/bin/busybox', '--list', check=False, timeout=3)
+            if applets.returncode or not {'sh', 'flock', 'stat', 'printf', 'tail', 'truncate'} <= set(applets.stdout.splitlines()):
+                raise RuntimeFailure(node['name'] + ': RADIUS accounting requires BusyBox writer applets.')
             manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '-m', '700', ACCOUNTING_DIRECTORY)
         args = command()
         checked = manager.crun('exec', node['name'], *args, '-C', check=False, timeout=5)
@@ -227,13 +232,20 @@ def observe(manager, node):
         evidence['permissions_verified'] = modes.returncode == 0 and modes.stdout == '600:0:0\n700:0:0\n'
         evidence['configuration_verified'] = bool(evidence['configuration_available'] and evidence['permissions_verified'] and
             match.group(1) == hashlib.sha256(config_text(node).encode()).hexdigest())
+        if node['radius_server'].get('accounting'):
+            writer = manager.crun('exec', node['name'], '/bin/busybox', 'sha256sum', SCRIPT, check=False, timeout=3)
+            mode = manager.crun('exec', node['name'], '/bin/busybox', 'stat', '-c', '%a:%u:%g', SCRIPT, check=False, timeout=3)
+            evidence['writer_verified'] = (writer.returncode == 0 and writer.stdout ==
+                hashlib.sha256(WRITER.encode()).hexdigest() + '  ' + SCRIPT + '\n' and
+                mode.returncode == 0 and mode.stdout == '700:0:0\n')
+            evidence['configuration_verified'] &= evidence['writer_verified']
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
         pass
     address = str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
     return {**evidence, 'process': observe_process(manager, node),
             'udp_socket': observe_socket(manager, node, address, port=1812),
             'accounting': {'enabled': True, 'udp_socket': observe_socket(manager, node, address, port=1813),
-                           'storage': 'Private ephemeral detail file; not saved with lab configuration.'}
+                           'storage': 'Private ephemeral verified records; not saved with lab configuration.'}
                           if node['radius_server'].get('accounting') else {'enabled': False},
             'clients': [client['address'] for client in node['radius_server']['clients']],
             'user_count': len(node['radius_server']['users']),

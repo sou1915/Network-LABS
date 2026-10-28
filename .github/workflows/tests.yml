@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install independent RADIUS server
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius crun iproute2 busybox-static util-linux
+      - name: Verify accounting writer failures and concurrent appends
+        run: /usr/bin/python3 -m unittest discover -s tests -p test_radius_accounting_writer.py -v
       - name: Verify real FreeRADIUS PAP decisions and listener cleanup
         run: env NETWORK_LABS_RADIUS_INTEROP=1 /usr/bin/python3 -m unittest discover -s tests -p test_radius_freeradius.py -v
       - name: Verify managed RADIUS containers, policy and saved restart

@@ -18,7 +18,7 @@ sudo python3 -m network_labs.appliances start radius-accounting.json
 ```
 
 Use a freshly built [FreeRADIUS rootfs](NATIVE_RADIUS.md) containing the trusted
-`rlm_detail.so` module. The builder copies this module and dependencies when
+`rlm_exec.so` module. The builder copies this module and dependencies when
 present in the supplied module directory. Auth-only roots can omit it, but
 accounting startup refuses a root without it. Existing roots may need rebuilding.
 Private credential-file rules and [login policy](RADIUS_LOGIN.md) remain required.
@@ -52,9 +52,14 @@ Host crashes and uncatchable termination retain the login supervisor's existing
 limitations. This profile is not a billing or durable audit guarantee.
 
 The managed server listens on UDP/1813 only when accounting is enabled and uses
-FreeRADIUS's [detail module](https://www.freeradius.org/radiusd/man/rlm_detail.html)
-only for accounting packets. Records are root-owned mode 600 under a mode 700
-directory, with User-Password suppression. Normal `inspect` output reports
+a fixed BusyBox writer through the synchronous `exec` module only for accounting
+packets. Its lock serializes appends; write errors and incomplete readback fail
+the request, and a partial append is truncated before releasing the lock.
+Records contain only six pipe-separated fields: event, session ID, username,
+NAS IPv4, elapsed seconds and numeric termination cause (Start uses 0). No
+password or arbitrary request attributes are logged. Records are root-owned
+mode 600 under a mode 700 directory. The generated writer is mode 700 and
+its hash/permissions are checked with the server configuration. Normal `inspect` output reports
 the accounting listener, not private record contents. An administrator can
 read the current lab's records explicitly:
 

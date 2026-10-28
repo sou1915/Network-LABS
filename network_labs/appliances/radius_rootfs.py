@@ -14,8 +14,8 @@ def rootfs_assets(binary, modules, dictionaries):
                      version_check=lambda r: r.returncode == 0 and re.search(r'FreeRADIUS Version 3\.', r.stdout + r.stderr))
     planned += shared_library_assets(modules / 'rlm_pap.so', MODULES + '/rlm_pap.so')
     # Optional when building auth-only roots; accounting startup requires it.
-    if (modules / 'rlm_detail.so').is_file():
-        planned += shared_library_assets(modules / 'rlm_detail.so', MODULES + '/rlm_detail.so')
+    if (modules / 'rlm_exec.so').is_file():
+        planned += shared_library_assets(modules / 'rlm_exec.so', MODULES + '/rlm_exec.so')
     # FreeRADIUS 3 loads OpenSSL's legacy provider during global startup, even
     # for PAP-only policy. dlopen providers are not enumerated by ldd.
     # Supported Debian/Ubuntu OpenSSL 3 keeps modules beside the resolved

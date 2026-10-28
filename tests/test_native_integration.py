@@ -231,10 +231,10 @@ class RealContainerTests(unittest.TestCase):
                     from network_labs.appliances.radius_server import ACCOUNTING_FILE, ACCOUNTING_DIRECTORY
                     records = manager.crun('exec', 'PC2', '/bin/busybox', 'cat', ACCOUNTING_FILE).stdout
                     for session_id in accounted: self.assertEqual(records.count(session_id), 2)
-                    self.assertEqual(records.count('Acct-Status-Type = Start'), len(accounted))
-                    self.assertEqual(records.count('Acct-Status-Type = Stop'), len(accounted))
-                    self.assertIn('Acct-Terminate-Cause = Session-Timeout', records)
-                    self.assertIn('Acct-Terminate-Cause = Admin-Reset', records)
+                    self.assertEqual(sum(line.startswith('Start|') for line in records.splitlines()), len(accounted))
+                    self.assertEqual(sum(line.startswith('Stop|') for line in records.splitlines()), len(accounted))
+                    self.assertTrue(any(line.endswith('|5') for line in records.splitlines()))
+                    self.assertTrue(any(line.endswith('|6') for line in records.splitlines()))
                     self.assertNotIn(secret, records); self.assertNotIn(password, records)
                     modes = manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', ACCOUNTING_FILE, ACCOUNTING_DIRECTORY).stdout
                     self.assertEqual(modes, '600\n700\n')
@@ -244,6 +244,16 @@ class RealContainerTests(unittest.TestCase):
                                         'bs=1024', 'count=9000', check=False)
                     self.assertNotEqual(full.returncode, 0)
                     try:
+                        # Filling another file can leave a partial block in the
+                        # existing log. Consume that bounded tail capacity first.
+                        from network_labs.appliances.radius_accounting import send
+                        for index in range(128):
+                            exhausted = send(manager, 'PC1', '192.0.2.20', username='learner',
+                                             secret=secret, session_id='aaa-storage-fill-' + str(index),
+                                             event='stop', timeout=1, terminate_cause=9)
+                            if exhausted['status'] != 'passed': break
+                        else: self.fail('Accounting acknowledged records beyond remaining log block capacity')
+                        self.assertEqual(exhausted['status'], 'unknown', exhausted)
                         with patch('network_labs.appliances.radius_login.subprocess.call') as launch:
                             unavailable = radius_login(manager, 'PC1', '192.0.2.20', username='learner',
                                                        password=password, secret=secret, timeout=1)

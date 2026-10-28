@@ -60,9 +60,11 @@ class FreeRadiusInterop(unittest.TestCase):
                           for name, password in PASSWORDS.items()}}}
             # Same generated policy used by native nodes; only paths/port and
             # loopback endpoints are adapted to this unprivileged fixture.
-            self.assertTrue((modules / 'rlm_detail.so').is_file(), 'Accounting detail module required')
+            self.assertTrue((modules / 'rlm_exec.so').is_file(), 'Accounting exec module required')
             (root / 'network-labs-radius-accounting').mkdir(mode=0o700)
-            config = config_text(node, modules=str(modules), run_directory=str(root), port=port, accounting_port=accounting_port)
+            from network_labs.appliances.radius_accounting_writer import WRITER
+            writer = root / 'accounting-write.sh'; writer.write_text(WRITER); writer.chmod(0o700)
+            config = config_text(node, modules=str(modules), run_directory=str(root), port=port, accounting_port=accounting_port, accounting_writer=str(writer))
             path = root / 'radiusd.conf'; path.write_text(config); path.chmod(0o600)
             (root / 'dictionary').write_text('# Isolated test; installed base dictionary is loaded with -D.\n')
             args = [str(executable), '-f', '-s', '-d', str(root), '-D', str(dictionary)]
@@ -89,7 +91,8 @@ class FreeRadiusInterop(unittest.TestCase):
                 records = root / 'network-labs-radius-accounting/sessions'
                 text = records.read_text()
                 self.assertEqual(text.count('aaa-independent'), 2)
-                self.assertIn('Acct-Status-Type = Start', text); self.assertIn('Acct-Status-Type = Stop', text)
+                self.assertIn('Start|aaa-independent|learner|127.0.0.1|0|0\n', text)
+                self.assertIn('Stop|aaa-independent|learner|127.0.0.1|2|1\n', text)
                 self.assertEqual(records.stat().st_mode & 0o777, 0o600)
                 self.assertNotIn(SECRET, text)
                 bad = account(dict(source='127.0.0.1', address='127.0.0.1', port=accounting_port,

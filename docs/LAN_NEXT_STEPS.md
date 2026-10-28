@@ -79,5 +79,5 @@ This does not change SSH/Telnet authentication.
 
 Optional [RADIUS session accounting](RADIUS_ACCOUNTING.md) adds a verified
 Start receipt gate and Stop after confirmed session cleanup. The managed
-server can write private ephemeral accounting detail records. SSH/Telnet AAA,
+server can write private ephemeral accounting records. SSH/Telnet AAA,
 richer roles, durable accounting/retry and 802.1X remain later work.
