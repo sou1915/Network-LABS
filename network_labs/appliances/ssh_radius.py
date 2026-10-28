@@ -124,7 +124,7 @@ def start_worker(manager, index, node):
     code = 'import sys; sys.path.insert(0, ' + repr(str(Path(__file__).resolve().parents[2])) + '); from network_labs.appliances.ssh_radius_worker import main; main()'
     log = manager.directory / (node['name'] + '.ssh-radius.log'); log.touch(mode=0o600)
     with log.open('ab') as handle:
-        process = subprocess.Popen(['ip', 'netns', 'exec', ns.name, sys.executable, '-I', '-c', code, str(config)],
+        process = subprocess.Popen([sys.executable, '-I', '-c', code, str(config)],
                                    stdin=subprocess.DEVNULL, stdout=handle, stderr=handle, start_new_session=True)
     start = process_identity(process.pid)
     if start is None:

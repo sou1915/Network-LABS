@@ -46,7 +46,9 @@ request. Unknown commands, shell syntax, SCP/SFTP and PTY requests retain the
 [restricted SSH policy](SSH_ACCESS_POLICY.md).
 
 After the key check, the forced command forwards one bounded request to a
-host Python supervisor in that node's network namespace. The supervisor keeps
+host Python supervisor whose listener socket belongs to that node's network
+namespace. Its runtime control remains in the host namespaces so crun can see
+the host cgroup filesystem. The supervisor keeps
 the NAS shared secret outside the guest, checks both the SSH action list and
 that RADIUS user's `radius_access` actions, verifies an Access-Accept using the
 existing integrity-checked PAP client, then executes only the fixed diagnostic
@@ -66,7 +68,9 @@ itself is not an independent SSH key authentication service.
 Requests have bounded framing and a two-second input deadline; the RADIUS
 exchange uses two seconds with no retry. The bridge handles one request at a
 time with a small listen backlog. Credentials are not cached, persisted or
-logged; this does not promise cryptographic erasure of process memory. The
+logged; private diagnostic logging is capped at 32 credential-free status
+codes per supervisor generation. This does not promise cryptographic erasure
+of process memory. The
 RADIUS wire transport remains the existing historical UDP/MD5 profile, not
 RadSec. SSH encrypts the remote credential input; the internal loopback hop
 assumes trusted lab administrators.

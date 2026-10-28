@@ -79,6 +79,34 @@ class SSHRadiusTests(unittest.TestCase):
                 self.assertNotEqual(main(['example', '--rootfs', '/rootfs', '--radius-ssh',
                                           '--ssh-authorized-key', str(key)]), 0)
 
+    def test_generation_and_phase_are_rechecked_before_runtime_calls(self):
+        from network_labs.appliances import runtime
+        from network_labs.appliances.ssh_radius_worker import BridgeManager
+        import subprocess
+        spec = radius_lab('/rootfs', SECRET, DIGEST, ssh_key=KEY)
+        state = {'phase': 'running', 'spec': spec, 'ssh_radius_workers': {'PC1': {'token': 'current'}}}
+        with tempfile.TemporaryDirectory() as folder, patch.object(runtime, 'STATE_ROOT', Path(folder)):
+            manager = BridgeManager({'name': spec['name'], 'node': 'PC1', 'token': 'current'})
+            manager.directory.mkdir()
+            path = manager.directory / 'state.json'; path.write_text(json.dumps(state))
+            with patch.object(runtime, 'run', return_value=subprocess.CompletedProcess([], 0, '[]', '')) as run:
+                manager.ns(0, 'ip', '-j', 'link'); run.assert_called_once()
+                for change in ('generation', 'phase'):
+                    candidate = copy.deepcopy(state)
+                    if change == 'generation': candidate['ssh_radius_workers']['PC1']['token'] = 'recreated'
+                    else: candidate['phase'] = 'stopping'
+                    path.write_text(json.dumps(candidate)); run.reset_mock()
+                    with self.assertRaises(runtime.RuntimeFailure): manager.crun('exec', 'PC1', '/bin/busybox', 'id')
+                    run.assert_not_called()
+
+    def test_wrong_namespace_cannot_change_a_sysctl_or_bind_a_listener(self):
+        from network_labs.appliances.ssh_radius_worker import serve
+        from types import SimpleNamespace
+        with patch('os.geteuid', return_value=0), patch.object(Path, 'stat', return_value=SimpleNamespace(st_ino=7)), \
+             patch.object(Path, 'write_text') as write, patch('socket.socket') as listener:
+            with self.assertRaises(ValueError): serve({'namespace_inode': 8, 'namespace': '/run/netns/not-ours'})
+            write.assert_not_called(); listener.assert_not_called()
+
     def test_request_framing_rejects_truncation_oversize_bad_utf8_and_version(self):
         # socketpair returns two sockets, each explicitly closed below.
         def frame(payload):
