@@ -75,6 +75,16 @@ class RealContainerTests(unittest.TestCase):
             spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '192.0.2.30/24'}})
             spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']])
             manager = Manager(spec['name'])
+            real_crun = manager.crun
+            def diagnostic_crun(*args, **options):
+                result = real_crun(*args, **options)
+                if '-C' in args and result.returncode:
+                    detail = result.stdout + result.stderr
+                    for value in (secret, password, hashlib.sha256(password.encode()).hexdigest()):
+                        detail = detail.replace(value, '[redacted]')
+                    self.fail('Managed RADIUS fixture parser failed: ' + detail[-3000:])
+                return result
+            manager.crun = diagnostic_crun
             with manager.locked():
                 try:
                     manager.start(spec)
