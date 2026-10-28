@@ -5,7 +5,7 @@ import re
 from .spec import keys
 from .runtime import RuntimeFailure
 
-ACTIONS = ('identity', 'hostname', 'security-context')
+ACTIONS = ('identity', 'hostname', 'security-context', 'shell')
 
 
 def validate_node(node):
@@ -32,7 +32,7 @@ def validate_node(node):
         if (not isinstance(actions, list) or not actions or len(actions) > len(ACTIONS)
                 or any(not isinstance(action, str) or action not in ACTIONS for action in actions)
                 or len(set(actions)) != len(actions)):
-            raise ValueError('RADIUS access user actions must be distinct supported diagnostics.')
+            raise ValueError('RADIUS access user actions must be distinct supported actions.')
     policy['server'] = str(server)
     policy['users'] = {name: sorted(users[name]) for name in sorted(users)}
 

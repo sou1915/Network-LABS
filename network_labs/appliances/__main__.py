@@ -24,6 +24,7 @@ def main(arguments=None):
     sample.add_argument('--radius', action='store_true', help='Separate managed FreeRADIUS PAP server; requires explicit lab credentials and matching rootfs.')
     sample.add_argument('--radius-user', help='Username for --radius.')
     sample.add_argument('--radius-password-file', type=Path, help='Private password file for --radius; only SHA-256 is stored.')
+    sample.add_argument('--radius-shell', action='store_true', help='With --radius, explicitly permit the learner a non-root CLI shell via radius-login.')
     sample.add_argument('--radius-secret-file', type=Path, help='Private shared-secret file for --radius; stored in the private manifest.')
     sample.add_argument('--tftp', action='store_true', help='Read-only TFTP server with declared sample files; requires --dnsmasq rootfs.')
     sample.add_argument('--tftp-file', action='append', metavar='NAME=PATH', help='With --tftp, embed a public binary file (max 65536 bytes); repeat up to 8 times, replacing sample files.')
@@ -151,6 +152,13 @@ def main(arguments=None):
     access.add_argument('--secret-file', type=Path, required=True)
     access.add_argument('--timeout', type=int, default=3)
     access.add_argument('--json', action='store_true')
+    login = commands.add_parser('radius-login', help='Open a non-root local CLI shell after declared shell authorization and verified RADIUS Accept; not SSH/Telnet.')
+    login.add_argument('name'); login.add_argument('source'); login.add_argument('server')
+    login.add_argument('--username', required=True)
+    login.add_argument('--password-file', type=Path, required=True)
+    login.add_argument('--secret-file', type=Path, required=True)
+    login.add_argument('--timeout', type=int, default=3, help='Authentication deadline, 1..5 seconds; not session lifetime.')
+    login.add_argument('--no-tty', action='store_true', help='Read shell commands from stdin without a terminal.')
     radius.add_argument('--json', action='store_true')
     sntp_demo = commands.add_parser('sntp-demo', help='One-shot educational SNTP exchange between two managed hosts.')
     sntp_demo.add_argument('name'); sntp_demo.add_argument('client'); sntp_demo.add_argument('server')
@@ -248,6 +256,8 @@ def main(arguments=None):
             from .tftp_server import import_files
             tftp_files = import_files(args.tftp_file) if args.tftp_file else None
             radius_options = (args.radius_user, args.radius_password_file, args.radius_secret_file)
+            if args.radius_shell and not args.radius:
+                raise ValueError('--radius-shell requires --radius.')
             radius_parameters = None
             if args.radius:
                 if not all(radius_options):
@@ -260,7 +270,7 @@ def main(arguments=None):
                 radius_parameters = (radius_secret, hashlib.sha256(radius_password.encode()).hexdigest(), args.radius_user)
             elif any(radius_options):
                 raise ValueError('RADIUS example credentials require --radius.')
-            result = radius_lab(args.rootfs, *radius_parameters) if args.radius else tftp_lab(args.rootfs, files=tftp_files) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            result = radius_lab(args.rootfs, *radius_parameters, allow_shell=args.radius_shell) if args.radius else tftp_lab(args.rootfs, files=tftp_files) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli, openvswitch=args.openvswitch, bird=args.bird, birdc=args.birdc, dropbear=args.dropbear, rsyslog=args.rsyslog, rsyslog_modules=args.rsyslog_modules, snmpd=args.snmpd, snmptrapd=args.snmptrapd, chronyd=args.chronyd, chronyc=args.chronyc, freeradius=args.freeradius, freeradius_modules=args.freeradius_modules, freeradius_dictionaries=args.freeradius_dictionaries))}
         elif args.command == 'benchmark':
@@ -353,6 +363,15 @@ def main(arguments=None):
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else
                           'RADIUS execution: ' + result['status'].upper() + '\n' + result.get('stdout', ''))
                     return 0 if result['status'] == 'passed' else 1
+                elif args.command == 'radius-login':
+                    from .radius import load_credential
+                    from .radius_login import login
+                    result = login(manager, args.source, args.server, username=args.username,
+                                   password=load_credential(args.password_file), secret=load_credential(args.secret_file),
+                                   timeout=args.timeout, terminal=not args.no_tty and sys.stdin.isatty() and sys.stdout.isatty())
+                    if result['status'] != 'passed':
+                        print('RADIUS login: ' + result['status'].upper() + ' ' + result.get('error', ''), file=sys.stderr)
+                    return 130 if result['status'] == 'interrupted' else 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
                     from .tftp import read, render
                     result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256)

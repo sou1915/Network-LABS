@@ -69,8 +69,8 @@ class RealContainerTests(unittest.TestCase):
             rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
                 freeradius=shutil.which('freeradius'), freeradius_modules='/usr/lib/freeradius',
                 freeradius_dictionaries='/usr/share/freeradius')
-            spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest())
-            spec['nodes'][0]['radius_access']['users']['learner'] = ['identity', 'security-context']
+            spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest(), allow_shell=True)
+            spec['nodes'][0]['radius_access']['users']['learner'] = ['identity', 'security-context', 'shell']
             spec['name'] = 'radius-managed-' + str(os.getpid())
             spec['nodes'][1]['interfaces']['eth2'] = ''
             spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '192.0.2.30/24'}})
@@ -134,7 +134,57 @@ class RealContainerTests(unittest.TestCase):
                                             username='learner', password=password, secret=secret)
                     self.assertEqual(access['status'], 'passed', access)
                     self.assertEqual(manager.state['spec']['nodes'][0]['radius_access']['users']['learner'],
-                                     ['identity', 'security-context'])
+                                     ['identity', 'security-context', 'shell'])
+                    from network_labs.appliances.radius_login import login as radius_login
+                    output = []
+                    def shell(args):
+                        completed = subprocess.run(args, input='/bin/busybox id\n/bin/busybox cat /proc/self/status\nexit\n',
+                                                   capture_output=True, text=True, timeout=8)
+                        output.append(completed.stdout)
+                        return completed.returncode
+                    with patch('network_labs.appliances.radius_login.subprocess.call', side_effect=shell):
+                        session = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
+                                               secret=secret, terminal=False)
+                    self.assertEqual(session['status'], 'passed', session)
+                    self.assertIn('uid=65532', output[0])
+                    context = dict(line.split(':', 1) for line in output[0].splitlines() if ':' in line)
+                    self.assertEqual(context['NoNewPrivs'].strip(), '1')
+                    self.assertEqual(context['CapEff'].strip(), '0000000000000000')
+                    def tty_shell(args):
+                        import pty
+                        import select
+                        master, slave = pty.openpty(); child = None; transcript = bytearray(); sent = False
+                        try:
+                            child = subprocess.Popen(args, stdin=slave, stdout=slave, stderr=slave)
+                            os.close(slave); slave = None
+                            deadline = time.monotonic() + 8
+                            while time.monotonic() < deadline:
+                                ready, _, _ = select.select([master], [], [], .1)
+                                if ready:
+                                    try: data = os.read(master, 4096)
+                                    except OSError: break  # Linux PTY EOF is EIO.
+                                    if not data: break
+                                    transcript.extend(data)
+                                    if not sent and b'$ ' in transcript:
+                                        os.write(master, b'/bin/busybox id\nexit\n'); sent = True
+                                elif child.poll() is not None: break
+                            code = child.wait(timeout=1)
+                            self.assertTrue(sent, 'Interactive non-root prompt unavailable: ' + repr(transcript))
+                            self.assertIn(b'uid=65532', transcript)
+                            return code
+                        finally:
+                            if child is not None and child.poll() is None:
+                                child.kill(); child.wait(timeout=2)
+                            os.close(master)
+                            if slave is not None: os.close(slave)
+                    with patch('network_labs.appliances.radius_login.subprocess.call', side_effect=tty_shell):
+                        session = radius_login(manager, 'PC1', '192.0.2.20', username='learner', password=password,
+                                               secret=secret, terminal=True)
+                    self.assertEqual(session['status'], 'passed', session)
+                    with patch('network_labs.appliances.radius_login.subprocess.call') as launch:
+                        rejected = radius_login(manager, 'PC1', '192.0.2.20', username='learner',
+                                                password='incorrect-password', secret=secret)
+                    self.assertEqual(rejected['status'], 'blocked'); launch.assert_not_called()
                     result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password, secret=secret)
                     self.assertEqual(result['status'], 'passed', result)
                     service = manager.inspect('PC2')['radius_server']

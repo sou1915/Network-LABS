@@ -607,13 +607,14 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner'):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False):
     from .spec import example
     spec = example(rootfs); spec['name'] = 'radius-lan'
     spec['nodes'][2]['radius_server'] = {'interface': 'eth0',
         'clients': [{'address': '192.0.2.10', 'secret': secret}],
         'users': {username: {'password_sha256': password_sha256}}}
     spec['nodes'][0]['radius_access'] = {'server': '192.0.2.20', 'users': {username: ['identity', 'hostname', 'security-context']}}
+    if allow_shell: spec['nodes'][0]['radius_access']['users'][username].append('shell')
     return validate(spec)
 
 
