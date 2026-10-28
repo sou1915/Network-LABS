@@ -79,6 +79,30 @@ class RadiusServerTests(unittest.TestCase):
         manager.crun.return_value = subprocess.CompletedProcess([], 0, SECRET, '')
         self.assertFalse(observe(manager, node)['configuration_available'])
 
+    def test_accounting_writer_drift_or_timeout_invalidates_configuration(self):
+        from network_labs.appliances.radius_accounting_writer import SCRIPT, WRITER
+        from network_labs.appliances.radius_server import CONFIG
+        node = radius_lab('/rootfs', SECRET, DIGEST, allow_shell=True, accounting=True)['nodes'][2]
+        for fault in (None, 'hash', 'mode', 'timeout'):
+            manager = Mock()
+            def reply(*args, **kwargs):
+                if SCRIPT in args:
+                    if fault == 'timeout': raise subprocess.TimeoutExpired('writer observation', 3)
+                    if 'stat' in args:
+                        text = '755:0:0\n' if fault == 'mode' else '700:0:0\n'
+                    else:
+                        digest = '0' * 64 if fault == 'hash' else hashlib.sha256(WRITER.encode()).hexdigest()
+                        text = digest + '  ' + SCRIPT + '\n'
+                elif 'stat' in args: text = '600:0:0\n700:0:0\n'
+                else: text = hashlib.sha256(config_text(node).encode()).hexdigest() + '  ' + CONFIG + '\n'
+                return subprocess.CompletedProcess([], 0, text, '')
+            manager.crun.side_effect = reply
+            with patch('network_labs.appliances.radius_observation.observe_process', return_value={}), \
+                 patch('network_labs.appliances.ntp_socket.observe_socket', return_value={}):
+                result = observe(manager, node)
+            self.assertEqual(result['configuration_verified'], fault is None, result)
+            self.assertEqual(result['writer_verified'], fault is None, result)
+
     def test_failed_parser_never_echoes_private_config_and_ready_start_is_bounded(self):
         spec = radius_lab('/rootfs', SECRET, DIGEST); manager = Mock(); manager.state = {'spec': spec}
         with tempfile.TemporaryDirectory() as folder:

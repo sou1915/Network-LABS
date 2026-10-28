@@ -223,6 +223,7 @@ def observe(manager, node):
     from .radius_observation import observe_process
     from .ntp_socket import observe_socket
     evidence = {'configuration_verified': False, 'configuration_available': False, 'permissions_verified': False}
+    if node['radius_server'].get('accounting'): evidence['writer_verified'] = False
     try:
         result = manager.crun('exec', node['name'], '/bin/busybox', 'sha256sum', CONFIG, check=False, timeout=3)
         match = re.fullmatch(r'([0-9a-f]{64})  ' + re.escape(CONFIG) + r'\n?', result.stdout)
@@ -240,7 +241,7 @@ def observe(manager, node):
                 mode.returncode == 0 and mode.stdout == '700:0:0\n')
             evidence['configuration_verified'] &= evidence['writer_verified']
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-        pass
+        evidence['configuration_verified'] = False
     address = str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
     return {**evidence, 'process': observe_process(manager, node),
             'udp_socket': observe_socket(manager, node, address, port=1812),
