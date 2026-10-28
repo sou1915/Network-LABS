@@ -73,7 +73,39 @@ PAP's published RFC 2865 section 7.1 vector, multi-block/UTF-8 passwords,
 authenticated Accept/Reject/Challenge, invalid MAC/length/identifier/duplicate
 attributes, missing Message-Authenticator, silence and credential handling.
 An opt-in native test exercises Accept/Reject across actual veth/bridge nodes
-using a deterministic Python responder. It is not a FreeRADIUS interoperability
-test, and is skipped without the privileged native environment. Managed server
-lifecycle, FreeRADIUS interoperability and actual login/802.1X enforcement
-remain subsequent AAA work.
+using a deterministic Python responder. It is separate from the real server
+interoperability test and is skipped without the privileged native environment.
+
+## Independent FreeRADIUS interoperability
+
+`test_radius_freeradius.py` runs an actual FreeRADIUS 3 daemon on an ephemeral
+localhost UDP port, with private temporary configuration and the installed PAP
+module/dictionaries. It validates authenticated Accept for ordinary, UTF-8 and
+128-byte passwords, authenticated Reject for a wrong password and unknown user,
+and the server's silent discard of requests with missing/incorrect
+Message-Authenticator. It then terminates its process group and checks the
+listener port can be bound again. This test passed locally with the Ubuntu
+FreeRADIUS **3.2.5** executable and libraries extracted from distribution
+packages; no system server was installed or started for that run.
+
+The dedicated `radius-interop` CI job installs the independent server on a
+disposable Ubuntu 24.04 runner and explicitly runs:
+
+```bash
+env NETWORK_LABS_RADIUS_INTEROP=1 python3 -m unittest discover -s tests -p test_radius_freeradius.py -v
+```
+
+Without that opt-in, ordinary test discovery skips the real daemon test.
+With opt-in, a missing binary/module/dictionary is a failure, not a silent skip.
+The fixture creates no system service or `/etc/freeradius` configuration. It
+uses the same executable bytes from a temporary path to avoid attaching the
+host service's pathname profile to its private configuration, without changing
+host security policy. No debug `-X` mode is used; password logging is disabled.
+For offline package extraction, `NETWORK_LABS_FREERADIUS_ROOT` may name the
+trusted extracted root; its libraries are selected only for the test child.
+
+This localhost test proves the bounded PAP client's interoperability with that
+server/version. It does not establish native namespace/OCI daemon lifecycle,
+other versions/backends, challenge continuation or actual access enforcement.
+Managed server lifecycle and actual login/802.1X enforcement remain subsequent
+AAA work.
