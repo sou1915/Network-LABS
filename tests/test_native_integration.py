@@ -70,6 +70,7 @@ class RealContainerTests(unittest.TestCase):
                 freeradius=shutil.which('freeradius'), freeradius_modules='/usr/lib/freeradius',
                 freeradius_dictionaries='/usr/share/freeradius')
             spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest())
+            spec['nodes'][0]['radius_access']['users']['learner'] = ['identity', 'security-context']
             spec['name'] = 'radius-managed-' + str(os.getpid())
             spec['nodes'][1]['interfaces']['eth2'] = ''
             spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '192.0.2.30/24'}})
@@ -112,11 +113,20 @@ class RealContainerTests(unittest.TestCase):
                     denied = radius_execute(manager, 'PC1', '192.0.2.20', action='identity',
                                             username='learner', password='incorrect-password', secret=secret)
                     self.assertEqual(denied['status'], 'blocked'); self.assertFalse(denied['executed'])
+                    denied_action = radius_execute(manager, 'PC1', '192.0.2.20', action='hostname',
+                                                   username='learner', password=password, secret=secret)
+                    self.assertEqual(denied_action['error'], 'ACTION_NOT_ALLOWED')
+                    self.assertFalse(denied_action['executed'])
                     self.assertTrue(observed['configuration_verified'], observed)
                     self.assertNotIn(secret, json.dumps(observed))
                     self.assertEqual(manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', '/lab/radius/radiusd.conf').stdout.strip(), '600')
                     manager.write_startup(); manager.stop()
                     manager.start(load_startup(spec['name']))
+                    access = radius_execute(manager, 'PC1', '192.0.2.20', action='identity',
+                                            username='learner', password=password, secret=secret)
+                    self.assertEqual(access['status'], 'passed', access)
+                    self.assertEqual(manager.state['spec']['nodes'][0]['radius_access']['users']['learner'],
+                                     ['identity', 'security-context'])
                     result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password, secret=secret)
                     self.assertEqual(result['status'], 'passed', result)
                 finally:

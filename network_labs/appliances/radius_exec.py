@@ -1,9 +1,10 @@
-"""Explicit RADIUS-gated non-root diagnostics, separate from device login policy."""
+"""Declared authorization and RADIUS-gated non-root diagnostics."""
 import json
 import subprocess
 import tempfile
 
 from .radius import probe
+from .radius_access import authorize
 from .runtime import RuntimeFailure
 
 ACTIONS = {'identity': ['/bin/busybox', 'id'],
@@ -14,12 +15,16 @@ ACTIONS = {'identity': ['/bin/busybox', 'id'],
 def execute(manager, source, server, *, action, username, password, secret, timeout=3):
     if action not in ACTIONS:
         raise ValueError('RADIUS execution requires a supported diagnostic action.')
+    refusal = authorize(manager, source, server, username, action)
+    if refusal:
+        return {'status': 'blocked', 'action': action, 'node': source, 'authentication': None,
+                'executed': False, 'returncode': None, 'error': refusal}
     authentication = probe(manager, source, server, username=username, password=password,
                            secret=secret, timeout=timeout)
     decision = authentication.get('authentication') or {}
     result = {'status': 'blocked', 'action': action, 'node': source,
               'authentication': authentication, 'executed': False, 'returncode': None,
-              'scope': 'One explicitly requested diagnostic after a verified Access-Accept; UID/GID 65532, empty capabilities, no new privileges. No SSH/Telnet policy, shell, per-user roles, accounting or persistent session.'}
+              'scope': 'One locally authorized diagnostic after a verified Access-Accept; UID/GID 65532, empty capabilities, no new privileges. No SSH/Telnet policy, shell, per-user roles, accounting or persistent session.'}
     if not (authentication.get('status') == 'passed' and decision.get('response_verified') is True
             and decision.get('response_code') == 2 and decision.get('decision') == 'accepted'):
         return result

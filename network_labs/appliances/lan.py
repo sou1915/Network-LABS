@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
 
 
@@ -193,6 +193,8 @@ def validate_lan(node):
     validate_tftp_server(node)
     from .radius_server import validate_node as validate_radius_server
     validate_radius_server(node)
+    from .radius_access import validate_node as validate_radius_access
+    validate_radius_access(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 

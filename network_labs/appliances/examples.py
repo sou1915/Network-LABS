@@ -613,6 +613,7 @@ def radius_lab(rootfs, secret, password_sha256, username='learner'):
     spec['nodes'][2]['radius_server'] = {'interface': 'eth0',
         'clients': [{'address': '192.0.2.10', 'secret': secret}],
         'users': {username: {'password_sha256': password_sha256}}}
+    spec['nodes'][0]['radius_access'] = {'server': '192.0.2.20', 'users': {username: ['identity', 'hostname', 'security-context']}}
     return validate(spec)
 
 
