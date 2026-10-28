@@ -5554,6 +5554,23 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                                          'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}}
             spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']]); spec = validate(spec)
             manager = Manager(spec['name'])
+            captures = []
+            def stop_captures():
+                for process, path in captures:
+                    if process.poll() is None:
+                        process.terminate()
+                    try: process.wait(timeout=2)
+                    except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=2)
+            def trace_restore():
+                for name in ('SW1', 'SW2', 'PC1', 'PC3'):
+                    index = next(i for i, n in enumerate(spec['nodes']) if n['name'] == name)
+                    path = Path(folder) / (name + '-restore.log')
+                    with path.open('w') as output:
+                        process = subprocess.Popen(['ip', 'netns', 'exec', namespace(spec, index),
+                            'tcpdump', '-l', '-nn', '-e', '-i', 'any', '-s', '128', '-c', '256',
+                            'arp or icmp or (vlan and (arp or icmp))'],
+                            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
+                    captures.append((process, path))
             def wait_path(spare, members):
                 deadline = time.monotonic() + 30
                 while True:
@@ -5587,13 +5604,18 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     wait_path(False, 1); ping()
                     manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
                     wait_path(True, 0); ping()
+                    trace_restore()
                     manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
                     wait_path(False, 2); ping()
                 except BaseException:
+                    stop_captures()
+                    for _, path in captures:
+                        print('STP/LACP restore capture ' + path.name + ':\n' + path.read_text()[-6000:], file=sys.stderr)
                     if manager.directory.exists():
                         print('STP/LACP diagnostics:', manager.inspect('SW1'), manager.inspect('SW2'), file=sys.stderr)
                     raise
                 finally:
+                    stop_captures()
                     if manager.directory.exists():
                         manager.stop()
 
