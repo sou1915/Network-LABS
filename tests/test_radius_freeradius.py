@@ -1,5 +1,6 @@
 """Opt-in interoperability against a real, isolated FreeRADIUS 3 daemon."""
 import os
+import hashlib
 from pathlib import Path
 import shutil
 import signal
@@ -10,6 +11,7 @@ import time
 import unittest
 
 from network_labs.appliances.radius_worker import access_request, authenticate
+from network_labs.appliances.radius_server import config_text
 
 SECRET = 'isolated-radius-interop-secret'
 PASSWORDS = {'learner': 'interop-password-two-blocks-long',
@@ -49,67 +51,13 @@ class FreeRadiusInterop(unittest.TestCase):
             executable = root / 'freeradius'
             shutil.copyfile(binary, executable); executable.chmod(0o755)
             logfile = root / 'daemon.log'; logfile.touch(mode=0o600)
-            declarations = '\n'.join('''        if (&User-Name == "%s") {
-            update control {
-                Cleartext-Password := "%s"
-            }
-        }''' % (name, password) for name, password in PASSWORDS.items())
-            config = '''prefix = /usr
-logdir = "%(root)s"
-run_dir = "%(root)s"
-libdir = "%(modules)s"
-pidfile = "%(root)s/radius.pid"
-max_request_time = 5
-cleanup_delay = 0
-max_requests = 16
-log {
-    destination = stdout
-    auth = no
-    auth_goodpass = no
-    auth_badpass = no
-}
-security {
-    max_attributes = 32
-    reject_delay = 0
-    status_server = no
-}
-client lab {
-    ipaddr = 127.0.0.1
-    secret = "%(secret)s"
-    require_message_authenticator = yes
-}
-modules {
-    pap {
-        normalise = no
-    }
-}
-server lab {
-    listen {
-        type = auth
-        ipaddr = 127.0.0.1
-        port = %(port)s
-    }
-    authorize {
-        update reply {
-            Message-Authenticator := 0x00000000000000000000000000000000
-        }
-%(declarations)s
-        pap
-    }
-    authenticate {
-        Auth-Type PAP {
-            pap
-        }
-    }
-    post-auth {
-        Post-Auth-Type REJECT {
-            update reply {
-                Message-Authenticator := 0x00000000000000000000000000000000
-            }
-        }
-    }
-}
-''' % dict(root=root, modules=modules, secret=SECRET, port=port, declarations=declarations)
+            node = {'interfaces': {'eth0': '127.0.0.1/8'}, 'radius_server': {
+                'interface': 'eth0', 'clients': [{'address': '127.0.0.1', 'secret': SECRET}],
+                'users': {name: {'password_sha256': hashlib.sha256(password.encode()).hexdigest()}
+                          for name, password in PASSWORDS.items()}}}
+            # Same generated policy used by native nodes; only paths/port and
+            # loopback endpoints are adapted to this unprivileged fixture.
+            config = config_text(node, modules=str(modules), run_directory=str(root), port=port)
             path = root / 'radiusd.conf'; path.write_text(config); path.chmod(0o600)
             (root / 'dictionary').write_text('# Isolated test; installed base dictionary is loaded with -D.\n')
             args = [str(executable), '-f', '-s', '-d', str(root), '-D', str(dictionary)]

@@ -132,7 +132,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -193,6 +193,12 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if chronyc is not None:
         from .ntp_server import client_rootfs_assets
         ntp_additions += client_rootfs_assets(chronyc)
+    radius_additions = []
+    if any(value is not None for value in (freeradius, freeradius_modules, freeradius_dictionaries)):
+        if not all(value is not None for value in (freeradius, freeradius_modules, freeradius_dictionaries)):
+            raise ValueError('--freeradius requires matching --freeradius-modules and --freeradius-dictionaries.')
+        from .radius_rootfs import rootfs_assets as radius_assets
+        radius_additions = radius_assets(freeradius, freeradius_modules, freeradius_dictionaries)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -201,7 +207,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions + ntp_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions + ntp_additions + radius_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -224,6 +230,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         write_json(target / 'etc/network-labs-management-assets.json', {'binary': '/usr/sbin/dropbear', 'files': [str(destination) for _, destination in management_additions]})
     if additions:
         write_json(target / 'etc/network-labs-dns-assets.json', {'binary': '/usr/sbin/dnsmasq', 'files': [str(destination) for _, destination in additions]})
+    if radius_additions:
+        write_json(target / 'etc/network-labs-radius-assets.json', {'files': [str(destination) for _, destination in radius_additions]})
     return target
 
 
@@ -309,6 +317,10 @@ class Manager:
         for node in spec['nodes']:
             if node.get('ntp_server') and not (Path(node['rootfs']) / 'usr/lib/network-labs/chronyd').is_file():
                 raise RuntimeFailure(node['name'] + ': NTP requires a rootfs built with --chronyd.')
+            if node.get('radius_server') and any(not (Path(node['rootfs']) / path).is_file() for path in
+                    ('usr/lib/network-labs/freeradius/server', 'usr/lib/network-labs/freeradius/modules/rlm_pap.so',
+                     'usr/lib/network-labs/freeradius/dictionary/dictionary', 'etc/network-labs-radius-assets.json')):
+                raise RuntimeFailure(node['name'] + ': RADIUS requires a rootfs built with --freeradius and matching modules/dictionaries.')
             if node.get('snmp_receiver') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmptrapd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
@@ -426,6 +438,8 @@ class Manager:
             start_notification_receivers(self)
             from .snmp import start_servers as start_snmp
             start_snmp(self)
+            from .radius_server import start_servers as start_radius
+            start_radius(self)
             self.state['phase'] = 'running'; self.save()
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
@@ -456,6 +470,8 @@ class Manager:
         prepare_collector(bundle, node)
         from .ntp_server import prepare_files as prepare_ntp
         prepare_ntp(bundle, node)
+        from .radius_server import prepare_files as prepare_radius
+        prepare_radius(bundle, node)
         from .snmp import prepare_files as prepare_snmp
         prepare_snmp(bundle, node)
         from .snmp_notifications import prepare_files as prepare_notifications

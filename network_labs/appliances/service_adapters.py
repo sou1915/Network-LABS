@@ -2,6 +2,8 @@
 
 
 def adapters(node, previous):
+    if (node.get('radius_server') or previous.get('radius_server')) and node != previous:
+        raise ValueError('RADIUS server nodes require lab recreation for live changes.')
     if (node.get('tftp_server') or previous.get('tftp_server')) and node != previous:
         raise ValueError('TFTP server nodes require lab recreation for live changes.')
     if (node.get('ntp_server') or previous.get('ntp_server')) and node != previous:

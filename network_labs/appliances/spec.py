@@ -114,6 +114,8 @@ def validate(data):
     validate_collector_lab(data)
     from .ntp_server import validate_lab as validate_ntp_lab
     validate_ntp_lab(data)
+    from .radius_server import validate_lab as validate_radius_lab
+    validate_radius_lab(data)
     from .snmp import validate_lab as validate_snmp_lab
     validate_snmp_lab(data)
     from .snmp_notifications import validate_lab as validate_notifications_lab
@@ -147,7 +149,10 @@ def validate(data):
 
 
 def load(path):
-    return validate(json.loads(Path(path).read_text(encoding='utf-8')))
+    result = validate(json.loads(Path(path).read_text(encoding='utf-8')))
+    if any(node.get('radius_server') for node in result['nodes']) and Path(path).stat().st_mode & 0o077:
+        raise ValueError('RADIUS manifests contain shared secrets and require private permissions (chmod 600).')
+    return result
 
 
 def prefix(spec):

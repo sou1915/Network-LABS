@@ -6,9 +6,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install independent RADIUS server
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius crun iproute2 busybox-static util-linux
       - name: Verify real FreeRADIUS PAP decisions and listener cleanup
         run: env NETWORK_LABS_RADIUS_INTEROP=1 /usr/bin/python3 -m unittest discover -s tests -p test_radius_freeradius.py -v
+      - name: Verify managed RADIUS containers, policy and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_managed_radius -v
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native appliance prerequisites
-        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony
+        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony freeradius
       - name: Prepare Linux bonding without creating default host bonds
         run: |
           sudo modprobe bonding max_bonds=0

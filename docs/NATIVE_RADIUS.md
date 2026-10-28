@@ -107,5 +107,81 @@ trusted extracted root; its libraries are selected only for the test child.
 This localhost test proves the bounded PAP client's interoperability with that
 server/version. It does not establish native namespace/OCI daemon lifecycle,
 other versions/backends, challenge continuation or actual access enforcement.
-Managed server lifecycle and actual login/802.1X enforcement remain subsequent
-AAA work.
+The managed server profile below adds native lifecycle; its container test is
+separate from this localhost interoperability check. Actual login/802.1X
+enforcement remains subsequent AAA work.
+
+## Experimental managed server
+
+`example --radius` creates `radius-lan`: PC1 (`192.0.2.10`), SW1 and a real
+FreeRADIUS 3 PAP server in PC2 (`192.0.2.20`). The daemon runs **inside PC2's OCI
+container**, using the container's cgroup and namespaces. It binds only the
+declared IPv4/UDP1812, recognizes only declared NAS/client addresses and always
+requires request Message-Authenticator. Accept and Reject replies include a
+Message-Authenticator. There is no host daemon or automatic fallback service.
+
+Build a **new** rootfs with trusted matching FreeRADIUS executable, PAP module
+directory and complete dictionary directory. The builder copies their ELF
+dependencies offline; it does not install a package or start a host service.
+Only `rlm_pap.so` is enabled. Dictionaries are bounded to 1024 regular files and
+16 MiB; dictionary symlinks are rejected. The initial supported layout is the
+Debian/Ubuntu FreeRADIUS 3 layout used by the native CI job.
+
+First prepare `radius-password.txt` and `radius-secret.txt` as private mode-600
+files using disposable lab credentials. For this server profile, the shared
+secret must be 16..128 ASCII letters/digits or `_ . ~ -`; this excludes config
+interpolation/quoting characters. The password has the client limits above.
+With the prerequisites already installed and the destination rootfs absent:
+
+```bash
+umask 077
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --freeradius /usr/sbin/freeradius --freeradius-modules /usr/lib/freeradius \
+  --freeradius-dictionaries /usr/share/freeradius --output "$HOME/network-labs-radius-rootfs"
+python3 -m network_labs.appliances example --radius --rootfs "$HOME/network-labs-radius-rootfs" \
+  --radius-user learner --radius-password-file ./radius-password.txt \
+  --radius-secret-file ./radius-secret.txt > radius-lan.json
+sudo python3 -m network_labs.appliances start radius-lan.json
+sudo python3 -m network_labs.appliances radius-auth radius-lan PC1 192.0.2.20 \
+  --username learner --password-file ./radius-password.txt --secret-file ./radius-secret.txt --json
+sudo python3 -m network_labs.appliances inspect radius-lan PC2
+```
+
+The example hashes the user's password with SHA-256 before writing the manifest;
+the clear password is absent from the generated manifest and daemon config.
+These fast unsalted hashes are for disposable labs, not a production password
+database. Shared secrets must remain available to FreeRADIUS in clear form:
+the manifest, recorded/startup state and generated config contain them. The
+loader rejects group/other manifest permissions, and the container config directory/file
+are mode 700/600. Protect any explicit `example`/`export` output; those commands
+intentionally emit a reusable credential-bearing manifest. Normal CLI results
+redact server secrets/password digests. Inspection returns client addresses,
+user count and configuration/permission conformity, never credential values.
+
+The `radius_server` field accepts one numbered UP single-interface OCI host,
+1..8 distinct static IPv4 clients belonging to other managed OCI hosts, and
+1..16 users. Each client contains `address` and `secret`; each user entry contains
+only a lowercase 64-character `password_sha256`. Separate nodes are required
+for other services. IPv6, arbitrary startup, alias/subinterface combinations
+and live server policy edits are rejected in this initial profile.
+
+Start validates the generated policy without echoing parser output, starts
+FreeRADIUS in foreground single-process mode under the container and waits up
+to five seconds for its readiness message. Authentication/password logging and
+debug `-X` are disabled; the daemon log is private. A readiness message does not
+guarantee future liveness. `inspect` and save-time drift checks compare the
+config digest and root-owned 600/700 file/directory permissions; they do not
+establish authentication or daemon health. Use `radius-auth` for real packets.
+
+`save`, stop and `restore` preserve declared policy/credentials using the normal
+private startup manifest, not live sessions or a filesystem snapshot. Stop
+destroys the OCI daemon with the node. Recreate the lab for policy changes.
+The fast `radius-interop` CI job includes a privileged test of the actual copied
+daemon/PAP dictionaries inside OCI nodes: Accept, Reject, undeclared client,
+wrong secret, private inspection and saved restart. This native test is skipped
+in development environments without the required namespace/container support;
+its result must be checked separately from the passing localhost daemon test.
+
+This is still PAP authentication observation only: no SSH/Telnet login adapter,
+port admission, EAP/802.1X, accounting, challenge continuation, authorization
+enforcement, TACACS+ or RadSec is provided.

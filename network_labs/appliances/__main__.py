@@ -21,6 +21,10 @@ def main(arguments=None):
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
+    sample.add_argument('--radius', action='store_true', help='Separate managed FreeRADIUS PAP server; requires explicit lab credentials and matching rootfs.')
+    sample.add_argument('--radius-user', help='Username for --radius.')
+    sample.add_argument('--radius-password-file', type=Path, help='Private password file for --radius; only SHA-256 is stored.')
+    sample.add_argument('--radius-secret-file', type=Path, help='Private shared-secret file for --radius; stored in the private manifest.')
     sample.add_argument('--tftp', action='store_true', help='Read-only TFTP server with one declared sample file; requires --dnsmasq rootfs.')
     sample.add_argument('--snmp-notifications', action='store_true', help='Real v2c agent coldStart and log-only trap/inform receiver.')
     sample.add_argument('--snmp-notification-mode', choices=('trap', 'inform'), help='Notification reference mode; default trap; requires --snmp-notifications.')
@@ -79,6 +83,9 @@ def main(arguments=None):
     rootfs.add_argument('--snmptrapd', type=Path, help='Trusted Net-SNMP trap/inform receiver ELF and shared libraries.')
     rootfs.add_argument('--snmpd', type=Path, help='Trusted Net-SNMP agent ELF and its resolved shared libraries.')
     rootfs.add_argument('--rsyslog', type=Path, help='Trusted rsyslogd ELF for a real UDP collector.')
+    rootfs.add_argument('--freeradius', type=Path, help='Trusted FreeRADIUS 3 ELF for managed PAP authentication.')
+    rootfs.add_argument('--freeradius-modules', type=Path, help='Trusted matching FreeRADIUS module directory containing rlm_pap.so.')
+    rootfs.add_argument('--freeradius-dictionaries', type=Path, help='Trusted complete FreeRADIUS dictionary directory.')
     rootfs.add_argument('--chronyd', type=Path, help='Trusted chronyd ELF for the bounded NTP server.')
     rootfs.add_argument('--chronyc', type=Path, help='Trusted compatible chronyc ELF for read-only NTP CLI observations; requires --chronyd.')
     rootfs.add_argument('--rsyslog-modules', type=Path, help='Trusted matching imudp.so/lmnet.so directory; otherwise detect the system directory.')
@@ -204,7 +211,7 @@ def main(arguments=None):
             return 0
         elif args.command == 'example':
             from .examples import campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab, rstp_lab, svi_lab, static_routing_lab, dhcp_relay_lab, dhcp_multi_lab, ospf_lab, ospf_cli_lab, ospf_broadcast_lab, ospf_svi_lab, ospf_dhcp_lab, ospf_dhcp_multi_lab, ospf_dhcp_lldp_lab, lan_services_lab, ipv6_vlan_lab, ipv6_routed_lab, slaac_lab, dhcpv6_lab, dual_stack_lab, management_lab, syslog_lab, snmp_lab, snmpv3_lab, snmp_notifications_lab, snmpv3_informs_lab, snmpv3_traps_lab, snmp_links_lab
-            if sum((args.tftp, args.ntp, args.snmp_link_events, args.snmpv3_traps, args.snmpv3_informs, args.snmp_notifications, args.snmpv3, args.snmp, args.syslog, args.management, args.dual_stack, args.dhcpv6, args.slaac, args.ipv6_routed, args.ipv6_vlan, args.lan_services, args.ospf_dhcp_lldp, args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp, args.svi, args.static_routing, args.dhcp_relay, args.dhcp_multi, args.ospf, args.ospf_cli, args.ospf_broadcast, args.ospf_svi, args.ospf_dhcp, args.ospf_dhcp_multi)) > 1:
+            if sum((args.radius, args.tftp, args.ntp, args.snmp_link_events, args.snmpv3_traps, args.snmpv3_informs, args.snmp_notifications, args.snmpv3, args.snmp, args.syslog, args.management, args.dual_stack, args.dhcpv6, args.slaac, args.ipv6_routed, args.ipv6_vlan, args.lan_services, args.ospf_dhcp_lldp, args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp, args.svi, args.static_routing, args.dhcp_relay, args.dhcp_multi, args.ospf, args.ospf_cli, args.ospf_broadcast, args.ospf_svi, args.ospf_dhcp, args.ospf_dhcp_multi)) > 1:
                 raise ValueError('Choose only one reference scenario.')
             if args.snmp_link_mode and not args.snmp_link_events:
                 raise ValueError('Link-event mode requires --snmp-link-events.')
@@ -226,10 +233,23 @@ def main(arguments=None):
                 raise ValueError('Management credentials require --management.')
             key = args.ssh_authorized_key.read_text().strip() if args.ssh_authorized_key else None
             password = args.telnet_password_hash_file.read_text().strip() if args.telnet_password_hash_file else ''
-            from .examples import ntp_lab, tftp_lab
-            result = tftp_lab(args.rootfs) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import ntp_lab, tftp_lab, radius_lab
+            radius_options = (args.radius_user, args.radius_password_file, args.radius_secret_file)
+            radius_parameters = None
+            if args.radius:
+                if not all(radius_options):
+                    raise ValueError('--radius requires --radius-user, --radius-password-file and --radius-secret-file.')
+                import hashlib
+                from .radius import load_credential, validate_credentials
+                radius_password = load_credential(args.radius_password_file)
+                radius_secret = load_credential(args.radius_secret_file)
+                validate_credentials(args.radius_user, radius_password, radius_secret)
+                radius_parameters = (radius_secret, hashlib.sha256(radius_password.encode()).hexdigest(), args.radius_user)
+            elif any(radius_options):
+                raise ValueError('RADIUS example credentials require --radius.')
+            result = radius_lab(args.rootfs, *radius_parameters) if args.radius else tftp_lab(args.rootfs) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
-            result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli, openvswitch=args.openvswitch, bird=args.bird, birdc=args.birdc, dropbear=args.dropbear, rsyslog=args.rsyslog, rsyslog_modules=args.rsyslog_modules, snmpd=args.snmpd, snmptrapd=args.snmptrapd, chronyd=args.chronyd, chronyc=args.chronyc))}
+            result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli, openvswitch=args.openvswitch, bird=args.bird, birdc=args.birdc, dropbear=args.dropbear, rsyslog=args.rsyslog, rsyslog_modules=args.rsyslog_modules, snmpd=args.snmpd, snmptrapd=args.snmptrapd, chronyd=args.chronyd, chronyc=args.chronyc, freeradius=args.freeradius, freeradius_modules=args.freeradius_modules, freeradius_dictionaries=args.freeradius_dictionaries))}
         elif args.command == 'benchmark':
             from .benchmark import benchmark, summary
             if args.output and (args.output.exists() or args.output.is_symlink()):
@@ -364,6 +384,9 @@ def main(arguments=None):
                     return manager.execute(args.node, command, tty=args.tty)
                 else:
                     result = manager.status()
+        if args.command not in ('example', 'export'):
+            from .radius_server import redact
+            result = redact(result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:

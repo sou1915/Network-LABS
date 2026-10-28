@@ -55,6 +55,47 @@ def ipv6_default_expired(manager, index, destination):
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class RealContainerTests(unittest.TestCase):
+    def test_managed_radius_real_freeradius_policy_and_saved_restart(self):
+        import hashlib
+        from network_labs.appliances.examples import radius_lab
+        from network_labs.appliances.radius import probe as radius_probe
+        from network_labs.appliances.persistence import load_startup
+        self.assertEqual(os.geteuid(), 0, 'Run this explicit test with sudo')
+        for tool in ('crun', 'ip', 'busybox', 'freeradius'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        secret = 'managed-native-test-secret'; password = 'managed-native-test-password'
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), Path(folder) / 'rootfs',
+                freeradius=shutil.which('freeradius'), freeradius_modules='/usr/lib/freeradius',
+                freeradius_dictionaries='/usr/share/freeradius')
+            spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest())
+            spec['name'] = 'radius-managed-' + str(os.getpid())
+            spec['nodes'][1]['interfaces']['eth2'] = ''
+            spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '192.0.2.30/24'}})
+            spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']])
+            manager = Manager(spec['name'])
+            with manager.locked():
+                try:
+                    manager.start(spec)
+                    for attempted, expected in ((password, 'passed'), ('incorrect-password', 'failed')):
+                        result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=attempted, secret=secret)
+                        self.assertEqual(result['status'], expected, result)
+                        self.assertTrue(result['authentication']['response_verified'])
+                    for client, token in (('PC3', secret), ('PC1', 'incorrect-shared-secret')):
+                        result = radius_probe(manager, client, '192.0.2.20', username='learner', password=password, secret=token, timeout=1)
+                        self.assertEqual(result['status'], 'unknown', result)
+                    observed = manager.inspect('PC2')['radius_server']
+                    self.assertTrue(observed['configuration_verified'], observed)
+                    self.assertNotIn(secret, json.dumps(observed))
+                    self.assertEqual(manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', '/lab/radius/radiusd.conf').stdout.strip(), '600')
+                    manager.write_startup(); manager.stop()
+                    manager.start(load_startup(spec['name']))
+                    result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password, secret=secret)
+                    self.assertEqual(result['status'], 'passed', result)
+                finally:
+                    if manager.directory.exists(): manager.stop()
+
     def test_radius_pap_accept_and_reject_cross_real_bridge(self):
         import selectors
         from network_labs.appliances.radius import probe as radius_probe

@@ -36,6 +36,8 @@ def drift(manager):
         errors.extend(ntp_drift(manager, node))
         from .tftp_server import drift as tftp_drift
         errors.extend(tftp_drift(manager, node))
+        from .radius_server import drift as radius_drift
+        errors.extend(radius_drift(manager, node))
         from .snmp import drift as snmp_drift
         errors.extend(snmp_drift(manager, node))
         from .snmp_notifications import drift as notifications_drift

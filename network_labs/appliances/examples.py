@@ -607,6 +607,15 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
+def radius_lab(rootfs, secret, password_sha256, username='learner'):
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'radius-lan'
+    spec['nodes'][2]['radius_server'] = {'interface': 'eth0',
+        'clients': [{'address': '192.0.2.10', 'secret': secret}],
+        'users': {username: {'password_sha256': password_sha256}}}
+    return validate(spec)
+
+
 def tftp_lab(rootfs):
     """Two hosts and a switch with one declared public test file."""
     from .spec import example
