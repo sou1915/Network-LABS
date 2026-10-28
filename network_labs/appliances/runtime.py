@@ -614,7 +614,7 @@ class Manager:
             raise ValueError('Live removal of an explicit interface MAC requires stopping and recreating the lab.')
         state['phase'] = 'configuring'; state['pending_spec'] = candidate; state['pending_node'] = name; self.save()
         try:
-            configure(self, index, candidate['nodes'][index], previous['nodes'][index])
+            applied = configure(self, index, candidate['nodes'][index], previous['nodes'][index])
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as original:
             try:
                 configure(self, index, previous['nodes'][index], candidate['nodes'][index])
@@ -625,7 +625,10 @@ class Manager:
             raise RuntimeFailure(f'Configuration failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
         state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
-        return {'configured': name, 'revision': state['revision'], 'source': source}
+        result = {'configured': name, 'revision': state['revision'], 'source': source}
+        if isinstance(applied, dict) and applied.get('stp_recovery'):
+            result['stp_recovery'] = applied['stp_recovery']
+        return result
 
     def configure_firewall(self, name, policy):
         from .firewall import apply

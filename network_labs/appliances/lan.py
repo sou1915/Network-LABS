@@ -310,6 +310,10 @@ def configure(manager, index, node, previous=None):
     if node.get('dhcp_snooping') is not None or previous.get('dhcp_snooping') is not None:
         from .snooping import reconcile
         reconcile(manager, index, node, None if initial else previous)
+    if not initial:
+        from .stp_recovery import reconcile as reconcile_stp
+        recovery = reconcile_stp(manager, index, node, previous)
+        if recovery: return {'stp_recovery': recovery}
 
 
 def observe(manager, index, node):

@@ -483,6 +483,25 @@ de mode/min-links interrompt temporairement ce bond (DOWN, paramètres, état
 administratif déclaré) et peut nécessiter une nouvelle négociation ; les autres
 interfaces ne sont pas volontairement interrompues.
 
+Quand une remise en service administrative des membres fait repasser un
+bundle sous/sur son seuil `min_links`, le gestionnaire attend deux observations
+stables de STP commun et un LACP prêt, puis invalide uniquement la FDB dynamique
+des switches Linux administrativement connectés dans ce composant. Cette étape
+évite de conserver une destination MAC sur le trunk de secours désormais bloqué.
+Les entrées statiques/permanentes restent en place ; les autres composants et
+le réseau de l'hôte ne sont pas modifiés. Le port-channel n'est pas recréé et
+un retour de membre qui ne franchit pas le seuil ne déclenche pas cette étape.
+
+L'attente et les lectures/flush utilisent un budget global de
+`min(90, max_age + 2*forward_delay + 5)` secondes. Une observation indisponible,
+un délai dépassé ou un échec de flush fait échouer la transaction et réapplique
+la configuration précédente ; l'apprentissage dynamique n'est pas un état
+sauvegardé/restaurable. Le résultat CLI inclut `stp_recovery`, les bundles et
+bridges concernés. Le gestionnaire ne calcule pas le root ni les ports STP,
+ne teste pas des paquets dans cette étape et n'installe pas de watchdog pour
+les pannes de carrier sans édition administrative. Un flush peut provoquer un
+réapprentissage/flood temporaire conforme aux VLANs et aux politiques d'accès.
+
 ```bash
 # Couper un membre ; l'autre doit continuer à transporter les deux VLAN.
 sudo python3 -m network_labs.appliances configure lacp-lan SW1 \

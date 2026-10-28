@@ -5586,8 +5586,9 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     if time.monotonic() >= deadline:
                         self.fail('STP/LACP did not converge: ' + json.dumps(actual))
                     time.sleep(0.2)
-            def ping():
-                for source, target in (('PC1', '192.0.2.20'), ('PC2', '198.18.0.20')):
+            def ping(reverse=False):
+                pairs = (('PC3', '192.0.2.10'), ('PC4', '198.18.0.10')) if reverse else (('PC1', '192.0.2.20'), ('PC2', '198.18.0.20'))
+                for source, target in pairs:
                     deadline = time.monotonic() + 10
                     while True:
                         probe = manager.crun('exec', source, '/bin/ping', '-c', '1', '-W', '1', target, check=False)
@@ -5599,14 +5600,21 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
             with manager.locked():
                 try:
                     manager.start(spec); wait_path(False, 2); ping()
+                    marker = '02:aa:bb:00:00:91'
+                    for index in (4, 5):
+                        manager.ns(index, 'bridge', 'fdb', 'add', marker, 'dev', 'eth0', 'master', 'static', 'vlan', '10')
                     for cycle in range(3):
                         manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nshutdown\nend')
                         wait_path(False, 1); ping()
                         manager.configure_ios('SW1', 'conf t\ninterface fa0/4\nshutdown\nend')
                         wait_path(True, 0); ping()
                         trace_restore()
-                        manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
-                        wait_path(False, 2); ping()
+                        restored = manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\ninterface fa0/4\nno shutdown\nend')
+                        self.assertEqual(restored['stp_recovery']['bridges'], ['SW1', 'SW2'])
+                        wait_path(False, 2); ping(reverse=True); ping()
+                        for index in (4, 5):
+                            records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+                            self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost during recovery')
                         stop_captures(); captures.clear()
                 except BaseException:
                     stop_captures()
