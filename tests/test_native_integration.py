@@ -5643,6 +5643,28 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                             records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
                             self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost during recovery')
                         stop_captures(); captures.clear()
+                    # Carrier can also disappear with one negotiated member:
+                    # the declared minimum is two, so recovery of just the
+                    # missing member must reconcile the former spare path.
+                    manager.configure_ios('SW1', 'conf t\ninterface po1\nport-channel min-links 2\nend')
+                    wait_path(False, 2); ping(); ping(reverse=True)
+                    degraded = manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nshutdown\nend')
+                    self.assertNotIn('stp_recovery', degraded)
+                    wait_path(True, 1); ping(); ping(reverse=True)
+                    bundle = manager.inspect('SW1')['port_channels']['bond1']
+                    self.assertEqual(len(bundle['negotiated_members']), 1)
+                    self.assertFalse(bundle['ready'])
+                    self.assertNotIn('LOWER_UP', bundle['kernel']['flags'])
+                    trace_restore()
+                    restored = manager.configure_ios('SW1', 'conf t\ninterface fa0/3\nno shutdown\nend')
+                    self.assertEqual(restored['stp_recovery']['channels'], ['bond1'])
+                    self.assertEqual(restored['stp_recovery']['bridges'], ['SW1', 'SW2'])
+                    wait_path(False, 2); ping(reverse=True); ping()
+                    self.assertTrue(manager.inspect('SW1')['port_channels']['bond1']['ready'])
+                    for index in (4, 5):
+                        records = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
+                        self.assertTrue(any(row['mac'] == marker for row in records), 'Static FDB entry lost at min-links recovery')
+                    stop_captures(); captures.clear()
                 except BaseException:
                     stop_captures()
                     for _, path in captures:
