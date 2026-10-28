@@ -187,6 +187,8 @@ def redact(value):
 def observe(manager, node):
     # Read only hashes: even errors cannot echo a secret-bearing config line.
     import hashlib
+    from .radius_observation import observe_process
+    from .ntp_socket import observe_socket
     evidence = {'configuration_verified': False, 'configuration_available': False, 'permissions_verified': False}
     try:
         result = manager.crun('exec', node['name'], '/bin/busybox', 'sha256sum', CONFIG, check=False, timeout=3)
@@ -199,9 +201,12 @@ def observe(manager, node):
             match.group(1) == hashlib.sha256(config_text(node).encode()).hexdigest())
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
         pass
-    return {**evidence, 'clients': [client['address'] for client in node['radius_server']['clients']],
+    address = str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
+    return {**evidence, 'process': observe_process(manager, node),
+            'udp_socket': observe_socket(manager, node, address, port=1812),
+            'clients': [client['address'] for client in node['radius_server']['clients']],
             'user_count': len(node['radius_server']['users']),
-            'note': 'Configuration digest only; not daemon liveness or authentication. No shared secret or password digest is returned.'}
+            'note': 'Configuration, PID/argv and UDP/1812 are separate sequential observations. A socket is not attributed to FreeRADIUS; PID reuse and state changes may occur. None proves authentication or access. No shared secret or password digest is returned.'}
 
 
 def drift(manager, node):

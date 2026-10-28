@@ -8,7 +8,7 @@ import subprocess
 from .runtime import RuntimeFailure
 
 
-def parse_udp_table(text):
+def parse_udp_table(text, port=123):
     lines = text.splitlines()
     if not lines or 'local_address' not in lines[0] or 'st' not in lines[0].split():
         raise ValueError('IPv4 UDP table header unavailable or malformed.')
@@ -23,22 +23,22 @@ def parse_udp_table(text):
             raise ValueError('Malformed IPv4 UDP local endpoint.')
         try:
             addr = str(ipaddress.IPv4Address(socket.inet_ntoa(struct.pack('=I', int(local[0], 16)))))
-            port, state = int(local[1], 16), int(parts[3], 16)
+            observed_port, state = int(local[1], 16), int(parts[3], 16)
         except (ValueError, OverflowError, struct.error) as error:
             raise ValueError('Invalid IPv4 UDP socket fields.') from error
-        if port == 123:
+        if observed_port == port:
             found.append({'address': addr, 'state': state})
     return found
 
 
-def observe_socket(manager, node, address):
-    evidence = {'status': 'unknown', 'address': address, 'port': 123, 'bindings': [], 'detail': None}
+def observe_socket(manager, node, address, port=123):
+    evidence = {'status': 'unknown', 'address': address, 'port': port, 'bindings': [], 'detail': None}
     try:
         index = next(i for i, n in enumerate(manager.read()['spec']['nodes']) if n['name'] == node['name'])
         result = manager.ns(index, 'cat', '/proc/net/udp', check=False, timeout=3)
         if result.returncode or len(result.stdout) > 1048576:
             raise ValueError('IPv4 UDP table unavailable or too large.')
-        bindings = parse_udp_table(result.stdout)
+        bindings = parse_udp_table(result.stdout, port)
         evidence.update(status='observed' if any(row['address'] == address and row['state'] == 7 for row in bindings) else 'absent',
                         bindings=bindings)
     except (OSError, RuntimeFailure, subprocess.TimeoutExpired, UnicodeError, ValueError, KeyError, TypeError, StopIteration) as error:

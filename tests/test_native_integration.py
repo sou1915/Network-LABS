@@ -100,6 +100,8 @@ class RealContainerTests(unittest.TestCase):
                         result = radius_probe(manager, client, '192.0.2.20', username='learner', password=password, secret=token, timeout=1)
                         self.assertEqual(result['status'], 'unknown', result)
                     observed = manager.inspect('PC2')['radius_server']
+                    self.assertEqual(observed['process']['status'], 'observed', observed)
+                    self.assertEqual(observed['udp_socket']['status'], 'observed', observed)
                     from network_labs.appliances.radius_exec import execute as radius_execute
                     for action in ('identity', 'security-context'):
                         allowed = radius_execute(manager, 'PC1', '192.0.2.20', action=action,
@@ -117,6 +119,12 @@ class RealContainerTests(unittest.TestCase):
                                                    username='learner', password=password, secret=secret)
                     self.assertEqual(denied_action['error'], 'ACTION_NOT_ALLOWED')
                     self.assertFalse(denied_action['executed'])
+                    with patch.object(manager, 'crun', wraps=manager.crun) as calls:
+                        unavailable = radius_execute(manager, 'PC1', '192.0.2.20', action='identity',
+                                                     username='learner', password=password,
+                                                     secret='incorrect-shared-secret', timeout=1)
+                    self.assertEqual(unavailable['status'], 'blocked'); self.assertFalse(unavailable['executed'])
+                    self.assertFalse(any('--process' in call.args for call in calls.call_args_list))
                     self.assertTrue(observed['configuration_verified'], observed)
                     self.assertNotIn(secret, json.dumps(observed))
                     self.assertEqual(manager.crun('exec', 'PC2', '/bin/busybox', 'stat', '-c', '%a', '/lab/radius/radiusd.conf').stdout.strip(), '600')
@@ -129,6 +137,22 @@ class RealContainerTests(unittest.TestCase):
                                      ['identity', 'security-context'])
                     result = radius_probe(manager, 'PC1', '192.0.2.20', username='learner', password=password, secret=secret)
                     self.assertEqual(result['status'], 'passed', result)
+                    service = manager.inspect('PC2')['radius_server']
+                    self.assertEqual(service['process']['status'], 'observed', service)
+                    manager.crun('exec', 'PC2', '/bin/busybox', 'kill', '-TERM', str(service['process']['pid']))
+                    deadline = time.monotonic() + 5
+                    while True:
+                        stopped = manager.inspect('PC2')['radius_server']
+                        if stopped['udp_socket']['status'] == 'absent' and stopped['process']['status'] != 'observed': break
+                        if time.monotonic() >= deadline: self.fail('RADIUS listener remained after daemon termination')
+                        time.sleep(.1)
+                    self.assertTrue(stopped['configuration_verified'])
+                    self.assertNotEqual(stopped['process']['status'], 'observed')
+                    with patch.object(manager, 'crun', wraps=manager.crun) as calls:
+                        unavailable = radius_execute(manager, 'PC1', '192.0.2.20', action='identity',
+                                                     username='learner', password=password, secret=secret, timeout=1)
+                    self.assertEqual(unavailable['status'], 'blocked'); self.assertFalse(unavailable['executed'])
+                    self.assertFalse(any('--process' in call.args for call in calls.call_args_list))
                 finally:
                     if manager.directory.exists(): manager.stop()
 

@@ -196,3 +196,27 @@ described in [Native LAN core](NATIVE_LAN_CORE.md#configuration-live-partielle).
 This is still PAP authentication observation only: no SSH/Telnet login adapter,
 port admission, EAP/802.1X, accounting, challenge continuation, authorization
 enforcement, TACACS+ or RadSec is provided.
+
+
+## Passive daemon and listener evidence
+
+`inspect` now reports three independent observations for a managed server:
+configuration conformity, `process` (PID file plus exact expected `/proc/PID/cmdline`)
+and `udp_socket` (IPv4 UDP/1812 table in the node network namespace).
+A process can be `observed`, `mismatch` or `unknown`. Missing or invalid PID
+files and unavailable command lines are unknown, not proof of a stopped daemon.
+Unexpected argv and exception contents are not echoed into the report.
+
+The socket is `observed` only for an unconnected UDP binding to the declared
+IPv4/1812. `absent` requires a successfully decoded table without that exact
+binding; a failed read is `unknown`. Wildcard bindings remain visible as
+separate evidence. The table does not attribute a binding to FreeRADIUS.
+All readings are sequential; PID reuse and intervening changes remain possible.
+Neither process nor socket evidence proves a working authentication exchange.
+
+A daemon can stop while its configuration still verifies. Save drift checks
+continue to check configuration; they do not treat these passive readings as
+a server readiness guarantee. `radius-exec` must still receive a verified
+Accept on every invocation, with no local fallback. The native test now covers
+wrong shared secret and actual daemon termination, asserting no diagnostic
+process is invoked in either case. These additional cases await native CI.
