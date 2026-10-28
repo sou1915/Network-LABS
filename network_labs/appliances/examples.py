@@ -607,7 +607,7 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None):
     if accounting and not allow_shell: raise ValueError('RADIUS session accounting requires explicit shell permission.')
     from .spec import example
     spec = example(rootfs); spec['name'] = 'radius-lan'
@@ -619,6 +619,9 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
     if accounting:
         spec['nodes'][0]['radius_access']['accounting'] = True
         spec['nodes'][2]['radius_server']['accounting'] = True
+    if ssh_key is not None:
+        spec['nodes'][0]['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key],
+            'ssh_radius': True, 'ssh_actions': list(ssh_actions) if ssh_actions is not None else ['identity', 'hostname', 'security-context']}
     return validate(spec)
 
 

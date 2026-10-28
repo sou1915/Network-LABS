@@ -1,8 +1,8 @@
 # Restricted SSH actions
 
 An optional `management.ssh_actions` list confines every configured SSH key on
-that node to fixed diagnostic commands. Authentication still uses Dropbear
-public-key authentication. This is server-side command authorization, not
+that node to fixed diagnostic commands. The base profile uses Dropbear public-key authentication; an optional
+[RADIUS credential gate](SSH_RADIUS.md) can additionally protect each diagnostic. This is server-side command authorization, not
 RADIUS password authentication, a per-user role hierarchy or shell accounting.
 The local `radius-login` supervisor remains a separate path.
 
@@ -62,6 +62,6 @@ and forwarding refusal, unprivileged ancestor replacement, permission/script
 drift, saved restart and deny-all policy. Unit tests cover validation, exact
 command dispatch and unavailable permission observations.
 
-RADIUS-backed SSH login still needs a credential-safe authentication bridge
-and remote session supervision/accounting. A forced command alone does not
-provide that integration.
+The optional RADIUS bridge covers fixed diagnostics only. Interactive remote
+SSH login still needs session supervision/accounting; this forced-command
+policy alone does not provide that integration.

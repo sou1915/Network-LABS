@@ -715,6 +715,9 @@ class Manager:
 
     def stop(self):
         state = self.read(); errors = []
+        from .ssh_radius import stop_worker as stop_ssh_radius
+        for name in list(state.get('ssh_radius_workers', {})):
+            stop_ssh_radius(self, name)
         from .snooping import stop_worker
         for name in list(state.get('snooping_workers', {})):
             stop_worker(self, name)

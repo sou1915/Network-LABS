@@ -8,11 +8,12 @@ SCRIPT = '/lab/ssh-dispatch.sh'
 KEY_OPTIONS = 'command="/bin/sh ' + SCRIPT + '",no-port-forwarding,no-agent-forwarding,no-pty'
 
 
-def dispatcher(actions):
+def dispatcher(actions, *, radius=False):
     # All command names and argv come from constants. Never evaluate the
     # command requested by the remote client, including subsystem requests.
-    branches = '\n'.join('    ' + action + ') exec ' + shlex.join(ACTIONS[action]) + ';;'
-                         for action in sorted(actions))
+    branches = '\n'.join('    ' + action + ') exec ' +
+                         (shlex.join(['/bin/busybox', 'timeout', '-s', 'KILL', '15', '/bin/sh', '/lab/ssh-radius-client.sh', action])
+                          if radius else shlex.join(ACTIONS[action])) + ';;' for action in sorted(actions))
     return '''#!/bin/sh
 PATH=/bin:/usr/bin
 LC_ALL=C

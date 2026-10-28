@@ -6,7 +6,7 @@ WAN work remains later. Each feature needs packet/service evidence and
 failure/recovery coverage appropriate to its scope.
 
 1. AAA: RADIUS-gated execution and declared per-node action policy, then
-   SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
+   Interactive SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
    and protected transports require their own implementations and validation.
 2. IPv6: IPv6 SVIs/subinterfaces, OSPFv3, DHCPv6 relay/PD, firewall and RA Guard;
    validate coexistence with the existing IPv4 services.
@@ -85,5 +85,6 @@ richer roles, durable accounting/retry and 802.1X remain later work.
 
 Optional [restricted SSH actions](SSH_ACCESS_POLICY.md) now enforce a node-wide
 fixed diagnostic allowlist in Dropbear's forced-command path. This prepares
-server-side authorization but continues to authenticate with public keys;
-RADIUS-backed SSH login and remote session accounting are still separate work.
+server-side authorization. Optional [RADIUS-gated SSH diagnostics](SSH_RADIUS.md)
+now add a fresh credential check per fixed action through a host supervisor.
+Interactive RADIUS-backed SSH login and remote session accounting remain separate work.
