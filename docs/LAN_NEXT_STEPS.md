@@ -81,3 +81,9 @@ Optional [RADIUS session accounting](RADIUS_ACCOUNTING.md) adds a verified
 Start receipt gate and Stop after confirmed session cleanup. The managed
 server can write private ephemeral accounting records. SSH/Telnet AAA,
 richer roles, durable accounting/retry and 802.1X remain later work.
+
+
+Optional [restricted SSH actions](SSH_ACCESS_POLICY.md) now enforce a node-wide
+fixed diagnostic allowlist in Dropbear's forced-command path. This prepares
+server-side authorization but continues to authenticate with public keys;
+RADIUS-backed SSH login and remote session accounting are still separate work.

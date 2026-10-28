@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import struct
+import subprocess
 from .service_config import observe_config
 
 DROPBEAR = '/usr/sbin/dropbear'
@@ -31,7 +32,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'telnet_password_hash', 'syslog_remote'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'telnet_password_hash', 'syslog_remote'), 'Management')
     port = config.get('interface')
     values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or port not in values or not values[port] or
@@ -50,6 +51,15 @@ def validate_node(node):
         raise ValueError('Telnet requires a SHA-512 crypt password hash; plaintext passwords are not accepted.')
     if password.startswith('$6$rounds=') and not 1000 <= int(password.split('$')[2].split('=')[1]) <= 200000:
         raise ValueError('Telnet crypt rounds must be between 1000 and 200000.')
+    actions = config.get('ssh_actions')
+    if actions is not None:
+        from .ssh_access import ACTIONS
+        if (not isinstance(actions, list) or len(actions) > len(ACTIONS) or
+                any(not isinstance(a, str) or a not in ACTIONS for a in actions) or len(set(actions)) != len(actions)):
+            raise ValueError('SSH actions must be distinct identity, hostname or security-context actions; an empty list denies all commands.')
+        if not config['ssh_keys'] or password:
+            raise ValueError('Restricted SSH actions require SSH keys and no Telnet shell on the same node.')
+        config['ssh_actions'] = sorted(actions)
     remote = config.setdefault('syslog_remote', '')
     if not isinstance(remote, str): raise ValueError('syslog_remote must be IPv4 text.')
     if remote:
@@ -112,7 +122,11 @@ def managed_files(node):
         if len(groups) > 65536: raise ValueError('Rootfs group file exceeds 64 KiB.')
         result['management-group'] = '\n'.join([line for line in groups.splitlines() if not line.startswith('lab:')] + ['lab:x:65532:']) + '\n'
     if config['ssh_keys']:
-        result['authorized_keys'] = '\n'.join(config['ssh_keys']) + '\n'
+        from .ssh_access import KEY_OPTIONS, dispatcher
+        actions = config.get('ssh_actions')
+        prefix = '' if actions is None else KEY_OPTIONS + ' '
+        result['authorized_keys'] = '\n'.join(prefix + key for key in config['ssh_keys']) + '\n'
+        if actions is not None: result['ssh-dispatch.sh'] = dispatcher(actions)
     return result
 
 
@@ -146,7 +160,13 @@ def start_servers(manager):
                 raise RuntimeFailure(node['name'] + ': BusyBox ' + applet + ' lacks required management options.')
         if config['ssh_keys'] or config['telnet_password_hash']:
             manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/home/lab/.ssh', '/etc/dropbear')
-            manager.crun('exec', node['name'], '/bin/busybox', 'chown', '65532:65532', '/home/lab')
+            if config.get('ssh_actions') is not None:
+                # A writable ancestor could replace the directory containing
+                # the read-only authorized_keys bind mount.
+                manager.crun('exec', node['name'], '/bin/busybox', 'chown', '0:0', '/home', '/home/lab', '/home/lab/.ssh')
+                manager.crun('exec', node['name'], '/bin/busybox', 'chmod', '755', '/home', '/home/lab', '/home/lab/.ssh')
+            else:
+                manager.crun('exec', node['name'], '/bin/busybox', 'chown', '65532:65532', '/home/lab')
         for service in commands(node): start_service(manager, node, service)
 
 
@@ -159,10 +179,20 @@ def observe(manager, node):
         checks['active_group'] = observe_config(manager, node['name'], '/etc/group', files['management-group'])
     if 'authorized_keys' in files:
         checks['active_authorized_keys'] = observe_config(manager, node['name'], '/home/lab/.ssh/authorized_keys', files['authorized_keys'])
+    if config.get('ssh_actions') is not None:
+        verified = False
+        try:
+            mode = manager.crun('exec', node['name'], '/bin/busybox', 'stat', '-c', '%a:%u:%g',
+                                '/home', '/home/lab', '/home/lab/.ssh', '/lab/ssh-dispatch.sh', check=False, timeout=3)
+            verified = mode.returncode == 0 and mode.stdout == '755:0:0\n755:0:0\n755:0:0\n644:0:0\n'
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            pass
+        checks['ssh_policy_permissions'] = {'configuration_verified': verified}
     return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()),
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet expose a Linux shell as uid 65532. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
+            'ssh_actions': config.get('ssh_actions'),
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to fixed diagnostics with no PTY, forwarding or shell; authentication remains public-key, not RADIUS. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
 
 
 def drift(manager, node):

@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 import struct
+import os
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -78,6 +80,59 @@ class ManagementTests(unittest.TestCase):
                 self.assertTrue(any(c.args[2] == '/home/lab/.ssh/authorized_keys' for c in read.call_args_list))
             with patch('network_labs.appliances.management.observe_config', return_value={'configuration_verified': False}):
                 self.assertTrue(drift(Mock(), node))
+
+    def test_restricted_ssh_policy_validation_and_generated_forced_command(self):
+        from network_labs.appliances.management import managed_files
+        from network_labs.appliances.ssh_access import dispatcher, KEY_OPTIONS
+        for actions in ('identity', ['shell'], ['identity', 'identity'], [True], {'identity': True}):
+            with self.subTest(actions=actions), self.assertRaises(ValueError):
+                management_lab('/rootfs', KEY, ssh_actions=actions)
+        with self.assertRaises(ValueError): management_lab('/rootfs', KEY, HASH, ssh_actions=['identity'])
+        with self.assertRaises(ValueError): management_lab('/rootfs', ssh_actions=['identity'])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / 'etc').mkdir()
+            (root / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
+            (root / 'etc/group').write_text('root:x:0:\n')
+            node = management_lab(root, KEY, ssh_actions=['identity'])['nodes'][2]
+            files = managed_files(node)
+            self.assertEqual(files['authorized_keys'], KEY_OPTIONS + ' ' + KEY + '\n')
+            self.assertEqual(files['ssh-dispatch.sh'], dispatcher(['identity']))
+            node['management']['ssh_actions'] = []
+            self.assertIn('exit 126', managed_files(node)['ssh-dispatch.sh'])
+
+    def test_dispatcher_treats_client_requests_as_exact_action_names(self):
+        from network_labs.appliances.ssh_access import dispatcher
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); marker = root / 'bypass'; script = root / 'dispatch.sh'
+            script.write_text(dispatcher(['identity']).replace('/bin/busybox id', "printf 'ID-OK\\n'"))
+            for command in ('', '/bin/sh', 'hostname', 'sftp', 'scp -t /tmp/file', 'identity --help',
+                            'identity; touch ' + str(marker), 'identity\ntouch ' + str(marker),
+                            '$(touch ' + str(marker) + ')'):
+                result = subprocess.run(['sh', str(script)], env={**os.environ, 'SSH_ORIGINAL_COMMAND': command},
+                                        capture_output=True, text=True, timeout=2)
+                self.assertEqual(result.returncode, 126, result)
+                self.assertEqual(result.stdout, '')
+                self.assertFalse(marker.exists())
+            allowed = subprocess.run(['sh', str(script)], env={**os.environ, 'SSH_ORIGINAL_COMMAND': 'identity'},
+                                     capture_output=True, text=True, timeout=2)
+            self.assertEqual(allowed.returncode, 0, allowed)
+            self.assertEqual(allowed.stdout, 'ID-OK\n')
+
+    def test_restricted_ssh_permission_drift_is_not_reported_as_verified(self):
+        from network_labs.appliances.management import observe
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / 'etc').mkdir()
+            (root / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
+            (root / 'etc/group').write_text('root:x:0:\n')
+            node = management_lab(root, KEY, ssh_actions=['identity'])['nodes'][2]
+            manager = Mock()
+            with patch('network_labs.appliances.management.observe_config', return_value={'configuration_verified': True}):
+                manager.crun.return_value = subprocess.CompletedProcess([], 0, '755:0:0\n755:0:0\n755:0:0\n644:0:0\n', '')
+                self.assertTrue(observe(manager, node)['configuration_verified'])
+                manager.crun.return_value = subprocess.CompletedProcess([], 0, '755:0:0\n777:0:0\n755:0:0\n644:0:0\n', '')
+                self.assertFalse(observe(manager, node)['configuration_verified'])
+                manager.crun.side_effect = subprocess.TimeoutExpired('stat', 3)
+                self.assertFalse(observe(manager, node)['configuration_verified'])
 
     def test_incompatible_busybox_options_fail_before_any_service_is_launched(self):
         from network_labs.appliances.runtime import RuntimeFailure

@@ -16,6 +16,14 @@ jobs:
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_trunk_vlan.py -v
       - name: Verify common STP and LACP restore packet path
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
+  ssh-access:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated SSH prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dropbear-bin openssh-client crun iproute2 busybox-static util-linux
+      - name: Verify server-enforced SSH actions, bypass denials and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
   radius-interop:
     runs-on: ubuntu-24.04
     steps:

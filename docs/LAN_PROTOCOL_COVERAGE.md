@@ -17,7 +17,7 @@ partial-flush rollback, min-links, logical shutdown and saved restart scenarios.
 
 | Family | Current bounded profile | Remaining work |
 |---|---|---|
-| SSH | Dropbear, ed25519 public-key auth, non-root Linux command/PTY, TCP/22 | Vendor shells, richer account/AAA policy, managed host-key persistence, IPv6/coexistence profiles |
+| SSH | Dropbear, ed25519 public-key auth, non-root Linux command/PTY, TCP/22; optional [server-enforced fixed diagnostic actions](SSH_ACCESS_POLICY.md) | Vendor shells, richer account/AAA policy, managed host-key persistence, IPv6/coexistence profiles |
 | Telnet | BusyBox telnetd + login, SHA-512 password hash, non-root Linux terminal, TCP/23 | Vendor CLI adapters and richer account/AAA policy |
 | Syslog | Real local logging + UDP/514 forwarding; node-local rsyslog collector with sender allowlist, rotation and real fault/packet tests | TCP/TLS, richer RFC5424 policy, durable central retention/search and structured device events |
 | SNMP | Separate read-only IPv4 v2c and v3 USM SHA-256/AES authPriv agents; manager policy, sysName/agent uptime, real IF-MIB counters; v2c trap/inform and separate v3 authPriv inform/sender-engine trap profiles with log-only receivers and packet/loss/restore tests; selected physical IF-MIB up/down observations via native DisMan | Vendor-specific events, broader operational states/event sources, richer user/algorithm policy, vendor MIBs, IPv6 and broader coexistence |

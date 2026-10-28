@@ -644,7 +644,7 @@ def ntp_lab(rootfs):
     return validate(spec)
 
 
-def management_lab(rootfs, ssh_key=None, telnet_password_hash=''):
+def management_lab(rootfs, ssh_key=None, telnet_password_hash='', *, ssh_actions=None):
     """Three-node internal IPv4 LAN with real management services on R1."""
     from .spec import example
     spec = example(rootfs); spec['name'] = 'management-lan'
@@ -652,6 +652,7 @@ def management_lab(rootfs, ssh_key=None, telnet_password_hash=''):
     spec['links'][1][1][0] = 'R1'
     server['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key] if ssh_key else [],
                             'telnet_password_hash': telnet_password_hash, 'syslog_remote': '192.0.2.10'}
+    if ssh_actions is not None: server['management']['ssh_actions'] = ssh_actions
     return validate(spec)
 
 
