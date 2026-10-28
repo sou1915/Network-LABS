@@ -52,6 +52,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony freeradius
       - name: Prepare Linux bonding without creating default host bonds
         run: |
+          uname -r
+          ip -Version
           sudo modprobe bonding max_bonds=0
           sudo modprobe openvswitch
       - name: Boot isolated nodes and verify actual packet delivery and cleanup

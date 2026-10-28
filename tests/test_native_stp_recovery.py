@@ -1,8 +1,6 @@
 import copy
-import json
 import subprocess
 import unittest
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from network_labs.appliances.examples import lacp_lab
@@ -64,3 +62,42 @@ class StpRecoveryTests(unittest.TestCase):
         manager.ns.return_value.stdout = 'not-json'
         with self.assertRaises(RuntimeFailure): reconcile(manager, 4, node, previous)
         self.assertFalse(any('flush' in call.args for call in manager.ns.call_args_list))
+
+    def test_unsettled_tree_different_roots_and_unready_lacp_never_flush(self):
+        tree = {'protocol': 'stp', 'local_state_settled': True, 'root_id': '1000.001122334455',
+                'root_port': 'bond1', 'ports': {'bond1': {'state': 'forwarding'}}}
+        for fault in ('unsettled', 'different_roots', 'missing_root', 'lacp_unready'):
+            with self.subTest(fault=fault):
+                _, node, previous, manager = setup()
+                clock = [0]
+                def sleep(_): clock[0] += 10
+                def observe(peer, *_):
+                    result = copy.deepcopy(tree)
+                    if fault == 'unsettled': result['local_state_settled'] = False
+                    if fault == 'different_roots' and peer['name'] == 'SW2':
+                        result['root_id'] = '2000.001122334455'
+                    if fault == 'missing_root': result['root_id'] = None
+                    return result
+                with patch('network_labs.appliances.stp_recovery.time.monotonic', side_effect=lambda: clock[0]), \
+                     patch('network_labs.appliances.stp_recovery.time.sleep', side_effect=sleep), \
+                     patch('network_labs.appliances.spanning_tree.kernel_ids', return_value={}), \
+                     patch('network_labs.appliances.spanning_tree.observe', side_effect=observe), \
+                     patch('network_labs.appliances.lacp.observe', return_value={'bond1': {'ready': fault != 'lacp_unready'}}):
+                    with self.assertRaisesRegex(RuntimeFailure, 'did not settle'):
+                        reconcile(manager, 4, node, previous)
+                self.assertFalse(any('flush' in call.args for call in manager.ns.call_args_list))
+
+    def test_interrupted_readiness_requires_two_new_stable_snapshots(self):
+        _, node, previous, manager = setup()
+        tree = {'protocol': 'stp', 'local_state_settled': True, 'root_id': '1000.001122334455',
+                'root_port': 'bond1', 'ports': {'bond1': {'state': 'forwarding'}}}
+        # A good snapshot followed by a failed LACP observation must lose its
+        # stability credit, even when the STP fingerprint itself is unchanged.
+        with patch('network_labs.appliances.spanning_tree.kernel_ids', return_value={}), \
+             patch('network_labs.appliances.spanning_tree.observe', return_value=tree) as observe, \
+             patch('network_labs.appliances.lacp.observe', side_effect=[
+                 {'bond1': {'ready': ready}} for ready in (True, False, True, True)]), \
+             patch('network_labs.appliances.stp_recovery.time.sleep'):
+            reconcile(manager, 4, node, previous)
+        self.assertEqual(observe.call_count, 8)
+        self.assertEqual(sum('flush' in call.args for call in manager.ns.call_args_list), 2)

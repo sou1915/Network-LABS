@@ -510,6 +510,14 @@ de ce commit a également réussi. Le runner observé utilisait
 `6.17.0-1022-azure` : ces résultats bornés ne remplacent pas la validation sur
 chaque kernel cible ni celle des pannes physiques sans commande de gestion.
 
+Les deux runs complets du commit `0e761a0` ont ensuite réussi les 51 tests
+native chacun, dont ce scénario STP/LACP, sur le kernel observé
+`7.0.0-1017-azure` : [push](https://github.com/sou1915/Network-LABS/actions/runs/40716003990/job/122913748047)
+et [pull request](https://github.com/sou1915/Network-LABS/actions/runs/40716014900/job/122913781926).
+Les tests unitaires refusent aussi le flush lorsque les roots diffèrent,
+qu'un root manque, que STP n'est pas stable ou que LACP n'est pas prêt ;
+une perte de disponibilité annule la première observation stable.
+
 ```bash
 # Couper un membre ; l'autre doit continuer à transporter les deux VLAN.
 sudo python3 -m network_labs.appliances configure lacp-lan SW1 \
@@ -3460,10 +3468,12 @@ identify which process owns the socket. These observations are sequential and
 do not establish that chronyd owns the socket, that a client can reach it, or
 that the server is synchronized.
 Live configuration changes require lab recreation. This
-profile is experimental. GitHub native CI has exercised the local reference,
-relay synchronization (stratum 11) and downstream allowlist. Its later control
-query exposed an invalid Unix socket location, now moved to a private directory;
-the complete corrected test still requires a successful native CI run.
+profile is experimental. The complete corrected native test passed in both
+CI runs of commit `0e761a0`, including local reference, relay synchronization
+(stratum 11), downstream allowlist and chronyc control queries. See the
+[native job](https://github.com/sou1915/Network-LABS/actions/runs/40716014900/job/122913781926).
+The control socket uses a private directory; the previous shared `/run`
+location was rejected by chronyd.
 NTP is unauthenticated.
 
 For an isolated teaching network, a node may declare `local_stratum` instead of
