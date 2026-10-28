@@ -122,6 +122,20 @@ class RadiusServerTests(unittest.TestCase):
                 (dictionaries / 'unsafe').symlink_to(dictionaries / 'dictionary')
                 with self.assertRaises(ValueError): rootfs_assets('/binary', modules, dictionaries)
 
+    def test_rootfs_includes_dlopen_legacy_provider_and_fails_if_unavailable(self):
+        from network_labs.appliances.radius_rootfs import rootfs_assets
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); modules = root / 'modules'; modules.mkdir()
+            dictionaries = root / 'dictionaries'; dictionaries.mkdir()
+            (modules / 'rlm_pap.so').touch(); (dictionaries / 'dictionary').touch()
+            crypto = root / 'libcrypto.so.3'; crypto.touch()
+            with patch('network_labs.appliances.radius_rootfs.assets', return_value=[(crypto, Path('/usr/lib/libcrypto.so.3'))]), \
+                 patch('network_labs.appliances.radius_rootfs.shared_library_assets', side_effect=lambda source, destination: [(Path(source), Path(destination))]):
+                with self.assertRaises(ValueError): rootfs_assets('/binary', modules, dictionaries)
+                provider = root / 'ossl-modules/legacy.so'; provider.parent.mkdir(); provider.touch()
+                plan = rootfs_assets('/binary', modules, dictionaries)
+                self.assertIn((provider, provider), plan)
+
     def test_cli_example_hashes_private_password_and_requires_explicit_credentials(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); password = root / 'password'; secret = root / 'secret'

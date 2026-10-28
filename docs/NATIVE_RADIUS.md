@@ -123,6 +123,12 @@ Message-Authenticator. There is no host daemon or automatic fallback service.
 Build a **new** rootfs with trusted matching FreeRADIUS executable, PAP module
 directory and complete dictionary directory. The builder copies their ELF
 dependencies offline; it does not install a package or start a host service.
+For the supported OpenSSL 3 layout it also copies `ossl-modules/legacy.so`
+beside the resolved libcrypto and that provider's dependencies. FreeRADIUS
+loads this provider during startup even for PAP; `ldd` alone does not list it.
+An unavailable matching provider fails the build before creating the rootfs.
+Rebuild rootfs images made before this provider-copy fix; updating Python code
+does not add missing files to existing images.
 Only `rlm_pap.so` is enabled. Dictionaries are bounded to 1024 regular files and
 16 MiB; dictionary symlinks are rejected. The initial supported layout is the
 Debian/Ubuntu FreeRADIUS 3 layout used by the native CI job.

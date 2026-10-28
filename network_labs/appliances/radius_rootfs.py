@@ -13,6 +13,16 @@ def rootfs_assets(binary, modules, dictionaries):
     planned = assets(binary, destination=BINARY, identity='FreeRADIUS 3', version_args=('-v',),
                      version_check=lambda r: r.returncode == 0 and re.search(r'FreeRADIUS Version 3\.', r.stdout + r.stderr))
     planned += shared_library_assets(modules / 'rlm_pap.so', MODULES + '/rlm_pap.so')
+    # FreeRADIUS 3 loads OpenSSL's legacy provider during global startup, even
+    # for PAP-only policy. dlopen providers are not enumerated by ldd.
+    # Supported Debian/Ubuntu OpenSSL 3 keeps modules beside the resolved
+    # libcrypto library (whose compiled MODULESDIR uses that same location).
+    crypto = {Path(source).resolve() for source, target in planned if Path(target).name == 'libcrypto.so.3'}
+    for library in sorted(crypto):
+        provider = library.parent / 'ossl-modules/legacy.so'
+        if not provider.is_file():
+            raise ValueError('FreeRADIUS OpenSSL 3 requires a matching ossl-modules/legacy.so beside libcrypto.')
+        planned += shared_library_assets(provider, str(provider))
     total = 0; files = []
     for path in sorted(dictionaries.rglob('*')):
         if path.is_symlink(): raise ValueError('FreeRADIUS dictionary assets must not contain symlinks.')
