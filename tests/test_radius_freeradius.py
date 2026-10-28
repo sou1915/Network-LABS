@@ -62,8 +62,8 @@ class FreeRadiusInterop(unittest.TestCase):
             # loopback endpoints are adapted to this unprivileged fixture.
             self.assertTrue((modules / 'rlm_exec.so').is_file(), 'Accounting exec module required')
             (root / 'network-labs-radius-accounting').mkdir(mode=0o700)
-            from network_labs.appliances.radius_accounting_writer import WRITER
-            writer = root / 'accounting-write.sh'; writer.write_text(WRITER); writer.chmod(0o700)
+            from network_labs.appliances.radius_accounting_writer import WRITER, FLOCK
+            writer = root / 'accounting-write.sh'; writer.write_text(WRITER.replace(FLOCK, shutil.which('flock'))); writer.chmod(0o700)
             config = config_text(node, modules=str(modules), run_directory=str(root), port=port, accounting_port=accounting_port, accounting_writer=str(writer))
             path = root / 'radiusd.conf'; path.write_text(config); path.chmod(0o600)
             (root / 'dictionary').write_text('# Isolated test; installed base dictionary is loaded with -D.\n')

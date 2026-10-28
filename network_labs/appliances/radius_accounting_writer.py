@@ -1,5 +1,6 @@
 """Fixed accounting writer; untrusted attributes are data, never commands."""
 SCRIPT = '/lab/radius/accounting-write.sh'
+FLOCK = '/usr/lib/network-labs/freeradius/flock'
 WRITER = r'''#!/bin/busybox sh
 # rlm_exec exports request attributes. Persist only this bounded whitelist.
 LC_ALL=C
@@ -35,7 +36,7 @@ esac
 record="$status|$sid|$user|$nas|$seconds|$cause"
 [ ! -L "$log" ] || exit 2
 exec 9>>"$log" || exit 2
-/bin/busybox flock -x 9 || exit 2
+/usr/lib/network-labs/freeradius/flock -x 9 || exit 2
 oldsize=$(/bin/busybox stat -c %s "$log") || exit 2
 # External printf propagates short writes/flush errors; verify the whole line.
 if /bin/busybox printf '%s\n' "$record" >&9 &&

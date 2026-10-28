@@ -19,7 +19,8 @@ sudo python3 -m network_labs.appliances start radius-accounting.json
 
 Use a freshly built [FreeRADIUS rootfs](NATIVE_RADIUS.md) containing the trusted
 `rlm_exec.so` module. The builder copies this module and dependencies when
-present in the supplied module directory. Auth-only roots can omit it, but
+present in the supplied module directory, together with trusted host util-linux
+`flock` and its ELF dependencies (Ubuntu BusyBox lacks that applet). Auth-only roots can omit it, but
 accounting startup refuses a root without it. Existing roots may need rebuilding.
 Private credential-file rules and [login policy](RADIUS_LOGIN.md) remain required.
 

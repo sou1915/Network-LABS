@@ -179,7 +179,7 @@ def start_servers(manager):
         if not node.get('radius_server'): continue
         if node['radius_server'].get('accounting'):
             applets = manager.crun('exec', node['name'], '/bin/busybox', '--list', check=False, timeout=3)
-            if applets.returncode or not {'sh', 'flock', 'stat', 'printf', 'tail', 'truncate'} <= set(applets.stdout.splitlines()):
+            if applets.returncode or not {'sh', 'stat', 'printf', 'tail', 'truncate'} <= set(applets.stdout.splitlines()):
                 raise RuntimeFailure(node['name'] + ': RADIUS accounting requires BusyBox writer applets.')
             manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '-m', '700', ACCOUNTING_DIRECTORY)
         args = command()

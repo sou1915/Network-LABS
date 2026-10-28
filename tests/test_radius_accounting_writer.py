@@ -3,11 +3,12 @@ import os
 from pathlib import Path
 import resource
 import signal
+import shutil
 import subprocess
 import tempfile
 import unittest
 
-from network_labs.appliances.radius_accounting_writer import WRITER
+from network_labs.appliances.radius_accounting_writer import WRITER, FLOCK
 
 
 @unittest.skipUnless(Path('/bin/busybox').is_file(), 'Real BusyBox required')
@@ -15,7 +16,7 @@ class AccountingWriterTests(unittest.TestCase):
     def test_selected_fields_locking_and_partial_write_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            writer = root / 'writer.sh'; writer.write_text(WRITER)
+            writer = root / 'writer.sh'; writer.write_text(WRITER.replace(FLOCK, shutil.which('flock')))
             log = root / 'sessions'
             environment = dict(os.environ, USER_NAME='"learner"', ACCT_SESSION_ID='"aaa-first"',
                                NAS_IP_ADDRESS='192.0.2.10', ACCT_STATUS_TYPE='Start')

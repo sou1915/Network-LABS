@@ -1,6 +1,9 @@
 """Offline FreeRADIUS 3 PAP executable/module/dictionary copy plan."""
 from pathlib import Path
 import re
+import shutil
+
+from .radius_accounting_writer import FLOCK
 
 from .dns_rootfs import assets, shared_library_assets
 from .radius_server import BINARY, MODULES, DICTIONARY
@@ -16,6 +19,10 @@ def rootfs_assets(binary, modules, dictionaries):
     # Optional when building auth-only roots; accounting startup requires it.
     if (modules / 'rlm_exec.so').is_file():
         planned += shared_library_assets(modules / 'rlm_exec.so', MODULES + '/rlm_exec.so')
+        flock = shutil.which('flock')
+        if not flock: raise ValueError('RADIUS accounting rootfs requires trusted host util-linux flock.')
+        planned += assets(flock, destination=FLOCK, identity='flock from util-linux',
+                          version_check=lambda r: r.returncode == 0 and r.stdout.startswith('flock from util-linux'))
     # FreeRADIUS 3 loads OpenSSL's legacy provider during global startup, even
     # for PAP-only policy. dlopen providers are not enumerated by ldd.
     # Supported Debian/Ubuntu OpenSSL 3 keeps modules beside the resolved
