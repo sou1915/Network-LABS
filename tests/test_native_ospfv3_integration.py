@@ -110,9 +110,10 @@ class NativeOSPFv3Tests(unittest.TestCase):
                 self.assertNotEqual(failed.returncode, 0)
                 start_one(manager, router); healthy()
                 # A manually inserted route must not be saved as OSPF policy.
-                manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', 'eth1', 'proto', 'static')
+                transit = 'vlan100' if svi else 'eth1'
+                manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', transit, 'proto', 'static')
                 with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
-                manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', 'eth1')
+                manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', transit)
                 with manager.locked():
                     manager.write_startup(); saved = load_startup(spec['name'])
                     self.assertEqual(saved, spec)
