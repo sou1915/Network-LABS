@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  ra-guard-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated RA Guard prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+      - name: Verify trusted SLAAC, untrusted RA variants, drift, saved restart and trust control
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_integration.py -v
   ipv6-firewall-interop:
     runs-on: ubuntu-24.04
     steps:

@@ -867,3 +867,18 @@ def ipv6_firewall_lab(rootfs):
                                  'source': '2001:db8:10::10/128', 'destination': '2001:db8:20::20/128',
                                  'protocol': 'tcp', 'dport': 8080}]}})
     return validate(spec)
+
+
+def ra_guard_lab(rootfs):
+    """SLAAC across a guarded access switch, with one untrusted injection host."""
+    spec = slaac_lab(rootfs); spec['name'] = 'ra-guard-lan'
+    spec['nodes'].extend([
+        {'name': 'ROGUE', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': ''},
+         'ipv6': {'eth0': '2001:db8:10::66/64'}},
+        {'name': 'SW1', 'runtime': 'oci', 'role': 'switch', 'rootfs': str(rootfs),
+         'interfaces': {'eth0': '', 'eth1': '', 'eth2': ''}, 'vlans': [10],
+         'switchports': {f'eth{i}': {'mode': 'access', 'vlan': 10} for i in range(3)},
+         'ra_guard': {'trusted': ['eth1']}}])
+    spec['links'][0] = [['PC1', 'eth0'], ['SW1', 'eth0']]
+    spec['links'].extend([[['R1', 'eth0'], ['SW1', 'eth1']], [['ROGUE', 'eth0'], ['SW1', 'eth2']]])
+    return validate(spec)

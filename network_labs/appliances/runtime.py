@@ -364,8 +364,8 @@ class Manager:
             for node in spec['nodes']:
                 if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
-        if any(n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
-            raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
+        if any(n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+            raise RuntimeFailure('Managed firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
         if any((n.get('snmp_agent') or {}).get('link_events') for n in spec['nodes']) and not shutil.which('nft'):

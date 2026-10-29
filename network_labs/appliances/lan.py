@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('ra_guard', 'firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf', 'ospfv3')
 
 
@@ -157,6 +157,8 @@ def validate_lan(node):
         route['gateway'] = str(gateway)
     from .port_security import validate_security
     validate_security(node)
+    from .ra_guard import validate_node as validate_ra_guard
+    validate_ra_guard(node)
     from .snooping import validate_snooping
     validate_snooping(node)
     from .arp_inspection import validate_inspection
@@ -231,6 +233,9 @@ def configure(manager, index, node, previous=None):
         if initial or address != previous.get('interface_macs', {}).get(interface):
             ns('ip', 'link', 'set', 'dev', interface, 'address', address)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
+        if initial and node.get('ra_guard') is not None:
+            from .ra_guard import apply as apply_ra_guard
+            apply_ra_guard(manager, index, node)
         from .port_security import apply as apply_security
         apply_security(manager, index, node, None if initial else previous)
         from .snooping import apply as apply_snooping
@@ -399,6 +404,9 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('ra_guard') is not None:
+        from .ra_guard import observe as observe_ra_guard
+        result['ra_guard'] = observe_ra_guard(manager, index, node)
     if node.get('svis'):
         from .svi import observe as observe_svis
         result['svis'] = observe_svis(manager, index, node, result['links'])

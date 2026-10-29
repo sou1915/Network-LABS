@@ -5456,3 +5456,74 @@ saved declaration after a rule flush. Host nftables, routes, rules, forwarding
 and virtual-link cleanup are checked independently.
 
 Reference: [nftables primary manual](https://netfilter.org/projects/nftables/manpage.html).
+
+## Conservative access-port RA Guard
+
+`example --ra-guard` inserts a real Linux bridge between the SLAAC client and
+its managed RA router, plus an untrusted static IPv6 host named ROGUE. SW1's
+`ra_guard: {"trusted": ["eth1"]}` admits R1's advertisements on eth1; eth0
+(client) and eth2 (ROGUE) are untrusted. All three ports are untagged access
+ports in VLAN 10. The normal client-to-remote-PC path still traverses R1/R2.
+ROGUE does not run an RA service at startup; the test injects its own explicitly
+scoped frames inside that lab namespace.
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --dnsmasq /usr/sbin/dnsmasq --output "$HOME/network-labs-ra-guard-rootfs"
+python3 -m network_labs.appliances example --ra-guard \
+  --rootfs "$HOME/network-labs-ra-guard-rootfs" > ra-guard-lan.json
+sudo python3 -m network_labs.appliances start ra-guard-lan.json
+sudo python3 -m network_labs.appliances inspect ra-guard-lan SW1
+sudo python3 -m network_labs.appliances inspect ra-guard-lan PC1
+sudo python3 -m network_labs.appliances verify ra-guard-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ra-guard-lan
+sudo python3 -m network_labs.appliances stop ra-guard-lan
+sudo python3 -m network_labs.appliances restore ra-guard-lan
+```
+
+The declaration has one field, `trusted`, containing unique declared physical
+access-port names. Empty trust blocks all RAs; an explicitly trusted host can
+advertise any router identity/prefix. Port trust is not authentication, a MAC
+or prefix allowlist, SEND, source-address validation, or DHCPv6 snooping.
+
+This bounded policy is deliberately stricter than general extension-aware
+RA Guard. It drops 802.1Q/802.1ad tagged ingress on the access ports. On each
+untrusted port it also drops IPv6 whose **immediate next header** is not TCP,
+UDP or ICMPv6. Consequently **all IPv6 extension headers and fragments**,
+including benign ones, AH/ESP, tunnels, SCTP and other opaque protocols, are
+outside the untrusted access profile and dropped. Plain ICMPv6 type 134 is
+dropped; ordinary unfragmented NDP/RS/echo and TCP/UDP remain admitted. MLD's
+hop-by-hop form is also outside this profile. This is not a claim of complete
+RFC 7113 interoperability or acceptance of all otherwise valid IPv6 traffic.
+The initial profile avoids assuming that a bounded parser can inspect every
+possible header chain. Trusted ports do not have that IPv6 protocol restriction,
+but remain access ports with tagged ingress refused.
+
+The runtime installs owned `table bridge network_labs_ra_guard` at prerouting
+priority -320 before raising/bridging the switch ports. The profile requires
+one guarded OCI Linux switch, 2..64 UP physical access ports in the same VLAN,
+and a static IPv6/SLAAC/RA lab without IPv4. Trunks, LAGs, SVIs/subinterfaces,
+OVS/STP, DHCPv6, dynamic routing and composition with other security profiles
+remain outside this increment. Switch/trust edits require manifest changes and
+lab recreation.
+
+`inspect` returns declared port trust separately from actual nft counters and
+`policy_verified`. Whole-node ruleset fingerprint checks ignore counters and
+handles while detecting changed/missing rules or extra tables. Save refuses
+drift. Restore reinstalls the declared guard and reacquires client SLAAC;
+learned client addresses, default routers and counters are not saved as policy.
+No host firewall/routing settings are changed.
+
+The dedicated `ra-guard-interop` test captures valid rogue RA frames entering
+the switch and verifies their absence at the client, while independently
+observing the trusted router's real RA, SLAAC/default route and bidirectional
+routed echo traffic. Its wire cases include plain RA, hop-by-hop and destination
+options, atomic/first/later fragments, same-VID dot1Q and QinQ. It checks actual
+RA/opaque/pass/trusted counters, continued untrusted NDP/echo, no rogue prefix
+or default router, drift refusal and cold restore. A recreated positive-control
+policy trusts the former untrusted port and must then learn the same valid
+plain rogue RA's prefix and default router. Host nftables, IPv6 routes/rules,
+forwarding and virtual-link cleanup have separate invariants.
+
+References: [RFC 7113](https://www.rfc-editor.org/rfc/rfc7113.html) and
+[nftables primary manual](https://netfilter.org/projects/nftables/manpage.html).
