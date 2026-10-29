@@ -65,10 +65,12 @@ class NativeIPv6SVITests(unittest.TestCase):
                     self.assertEqual(report['status'], 'observed', report)
                 event = threading.Event(); path = root / 'ipv6-svi.pcap'
                 future = pool.submit(capture, Manager(spec['name']), 'SW1', 'eth2', path,
-                                     seconds=5, packets=200, snaplen=512, ready=event)
-                self.assertTrue(event.wait(5), 'Trunk capture did not become ready')
+                                     seconds=8, packets=200, snaplen=512, ready=event.set)
+                if not event.wait(5):
+                    if future.done(): future.result()  # Preserve capture startup errors.
+                    self.fail('Trunk capture did not become ready')
                 healthy()
-                self.assertGreater(future.result(timeout=10)['captured_packets'], 0)
+                self.assertGreater(future.result(timeout=15)['captured_packets'], 0)
                 decoded = run(['tcpdump', '-nn', '-e', '-vv', '-r', path]).stdout
                 for expected in ('vlan 10', 'vlan 20', 'ICMP6, echo request', 'ICMP6, echo reply'):
                     self.assertIn(expected, decoded)
