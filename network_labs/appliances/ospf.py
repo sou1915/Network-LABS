@@ -174,7 +174,7 @@ def read_cli(manager, name, command):
 def start_one(manager, node):
     from .runtime import RuntimeFailure
     if processes(manager, node, managed=False):
-        raise RuntimeFailure('Refusing to start OSPF while a BIRD process already exists.')
+        raise RuntimeFailure('Refusing to start managed BIRD while a BIRD process already exists.')
     manager.crun('exec', node['name'], DAEMON, '-p', '-c', '/lab/bird.conf', timeout=3)
     manager.crun('exec', '--detach', node['name'], DAEMON, '-f', '-c', '/lab/bird.conf',
                  '-s', '/run/bird.ctl', '-P', '/run/bird.pid', log=manager.directory / node['name'] / 'ospf.log')

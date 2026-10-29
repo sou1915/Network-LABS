@@ -789,3 +789,16 @@ def ospfv3_svi_lab(rootfs):
     spec['links'] = [[['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['SW2', 'eth0']],
                      [['SW2', 'eth1'], ['R1', 'eth0']], [['R1', 'eth1'], ['PC2', 'eth0']]]
     return validate(spec)
+
+
+def dhcpv6_relay_lab(rootfs):
+    """Remote IA_NA allocation through a physical relay, with independent managed RA."""
+    spec = ipv6_routed_lab(rootfs)
+    spec['name'] = 'dhcpv6-relay-lan'
+    client, relay, server, _ = spec['nodes']
+    client.update(ipv6={}, ipv6_routes=[], dhcpv6_clients=['eth0'])
+    relay['dhcpv6_relay'] = {'interface': 'eth0', 'upstream': 'eth1',
+                            'server': '2001:db8:100::2', 'advertise': True}
+    server['dhcpv6_remote_server'] = {'interface': 'eth0', 'network': '2001:db8:10::/64',
+                                    'start': '2001:db8:10::100', 'end': '2001:db8:10::10f', 'lease_seconds': 120}
+    return validate(spec)

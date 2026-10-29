@@ -5134,3 +5134,80 @@ withdrawal in both directions after pruning the trunk. It verifies failed
 delivery and refused save while the trunk differs, then recovery, peer daemon
 stop/restart, unexpected-static-route refusal and fresh adjacencies after
 save/restore. Learned routes and neighbor entries are not persisted.
+
+## DHCPv6 IA_NA through a physical relay to a remote pool
+
+`example --dhcpv6-relay` separates address allocation on R2 from relaying on
+R1. PC1 has no declared IPv6 address or route. It runs the existing BusyBox
+IA_NA client, receives a finite /128, and learns its gateway from independent
+RAs. R1 forwards client requests to R2 over a numbered physical transit link;
+R2 has an explicit return route to the client /64. PC2 remains static on R2's
+remote LAN, so actual bidirectional routed delivery can be tested.
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --dnsmasq /usr/sbin/dnsmasq --bird /usr/sbin/bird --birdc /usr/sbin/birdc \
+  --output "$HOME/network-labs-dhcpv6-relay-rootfs"
+python3 -m network_labs.appliances example --dhcpv6-relay \
+  --rootfs "$HOME/network-labs-dhcpv6-relay-rootfs" > dhcpv6-relay-lan.json
+sudo python3 -m network_labs.appliances start dhcpv6-relay-lan.json
+sudo python3 -m network_labs.appliances inspect dhcpv6-relay-lan R1
+sudo python3 -m network_labs.appliances inspect dhcpv6-relay-lan R2
+sudo python3 -m network_labs.appliances show dhcpv6-relay-lan PC1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show dhcpv6-relay-lan PC1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances verify dhcpv6-relay-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save dhcpv6-relay-lan
+sudo python3 -m network_labs.appliances stop dhcpv6-relay-lan
+sudo python3 -m network_labs.appliances restore dhcpv6-relay-lan
+```
+
+Node fields for this first profile:
+
+- `dhcpv6_relay: {"interface":"eth0", "upstream":"eth1",
+  "server":"2001:db8:100::2", "advertise":true}` requires distinct UP numbered
+  physical ports on an IPv6-forwarding OCI router. The unicast server must be
+  on-link to the upstream port and declared as a managed remote server.
+- `dhcpv6_remote_server: {"interface":"eth0", "network":"2001:db8:10::/64",
+  "start":"2001:db8:10::100", "end":"2001:db8:10::10f",
+  "lease_seconds":120}` requires a separate numbered OCI host/router and a
+  nonlocal client /64. Pools contain 1..256 usable addresses, exclude all
+  declared static addresses, and cannot overlap other DHCPv6 pools. Leases are
+  120..86400 seconds. An explicit route back to that /64 via the relay's
+  upstream address is mandatory. One remote pool/server pairs with one relay.
+
+Dnsmasq's relay carries the client's subnet in the DHCPv6 link-address field;
+its upstream interface selector limits where server replies are accepted.
+The remote dnsmasq process allocates IA_NA addresses from that subnet. DNS is
+disabled. No local pool is run on the relay and no address/default route is
+injected into the client by the host supervisor.
+
+`advertise:true` explicitly enables independent BIRD 2 RAdv on the client
+interface: M=1, O=0, prefix L=1/A=0, a 15-second router lifetime and no RDNSS.
+It advertises only the declared client /64; RAs provide the link-local default
+gateway while DHCPv6 supplies the address. BIRD has no kernel routing protocol
+in this configuration. The RA daemon remains separate from dnsmasq, avoiding
+unsupported allocation/relay competition on the same interface. This does not
+add RA authentication, RA Guard or filtering of arbitrary forged relay traffic.
+
+Inspect exposes separate managed config evidence and actual BIRD control text.
+Config-file conformity is not daemon liveness or lease proof. Save combines
+client hook/sysctl checks with static address/route and service-config audits.
+Restore recreates declarations, RAs and fresh DHCPv6 acquisition. No lease
+file, DUID, learned address, default route or neighbor snapshot is persisted.
+Live changes require recreation; no automatic fallback allocator is used.
+
+The dedicated `dhcpv6-relay-interop` CI scenario checks upstream UDP/547
+Relay-Forward/Relay-Reply messages, nested transaction/client/server identities,
+the downstream RA flags, finite client address lifetime/DAD, and actual routed
+traffic. It stops the relay and allocator separately, checks that new
+acquisition fails while RA continues, then tests recovery, drift refusal and
+save/restore. Host IPv6 interfaces, routes, rules and forwarding are checked
+for unchanged state after cleanup.
+
+Scope excludes relay chains, multicast server selection, multiple pools per
+server, IA_PD/stateless DHCPv6, DNS provisioning, SVIs/subinterfaces, dynamic
+routing/dual-stack service coexistence and IPv6 firewall/RA Guard. Prefix
+Delegation remains the next increment.
+
+References: [dnsmasq relay documentation](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html)
+and [BIRD 2 RAdv documentation](https://bird.nic.cz/doc/bird-2.18.html).

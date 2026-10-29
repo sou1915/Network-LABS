@@ -339,9 +339,9 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
-            if (node.get('ospf') is not None or node.get('ospfv3') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
-                raise RuntimeFailure(node['name'] + ': OSPF requires a rootfs built with --bird and --birdc.')
-            if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
+            if (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
+                raise RuntimeFailure(node['name'] + ': Managed BIRD routing/RA requires a rootfs built with --bird and --birdc.')
+            if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements') or node.get('dhcpv6_relay') or node.get('dhcpv6_remote_server')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA/TFTP requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
             if node.get('lldp') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/lldpd', 'usr/sbin/lldpcli', 'etc/network-labs-lldp-assets.json')):
@@ -419,6 +419,8 @@ class Manager:
             install_ipv6_routes(self)
             from .slaac import start_servers as start_ra_servers
             start_ra_servers(self)
+            from .dhcpv6_relay import start_servers as start_dhcpv6_relay
+            start_dhcpv6_relay(self)
             from .dhcpv6 import start_clients as start_dhcpv6_clients
             start_dhcpv6_clients(self)
             from .ovs import start_servers as start_ovs
@@ -478,6 +480,8 @@ class Manager:
         prepare_ra(bundle, node)
         from .dhcpv6 import prepare_files as prepare_dhcpv6
         prepare_dhcpv6(bundle, node)
+        from .dhcpv6_relay import prepare_files as prepare_dhcpv6_relay
+        prepare_dhcpv6_relay(bundle, node)
         from .management import prepare_files as prepare_management
         prepare_management(bundle, node)
         from .syslog_server import prepare_files as prepare_collector

@@ -55,7 +55,7 @@ def validate_node(node):
 def validate_lab(spec):
     # Static endpoints must never overlap dynamically allocated pool addresses.
     static = [ipaddress.IPv6Interface(v).ip for n in spec['nodes'] for v in n['ipv6'].values()]
-    pools = [n['dhcpv6_server'] for n in spec['nodes'] if n['dhcpv6_server']]
+    pools = [n[key] for n in spec['nodes'] for key in ('dhcpv6_server', 'dhcpv6_remote_server') if n.get(key)]
     for i, pool in enumerate(pools):
         start, end = (ipaddress.IPv6Address(pool[k]) for k in ('start', 'end'))
         if any(start <= a <= end for a in static):

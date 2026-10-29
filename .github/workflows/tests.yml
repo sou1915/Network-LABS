@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  dhcpv6-relay-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 relay prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dnsmasq-base bird2 crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify remote DHCPv6 allocation, relay/RA wire evidence, outages and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_relay_integration.py -v
   ipv6-svi-interop:
     runs-on: ubuntu-24.04
     steps:

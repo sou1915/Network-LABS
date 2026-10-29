@@ -66,6 +66,8 @@ def validate_node(node):
 def validate_lab(spec):
     from .dhcpv6 import validate_lab as validate_dhcpv6_lab
     validate_dhcpv6_lab(spec)
+    from .dhcpv6_relay import validate_lab as validate_dhcpv6_relay_lab
+    validate_dhcpv6_relay_lab(spec)
     if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes']):
         return
     if (any(n['forwarding'] or n.get('gateway') or n['routes'] for n in spec['nodes']) and

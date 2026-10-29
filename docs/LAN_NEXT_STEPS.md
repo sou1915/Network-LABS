@@ -17,6 +17,15 @@ failure/recovery coverage appropriate to its scope.
 5. GUI: connect the native lifecycle, configuration and observations to the UI
    after the above profiles are ready.
 
+## Current IPv6 sequence
+
+Physical OSPFv3, static IPv6 SVIs and OSPFv3 over a tagged SVI transit now have
+successful dedicated native CI evidence. The next increment is physical
+DHCPv6 relay/remote IA_NA allocation with separate managed RA, followed by
+Prefix Delegation. Router subinterfaces, IPv6 security/RA Guard and supported
+service coexistence follow. The broader AAA and switching/service gaps above
+remain tracked; these bounded increments do not complete the entire LAN.
+
 ## Current AAA increment
 
 `radius-exec LAB SOURCE SERVER --username USER --password-file FILE
