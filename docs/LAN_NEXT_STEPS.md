@@ -23,8 +23,19 @@ Physical OSPFv3, static IPv6 SVIs and OSPFv3 over a tagged SVI transit now have
 successful dedicated native CI evidence. Physical DHCPv6 relay/remote IA_NA allocation
 with separate managed RA has dedicated native CI evidence. A single-/64 Kea
 Prefix Delegation profile now adds finite downstream gateway installation and
-SLAAC, with its own native CI job. Router subinterfaces, IPv6 security/RA Guard and supported
-service coexistence follow. The broader AAA and switching/service gaps above
+SLAAC, with successful [dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40873755093/job/123447186902)
+at implementation commit `87a8d9283d5994158f2bc308dc4a5e4f14cbc205`.
+That job verified real IA_PD SARR/Renew/Release packets without IA_NA,
+downstream RA/SLAAC and routed delivery, finite gateway expiry after Kea
+shutdown, recovery, drift refusal and saved restart. The general `tests` job
+also passed on that commit; broader switching/native suites were still running
+when this checkpoint was recorded. PD-only unicast renewal/release requires
+the pinned BusyBox build in `tools/build_pd_busybox.py`; the stock 1.36.1
+client has a null IA_NA source bug. Server shutdown uses Kea's fixed local
+Unix control socket.
+
+Next: router subinterfaces, then IPv6 security/RA Guard and supported
+service coexistence. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
