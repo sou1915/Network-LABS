@@ -89,7 +89,7 @@ class NativeDHCPv6RelayTests(unittest.TestCase):
                 self.assertEqual(report['probe_commands_attempted'], 0)
             try:
                 with manager.locked(): manager.start(spec)
-                ready()
+                initial_lease = ready()
                 self.assertTrue(manager.inspect('R1')['dhcpv6_relay']['configuration_verified'])
                 self.assertTrue(manager.inspect('R2')['dhcpv6_remote_server']['configuration_verified'])
                 upstream, downstream = root / 'relay-up.pcap', root / 'relay-client.pcap'
@@ -108,10 +108,15 @@ class NativeDHCPv6RelayTests(unittest.TestCase):
                 packets = captured_relays(upstream.read_bytes())
                 self.assertTrue({12, 13} <= {p['type'] for p in packets}, packets)
                 self.assertTrue({1, 2, 3, 7} <= {p['inner_type'] for p in packets}, packets)
-                self.assertTrue(all(p['link'] == '2001:db8:10::1' and p['hop_count'] == 0 and
-                                    ipaddress.IPv6Address(p['peer']).is_link_local for p in packets), packets)
+                self.assertTrue(all(p['link'] == '2001:db8:10::1' and p['hop_count'] == 0 for p in packets), packets)
+                for packet in packets:
+                    # Solicit/Advertise/Request use the client's link-local
+                    # source. Release and its Reply may use its leased address.
+                    peer = ipaddress.IPv6Address(packet['peer'])
+                    self.assertTrue(peer.is_link_local or
+                                    (packet['inner_type'] in (8, 7) and str(peer) == initial_lease), packet)
                 requests = [p for p in packets if p['type'] == 12 and p['inner_type'] == 3]
-                replies = [p for p in packets if p['type'] == 13 and p['inner_type'] == 7]
+                replies = [p for p in packets if p['type'] == 13 and p['inner_type'] == 7 and p['addresses']]
                 self.assertTrue(any(q['xid'] == r['xid'] and q['client_ids'] == r['client_ids'] and
                                     q['server_ids'] == r['server_ids'] and q['client_ids'] and q['server_ids']
                                     for q in requests for r in replies), packets)
