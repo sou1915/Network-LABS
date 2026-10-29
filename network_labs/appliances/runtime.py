@@ -172,8 +172,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         management_additions = rootfs_assets(dropbear)
     if ssh_relay is not None:
         if dropbear is None: raise ValueError('SSH relay rootfs assets require --dropbear.')
-        from .ssh_access import RELAY_BINARY
-        management_additions += dns_assets(ssh_relay, destination=RELAY_BINARY, identity='Network LABS SSH relay 1')
+        from .ssh_access import relay_assets
+        management_additions += relay_assets(ssh_relay)
     collector_additions = []
     if rsyslog_modules is not None and rsyslog is None:
         raise ValueError('--rsyslog-modules requires --rsyslog.')

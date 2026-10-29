@@ -25,6 +25,11 @@ class SSHRelayClientTests(unittest.TestCase):
         subprocess.run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-DNL_BRIDGE_PORT=' + str(cls.port),
                         str(source), '-o', str(cls.binary)], check=True, capture_output=True)
 
+    def test_compiled_elf_identity_and_copy_plan_match_the_rootfs_builder(self):
+        from network_labs.appliances.ssh_access import relay_assets, RELAY_BINARY
+        plan = relay_assets(self.binary)
+        self.assertIn((self.binary.resolve(), Path(RELAY_BINARY)), plan)
+
     def endpoint(self, handler):
         listener = socket.socket(); listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(('127.0.0.1', self.port)); listener.listen(1); listener.settimeout(3)

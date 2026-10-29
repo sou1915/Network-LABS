@@ -51,3 +51,9 @@ def service_process(args, *, terminal=False):
             'noNewPrivileges': True,
             'capabilities': {**{name: list(caps) for name in ('bounding', 'effective', 'permitted')},
                              'inheritable': [], 'ambient': []}}
+
+
+def relay_assets(binary):
+    from .dns_rootfs import assets
+    return assets(binary, destination=RELAY_BINARY, identity='Network LABS SSH relay 1',
+                  version_check=lambda result: result.returncode == 0 and result.stdout == 'Network LABS SSH relay 1\n')
