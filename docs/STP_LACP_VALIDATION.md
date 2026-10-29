@@ -110,3 +110,15 @@ state after cold restore. Runtime PID/tokens/events do not enter saved policy.
 
 This does not provide generic FDB repair for arbitrary topologies, MSTP/PVST,
 OVS, optical faults, one-way LACP loss or support on every kernel.
+
+The opt-in automatic carrier profile passed the
+[dedicated carrier job](https://github.com/sou1915/Network-LABS/actions/runs/40960722168/job/123752453718)
+at implementation commit `c5b7caabd35ecc3116731e15f77991fec2a7dc5d` on
+`7.0.0-1017-azure` with iproute2 6.1.0. The 167-second scenario completed two
+full cycles for each threshold, both tagged packet paths, static-marker
+preservation, successful worker repairs, unchanged revision/configuration,
+saved restart, fresh worker identity and worker termination before cleanup.
+The general tests and older managed-administrative `switching-interop` job also
+passed on this commit; its complete native suite was still running at the
+checkpoint. This records the implemented opt-in repair, not natural recovery
+without a worker or validation on the original 6.17 kernel.

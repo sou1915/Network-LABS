@@ -101,10 +101,33 @@ real Router Solicitations. The general `tests` and all dedicated IPv6, SSH and
 RADIUS jobs passed at this checkpoint; switching/native suites were still
 running. Other service/security combinations remain separately scoped work.
 
-Next: remaining switching carrier/kernel failure and recovery profiles,
-including STP/LACP, then LAN service polish. Broader AAA gaps remain tracked
-above. Dynamic routing/services over router subinterfaces and broader IPv6
-coexistence remain outside the validated profiles; GUI and WAN remain later. The broader AAA and switching/service gaps above
+Peer-induced STP/LACP carrier recovery now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40960722168/job/123752453718)
+at implementation commit `c5b7caabd35ecc3116731e15f77991fec2a7dc5d`, on
+`7.0.0-1017-azure`. The first natural min-links-1 run exposed a real packet
+blackhole after partial aggregate return despite settled control state and
+old spare-path FDB learning. The optional `spanning_tree.carrier_recovery`
+worker now waits for two equal settled control observations with one root
+and a ready selected aggregate before repairing dynamic FDB on both bridges.
+It preserves static/permanent entries and does not edit addresses/routes or
+interface state. Partial repair remains incomplete and retries; stale/dead
+worker state is separately reported and refused by save.
+
+The `--stp-lacp` reference opts in exactly two Linux common-STP switches, one
+two-member LACP channel each, initially UP, with a more expensive spare trunk.
+Other profiles default off and opted-in component edits require recreation.
+The test completed two cycles at min-links 1 and 2, actual tagged traffic on
+selected paths with IPv4 TTL 64, static-marker preservation, stable declared
+revision/configuration, worker repair evidence, cold restore and worker cleanup.
+There is no test-helper FDB repair. This is a virtual peer-induced carrier
+case with an explicit runtime worker, not natural recovery on every kernel or
+a physical cable/one-way loss test. See STP_LACP_VALIDATION.md for the matrix.
+
+General tests, the older managed STP/LACP job and all dedicated IPv6/AAA jobs
+passed on the same commit; the full native suite was still running when this
+checkpoint was recorded. Next: one-way LACP/control loss with carrier retained
+and broader kernel/failure validation, then LAN service polish. Broader AAA,
+IPv6 coexistence and subinterface service gaps remain tracked; GUI/WAN stay later. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
