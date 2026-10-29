@@ -98,7 +98,11 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
                             self.assertNotIn(password.encode(), output)
                             process.kill(); process.wait(timeout=2)
                             break
-                    else: self.fail('SSH PTY did not finish: ' + repr(output))
+                    else:
+                        log = (manager.directory / 'PC1.ssh-radius.log').read_text(errors='replace')[-3000:]
+                        processes = manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'pid,ppid,stat,args').stdout
+                        groups = [path.name for path in session_parent(manager, 'PC1').glob('aaa-*')]
+                        self.fail('SSH PTY did not finish: ' + repr(output) + '\nBridge: ' + log + '\nProcesses: ' + processes + '\nGroups: ' + repr(groups))
                     self.assertTrue(commands_sent, repr(output))
                     if not disconnect: self.assertEqual(process.wait(timeout=2), 0, repr(output))
                     self.assertIn(b'uid=65532', output); self.assertIn(b'SSH-PTY-OK', output)
