@@ -19,6 +19,7 @@ from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
 from network_labs.appliances.verify import verify
 from test_native_dhcpv6_relay import captured_relays
+from test_native_integration import unexpected_host_link_changes
 from test_native_slaac import captured_ras
 
 
@@ -157,4 +158,10 @@ class NativeDHCPv6RelayTests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout, host_routes)
         self.assertEqual(run(['ip', '-j', '-6', 'rule', 'show']).stdout, host_rules)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout, host_forwarding)
-        self.assertEqual({(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}, host_links)
+        after = {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        # Hosted Azure runners can hotplug a physical VF. Verify hardware via
+        # sysfs, preserve every baseline link identity and reject added virtual
+        # interfaces; never exempt a device merely because of its name.
+        hardware = {name for name, _ in after - host_links if (Path('/sys/class/net') / name / 'device').exists()}
+        self.assertEqual(unexpected_host_link_changes(host_links, after, hardware),
+                         {'removed_or_replaced': set(), 'added_virtual': set()})
