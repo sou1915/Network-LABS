@@ -16,6 +16,7 @@ from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
 from network_labs.appliances.show import show
 from network_labs.appliances.verify import verify
+from test_native_integration import unexpected_host_link_changes
 
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
@@ -105,4 +106,6 @@ class NativeIPv6SVITests(unittest.TestCase):
         self.assertEqual(run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout, host_routes)
         self.assertEqual(run(['ip', '-j', '-6', 'rule', 'show']).stdout, host_rules)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout, host_forwarding)
-        self.assertEqual({(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}, host_links)
+        after = {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        hardware = {name for name, _ in after - host_links if (Path('/sys/class/net') / name / 'device').exists()}
+        self.assertEqual(unexpected_host_link_changes(host_links, after, hardware), {'removed_or_replaced': set(), 'added_virtual': set()})

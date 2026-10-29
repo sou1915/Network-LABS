@@ -44,7 +44,8 @@ class NativeIPv6FirewallTests(unittest.TestCase):
             def start_http():
                 manager.crun('exec', 'PC2', '/bin/sh', '-c', 'mkdir -p /tmp/www; printf ipv6-firewall-ok > /tmp/www/index.html')
                 for port in (8080, 8081):
-                    manager.crun('exec', '--detach', 'PC2', '/bin/busybox', 'httpd', '-f', '-p', '[::]:' + str(port), '-h', '/tmp/www')
+                    manager.crun('exec', '--detach', 'PC2', '/bin/busybox', 'httpd', '-f', '-p', '[::]:' + str(port), '-h', '/tmp/www',
+                                 log=manager.directory / 'PC2' / ('http-' + str(port) + '.log'))
                 deadline = time.monotonic() + 5
                 while http(8081, 'PC2').returncode:
                     if time.monotonic() >= deadline: self.fail('Independent blocked-port listener unavailable')

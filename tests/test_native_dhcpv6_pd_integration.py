@@ -57,13 +57,24 @@ class NativePDTests(unittest.TestCase):
                 manager.crun('exec', 'R1', '/bin/sh', '-c',
                              'pid=$(/bin/busybox cat /run/pd-client.pid); [ "$pid" -gt 1 ]; /bin/busybox kill -' + value + ' "$pid"')
             def ready():
+                last_solicitation = 0
                 def configured():
+                    nonlocal last_solicitation
                     gw, host = delegated(), addresses(0, 'eth0')
-                    return (len(gw) == 1 and gw[0]['local'] == '2001:db8:10::1' and gw[0]['prefixlen'] == 64 and
+                    routes = json.loads(manager.ns(0, 'ip', '-j', '-6', 'route', 'show', 'table', 'main').stdout)
+                    ready = (len(gw) == 1 and gw[0]['local'] == '2001:db8:10::1' and gw[0]['prefixlen'] == 64 and
                             0 < gw[0].get('valid_life_time', 0) <= 30 and not gw[0].get('tentative') and
                             not gw[0].get('dadfailed') and 'tentative' not in gw[0].get('flags', []) and
                             len(host) == 1 and ipaddress.IPv6Address(host[0]['local']) in ipaddress.IPv6Network('2001:db8:10::/64') and
-                            not host[0].get('tentative') and not host[0].get('dadfailed') and 'tentative' not in host[0].get('flags', []))
+                            not host[0].get('tentative') and not host[0].get('dadfailed') and 'tentative' not in host[0].get('flags', []) and
+                            host[0].get('preferred_life_time', 0) > 0 and
+                            any(r.get('dst') == 'default' and r.get('protocol') == 'ra' and r.get('expires', 0) > 0 for r in routes))
+                    if not ready and time.monotonic() - last_solicitation >= 4:
+                        # Ask the real RA service again after lease recovery;
+                        # never inject a host address/default or accept a stale
+                        # deprecated address as restored SLAAC readiness.
+                        solicit_ipv6_router(manager, 0); last_solicitation = time.monotonic()
+                    return ready
                 wait(configured, 'Delegated gateway and downstream SLAAC did not become ready')
                 target = addresses(0, 'eth0')[0]['local']
                 for name, destination in (('PC1', '2001:db8:20::20'), ('PC2', target)):
