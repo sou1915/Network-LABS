@@ -5586,3 +5586,19 @@ packets and a recreated positive control: explicitly trusting the former rogue
 port lets its valid RA install a default router, while the IA_NA /128 remains
 separate and autoconfiguration stays disabled. Host nftables, IPv6 routes/rules,
 forwarding and virtual-link cleanup have their own invariants.
+
+## Common STP/LACP peer carrier profile
+
+`example --stp-lacp --stp-lacp-min-links 1|2` exposes the two-VLAN LACP/spare
+reference topology independently of the older managed-administrative recovery
+test. The optional threshold argument requires `--stp-lacp`; the default is 1.
+Both switches have the same threshold, a two-member active/passive LACP trunk
+and a higher-cost tagged spare under classic common STP. There is no routing,
+per-VLAN spanning tree or vendor-specific control plane.
+
+See [STP/LACP validation](STP_LACP_VALIDATION.md#peer-induced-carrier-validation)
+for the separate peer-induced carrier scenario, packet path assertions, natural
+recovery deadlines, persistence semantics and explicit kernel/hardware limits.
+The runtime's existing dynamic-only FDB reconciliation still belongs to managed
+administrative recovery; the carrier test does not call it or introduce a
+background carrier-repair process.

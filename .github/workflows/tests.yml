@@ -1,6 +1,20 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  stp-lacp-carrier-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated carrier/STP/LACP prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds and record kernel
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          ip -Version
+      - name: Verify peer-induced carrier loss and natural recovery without manager edits or FDB flush
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_carrier_integration.py -v
   ra-guard-dhcpv6-interop:
     runs-on: ubuntu-24.04
     steps:

@@ -892,3 +892,19 @@ def ra_guard_dhcpv6_lab(rootfs):
     spec['nodes'][1]['dhcpv6_server'] = {'interface': 'eth0', 'start': '2001:db8:10::100',
                                          'end': '2001:db8:10::10f', 'lease_seconds': 120}
     return validate(spec)
+
+
+def stp_lacp_lab(rootfs, min_links=1):
+    """Common STP chooses one LACP trunk or a higher-cost tagged spare."""
+    from .spec import integer
+    integer(min_links, 1, 2, 'STP/LACP min_links')
+    spec = lacp_lab(rootfs); spec['name'] = 'stp-lacp-lan'
+    for index, node in enumerate(spec['nodes'][4:]):
+        node['interfaces']['eth4'] = ''
+        node['interface_aliases']['fa0/5'] = 'eth4'
+        node['switchports']['eth4'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+        node['port_channels']['bond1']['min_links'] = min_links
+        node['spanning_tree'] = {'mode': 'stp', 'priority': (index + 1) * 4096, 'hello_time': 1,
+                                 'max_age': 6, 'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}}
+    spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']])
+    return validate(spec)
