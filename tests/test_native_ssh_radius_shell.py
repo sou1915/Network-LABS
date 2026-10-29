@@ -102,9 +102,9 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
                         log = (manager.directory / 'PC1.ssh-radius.log').read_text(errors='replace')[-3000:]
                         processes = manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'pid,ppid,stat,args').stdout
                         groups = [path.name for path in session_parent(manager, 'PC1').glob('aaa-*')]
-                        descriptors = manager.crun('exec', 'PC1', '/bin/sh', '-c',
+                        descriptors = manager.crun('exec', '--user', '65532:65532', 'PC1', '/bin/sh', '-c',
                             'for p in /proc/[0-9]*/fd; do echo "$p"; for n in 0 1 3 4; do /bin/busybox readlink "$p/$n"; done; done', check=False).stdout
-                        waits = manager.crun('exec', 'PC1', '/bin/sh', '-c',
+                        waits = manager.crun('exec', '--user', '65532:65532', 'PC1', '/bin/sh', '-c',
                             'for p in /proc/[0-9]*/wchan; do echo "$p"; /bin/busybox cat "$p"; echo; done', check=False).stdout
                         self.fail('SSH PTY did not finish: ' + repr(output) + '\nBridge: ' + log + '\nProcesses: ' + processes + '\nGroups: ' + repr(groups) + '\nFDs: ' + descriptors + '\nWaits: ' + waits)
                     self.assertTrue(commands_sent, repr(output))

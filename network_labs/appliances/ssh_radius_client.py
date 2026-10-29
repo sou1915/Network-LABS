@@ -51,7 +51,12 @@ work=$(/bin/busybox mktemp -d /tmp/ssh-radius.XXXXXX) || exit 125
 /bin/busybox mkfifo "$work/input" "$work/output" || exit 125
 exec 4<&0
 {
-    printf 'NLSSH1\n%s\n%s\n%s\n' "$action" "$username" "$password"
+    /bin/busybox cat <<REQUEST
+NLSSH1
+$action
+$username
+$password
+REQUEST
     unset password
     case "$action" in shell|shell-tty) exec /bin/busybox cat;; esac
 } <&4 > "$work/input" &
