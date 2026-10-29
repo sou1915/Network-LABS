@@ -80,10 +80,25 @@ class NativeIPv6SubinterfaceTests(unittest.TestCase):
                 self.assertEqual(ping('2001:db8:30::10').returncode, 0)
                 self.assertEqual(ping('2001:db8:10::20').returncode, 0); refuse_save()
                 manager.ns(4, 'bridge', 'vlan', 'add', 'dev', 'eth3', 'vid', '20'); healthy()
+                # Peer-down is a carrier outage, distinct from local admin DOWN.
+                manager.ns(4, 'ip', 'link', 'set', 'dev', 'eth3', 'down')
+                self.assertNotEqual(ping('2001:db8:30::10').returncode, 0)
+                self.assertEqual(ping('2001:db8:10::20').returncode, 0); refuse_save()
+                manager.ns(4, 'ip', 'link', 'set', 'dev', 'eth3', 'up'); healthy()
+                # External local admin DOWN may flush static IPv6 state. It
+                # remains drift after UP; this profile restores via recreation,
+                # never by injecting addresses/routes inside the ping helper.
+                with manager.locked(): manager.write_startup()
                 manager.ns(5, 'ip', 'link', 'set', 'dev', 'eth0', 'down')
                 self.assertNotEqual(ping('2001:db8:30::10').returncode, 0)
                 self.assertEqual(ping('2001:db8:10::20').returncode, 0); refuse_save()
-                manager.ns(5, 'ip', 'link', 'set', 'dev', 'eth0', 'up'); healthy()
+                manager.ns(5, 'ip', 'link', 'set', 'dev', 'eth0', 'up')
+                refuse_save()
+                with manager.locked():
+                    saved_before_fault = load_startup(spec['name'])
+                    self.assertEqual(saved_before_fault, spec)
+                    manager.stop(); manager.start(saved_before_fault)
+                healthy()
                 # Recreate the right name/address on the WRONG VID: only a link
                 # encapsulation audit can distinguish this from declared state.
                 def recreate(vid):

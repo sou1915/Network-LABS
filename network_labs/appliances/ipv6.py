@@ -91,11 +91,12 @@ def validate_lab(spec):
         if node['subinterfaces']:
             if (node['role'] != 'router' or not node['ipv6'] or node['forwarding'] or node['routes'] or node.get('gateway') or
                     any(node['interfaces'].values()) or any(sub['address'] for sub in node['subinterfaces'].values()) or
-                    any(name not in node['ipv6'] or sub['vlan'] is None or sub['parent'] in node['ipv6']
+                    any(name not in node['ipv6'] or sub['vlan'] is None or sub['parent'] in node['ipv6'] or
+                        name in node['shutdown'] or sub['parent'] in node['shutdown']
                         for name, sub in node['subinterfaces'].items()) or
                     any(node.get(key) for key in ('ospfv3', 'slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                                  'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server'))):
-                raise ValueError('IPv6 subinterfaces require numbered static dot1Q router ports, unnumbered parents and no IPv4 or dynamic services.')
+                raise ValueError('IPv6 subinterfaces require UP numbered static dot1Q router ports, UP unnumbered parents and no IPv4 or dynamic services.')
         if node.get('svis') and (not node['ipv6'] or any(svi['address'] for svi in node['svis'].values()) or
                                  any(node.get(key) for key in ('forwarding', 'gateway', 'routes'))):
             raise ValueError('IPv6 switch SVIs require explicit static IPv6 and exclude IPv4 SVI addressing/routing.')

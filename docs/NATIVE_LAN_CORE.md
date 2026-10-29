@@ -5355,7 +5355,8 @@ subinterface with a unique static /64. For example:
 
 This fragment belongs to an OCI router; it is not a complete manifest. Every
 subinterface in this bounded IPv6 profile must have dot1Q encapsulation and
-static IPv6. Parents have no declared IPv4/IPv6 address. IPv4 forwarding,
+static IPv6, and both the child and parent must initially be administratively
+UP. Parents have no declared IPv4/IPv6 address. IPv4 forwarding,
 IPv4 subinterface addresses, dynamic routing, RA/SLAAC/DHCPv6 on that router,
 port channels, QinQ and live configuration edits remain outside this profile.
 The generic subinterface name suffix is a name, while the `vlan` value is the
@@ -5372,8 +5373,13 @@ The dedicated `ipv6-subinterfaces-interop` scenario checks bidirectional
 same-VLAN delivery (hop limit 64), inter-VLAN delivery through R1 (63), and
 static-route delivery through R1/R2 (62). It captures 802.1Q VLAN 10/20/100
 ICMPv6 traffic on the physical parent, exercises forwarding-off, per-VLAN
-trunk pruning and physical-parent shutdown with failure isolation/recovery,
+trunk pruning and peer-induced carrier loss with failure isolation/recovery,
 rejects wrong-VID devices even with the correct name/address, and verifies
-address-drift refusal plus saved restart. It checks host routes, rules,
+address-drift refusal plus saved restart. An external local parent admin
+DOWN/UP can flush Linux static IPv6 addresses/routes. This is not a supported
+live configuration transaction: save must refuse the resulting drift and
+recreation from the previously saved manifest restores routing. That separate
+fault/recreation path is also tested; no background reconciliation or automatic
+local-admin recovery is claimed. It checks host routes, rules,
 forwarding and virtual link cleanup. These are scoped Linux results, not a
 vendor CLI, gateway redundancy or IPv6 security implementation.

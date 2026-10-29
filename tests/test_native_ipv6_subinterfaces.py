@@ -34,6 +34,8 @@ class IPv6SubinterfaceTests(unittest.TestCase):
                    lambda r: r['ipv6'].update(eth0='2001:db8:99::1/64'),
                    lambda r: r['ipv6'].pop('eth0.20'),
                    lambda r: r.update(forwarding=True),
+                   lambda r: r.update(shutdown=['eth0']),
+                   lambda r: r.update(shutdown=['eth0.20']),
                    lambda r: r.update(role='firewall'),
                    lambda r: r.update(subinterfaces=[]),
                    lambda r: r.update(router_advertisements=['eth0.10']),
