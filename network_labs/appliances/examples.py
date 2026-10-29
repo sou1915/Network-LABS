@@ -882,3 +882,13 @@ def ra_guard_lab(rootfs):
     spec['links'][0] = [['PC1', 'eth0'], ['SW1', 'eth0']]
     spec['links'].extend([[['R1', 'eth0'], ['SW1', 'eth1']], [['ROGUE', 'eth0'], ['SW1', 'eth2']]])
     return validate(spec)
+
+
+
+def ra_guard_dhcpv6_lab(rootfs):
+    """One local IA_NA client/server across RA Guard, with independent RA default."""
+    spec = ra_guard_lab(rootfs); spec['name'] = 'ra-guard-dhcpv6-lan'
+    spec['nodes'][0].update(slaac=[], dhcpv6_clients=['eth0'])
+    spec['nodes'][1]['dhcpv6_server'] = {'interface': 'eth0', 'start': '2001:db8:10::100',
+                                         'end': '2001:db8:10::10f', 'lease_seconds': 120}
+    return validate(spec)

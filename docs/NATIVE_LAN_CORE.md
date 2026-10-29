@@ -5503,8 +5503,9 @@ The runtime installs owned `table bridge network_labs_ra_guard` at prerouting
 priority -320 before raising/bridging the switch ports. The profile requires
 one guarded OCI Linux switch, 2..64 UP physical access ports in the same VLAN,
 and a static IPv6/SLAAC/RA lab without IPv4. Trunks, LAGs, SVIs/subinterfaces,
-OVS/STP, DHCPv6, dynamic routing and composition with other security profiles
-remain outside this increment. Switch/trust edits require manifest changes and
+OVS/STP, dynamic routing and composition with other security profiles remain
+outside this increment. Local IA_NA DHCPv6 has the separately validated paired
+profile below; relay/PD and broader DHCPv6 combinations remain outside it. Switch/trust edits require manifest changes and
 lab recreation.
 
 `inspect` returns declared port trust separately from actual nft counters and
@@ -5527,3 +5528,61 @@ forwarding and virtual-link cleanup have separate invariants.
 
 References: [RFC 7113](https://www.rfc-editor.org/rfc/rfc7113.html) and
 [nftables primary manual](https://netfilter.org/projects/nftables/manpage.html).
+
+## Local DHCPv6 IA_NA with RA Guard
+
+`example --ra-guard-dhcpv6` combines the local dnsmasq IA_NA/RA service with
+that same conservative access-port guard. PC1 requests DHCPv6 on eth0 without
+static IPv6/routes or SLAAC autoconfiguration. R1 assigns a finite /128 from
+`2001:db8:10::100` through `2001:db8:10::10f` with a 120-second lifetime. Its
+separate RA function supplies the default router and on-link prefix with M=1,
+A=0. The learned address is not a gateway-discovery mechanism.
+
+```bash
+python3 -m network_labs.appliances example --ra-guard-dhcpv6 \
+  --rootfs "$HOME/network-labs-ra-guard-rootfs" > ra-guard-dhcpv6-lan.json
+sudo python3 -m network_labs.appliances start ra-guard-dhcpv6-lan.json
+sudo python3 -m network_labs.appliances inspect ra-guard-dhcpv6-lan PC1
+sudo python3 -m network_labs.appliances inspect ra-guard-dhcpv6-lan SW1
+sudo python3 -m network_labs.appliances verify ra-guard-dhcpv6-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ra-guard-dhcpv6-lan
+sudo python3 -m network_labs.appliances stop ra-guard-dhcpv6-lan
+sudo python3 -m network_labs.appliances restore ra-guard-dhcpv6-lan
+```
+
+Use the BusyBox/dnsmasq rootfs built in the preceding RA Guard section. The
+validated combination has exactly one local IA_NA server and one requesting
+host, directly linked to trusted and untrusted ports respectively on the same
+guarded access VLAN. Only the server's declared pool interface advertises RA;
+additional SLAAC clients, relays, PD, multi-server/client combinations, trunks,
+SVIs/subinterfaces, dynamic routing and other security combinations remain
+outside this profile. Plain unfragmented DHCPv6 UDP traffic is admitted; the
+guard's conservative extension/fragment restrictions remain in force.
+
+This is RA admission alongside DHCPv6, **not DHCPv6 snooping or server
+authentication**. The configuration pairing ensures that the intended server's
+RA can traverse its trusted ingress. It does not filter DHCPv6 offers/replies
+from another physical port or pin the client's DHCPv6 server identity. Existing
+strict lifecycle and policy-recreation rules remain in force.
+
+The dedicated `ra-guard-dhcpv6-interop` scenario independently decodes actual
+IA_NA SARR/Renew/Release exchanges and matches request/reply transaction IDs,
+client/server IDs and finite IAADDR lifetimes. It observes trusted RA M/A flags,
+no RDNSS, a live RA default, /128 DAD readiness and bidirectional routed echo.
+The same capture proves rogue RA variants entering the switch without reaching
+the client. Counters and default-router checks accompany those packets.
+
+Release removes the IA_NA address while retaining the independent RA default.
+With the matched local RA+DHCP process stopped, the client cannot reacquire;
+the actual RA default expires and fails kernel route selection while guard
+policy remains installed. Restart restores both real services without seeding
+an address or default. The scenario also checks script/RA-config/sysctl/guard
+drift refusal, saves only declaration and reacquires after cold restore. Leases,
+learned addresses/defaults and guard counters are not restored as snapshots.
+
+Since DHCPv6 clients have `autoconf=0`, absence of a rogue SLAAC address would
+not alone prove guard enforcement. The test therefore checks ingress/egress
+packets and a recreated positive control: explicitly trusting the former rogue
+port lets its valid RA install a default router, while the IA_NA /128 remains
+separate and autoconfiguration stays disabled. Host nftables, IPv6 routes/rules,
+forwarding and virtual-link cleanup have their own invariants.

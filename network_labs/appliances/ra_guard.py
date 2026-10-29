@@ -28,11 +28,35 @@ def validate_lab(spec):
     if not guards: return
     if len(guards) != 1 or not any(n['ipv6'] or n['slaac'] for n in spec['nodes']):
         raise ValueError('Initial RA Guard requires one guarded switch in an IPv6 lab.')
-    forbidden = ('svis', 'subinterfaces', 'ospfv3', 'firewall_ipv6', 'dhcpv6_clients', 'dhcpv6_server',
+    forbidden = ('svis', 'subinterfaces', 'ospfv3', 'firewall_ipv6',
                  'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server')
     if any(any(n.get(key) for key in forbidden) or any(n['interfaces'].values()) or n['forwarding'] or
            n.get('gateway') or n['routes'] for n in spec['nodes']):
-        raise ValueError('Initial RA Guard lab supports static IPv6/SLAAC and RA, without IPv4, dynamic routing, DHCPv6 or other security compositions.')
+        raise ValueError('Initial RA Guard lab supports static IPv6/SLAAC and RA, without IPv4, dynamic routing, relay/PD or other security compositions.')
+
+
+    clients = [n for n in spec['nodes'] if n['dhcpv6_clients']]
+    servers = [n for n in spec['nodes'] if n['dhcpv6_server'] is not None]
+    if not clients and not servers: return
+    if len(clients) != 1 or len(servers) != 1 or any(n['slaac'] for n in spec['nodes']):
+        raise ValueError('RA Guard with DHCPv6 requires one IA_NA client and one local server, without additional SLAAC clients.')
+    switch, client, server = guards[0], clients[0], servers[0]
+    pool_port = server['dhcpv6_server']['interface']
+    if server['router_advertisements'] != [pool_port] or any(n is not server and n['router_advertisements'] for n in spec['nodes']):
+        raise ValueError('RA Guard DHCPv6 pairing requires only the local server to advertise on its pool interface.')
+    def switch_port(node, port):
+        links = spec.get('links', [])
+        if not isinstance(links, list): return None
+        for link in links:
+            if not isinstance(link, list) or len(link) != 2: continue
+            for source, target in (link, link[::-1]):
+                if source == [node['name'], port] and isinstance(target, list) and len(target) == 2 and target[0] == switch['name'] and isinstance(target[1], str) and target[1] in switch['interfaces']:
+                    return target[1]
+        return None
+    server_port = switch_port(server, pool_port)
+    client_port = switch_port(client, client['dhcpv6_clients'][0])
+    if server_port is None or server_port not in switch['ra_guard']['trusted'] or client_port is None or client_port in switch['ra_guard']['trusted']:
+        raise ValueError('RA Guard DHCPv6 requires direct server/client links to trusted/untrusted ports on the guarded access VLAN.')
 
 
 def render(node, replace=False):

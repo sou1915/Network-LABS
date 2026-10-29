@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  ra-guard-dhcpv6-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 and RA Guard prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+      - name: Verify local IA_NA and RA Guard wire evidence, renewal, outage, trust control and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_dhcpv6_integration.py -v
   ra-guard-interop:
     runs-on: ubuntu-24.04
     steps:

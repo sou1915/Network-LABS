@@ -30,7 +30,7 @@ partial-flush rollback, min-links, logical shutdown and saved restart scenarios.
 | VLAN/switching | Access/trunk dot1Q, Linux bridges, LACP, common STP; managed STP/LACP administrative recovery reconciles dynamic FDB after settled control state, with repeated bidirectional VLAN tests in dedicated CI; scoped OVS RSTP | Broader kernel/carrier-failure validation, MSTP/PVST, broader switching interactions and vendor details |
 | Discovery/multicast | Received LLDP and scoped Linux IGMPv2 snooping/querier | CDP, MLD, broader multicast and discovery profiles |
 | Internal routing | Static IPv4/IPv6, BIRD OSPFv2 area 0 subsets; BIRD OSPFv3 on physical routers and Linux switch SVIs, with tagged-transit failure/recovery tests | Broader IGP features, VRRP/gateway redundancy and failover |
-| Security | Scoped IPv4 nftables/NAT; separate static-IPv6 stateful forward ACL; conservative single-VLAN access-port RA Guard; port security, DHCP snooping, ARP/IP admission | Broader RA Guard extension-header interoperability/trunks, IPv6 input/output policy, broader IPv6/security/service coexistence |
+| Security | Scoped IPv4 nftables/NAT; separate static-IPv6 stateful forward ACL; conservative single-VLAN access-port RA Guard, including a bounded local IA_NA/RA pairing; port security, DHCP snooping, ARP/IP admission | Broader RA Guard extension-header interoperability/trunks, IPv6 input/output policy, broader IPv6/security/service coexistence |
 | Local Windows/Linux services | Basic node connectivity and shell services | SMB/AD-oriented scenarios, mDNS/LLMNR/NetBIOS and device-specific connectivity GUIs |
 
 WAN/BGP/VPN and full vendor firmware/GUI fidelity remain separate later stages.
