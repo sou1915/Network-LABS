@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  ipv6-svi-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 SVI prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify actual IPv6 SVI routing, trunk tags, drift refusal and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_svi_integration.py -v
   ospfv3-interop:
     runs-on: ubuntu-24.04
     steps:

@@ -5040,3 +5040,57 @@ The earlier SSH/RADIUS PTY blocker is validated by the successful
 including expiry, disconnect, accounting and cleanup. Remaining IPv6 work after
 this profile includes relay/PD, SVIs and IPv6 security; switching and service
 polish still precede the GUI.
+
+## Static IPv6 inter-VLAN routing on Linux switch SVIs
+
+`example --ipv6-svi` adds two real VLAN devices on the core Linux switch:
+`vlan10` (`2001:db8:10::1/64`) and `vlan20` (`2001:db8:20::1/64`). Four hosts
+span two switches and a tagged 10/20 trunk. Hosts use explicit IPv6 default
+routes; the core routes between its connected prefixes. IPv4 forwarding stays
+disabled and the SVI IPv4 `address` fields stay empty.
+
+```bash
+# The trusted static BusyBox rootfs is sufficient; no routing daemon is needed.
+python3 -m network_labs.appliances example --ipv6-svi \
+  --rootfs "$HOME/network-labs-rootfs" > ipv6-svi-lan.json
+sudo python3 -m network_labs.appliances start ipv6-svi-lan.json
+sudo python3 -m network_labs.appliances show ipv6-svi-lan SW1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show ipv6-svi-lan SW1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances show ipv6-svi-lan SW1 --text 'show ipv6 neighbors'
+sudo python3 -m network_labs.appliances verify ipv6-svi-lan PC1 PC4 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ipv6-svi-lan
+sudo python3 -m network_labs.appliances stop ipv6-svi-lan
+sudo python3 -m network_labs.appliances restore ipv6-svi-lan
+```
+
+On a Linux switch, `ipv6` maps **declared SVI names** to usable static /64
+addresses. Physical switchports and `br0` cannot be numbered through this
+field. The existing `svis` name/VLAN checks and bridge-self membership apply;
+VLAN links are created before IPv6 addresses are configured. Set
+`ipv6_forwarding: true` to route, or false for gateway-only behavior. This
+setting is separate from the existing IPv4 `forwarding` flag. Static IPv6
+routes may select a numbered SVI and a remote unicast next hop within its
+prefix; no route is inferred from the topology.
+
+The profile keeps DAD enabled and RA acceptance/autoconfiguration disabled on
+the numbered SVIs. Address, route and IPv6 forwarding audits are combined with
+the existing SVI encapsulation, bridge-self and trunk VLAN membership audits.
+Save refuses mismatched runtime state; restore reconstructs declarations and
+performs fresh DAD. It does not persist neighbor tables. Live IPv6/SVI policy
+edits still require lab recreation. Linux link/carrier state is observed;
+Catalyst per-VLAN autostate is not emulated.
+
+This extends the earlier physical IPv6 profile specifically for static,
+IPv6-only Linux switch SVIs. Dual-stack SVI routing, RA/DHCPv6 on SVIs,
+OSPFv3 on SVIs, subinterfaces, OVS, STP/bundles and IPv6 security composition
+remain excluded. No RA Guard or IPv6 firewall coverage is implied.
+
+The dedicated `ipv6-svi-interop` CI test checks same-VLAN traffic and routed
+traffic separately, including received hop limits and actual 802.1Q PCAP
+frames. Negative controls disable forwarding, remove VLAN20 from the trunk,
+and remove bridge-self VLAN20 membership, with failed packet delivery and
+save refusal. It also checks address drift, recovery, save/restore and unchanged
+host IPv6 routes/rules/forwarding/interfaces.
+
+References: [Linux bridge VLAN filtering](https://docs.kernel.org/networking/bridge.html)
+and [IPv6 forwarding sysctls](https://docs.kernel.org/networking/ip-sysctl.html).

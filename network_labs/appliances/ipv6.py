@@ -1,4 +1,4 @@
-"""Static IPv6 host/router profiles on an isolated Linux LAN fabric."""
+"""Static IPv6 on physical hosts/routers and Linux switch VLAN interfaces."""
 import ipaddress
 import json
 import time
@@ -7,9 +7,15 @@ import time
 def validate_node(node):
     values = node.setdefault('ipv6', {})
     if not isinstance(values, dict) or len(values) > 16:
-        raise ValueError('ipv6: object of at most 16 physical host interfaces required.')
-    if values and (node['runtime'] != 'oci' or node['role'] not in ('host', 'router') or set(values) - set(node['interfaces'])):
-        raise ValueError('Initial IPv6 addresses require physical interfaces of OCI hosts/routers.')
+        raise ValueError('ipv6: object of at most 16 routed interfaces required.')
+    switch = node['role'] == 'switch' and node.get('switch_backend', 'linux') == 'linux'
+    svis = node.get('svis', {})
+    if switch and not isinstance(svis, dict):
+        raise ValueError('IPv6 switch SVIs must be declared as an object.')
+    ports = svis if switch else node['interfaces']
+    if values and (node['runtime'] != 'oci' or node['role'] not in ('host', 'router', 'switch') or
+                   (node['role'] == 'switch' and not switch) or set(values) - set(ports)):
+        raise ValueError('IPv6 addresses require physical OCI host/router ports or declared Linux switch SVIs.')
     for port, value in values.items():
         if not isinstance(value, str) or '%' in value or '/' not in value:
             raise ValueError('IPv6 requires explicit unicast /64 CIDR without a zone.')
@@ -20,8 +26,8 @@ def validate_node(node):
         values[port] = str(address)
 
     forwarding = node.setdefault('ipv6_forwarding', False)
-    if type(forwarding) is not bool or (forwarding and (node['role'] != 'router' or not values)):
-        raise ValueError('ipv6_forwarding requires a numbered OCI router and a boolean.')
+    if type(forwarding) is not bool or (forwarding and ((node['role'] != 'router' and not switch) or not values)):
+        raise ValueError('ipv6_forwarding requires a numbered OCI router or Linux switch SVI and a boolean.')
     networks = [ipaddress.IPv6Interface(v).network for v in values.values()]
     if len(set(networks)) != len(networks):
         raise ValueError('IPv6 interfaces on one node require disjoint /64 networks.')
@@ -31,7 +37,7 @@ def validate_node(node):
     destinations = set()
     for route in routes:
         if not isinstance(route, dict) or set(route) != {'destination', 'gateway', 'interface'}:
-            raise ValueError('IPv6 route requires destination, gateway and physical interface.')
+            raise ValueError('IPv6 route requires destination, gateway and routed interface.')
         if not all(isinstance(v, str) for v in route.values()) or any('%' in v for v in route.values()):
             raise ValueError('IPv6 routes require unscoped string values.')
         network = ipaddress.IPv6Network(route['destination'], strict=True)
@@ -68,13 +74,16 @@ def validate_lab(spec):
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'subinterfaces', 'svis', 'port_channels', 'firewall',
+        forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'subinterfaces', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or node['role'] not in ('host', 'switch', 'router') or
                 node.get('switch_backend') == 'ovs' or any(node.get(key) for key in forbidden) or
                 node.get('spanning_tree', {}).get('mode', 'off') != 'off'):
-            raise ValueError('Initial IPv6 lab supports plain OCI hosts/physical routers and Linux L2 VLAN switches only; no IPv4 services, security, STP or bundles.')
+            raise ValueError('IPv6 lab supports plain OCI hosts/physical routers and Linux VLAN switches; no IPv4 services, security, STP or bundles.')
+        if node.get('svis') and (not node['ipv6'] or any(svi['address'] for svi in node['svis'].values()) or
+                                 any(node.get(key) for key in ('forwarding', 'gateway', 'routes'))):
+            raise ValueError('IPv6 switch SVIs require explicit static IPv6 and exclude IPv4 SVI addressing/routing.')
         if node['forwarding'] and (node['role'] != 'router' or not any(node['interfaces'].values())):
             raise ValueError('Dual-stack IPv4 forwarding requires a numbered physical OCI router.')
         for value in node['ipv6'].values():

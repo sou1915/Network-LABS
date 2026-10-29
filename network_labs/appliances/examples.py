@@ -750,3 +750,20 @@ def ospfv3_lab(rootfs):
         node['ospfv3'] = {'router_id': f'{index}.{index}.{index}.{index}',
                           'interfaces': {port: {'passive': port == passive} for port in node['ipv6']}}
     return validate(spec)
+
+
+def ipv6_svi_lab(rootfs):
+    """Two IPv6 VLANs across a tagged trunk, routed by real Linux switch SVIs."""
+    spec = svi_lab(rootfs)
+    spec['name'] = 'ipv6-svi-lan'
+    for node, vlan, suffix in zip(spec['nodes'][:4], (10, 10, 20, 20), (10, 20, 10, 20)):
+        node['interfaces'] = {'eth0': ''}
+        node['gateway'] = None
+        node['ipv6'] = {'eth0': f'2001:db8:{vlan}::{suffix}/64'}
+        node['ipv6_routes'] = [{'destination': '::/0', 'gateway': f'2001:db8:{vlan}::1', 'interface': 'eth0'}]
+    core = spec['nodes'][4]
+    for svi in core['svis'].values():
+        svi['address'] = ''
+    core['ipv6'] = {'vlan10': '2001:db8:10::1/64', 'vlan20': '2001:db8:20::1/64'}
+    core['ipv6_forwarding'] = True
+    return validate(spec)
