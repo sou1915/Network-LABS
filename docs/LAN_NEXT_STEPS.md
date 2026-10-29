@@ -81,10 +81,30 @@ explicit limits. The general `tests`, firewall, SVI, SSH and RADIUS jobs also
 passed; other jobs were still running at this checkpoint. All jobs for the
 previous firewall checkpoint `a5db2d3` subsequently completed successfully.
 
-Next: validate supported IPv6 service/security coexistence, then the remaining
-switching carrier/kernel profiles and LAN service polish. Broader AAA gaps
-remain tracked above. Dynamic routing/services over router subinterfaces remain
-outside the static profile; GUI and WAN remain later. The broader AAA and switching/service gaps above
+The first explicit service/security coexistence profile, local IA_NA DHCPv6
+plus managed RA across RA Guard, now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40956758575/job/123738737230)
+at implementation commit `94492d89b670614af0bea97e792ac467265415e7`.
+Exactly one client and one local server are directly paired to untrusted and
+trusted guard ports respectively. The test verified matched SARR/Renew/Release
+identities, finite /128 allocation, RA M=1/A=0 and gateway separation, continued
+routed traffic, rogue RA ingress without client egress, and a recreated trust
+positive control that learns the rogue default even with autoconf disabled.
+It also exercised local service outage/no-allocation/default expiry, recovery,
+script/config/sysctl/guard drift refusal and cold save/restore without learned
+address/default snapshots. This is RA admission alongside DHCPv6, not DHCPv6
+snooping, server authentication, or validation of relay/PD/multiple-client
+combinations. Existing conservative guard restrictions remain unchanged.
+
+This commit retains the concurrent `7aada04` link-local DAD readiness fix for
+real Router Solicitations. The general `tests` and all dedicated IPv6, SSH and
+RADIUS jobs passed at this checkpoint; switching/native suites were still
+running. Other service/security combinations remain separately scoped work.
+
+Next: remaining switching carrier/kernel failure and recovery profiles,
+including STP/LACP, then LAN service polish. Broader AAA gaps remain tracked
+above. Dynamic routing/services over router subinterfaces and broader IPv6
+coexistence remain outside the validated profiles; GUI and WAN remain later. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
