@@ -342,6 +342,9 @@ def observe(manager, index, node):
         result['addresses_ipv6'] = observe_ipv6(manager, index)
         result['routes_ipv6'] = json.loads(manager.ns(index, 'ip', '-j', '-6', 'route', 'show', 'table', 'main', timeout=3).stdout)
         result['forwarding_ipv6'] = manager.ns(index, 'sysctl', '-n', 'net/ipv6/conf/all/forwarding', timeout=3).stdout.strip()
+    if node['ipv6'] and node['subinterfaces']:
+        from .ipv6_subinterfaces import observe as observe_subinterfaces
+        result['subinterfaces_ipv6'] = observe_subinterfaces(node, result['links'])
     if node['router_advertisements']:
         from .slaac import observe_server as observe_ra
         result['router_advertisements'] = observe_ra(manager, node)

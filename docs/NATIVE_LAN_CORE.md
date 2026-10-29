@@ -5310,3 +5310,70 @@ SVIs/subinterfaces and IPv6 security remain outside this first PD profile.
 References: [Kea DHCPv6 PD pools](https://kea.readthedocs.io/en/kea-2.4.1/arm/dhcp6-srv.html),
 [BusyBox DHCPv6 client source](https://github.com/mirror/busybox/blob/1_36_stable/networking/udhcp/d6_dhcpc.c),
 and [dnsmasq constructor ranges](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).
+
+## Static IPv6 router-on-a-stick
+
+`example --ipv6-subinterfaces` uses existing Linux 802.1Q devices on R1's
+unnumbered physical `eth0`. VLANs 10 and 20 carry separate internal /64 LANs;
+VLAN 100 is a tagged transit to R2, which routes to a third internal LAN.
+PC1/PC2 share VLAN 10, PC3 is in VLAN 20 and PC4 is behind R2. No WAN or
+Internet service is involved.
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --output "$HOME/network-labs-ipv6-roas-rootfs"
+python3 -m network_labs.appliances example --ipv6-subinterfaces \
+  --rootfs "$HOME/network-labs-ipv6-roas-rootfs" > ipv6-roas-lan.json
+sudo python3 -m network_labs.appliances start ipv6-roas-lan.json
+sudo python3 -m network_labs.appliances inspect ipv6-subinterfaces-lan R1
+sudo python3 -m network_labs.appliances show ipv6-subinterfaces-lan R1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances show ipv6-subinterfaces-lan R1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances verify ipv6-subinterfaces-lan PC1 PC3 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances verify ipv6-subinterfaces-lan PC1 PC4 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ipv6-subinterfaces-lan
+sudo python3 -m network_labs.appliances stop ipv6-subinterfaces-lan
+sudo python3 -m network_labs.appliances restore ipv6-subinterfaces-lan
+```
+
+The existing `subinterfaces` declaration supplies parent and VLAN, with its
+IPv4 `address` empty. The separate `ipv6` map numbers each declared
+subinterface with a unique static /64. For example:
+
+```json
+{
+  "interfaces": {"eth0": ""},
+  "subinterfaces": {
+    "eth0.10": {"parent": "eth0", "vlan": 10, "address": ""},
+    "eth0.100": {"parent": "eth0", "vlan": 100, "address": ""}
+  },
+  "ipv6": {"eth0.10": "2001:db8:10::1/64", "eth0.100": "2001:db8:100::1/64"},
+  "ipv6_routes": [{"destination": "2001:db8:30::/64", "gateway": "2001:db8:100::2", "interface": "eth0.100"}],
+  "forwarding": false,
+  "ipv6_forwarding": true
+}
+```
+
+This fragment belongs to an OCI router; it is not a complete manifest. Every
+subinterface in this bounded IPv6 profile must have dot1Q encapsulation and
+static IPv6. Parents have no declared IPv4/IPv6 address. IPv4 forwarding,
+IPv4 subinterface addresses, dynamic routing, RA/SLAAC/DHCPv6 on that router,
+port channels, QinQ and live configuration edits remain outside this profile.
+The generic subinterface name suffix is a name, while the `vlan` value is the
+actual encapsulation ID; observation checks the actual ID independently.
+
+`inspect` adds `subinterfaces_ipv6` based on real kernel VLAN protocol, ID and
+parent linkage. Correct interface names/addresses alone do not establish
+encapsulation correctness. Save audits that linkage, IPv6 addresses, DAD,
+sysctls, connected/static routes, link administrative state and switch VLAN
+membership. Restore rebuilds the devices and static routes from the manifest;
+it does not save neighbor caches or packet state.
+
+The dedicated `ipv6-subinterfaces-interop` scenario checks bidirectional
+same-VLAN delivery (hop limit 64), inter-VLAN delivery through R1 (63), and
+static-route delivery through R1/R2 (62). It captures 802.1Q VLAN 10/20/100
+ICMPv6 traffic on the physical parent, exercises forwarding-off, per-VLAN
+trunk pruning and physical-parent shutdown with failure isolation/recovery,
+rejects wrong-VID devices even with the correct name/address, and verifies
+address-drift refusal plus saved restart. It checks host routes, rules,
+forwarding and virtual link cleanup. These are scoped Linux results, not a
+vendor CLI, gateway redundancy or IPv6 security implementation.

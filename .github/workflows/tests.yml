@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  ipv6-subinterfaces-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 router-on-a-stick prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify actual dot1Q routing, static next hops, failure isolation and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_subinterfaces_integration.py -v
   dhcpv6-pd-interop:
     runs-on: ubuntu-24.04
     steps:

@@ -34,8 +34,9 @@ the pinned BusyBox build in `tools/build_pd_busybox.py`; the stock 1.36.1
 client has a null IA_NA source bug. Server shutdown uses Kea's fixed local
 Unix control socket.
 
-Next: router subinterfaces, then IPv6 security/RA Guard and supported
-service coexistence. The broader AAA and switching/service gaps above
+The next increment adds static IPv6 router subinterfaces and a dedicated
+`ipv6-subinterfaces-interop` job: two ROAS VLANs plus a tagged static-route
+transit. IPv6 security/RA Guard and supported service coexistence follow. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment

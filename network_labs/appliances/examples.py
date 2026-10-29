@@ -818,3 +818,31 @@ def dhcpv6_pd_lab(rootfs):
     server['dhcpv6_pd_server'] = {'interface': 'eth0', 'prefix': '2001:db8:10::/64', 'lease_seconds': 30}
     server['memory_mib'] = 128
     return validate(spec)
+
+
+def ipv6_subinterfaces_lab(rootfs):
+    """IPv6 ROAS VLANs 10/20 plus a tagged static-route transit VLAN 100."""
+    def host(name, vlan, suffix):
+        return {'name': name, 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': ''},
+                'ipv6': {'eth0': f'2001:db8:{vlan}::{suffix}/64'},
+                'ipv6_routes': [{'destination': '::/0', 'gateway': f'2001:db8:{vlan}::1', 'interface': 'eth0'}]}
+    def route(destination, gateway, port):
+        return {'destination': destination, 'gateway': gateway, 'interface': port}
+    return validate({'version': 2, 'name': 'ipv6-subinterfaces-lan', 'nodes': [
+        host('PC1', 10, 10), host('PC2', 10, 20), host('PC3', 20, 10), host('PC4', 30, 10),
+        {'name': 'SW1', 'runtime': 'oci', 'role': 'switch', 'rootfs': str(rootfs),
+         'interfaces': {f'eth{i}': '' for i in range(5)}, 'vlans': [10, 20, 100],
+         'switchports': {'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 10},
+                         'eth2': {'mode': 'access', 'vlan': 20}, 'eth3': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20, 100]},
+                         'eth4': {'mode': 'access', 'vlan': 100}}},
+        {'name': 'R1', 'runtime': 'oci', 'role': 'router', 'rootfs': str(rootfs), 'interfaces': {'eth0': ''},
+         'forwarding': False, 'ipv6_forwarding': True,
+         'subinterfaces': {f'eth0.{vid}': {'parent': 'eth0', 'vlan': vid, 'address': ''} for vid in (10, 20, 100)},
+         'ipv6': {f'eth0.{vid}': f'2001:db8:{vid}::1/64' for vid in (10, 20, 100)},
+         'ipv6_routes': [route('2001:db8:30::/64', '2001:db8:100::2', 'eth0.100')]},
+        {'name': 'R2', 'runtime': 'oci', 'role': 'router', 'rootfs': str(rootfs), 'interfaces': {'eth0': '', 'eth1': ''},
+         'forwarding': False, 'ipv6_forwarding': True, 'ipv6': {'eth0': '2001:db8:100::2/64', 'eth1': '2001:db8:30::1/64'},
+         'ipv6_routes': [route(f'2001:db8:{vid}::/64', '2001:db8:100::1', 'eth0') for vid in (10, 20)]}],
+        'links': [[['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW1', 'eth1']],
+                  [['PC3', 'eth0'], ['SW1', 'eth2']], [['R1', 'eth0'], ['SW1', 'eth3']],
+                  [['R2', 'eth0'], ['SW1', 'eth4']], [['R2', 'eth1'], ['PC4', 'eth0']]]})

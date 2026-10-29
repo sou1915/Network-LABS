@@ -1,4 +1,4 @@
-"""Static IPv6 on physical hosts/routers and Linux switch VLAN interfaces."""
+"""Static IPv6 on physical ports, router dot1Q subinterfaces and Linux switch SVIs."""
 import ipaddress
 import json
 import time
@@ -12,10 +12,13 @@ def validate_node(node):
     svis = node.get('svis', {})
     if switch and not isinstance(svis, dict):
         raise ValueError('IPv6 switch SVIs must be declared as an object.')
-    ports = svis if switch else node['interfaces']
+    subs = node.get('subinterfaces', {})
+    if not isinstance(subs, dict):
+        raise ValueError('Subinterfaces must be declared as an object.')
+    ports = svis if switch else set(node['interfaces']) | (set(subs) if node['role'] == 'router' else set())
     if values and (node['runtime'] != 'oci' or node['role'] not in ('host', 'router', 'switch') or
                    (node['role'] == 'switch' and not switch) or set(values) - set(ports)):
-        raise ValueError('IPv6 addresses require physical OCI host/router ports or declared Linux switch SVIs.')
+        raise ValueError('IPv6 addresses require physical OCI host/router ports, router subinterfaces or declared Linux switch SVIs.')
     for port, value in values.items():
         if not isinstance(value, str) or '%' in value or '/' not in value:
             raise ValueError('IPv6 requires explicit unicast /64 CIDR without a zone.')
@@ -78,13 +81,21 @@ def validate_lab(spec):
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'subinterfaces', 'port_channels', 'firewall',
+        forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or node['role'] not in ('host', 'switch', 'router') or
                 node.get('switch_backend') == 'ovs' or any(node.get(key) for key in forbidden) or
                 node.get('spanning_tree', {}).get('mode', 'off') != 'off'):
-            raise ValueError('IPv6 lab supports plain OCI hosts/physical routers and Linux VLAN switches; no IPv4 services, security, STP or bundles.')
+            raise ValueError('IPv6 lab supports OCI hosts, static dot1Q routers and Linux VLAN switches; no IPv4 services, security, STP or bundles.')
+        if node['subinterfaces']:
+            if (node['role'] != 'router' or not node['ipv6'] or node['forwarding'] or node['routes'] or node.get('gateway') or
+                    any(node['interfaces'].values()) or any(sub['address'] for sub in node['subinterfaces'].values()) or
+                    any(name not in node['ipv6'] or sub['vlan'] is None or sub['parent'] in node['ipv6']
+                        for name, sub in node['subinterfaces'].items()) or
+                    any(node.get(key) for key in ('ospfv3', 'slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
+                                                 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server'))):
+                raise ValueError('IPv6 subinterfaces require numbered static dot1Q router ports, unnumbered parents and no IPv4 or dynamic services.')
         if node.get('svis') and (not node['ipv6'] or any(svi['address'] for svi in node['svis'].values()) or
                                  any(node.get(key) for key in ('forwarding', 'gateway', 'routes'))):
             raise ValueError('IPv6 switch SVIs require explicit static IPv6 and exclude IPv4 SVI addressing/routing.')
@@ -148,8 +159,10 @@ def drift(manager, index, node):
     if not node['ipv6']:
         return []
     records = observe(manager, index)
+    from .ipv6_subinterfaces import drift as subinterface_drift
+    sub_errors = subinterface_drift(manager, index, node)
     expected = {(port, value) for port, value in node['ipv6'].items()}
-    actual, errors = set(), []
+    actual, errors = set(), sub_errors
     dynamic_connected = set()
     from .dhcpv6_pd import dynamic_address
     for row in records:
