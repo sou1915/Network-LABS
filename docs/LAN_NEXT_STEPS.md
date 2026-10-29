@@ -34,9 +34,18 @@ the pinned BusyBox build in `tools/build_pd_busybox.py`; the stock 1.36.1
 client has a null IA_NA source bug. Server shutdown uses Kea's fixed local
 Unix control socket.
 
-The next increment adds static IPv6 router subinterfaces and a dedicated
-`ipv6-subinterfaces-interop` job: two ROAS VLANs plus a tagged static-route
-transit. IPv6 security/RA Guard and supported service coexistence follow. The broader AAA and switching/service gaps above
+Static IPv6 router subinterfaces now have successful [dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40885193904/job/123486899870)
+at implementation commit `d0249ef9113c9e94a1171e7b2eff38b70b93892d`.
+The scenario verified two ROAS VLANs plus a tagged static-route transit,
+actual 802.1Q packets, one-/two-router hop limits, forwarding/pruning/carrier
+failure isolation and recovery, wrong-VID/address drift refusal, and saved
+restart. External local parent admin DOWN/UP is separately tested as drift
+requiring recreation from the saved manifest, since Linux may flush static
+IPv6 state. The general `tests` job passed on the same commit; broader
+switching/native suites were still running when this checkpoint was recorded.
+
+Next: IPv6 firewall, RA Guard and supported service coexistence. Dynamic
+routing/services over router subinterfaces remain outside the static profile. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
