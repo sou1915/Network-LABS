@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <ifaddrs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,10 +53,21 @@ int main(int argc, char **argv) {
     expected.s6_addr[15] = 1;
     char address[INET6_ADDRSTRLEN], cidr[80], lifetime[16];
     if (!inet_ntop(AF_INET6, &expected, address, sizeof(address))) return 126;
-    snprintf(cidr, sizeof(cidr), "%s/%u", address, remove ? 128 : 64);
+    snprintf(cidr, sizeof(cidr), "%s/64", address);
     snprintf(lifetime, sizeof(lifetime), "%lu", lease);
     if (remove) {
-        char *args[] = {NL_BUSYBOX, "ip", "-6", "addr", "flush", "dev", port, "to", cidr, NULL};
+        struct ifaddrs *interfaces, *entry;
+        int present = 0;
+        if (getifaddrs(&interfaces)) return 125;
+        for (entry = interfaces; entry; entry = entry->ifa_next) {
+            if (entry->ifa_addr && entry->ifa_addr->sa_family == AF_INET6 && !strcmp(entry->ifa_name, port) &&
+                !memcmp(&((struct sockaddr_in6 *)entry->ifa_addr)->sin6_addr, &expected, sizeof(expected))) {
+                present = 1; break;
+            }
+        }
+        freeifaddrs(interfaces);
+        if (!present) return 0;
+        char *args[] = {NL_BUSYBOX, "ip", "-6", "addr", "del", cidr, "dev", port, NULL};
         execv(NL_BUSYBOX, args);
     } else {
         char *args[] = {NL_BUSYBOX, "ip", "-6", "addr", "replace", cidr, "dev", port,

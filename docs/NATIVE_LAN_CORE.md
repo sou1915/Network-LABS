@@ -5265,7 +5265,7 @@ address as prefix + 1 and gives it finite kernel preferred/valid lifetimes.
 Equivalent compressed/expanded IPv6 text is accepted. Off-pool, malformed or
 oversized lifetime input cannot add an address. Renewal updates lifetimes
 without flushing the LAN. Release/deconfiguration or an explicit zero lifetime
-flushes only the exact delegated gateway, preserving WAN and link-local state.
+removes only the exact delegated gateway, preserving WAN and link-local state.
 
 Dnsmasq's RA-only constructor follows that real LAN address. No local DHCPv6
 address allocator runs on R1, and no IPv6 address is injected into PC1.

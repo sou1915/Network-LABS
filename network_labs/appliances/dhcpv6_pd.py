@@ -163,8 +163,8 @@ def stop_server(manager, node):
 def start_server(manager, node):
     from .runtime import RuntimeFailure
     if processes(manager, node, managed=False): raise RuntimeFailure('Refusing PD startup while a Kea process already exists.')
-    manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/kea', timeout=3)
-    command = ['/bin/busybox', 'env', 'KEA_PIDFILE_DIR=/run/kea', 'KEA_LOCKFILE_DIR=/run/kea', KEA]
+    manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/kea', '/run/lock/kea', timeout=3)
+    command = ['/bin/busybox', 'env', 'KEA_PIDFILE_DIR=/run/kea', 'KEA_LOCKFILE_DIR=/run/lock/kea', KEA]
     result = manager.crun('exec', node['name'], *command, '-t', '/etc/kea/kea-dhcp6.conf', timeout=5, check=False)
     if result.returncode:
         evidence = manager.crun('exec', node['name'], '/bin/busybox', 'ls', '-l', '/etc/kea/kea-dhcp6.conf', check=False, timeout=3)

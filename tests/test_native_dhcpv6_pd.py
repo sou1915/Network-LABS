@@ -95,9 +95,11 @@ class PDHookTests(unittest.TestCase):
         cls.folder = tempfile.TemporaryDirectory(); cls.addClassCleanup(cls.folder.cleanup)
         root = Path(cls.folder.name); cls.policy = root / 'policy'; cls.binary = root / 'hook'; cls.stub = root / 'busybox'
         cls.stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n'); cls.stub.chmod(0o755)
+        shim = root / 'interfaces.c'
+        shim.write_text('#include <ifaddrs.h>\n#include <arpa/inet.h>\n#include <stdlib.h>\nstatic struct ifaddrs iface;\nstatic struct sockaddr_in6 address;\nint getifaddrs(struct ifaddrs **out) {\n    *out = NULL;\n    if (getenv("NL_TEST_PRESENT")) {\n        address.sin6_family = AF_INET6; inet_pton(AF_INET6, "2001:db8:10::1", &address.sin6_addr);\n        iface.ifa_name = "eth0"; iface.ifa_addr = (struct sockaddr *)&address; iface.ifa_next = NULL;\n        *out = &iface;\n    }\n    return 0;\n}\nvoid freeifaddrs(struct ifaddrs *ignored) { (void)ignored; }\n')
         source = Path(__file__).parents[1] / 'network_labs/appliances/dhcpv6_pd_hook.c'
         subprocess.run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-DNL_PD_POLICY="' + str(cls.policy) + '"',
-                        '-DNL_BUSYBOX="' + str(cls.stub) + '"', str(source), '-o', str(cls.binary)], check=True, capture_output=True)
+                        '-DNL_BUSYBOX="' + str(cls.stub) + '"', str(source), str(shim), '-o', str(cls.binary)], check=True, capture_output=True)
 
     def invoke(self, action, **variables):
         self.policy.write_text('eth0\n2001:db8:10::/64\n30\n')
@@ -120,6 +122,8 @@ class PDHookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 126, result); self.assertEqual(result.stdout, '')
         self.assertEqual(self.invoke('bound').returncode, 126)
         for action, variables in (('deconfig', {}), ('renew', {'ipv6prefix': '2001:db8:10::/64', 'ipv6prefix_lease': '0'})):
-            result = self.invoke(action, **variables)
+            result = self.invoke(action, NL_TEST_PRESENT='1', **variables)
             self.assertEqual(result.returncode, 0, result)
-            self.assertEqual(result.stdout.splitlines(), ['ip', '-6', 'addr', 'flush', 'dev', 'eth0', 'to', '2001:db8:10::1/128'])
+            self.assertEqual(result.stdout.splitlines(), ['ip', '-6', 'addr', 'del', '2001:db8:10::1/64', 'dev', 'eth0'])
+        absent = self.invoke('deconfig')
+        self.assertEqual(absent.returncode, 0); self.assertEqual(absent.stdout, '')
