@@ -77,7 +77,7 @@ the two peer member faults; declared policy and revision must stay unchanged.
 | One member returned | Bundle returns for threshold 1; threshold 2 remains on spare |
 | Both members returned | Both negotiate; original common-tree bundle path returns |
 | Two cycles per threshold | Packet delivery recovers naturally within the bounded test deadline; runtime static marker survives |
-| Actual path captures | Warmed bidirectional echo for VLANs 10/20 appears on the selected bundle/spare, absent on the inactive path; hop limit stays 64 |
+| Actual path captures | Warmed bidirectional echo for VLANs 10/20 appears on the selected bundle/spare, absent on the inactive path; IPv4 TTL stays 64 |
 | Drift and saved restart | External peer admin changes cannot be saved as declared policy; after restoration, save/restart rebuilds threshold/topology without runtime FDB markers |
 
 Control convergence and packet recovery have independent checks. The scenario

@@ -73,7 +73,7 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                         for source, target in (('PC1', 'PC3'), ('PC2', 'PC4')):
                             result = verify(manager, source, target, count=2, bidirectional=True)
                             self.assertEqual(result['status'], 'passed', result)
-                            self.assertTrue(all(d['reply_hop_limits'] == [64, 64] for d in result['directions']), result)
+                            self.assertTrue(all(d['reply_ttls'] == [64, 64] for d in result['directions']), result)
                         for future in futures: future.result(timeout=12)
                         decoded = [run(['tcpdump', '-nn', '-e', '-r', path]).stdout for path in paths]
                         active, inactive = (decoded[1], decoded[0]) if spare else decoded
