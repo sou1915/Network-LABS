@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from network_labs.appliances.examples import ospfv3_lab
+from network_labs.appliances.examples import ospfv3_lab, ospfv3_svi_lab
 from network_labs.appliances.ospf import start_one, stop_one
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
@@ -19,6 +19,12 @@ from network_labs.appliances.verify import verify
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class NativeOSPFv3Tests(unittest.TestCase):
     def test_real_adjacency_delivery_withdrawal_drift_and_saved_restart(self):
+        self.check_topology(ospfv3_lab, 'ospfv3', ('R1', 'R2'))
+
+    def test_svi_adjacency_tagged_transit_pruning_withdrawal_drift_and_saved_restart(self):
+        self.check_topology(ospfv3_svi_lab, 'ospfv3-svi', ('SW1', 'R1'), svi=True)
+
+    def check_topology(self, factory, label, routers, *, svi=False):
         self.assertEqual(os.geteuid(), 0)
         for tool in ('bird', 'birdc', 'busybox', 'crun', 'ip'):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
@@ -31,19 +37,20 @@ class NativeOSPFv3Tests(unittest.TestCase):
             root = Path(folder)
             rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs',
                                          bird=shutil.which('bird'), birdc=shutil.which('birdc'))
-            spec = ospfv3_lab(rootfs); spec['name'] = 'ospfv3-' + str(os.getpid())
+            spec = factory(rootfs); spec['name'] = label + '-' + str(os.getpid())
             manager = Manager(spec['name'])
             def wait(predicate, label):
                 deadline = time.monotonic() + 25
                 while time.monotonic() < deadline:
                     if predicate(): return
                     time.sleep(.2)
-                self.fail(label + ': ' + repr({name: manager.inspect(name) for name in ('R1', 'R2')}))
-            def remote_routes(name='R1'):
-                prefix = '2001:db8:20::/64' if name == 'R1' else '2001:db8:10::/64'
+                self.fail(label + ': ' + repr({name: manager.inspect(name) for name in routers}))
+            def remote_routes(name=None):
+                name = name or routers[0]
+                prefix = '2001:db8:20::/64' if name == routers[0] else '2001:db8:10::/64'
                 return [r for r in manager.inspect(name)['routes_ipv6'] if r.get('dst') == prefix]
             def healthy():
-                for name in ('R1', 'R2'):
+                for name in routers:
                     wait(lambda: 'Full' in (manager.inspect(name)['ospfv3']['neighbors'] or ''), 'OSPFv3 adjacency')
                     # A Full adjacency or one router's FIB does not establish
                     # the return path after the peer daemon has restarted.
@@ -63,9 +70,38 @@ class NativeOSPFv3Tests(unittest.TestCase):
                          source + ' OSPFv3 delivery did not recover')
                 report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
                 self.assertEqual(report['status'], 'passed', report)
+                self.assertTrue(all(d['reply_hop_limits'] == [62, 62] for d in report['directions']), report)
             try:
                 with manager.locked(): manager.start(spec)
                 healthy()
+                if svi:
+                    from concurrent.futures import ThreadPoolExecutor
+                    import threading
+                    from network_labs.appliances.capture import capture
+                    self.assertIsNotNone(shutil.which('tcpdump'))
+                    actual = manager.inspect('SW1')
+                    self.assertTrue(actual['svis']['vlan100']['encapsulation_verified'])
+                    self.assertTrue(actual['ospfv3']['configuration_verified'])
+                    ready = threading.Event(); path = root / 'ospfv3-svi.pcap'
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(capture, Manager(spec['name']), 'SW1', 'eth1', path,
+                                             seconds=4, packets=100, snaplen=512, ready=ready.set)
+                        if not ready.wait(5):
+                            if future.done(): future.result()
+                            self.fail('OSPFv3 transit capture did not become ready')
+                        self.assertGreater(future.result(timeout=10)['captured_packets'], 0)
+                    decoded = run(['tcpdump', '-nn', '-e', '-vv', '-r', path]).stdout
+                    self.assertIn('vlan 100', decoded); self.assertIn('OSPFv3', decoded)
+                    # Prune the actual tagged transit. Neither declared SVI
+                    # addresses nor the still-running daemon imply a path.
+                    manager.ns(1, 'bridge', 'vlan', 'del', 'dev', 'eth1', 'vid', '100')
+                    wait(lambda: not remote_routes(routers[0]) and not remote_routes(routers[1]),
+                         'Pruned transit routes not withdrawn in both directions')
+                    failed = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
+                                          '2001:db8:20::20', check=False, timeout=4)
+                    self.assertNotEqual(failed.returncode, 0)
+                    with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'bridge', 'vlan', 'add', 'dev', 'eth1', 'vid', '100'); healthy()
                 router = spec['nodes'][2]
                 stop_one(manager, router)
                 wait(lambda: not remote_routes(), 'Dead neighbor route not withdrawn')

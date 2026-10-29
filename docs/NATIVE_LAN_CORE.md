@@ -5007,10 +5007,10 @@ Adjacency and kernel installation are asynchronous. Inspect them before testing
 packet delivery. `show ipv6 route ospf` reads the BIRD RIB; `show ipv6 route`
 reads the kernel table. Missing control output remains unknown.
 
-The router field `ospfv3` accepts `router_id` (unique usable IPv4 text, even
+The router/L3-switch field `ospfv3` accepts `router_id` (unique usable IPv4 text, even
 though the router has no IPv4 interfaces), `hello` (1..60, default 1), `dead`
 (2..240, default 4, greater than hello), and `interfaces`. Each interface must
-be a statically numbered, administratively UP physical IPv6 port, with `cost`
+be a statically numbered, administratively UP physical router port or Linux switch SVI, with `cost`
 (1..65535, default 10) and `passive` (boolean, default false). At least one
 port must be active. Area 0, point-to-point transit, and passive LAN prefixes
 are explicit in the generated config. BIRD exports only OSPF routes to the
@@ -5024,8 +5024,8 @@ not route-origin attestation or a convergence/liveness claim. Save persists
 only declarations; restore starts new adjacencies and learns routes afresh.
 
 This first profile excludes multi-area, broadcast DR/BDR, ECMP, authentication,
-SVIs/subinterfaces, dual-stack/v2 coexistence, RA/DHCPv6 composition and live
-configuration edits. Recreate the lab to change policy.
+subinterfaces, dual-stack/v2 coexistence, RA/DHCPv6 composition and live
+configuration edits. Switch SVIs use the separate `--ospfv3-svi` profile below. Recreate the lab to change policy.
 
 `test_native_ospfv3_integration.py` exercises real adjacency, link-local next-hop
 kernel installation, bidirectional traffic, neighbor-stop route withdrawal and
@@ -5082,8 +5082,8 @@ Catalyst per-VLAN autostate is not emulated.
 
 This extends the earlier physical IPv6 profile specifically for static,
 IPv6-only Linux switch SVIs. Dual-stack SVI routing, RA/DHCPv6 on SVIs,
-OSPFv3 on SVIs, subinterfaces, OVS, STP/bundles and IPv6 security composition
-remain excluded. No RA Guard or IPv6 firewall coverage is implied.
+subinterfaces, OVS, STP/bundles and IPv6 security composition remain excluded.
+OSPFv3 on IPv6-only SVIs is covered by the separate profile below. No RA Guard or IPv6 firewall coverage is implied.
 
 The dedicated `ipv6-svi-interop` CI test checks same-VLAN traffic and routed
 traffic separately, including received hop limits and actual 802.1Q PCAP
@@ -5094,3 +5094,43 @@ host IPv6 routes/rules/forwarding/interfaces.
 
 References: [Linux bridge VLAN filtering](https://docs.kernel.org/networking/bridge.html)
 and [IPv6 forwarding sysctls](https://docs.kernel.org/networking/ip-sysctl.html).
+
+## OSPFv3 on an IPv6 switch SVI through a tagged transit VLAN
+
+`example --ospfv3-svi` joins a Linux L3 switch (`SW1`) and a physical router
+(`R1`) using OSPFv3 area 0. SW1 routes a local host LAN on passive `vlan10`
+and forms its adjacency on active `vlan100`. Transit VLAN100 crosses a tagged
+trunk to the L2 switch SW2, which presents an untagged access port to R1.
+R1 advertises its remote host LAN on a passive physical interface. Router IDs
+remain IPv4 text; both routed nodes forward IPv6 only, with no static router
+routes or fallback path.
+
+```bash
+# Use the trusted rootfs with BIRD 2 and birdc from the physical OSPFv3 example.
+python3 -m network_labs.appliances example --ospfv3-svi \
+  --rootfs "$HOME/network-labs-ospf-rootfs" > ospfv3-svi-lan.json
+sudo python3 -m network_labs.appliances start ospfv3-svi-lan.json
+sudo python3 -m network_labs.appliances show ospfv3-svi-lan SW1 --text 'show ipv6 ospf neighbor'
+sudo python3 -m network_labs.appliances show ospfv3-svi-lan SW1 --text 'show ipv6 ospf interface'
+sudo python3 -m network_labs.appliances show ospfv3-svi-lan SW1 --text 'show ipv6 route ospf'
+sudo python3 -m network_labs.appliances show ospfv3-svi-lan SW1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances verify ospfv3-svi-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ospfv3-svi-lan
+sudo python3 -m network_labs.appliances stop ospfv3-svi-lan
+sudo python3 -m network_labs.appliances restore ospfv3-svi-lan
+```
+
+The same `ospfv3.interfaces` cost/passive declarations apply to numbered SVIs.
+Physical switchports, `br0`, unknown or shutdown SVIs cannot participate. At
+least one active port remains required. IPv4 SVI addressing/routing, OSPFv2
+coexistence, RA/DHCPv6 composition, authentication, multiple areas and live
+policy edits stay outside the profile. Inspect/show preserve actual BIRD text;
+an observed adjacency does not imply installed kernel routes or delivery.
+
+The `ospfv3-interop` CI job runs the physical and SVI cases. The SVI case
+checks actual VLAN100 OSPFv3 frames, bidirectional ICMPv6 with received hop
+limit 62, BIRD-labelled kernel routes with link-local next hops, and route
+withdrawal in both directions after pruning the trunk. It verifies failed
+delivery and refused save while the trunk differs, then recovery, peer daemon
+stop/restart, unexpected-static-route refusal and fresh adjacencies after
+save/restore. Learned routes and neighbor entries are not persisted.

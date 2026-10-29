@@ -14,8 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 routing prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bird2 crun iproute2 busybox-static util-linux
-      - name: Verify real OSPFv3 adjacency, kernel delivery, withdrawal and saved restart
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bird2 crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify real physical/SVI OSPFv3, tagged transit pruning, kernel delivery and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
   switching-interop:
     runs-on: ubuntu-latest

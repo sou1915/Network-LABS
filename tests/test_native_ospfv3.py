@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from unittest.mock import Mock
 
-from network_labs.appliances.examples import ospfv3_lab, ipv6_routed_lab
+from network_labs.appliances.examples import ospfv3_lab, ospfv3_svi_lab, ipv6_routed_lab
 from network_labs.appliances.ipv6 import drift
 from network_labs.appliances.ospfv3 import config, observe
 from network_labs.appliances.service_adapters import adapters
@@ -14,6 +14,31 @@ from network_labs.appliances.show import show
 
 
 class OSPFv3Tests(unittest.TestCase):
+    def test_svi_transit_example_roundtrips_and_advertises_only_declared_routed_ports(self):
+        spec = ospfv3_svi_lab('/rootfs')
+        self.assertEqual(validate(spec), spec)
+        core = spec['nodes'][1]
+        self.assertEqual(core['name'], 'SW1'); self.assertEqual(core['role'], 'switch')
+        self.assertEqual(core['ipv6_routes'], [])
+        self.assertTrue(core['ipv6_forwarding']); self.assertFalse(core['forwarding'])
+        text = config(core)
+        self.assertIn('interface "vlan10" { type ptp; cost 10; stub yes;', text)
+        self.assertIn('interface "vlan100" { type ptp; cost 10; stub no;', text)
+        self.assertNotIn('interface "eth', text)
+        self.assertTrue(all(not p['address'] for p in core['svis'].values()))
+        changed = copy.deepcopy(core); changed['ospfv3']['interfaces']['vlan100']['cost'] = 30
+        with self.assertRaisesRegex(ValueError, 'recreation'): adapters(changed, core)
+
+    def test_svi_ospfv3_rejects_unnumbered_physical_shutdown_and_wrong_role_interfaces(self):
+        for update in ({'interfaces': {'eth1': {}}}, {'interfaces': {'br0': {}}},
+                       {'interfaces': {'vlan99': {}}}, {'interfaces': {'vlan10': {'passive': True}}}):
+            spec = ospfv3_svi_lab('/rootfs'); spec['nodes'][1]['ospfv3'].update(update)
+            with self.subTest(update=update), self.assertRaises(ValueError): validate(spec)
+        for update in ({'shutdown': ['vlan100']}, {'ipv6_forwarding': False}, {'switch_backend': 'ovs'},
+                       {'svis': {}}, {'role': 'host'}, {'forwarding': True}):
+            spec = ospfv3_svi_lab('/rootfs'); spec['nodes'][1].update(update)
+            with self.subTest(update=update), self.assertRaises(ValueError): validate(spec)
+
     def test_router_prefixes_have_no_static_fallback_and_example_roundtrips(self):
         spec = ospfv3_lab('/rootfs')
         self.assertEqual(validate(spec), spec)

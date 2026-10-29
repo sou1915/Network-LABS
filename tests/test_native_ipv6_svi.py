@@ -35,7 +35,7 @@ class IPv6SVITests(unittest.TestCase):
                        {'svis': {'vlan10': {'vlan': 20}}}, {'forwarding': True},
                        {'svis': {'vlan10': {'vlan': 10, 'address': '192.0.2.1/24'}, 'vlan20': {'vlan': 20}}},
                        {'router_advertisements': ['vlan10']},
-                       {'ospfv3': {'router_id': '1.1.1.1', 'interfaces': {'vlan10': {}}}}):
+                       {'ospfv3': {'router_id': '1.1.1.1', 'interfaces': {'eth0': {}}}}):
             spec = ipv6_svi_lab('/rootfs'); spec['nodes'][4].update(update)
             with self.subTest(update=update), self.assertRaises(ValueError): validate(spec)
 

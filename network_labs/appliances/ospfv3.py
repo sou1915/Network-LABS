@@ -1,4 +1,4 @@
-"""Single-area OSPFv3 on static physical IPv6 routers, using BIRD 2."""
+"""Single-area OSPFv3 on static IPv6 routers and Linux switch SVIs, using BIRD 2."""
 import ipaddress
 from pathlib import Path
 
@@ -12,11 +12,13 @@ def validate_node(node):
     if policy is None:
         return
     keys(policy, ('router_id', 'interfaces', 'hello', 'dead'), 'OSPFv3')
-    if (node['runtime'] != 'oci' or node['role'] != 'router' or not node['ipv6_forwarding'] or
+    routed = node['role'] == 'router' or (node['role'] == 'switch' and
+              node.get('switch_backend', 'linux') == 'linux' and bool(node.get('svis')))
+    if (node['runtime'] != 'oci' or not routed or not node['ipv6_forwarding'] or
             node.get('ospf') or node['ipv6_routes'] or node['forwarding'] or
             any(node['interfaces'].values()) or node.get('slaac') or node.get('router_advertisements') or
             node.get('dhcpv6_clients') or node.get('dhcpv6_server')):
-        raise ValueError('OSPFv3 requires a static IPv6-only physical OCI router without other routing services.')
+        raise ValueError('OSPFv3 requires an IPv6-only OCI router or Linux L3 switch with numbered SVIs, without other routing services.')
     value = policy.get('router_id')
     if not isinstance(value, str):
         raise ValueError('OSPFv3 router_id requires usable IPv4 text.')
@@ -30,7 +32,7 @@ def validate_node(node):
         raise ValueError('OSPFv3 dead must exceed hello.')
     ports = policy.get('interfaces')
     if not isinstance(ports, dict) or not 1 <= len(ports) <= 16:
-        raise ValueError('OSPFv3 requires 1..16 numbered physical interfaces.')
+        raise ValueError('OSPFv3 requires 1..16 numbered physical router interfaces or switch SVIs.')
     for name, options in ports.items():
         keys(options, ('cost', 'passive'), 'OSPFv3 interface')
         if name not in node['ipv6'] or name in node['shutdown']:
@@ -80,7 +82,7 @@ def observe(manager, node):
             'interfaces': read_cli(manager, node['name'], 'show ospf interface ospf6'),
             'protocol': read_cli(manager, node['name'], 'show protocols all ospf6'),
             'routes': read_cli(manager, node['name'], 'show route protocol ospf6 all'),
-            'note': 'Actual OSPFv3 daemon text. Single area 0, physical point-to-point and passive ports. '
+            'note': 'Actual OSPFv3 daemon text. Single area 0, point-to-point and passive router ports or switch SVIs. '
                     'File conformity does not prove loaded policy, adjacency or delivery. Kernel routes are observed separately.'}
 
 

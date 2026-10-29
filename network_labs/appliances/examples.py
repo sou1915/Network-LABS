@@ -767,3 +767,25 @@ def ipv6_svi_lab(rootfs):
     core['ipv6'] = {'vlan10': '2001:db8:10::1/64', 'vlan20': '2001:db8:20::1/64'}
     core['ipv6_forwarding'] = True
     return validate(spec)
+
+
+def ospfv3_svi_lab(rootfs):
+    """OSPFv3 joins a switch SVI to a physical router through a tagged transit VLAN."""
+    spec = ospfv3_lab(rootfs)
+    spec['name'] = 'ospfv3-svi-lan'
+    core, router = spec['nodes'][1:3]
+    core.update(name='SW1', role='switch',
+                interfaces={'eth0': '', 'eth1': ''}, vlans=[10, 100],
+                switchports={'eth0': {'mode': 'access', 'vlan': 10},
+                             'eth1': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [100]}},
+                svis={'vlan10': {'vlan': 10, 'address': ''}, 'vlan100': {'vlan': 100, 'address': ''}},
+                ipv6={'vlan10': '2001:db8:10::1/64', 'vlan100': '2001:db8:100::1/64'},
+                ospfv3={'router_id': '1.1.1.1', 'interfaces': {'vlan10': {'passive': True}, 'vlan100': {}}})
+    router['name'] = 'R1'
+    spec['nodes'].append({'name': 'SW2', 'runtime': 'oci', 'role': 'switch', 'rootfs': core['rootfs'],
+                          'interfaces': {'eth0': '', 'eth1': ''}, 'vlans': [100],
+                          'switchports': {'eth0': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [100]},
+                                          'eth1': {'mode': 'access', 'vlan': 100}}})
+    spec['links'] = [[['PC1', 'eth0'], ['SW1', 'eth0']], [['SW1', 'eth1'], ['SW2', 'eth0']],
+                     [['SW2', 'eth1'], ['R1', 'eth0']], [['R1', 'eth1'], ['PC2', 'eth0']]]
+    return validate(spec)
