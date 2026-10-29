@@ -104,6 +104,7 @@ def ra_config(node):
 def server_config(node):
     p = node['dhcpv6_pd_server']; network = ipaddress.IPv6Network(p['prefix']); lease = p['lease_seconds']
     data = {'interfaces-config': {'interfaces': [p['interface']]}, 'data-directory': '/run/kea',
+            'control-socket': {'socket-type': 'unix', 'socket-name': '/run/kea/kea6-ctrl-socket'},
             'lease-database': {'type': 'memfile', 'persist': False, 'lfc-interval': 0},
             'server-id': {'type': 'EN', 'enterprise-id': 2495, 'identifier': '4e4c504431', 'persist': False},
             'valid-lifetime': lease, 'preferred-lifetime': lease, 'renew-timer': max(1, lease // 3),
@@ -138,22 +139,28 @@ PROCESS_SCRIPT = r'''for proc in /proc/[0-9]*; do
         END { exit !(config == "/etc/kea/kea-dhcp6.conf") }' || continue
     fi
     pid=${proc##*/}
-    if [ "$1" = stop ]; then [ "$pid" -gt 1 ] || exit 1; /bin/busybox kill -TERM "$pid" || exit 1
-    else echo "$pid"; fi
+    echo "$pid"
 done
 '''
 
 
-def processes(manager, node, *, stop=False, managed=True):
+def processes(manager, node, *, managed=True):
     return manager.crun('exec', node['name'], '/bin/sh', '-c', PROCESS_SCRIPT, 'pd-server',
-                        'stop' if stop else 'list', 'managed' if managed else 'all', timeout=3).stdout.splitlines()
+                        'list', 'managed' if managed else 'all', timeout=3).stdout.splitlines()
 
 
 def stop_server(manager, node):
     from .runtime import RuntimeFailure
     if processes(manager, node) != processes(manager, node, managed=False):
         raise RuntimeFailure('Unmanaged Kea process detected; refusing PD server stop.')
-    processes(manager, node, stop=True)
+    if not processes(manager, node): return
+    result = manager.crun('exec', node['name'], HOOK, '--shutdown-server', timeout=4)
+    try:
+        response = json.loads(result.stdout)
+    except ValueError as error:
+        raise RuntimeFailure('Invalid Kea shutdown response.') from error
+    if not isinstance(response, dict) or type(response.get('result')) is not int or response['result'] != 0:
+        raise RuntimeFailure('Kea refused managed shutdown: ' + result.stdout[:1000])
     deadline = time.monotonic() + 5
     while processes(manager, node):
         if time.monotonic() >= deadline: raise RuntimeFailure('Managed PD server did not stop.')

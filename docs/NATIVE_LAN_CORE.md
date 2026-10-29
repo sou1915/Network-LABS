@@ -5207,7 +5207,7 @@ for unchanged state after cleanup.
 Scope excludes relay chains, multicast server selection, multiple pools per
 server, IA_PD/stateless DHCPv6, DNS provisioning, SVIs/subinterfaces, dynamic
 routing/dual-stack service coexistence and IPv6 firewall/RA Guard. Prefix
-Delegation remains the next increment.
+Delegation has its own bounded profile below.
 
 References: [dnsmasq relay documentation](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html)
 and [BIRD 2 RAdv documentation](https://bird.nic.cz/doc/bird-2.18.html).
@@ -5224,7 +5224,7 @@ Build a trusted hook and a rootfs containing the installed Kea executable and
 its ELF dependencies, dnsmasq and patched static BusyBox. Stock BusyBox 1.36.1
 dereferences a null IA_NA source in PD-only unicast Renew/Release. The pinned
 build below uses the existing WAN link-local source when no IA_NA exists;
-startup requires its compatibility marker. The source checkout must be clean:
+startup requires its compatibility marker. Install `git`, `make`, `gcc` and `libc6-dev` first. The source checkout must be clean:
 
 ```bash
 git clone --depth 1 --branch 1_36_1 https://github.com/mirror/busybox.git /tmp/network-labs-pd-source
@@ -5291,7 +5291,9 @@ LAN, with finite observed lifetimes bounded by policy; unexpected permanent
 addresses remain drift. This is not lease-origin authentication. Saving an
 unavailable lease may preserve policy, never manufacture a healthy lease.
 Restore reacquires from scratch: no learned gateway/address, DUID or lease
-snapshot is saved. Kea uses a volatile single-client pool; its in-memory lease
+snapshot is saved. Managed server shutdown uses the fixed local Kea Unix control socket and its
+`shutdown` command, with a bounded response and an observed process exit. No
+network control API is exposed. Kea uses a volatile single-client pool; its in-memory lease
 storage is an isolated lab choice, not a production persistence policy.
 
 The `dhcpv6-pd-interop` test exercises actual IA_PD/IAPREFIX SARR and renewal

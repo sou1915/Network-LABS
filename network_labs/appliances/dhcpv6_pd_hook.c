@@ -7,12 +7,47 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/time.h>
 #ifndef NL_PD_POLICY
 #define NL_PD_POLICY "/lab/dhcpv6-pd.policy"
 #endif
 #ifndef NL_BUSYBOX
 #define NL_BUSYBOX "/bin/busybox"
 #endif
+/* Fixed local shutdown command; no arbitrary control API or socket path. */
+#ifndef NL_PD_SOCKET
+#define NL_PD_SOCKET "/run/kea/kea6-ctrl-socket"
+#endif
+static int stop_server(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return 125;
+    struct timeval timeout = {2, 0};
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) ||
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout))) { close(fd); return 125; }
+    struct sockaddr_un address = {0}; address.sun_family = AF_UNIX;
+    if (strlen(NL_PD_SOCKET) >= sizeof(address.sun_path)) { close(fd); return 125; }
+    strcpy(address.sun_path, NL_PD_SOCKET);
+    if (connect(fd, (struct sockaddr *)&address, sizeof(address))) { perror("Kea control connect"); close(fd); return 125; }
+    const char command[] = "{\"command\":\"shutdown\"}";
+    size_t sent = 0;
+    while (sent < sizeof(command) - 1) {
+        ssize_t n = send(fd, command + sent, sizeof(command) - 1 - sent, MSG_NOSIGNAL);
+        if (n <= 0) { close(fd); return 125; }
+        sent += (size_t)n;
+    }
+    char response[4096]; size_t used = 0;
+    while (used < sizeof(response)) {
+        ssize_t n = recv(fd, response + used, sizeof(response) - used, 0);
+        if (n == 0) break;
+        if (n < 0) { close(fd); return 125; }
+        used += (size_t)n;
+    }
+    close(fd);
+    if (!used || used == sizeof(response)) return 125;
+    return fwrite(response, 1, used, stdout) == used ? 0 : 125;
+}
 static int number(const char *s, unsigned long *v) {
     if (!s || !*s) return -1;
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) if (!isdigit(*p)) return -1;
@@ -35,6 +70,7 @@ static int prefix(const char *s, struct in6_addr *out) {
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) { puts("Network LABS DHCPv6 PD hook 1"); return 0; }
     if (argc != 2) return 64;
+    if (!strcmp(argv[1], "--shutdown-server")) return stop_server();
     int remove = !strcmp(argv[1], "deconfig");
     if (!remove && strcmp(argv[1], "bound") && strcmp(argv[1], "renew")) return 64;
     char port[16], network[80], maximum[16]; struct in6_addr expected, received;

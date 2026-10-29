@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import shutil
 import struct
+import socket
+import threading
 import subprocess
 import tempfile
 import unittest
@@ -93,13 +95,13 @@ class PDHookTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.folder = tempfile.TemporaryDirectory(); cls.addClassCleanup(cls.folder.cleanup)
-        root = Path(cls.folder.name); cls.policy = root / 'policy'; cls.binary = root / 'hook'; cls.stub = root / 'busybox'
+        root = Path(cls.folder.name); cls.policy = root / 'policy'; cls.binary = root / 'hook'; cls.stub = root / 'busybox'; cls.control_socket = root / 'kea.sock'
         cls.stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n'); cls.stub.chmod(0o755)
         shim = root / 'interfaces.c'
         shim.write_text('#include <ifaddrs.h>\n#include <arpa/inet.h>\n#include <stdlib.h>\nstatic struct ifaddrs iface;\nstatic struct sockaddr_in6 address;\nint getifaddrs(struct ifaddrs **out) {\n    *out = NULL;\n    if (getenv("NL_TEST_PRESENT")) {\n        address.sin6_family = AF_INET6; inet_pton(AF_INET6, "2001:db8:10::1", &address.sin6_addr);\n        iface.ifa_name = "eth0"; iface.ifa_addr = (struct sockaddr *)&address; iface.ifa_next = NULL;\n        *out = &iface;\n    }\n    return 0;\n}\nvoid freeifaddrs(struct ifaddrs *ignored) { (void)ignored; }\n')
         source = Path(__file__).parents[1] / 'network_labs/appliances/dhcpv6_pd_hook.c'
         subprocess.run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-DNL_PD_POLICY="' + str(cls.policy) + '"',
-                        '-DNL_BUSYBOX="' + str(cls.stub) + '"', str(source), str(shim), '-o', str(cls.binary)], check=True, capture_output=True)
+                        '-DNL_BUSYBOX="' + str(cls.stub) + '"', '-DNL_PD_SOCKET="' + str(cls.control_socket) + '"', str(source), str(shim), '-o', str(cls.binary)], check=True, capture_output=True)
 
     def invoke(self, action, **variables):
         self.policy.write_text('eth0\n2001:db8:10::/64\n30\n')
@@ -113,6 +115,32 @@ class PDHookTests(unittest.TestCase):
             self.assertEqual(result.stdout.splitlines(), ['ip', '-6', 'addr', 'replace', '2001:db8:10::1/64', 'dev', 'eth0',
                                                           'valid_lft', '30', 'preferred_lft', '30'])
         self.assertTrue(any(str(p) == '/usr/lib/network-labs/dhcpv6-pd-hook' for _, p in rootfs_assets(hook=self.binary)))
+
+    def test_shutdown_uses_only_fixed_local_command_and_collects_split_response(self):
+        requests = []
+        try:
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        except PermissionError:
+            self.skipTest('Local runtime disallows Unix sockets')
+        with server:
+            server.bind(str(self.control_socket)); server.listen(1); server.settimeout(3)
+            def respond():
+                connection, _ = server.accept()
+                with connection:
+                    data = b''
+                    while not data.endswith(b'}'): data += connection.recv(128)
+                    requests.append(json.loads(data))
+                    connection.sendall(b'{"result":')
+                    connection.sendall(b'0,"text":"shutting down"}')
+            thread = threading.Thread(target=respond); thread.start()
+            result = self.invoke('--shutdown-server')
+            thread.join(4)
+            self.assertFalse(thread.is_alive())
+        self.control_socket.unlink()
+        self.assertEqual(requests, [{'command': 'shutdown'}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['result'], 0)
+        self.assertEqual(self.invoke('--shutdown-server').returncode, 125)
 
     def test_rejected_or_expired_lease_never_adds_a_gateway(self):
         for prefix, lifetime in (('2001:db8:99::/64', '30'), ('2001:db8:10::/56', '30'),

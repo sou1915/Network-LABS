@@ -349,8 +349,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
             if (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': Managed BIRD routing/RA requires a rootfs built with --bird and --birdc.')
-            if node.get('dhcpv6_pd_server') and not (Path(node['rootfs']) / 'usr/sbin/kea-dhcp6').is_file():
-                raise RuntimeFailure(node['name'] + ': PD server requires a rootfs built with --kea-dhcp6.')
+            if node.get('dhcpv6_pd_server') and any(not (Path(node['rootfs']) / p).is_file() for p in ('usr/sbin/kea-dhcp6', 'usr/lib/network-labs/dhcpv6-pd-hook')):
+                raise RuntimeFailure(node['name'] + ': PD server requires --kea-dhcp6 and --dhcpv6-pd-hook rootfs assets.')
             if node.get('dhcpv6_pd_client') and any(not (Path(node['rootfs']) / p).is_file() for p in ('usr/lib/network-labs/dhcpv6-pd-hook', 'usr/sbin/dnsmasq')):
                 raise RuntimeFailure(node['name'] + ': PD client requires --dhcpv6-pd-hook and --dnsmasq rootfs assets.')
             if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements') or node.get('dhcpv6_relay') or node.get('dhcpv6_remote_server')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():

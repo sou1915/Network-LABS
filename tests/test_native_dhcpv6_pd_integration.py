@@ -90,7 +90,7 @@ class NativePDTests(unittest.TestCase):
                 solicit_ipv6_router(manager, 0)
                 for future in futures: self.assertGreater(future.result(timeout=25)['captured_packets'], 0)
                 packets = captured_pd(paths[0].read_bytes())
-                self.assertTrue({1, 2, 3, 5, 7} <= {p['type'] for p in packets}, packets)
+                self.assertTrue({1, 2, 3, 5, 7, 8} <= {p['type'] for p in packets}, packets)
                 self.assertTrue(all(not p['ia_na'] for p in packets), packets)
                 replies = [p for p in packets if p['type'] == 7 and any(q['valid'] == 30 for q in p['prefixes'])]
                 for kind in (3, 5):
