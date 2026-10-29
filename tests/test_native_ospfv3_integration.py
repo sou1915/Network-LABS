@@ -54,6 +54,13 @@ class NativeOSPFv3Tests(unittest.TestCase):
                     learned = remote_routes(name)[0]
                     self.assertIn(learned.get('protocol'), ('bird', 192, '192'))
                     self.assertTrue(learned.get('gateway', '').startswith('fe80:'), learned)
+                # FIB installation may precede working NDP after withdrawal.
+                # Observe bounded delivery readiness in both directions, then
+                # require the separate verification to have zero packet loss.
+                for source, target in (('PC1', '2001:db8:20::20'), ('PC2', '2001:db8:10::10')):
+                    wait(lambda: manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
+                                             target, check=False, timeout=4).returncode == 0,
+                         source + ' OSPFv3 delivery did not recover')
                 report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
                 self.assertEqual(report['status'], 'passed', report)
             try:
