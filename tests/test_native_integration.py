@@ -29,7 +29,21 @@ def solicit_ipv6_router(manager, index):
 
     A fixed capture window need not overlap an unsolicited advertisement.
     Linux supplies the ICMPv6 checksum and the interface link-local source.
+    A newly created/restarted node may still be performing link-local DAD;
+    sending then fails with EADDRNOTAVAIL before any packet reaches the guard.
     """
+    deadline = time.monotonic() + 5
+    while True:
+        records = json.loads(manager.ns(index, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0', timeout=2).stdout)
+        addresses = [a for row in records for a in row.get('addr_info', []) if a.get('scope') == 'link']
+        if any(a.get('dadfailed') or 'dadfailed' in a.get('flags', []) for a in addresses):
+            raise RuntimeFailure('Router Solicitation source failed link-local DAD on eth0')
+        if any(not a.get('tentative') and 'tentative' not in a.get('flags', []) and
+               a.get('preferred_life_time', 0) != 0 for a in addresses):
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeFailure('Router Solicitation requires a usable link-local source on eth0: ' + repr(records))
+        time.sleep(.1)
     code = (
         "import socket; index=socket.if_nametoindex('eth0'); "
         "sock=socket.socket(socket.AF_INET6,socket.SOCK_RAW,socket.IPPROTO_ICMPV6); "
