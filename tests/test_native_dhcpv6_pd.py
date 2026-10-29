@@ -57,6 +57,11 @@ class PDPolicyTests(unittest.TestCase):
         host, client, server, _ = spec['nodes']
         self.assertEqual(host['ipv6'], {}); self.assertEqual(host['ipv6_routes'], [])
         self.assertNotIn('eth0', client['ipv6']); self.assertEqual(gateway(client), '2001:db8:10::1/64')
+        from network_labs.appliances.runtime import oci_config
+        mounts = oci_config(spec, server, 2, '/tmp/bundle/rootfs')['mounts']
+        kea_mount = next(m for m in mounts if m['destination'] == '/etc/kea/kea-dhcp6.conf')
+        self.assertEqual(kea_mount['source'], '/tmp/bundle/files/kea-pd.json')
+        self.assertIn('ro', kea_mount['options'])
         pool = json.loads(server_config(server))['Dhcp6']['subnet6'][0]
         self.assertNotIn('pools', pool); self.assertEqual(pool['pd-pools'][0]['delegated-len'], 64)
         self.assertEqual(hook_policy(client), 'eth0\n2001:db8:10::/64\n30\n')

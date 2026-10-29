@@ -103,7 +103,7 @@ def ra_config(node):
 
 def server_config(node):
     p = node['dhcpv6_pd_server']; network = ipaddress.IPv6Network(p['prefix']); lease = p['lease_seconds']
-    data = {'interfaces-config': {'interfaces': [p['interface']]}, 'data-directory': '/run',
+    data = {'interfaces-config': {'interfaces': [p['interface']]}, 'data-directory': '/run/kea',
             'lease-database': {'type': 'memfile', 'persist': False, 'lfc-interval': 0},
             'server-id': {'type': 'EN', 'enterprise-id': 2495, 'identifier': '4e4c504431', 'persist': False},
             'valid-lifetime': lease, 'preferred-lifetime': lease, 'renew-timer': max(1, lease // 3),
@@ -135,7 +135,7 @@ PROCESS_SCRIPT = r'''for proc in /proc/[0-9]*; do
     if [ "$2" != all ]; then
     /bin/busybox tr '\000' '\n' < "$proc/cmdline" | /bin/busybox awk '
         previous == "-c" { config = $0 } { previous = $0 }
-        END { exit !(config == "/lab/kea-pd.json") }' || continue
+        END { exit !(config == "/etc/kea/kea-dhcp6.conf") }' || continue
     fi
     pid=${proc##*/}
     if [ "$1" = stop ]; then [ "$pid" -gt 1 ] || exit 1; /bin/busybox kill -TERM "$pid" || exit 1
@@ -163,9 +163,13 @@ def stop_server(manager, node):
 def start_server(manager, node):
     from .runtime import RuntimeFailure
     if processes(manager, node, managed=False): raise RuntimeFailure('Refusing PD startup while a Kea process already exists.')
-    command = ['/bin/busybox', 'env', 'KEA_PIDFILE_DIR=/run', 'KEA_LOCKFILE_DIR=/run', KEA]
-    manager.crun('exec', node['name'], *command, '-t', '/lab/kea-pd.json', timeout=5)
-    manager.crun('exec', '--detach', node['name'], *command, '-c', '/lab/kea-pd.json',
+    manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/kea', timeout=3)
+    command = ['/bin/busybox', 'env', 'KEA_PIDFILE_DIR=/run/kea', 'KEA_LOCKFILE_DIR=/run/kea', KEA]
+    result = manager.crun('exec', node['name'], *command, '-t', '/etc/kea/kea-dhcp6.conf', timeout=5, check=False)
+    if result.returncode:
+        evidence = manager.crun('exec', node['name'], '/bin/busybox', 'ls', '-l', '/etc/kea/kea-dhcp6.conf', check=False, timeout=3)
+        raise RuntimeFailure('Kea PD config check failed: ' + (result.stderr or result.stdout)[-3000:] + '; file: ' + evidence.stdout + evidence.stderr)
+    manager.crun('exec', '--detach', node['name'], *command, '-c', '/etc/kea/kea-dhcp6.conf',
                  log=manager.directory / node['name'] / 'pd-server.log')
     deadline = time.monotonic() + 5
     while len(processes(manager, node)) != 1:

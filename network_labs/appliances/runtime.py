@@ -59,6 +59,9 @@ def oci_config(spec, node, index, rootfs):
     if node.get('lldp') is not None:
         caps.append('CAP_SYS_CHROOT')
     management_mounts = []
+    if node.get('dhcpv6_pd_server'):
+        management_mounts.append({'destination': '/etc/kea/kea-dhcp6.conf', 'type': 'bind',
+            'source': str(Path(rootfs).parent / 'files/kea-pd.json'), 'options': ['bind', 'ro', 'nosuid', 'nodev']})
     management = node.get('management') or {}
     if management.get('ssh_keys') or management.get('telnet_password_hash'):
         management_mounts.append({'destination': '/etc/passwd', 'type': 'bind', 'source': str(Path(rootfs).parent / 'files/management-passwd'), 'options': ['bind', 'ro', 'nosuid', 'nodev']})
@@ -218,6 +221,9 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
         path.chmod(0o755)
+    if kea_dhcp6 is not None:
+        (target / 'etc/kea').mkdir(parents=True, exist_ok=True)
+        (target / 'etc/kea/kea-dhcp6.conf').write_text('{}\n')
     if ovs_additions:
         write_json(target / 'etc/network-labs-ovs-assets.json', {'files': [str(p) for _, p in ovs_additions]})
     if lldp_additions:
