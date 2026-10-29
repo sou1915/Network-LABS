@@ -2,6 +2,8 @@
 
 
 def adapters(node, previous):
+    if (node.get('spanning_tree', {}).get('carrier_recovery') or previous.get('spanning_tree', {}).get('carrier_recovery')) and node != previous:
+        raise ValueError('Carrier-recovery component edits require lab recreation.')
     if (node.get('ra_guard') is not None or previous.get('ra_guard') is not None) and node != previous:
         raise ValueError('RA Guard switch edits require lab recreation.')
     if (node.get('radius_server') or previous.get('radius_server')) and node != previous:

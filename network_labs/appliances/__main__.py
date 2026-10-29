@@ -84,7 +84,7 @@ def main(arguments=None):
     sample.add_argument('--dhcp-snooping', action='store_true', help='Trusted DHCP server and blocked rogue server with observed bindings.')
     sample.add_argument('--port-security', action='store_true', help='Three-node LAN with static secure source-MAC admission.')
     sample.add_argument('--stp', action='store_true', help='Nine-node VLAN LAN on a triangle with real classic STP.')
-    sample.add_argument('--stp-lacp', action='store_true', help='Common STP with an LACP trunk and a tagged spare.')
+    sample.add_argument('--stp-lacp', action='store_true', help='Common STP/LACP/spare with explicit carrier FDB recovery.')
     sample.add_argument('--stp-lacp-min-links', type=int, choices=(1, 2), help='LACP carrier threshold for --stp-lacp, default 1.')
     sample.add_argument('--lacp', action='store_true', help='Six-node VLAN LAN with a negotiated two-link LACP trunk.')
     sample.add_argument('--enterprise', action='store_true', help='20-node LAN with router, firewall, DHCP and WAN.')

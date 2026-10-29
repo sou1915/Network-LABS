@@ -16,10 +16,15 @@ TICKS = os.sysconf('SC_CLK_TCK')
 
 def validate_tree(node):
     policy = node.setdefault('spanning_tree', {})
-    keys(policy, ('mode', 'priority', *TIMERS, 'ports'), 'spanning_tree')
+    keys(policy, ('mode', 'priority', *TIMERS, 'ports', 'carrier_recovery'), 'spanning_tree')
     mode = policy.setdefault('mode', 'off')
     if mode not in ('off', 'stp', 'rstp') or (mode == 'rstp' and node.get('switch_backend') != 'ovs'):
         raise ValueError('Linux bridge supports off/classic STP; RSTP requires the explicit OVS backend.')
+    recovery = policy.setdefault('carrier_recovery', False)
+    if type(recovery) is not bool or (recovery and (mode != 'stp' or node.get('switch_backend') == 'ovs' or len(node['port_channels']) != 1 or node.get('shutdown') or
+            any(len(c['members']) != 2 for c in node['port_channels'].values()) or
+            any(node.get(k) for k in ('svis', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'ra_guard')))):
+        raise ValueError('Carrier recovery requires classic Linux STP with LACP and no co-located admission/SVI/multicast profiles.')
     priority = integer(policy.setdefault('priority', 32768), 0, 61440, 'Bridge priority')
     if priority % 4096:
         raise ValueError('Bridge priority must be a multiple of 4096.')
@@ -51,6 +56,8 @@ def validate_tree(node):
 
 def validate_components(spec, edges):
     switches = {n['name']: n for n in spec['nodes'] if n['role'] == 'switch'}
+    if sum(bool(n['spanning_tree'].get('carrier_recovery')) for n in switches.values()) not in (0, 2):
+        raise ValueError('Initial carrier recovery supports exactly two enabled switches with one paired two-member LACP channel each.')
     adjacency = {n: set() for n in switches}
     switch_edges = [(a, b) for a, b in edges if a in switches and b in switches]
     for a, b in switch_edges:
@@ -72,6 +79,8 @@ def validate_components(spec, edges):
         count = sum(a in component and b in component for a, b in switch_edges)
         if count >= len(component) and modes not in ({'stp'}, {'rstp'}):
             raise ValueError('Layer-2 switch loop requires STP on every switch in the component.')
+        if len({p.get('carrier_recovery', False) for p in policies}) > 1:
+            raise ValueError('Carrier recovery must agree across the connected STP component.')
         if modes in ({'stp'}, {'rstp'}) and len({tuple(p[k] for k in TIMERS) for p in policies}) > 1:
             raise ValueError('Initial common-tree backend requires matching STP timers across connected switches.')
 

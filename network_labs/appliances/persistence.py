@@ -57,6 +57,8 @@ def drift(manager):
                 errors.append(node['name'] + ': IPv6 firewall rules differ')
         if node.get('ra_guard') is not None and actual.get('ra_guard', {}).get('policy_verified') is not True:
             errors.append(node['name'] + ': RA Guard rules differ or are unavailable')
+        if node.get('spanning_tree', {}).get('carrier_recovery') and actual.get('stp_carrier_recovery', {}).get('available') is not True:
+            errors.append(node['name'] + ': STP carrier recovery worker unavailable/stale')
         if node.get('port_security') and actual.get('port_security', {}).get('fingerprint_matches') is not True:
             errors.append(node['name'] + ': port security rules differ or are unavailable')
         from .snooping import effective

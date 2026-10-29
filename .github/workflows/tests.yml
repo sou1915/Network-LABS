@@ -13,7 +13,7 @@ jobs:
           sudo modprobe bonding max_bonds=0
           uname -r
           ip -Version
-      - name: Verify peer-induced carrier loss and natural recovery without manager edits or FDB flush
+      - name: Verify peer carrier loss and automatic dynamic FDB recovery without test-helper repair
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_carrier_integration.py -v
   ra-guard-dhcpv6-interop:
     runs-on: ubuntu-24.04

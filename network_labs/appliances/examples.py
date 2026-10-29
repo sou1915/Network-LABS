@@ -905,6 +905,6 @@ def stp_lacp_lab(rootfs, min_links=1):
         node['switchports']['eth4'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
         node['port_channels']['bond1']['min_links'] = min_links
         node['spanning_tree'] = {'mode': 'stp', 'priority': (index + 1) * 4096, 'hello_time': 1,
-                                 'max_age': 6, 'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}}
+                                 'max_age': 6, 'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}, 'carrier_recovery': True}
     spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']])
     return validate(spec)

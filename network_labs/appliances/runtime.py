@@ -473,6 +473,8 @@ class Manager:
             from .radius_server import start_servers as start_radius
             start_radius(self)
             self.state['phase'] = 'running'; self.save()
+            from .stp_carrier import start as start_carrier
+            start_carrier(self)
         except BaseException:
             self.state['phase'] = 'failed'; self.save()
             self.stop()
@@ -595,6 +597,9 @@ class Manager:
                 if node.get('firewall_ipv6') is not None:
                     from .firewall_ipv6 import observe as observe_ipv6_firewall
                     result['firewall_ipv6'] = observe_ipv6_firewall(self, index)
+                if node.get('spanning_tree', {}).get('carrier_recovery'):
+                    from .stp_carrier import observe as observe_carrier
+                    result['stp_carrier_recovery'] = observe_carrier(self)
                 return result
         raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
 
@@ -752,6 +757,8 @@ class Manager:
 
     def stop(self):
         state = self.read(); errors = []
+        from .stp_carrier import stop as stop_carrier
+        stop_carrier(self)
         from .ssh_radius import stop_worker as stop_ssh_radius
         for name in list(state.get('ssh_radius_workers', {})):
             stop_ssh_radius(self, name)

@@ -44,7 +44,7 @@ when this record was written.
 See [Native LAN core](NATIVE_LAN_CORE.md) for the transaction, deadlines,
 commands and dynamic-only FDB cleanup scope.
 
-## Peer-induced carrier validation
+## Peer-induced carrier and opt-in automatic recovery
 
 The reusable `example --stp-lacp` topology adds the higher-cost spare trunk to
 `--lacp`. `--stp-lacp-min-links 1` (default) or `2` sets the declared carrier
@@ -65,9 +65,21 @@ runner. Its fault injector directly sets the *peer* SW2 veth member down/up.
 On SW1, the corresponding member stays administratively UP while LOWER_UP
 reflects actual carrier loss/return. This is a virtual peer-induced carrier
 case, not a physical cable/NIC test, and not packet loss with carrier retained.
-The test never invokes a managed configuration edit or an FDB flush during
-those cycles. A spy rejects accidental flushes and interface mutations outside
-the two peer member faults; declared policy and revision must stay unchanged.
+
+The first natural-recovery run on `7.0.0-1017-azure` reproduced a real failure:
+with min-links 1, one returned member restored the observed STP/LACP control
+path but PC1 traffic remained blocked, with old spare-path FDB learning still
+present. The profile therefore explicitly enables
+`spanning_tree.carrier_recovery:true` on both switches. This is optional and
+false by default for other topologies. It is an owned background worker,
+**not a claim that the kernel naturally repaired every case**.
+
+The test helper never invokes a managed configuration edit or FDB flush during
+cycles. Its spy rejects such helper repairs and mutations outside the two peer
+member faults. The runtime worker independently observes stable control/path
+changes and flushes dynamic FDB entries on both owned bridges. Actual repair
+counts/completion, preserved static markers and unchanged declared policy and
+revision are checked separately from packet recovery.
 
 | Carrier scenario | Required evidence |
 |---|---|
@@ -76,12 +88,25 @@ the two peer member faults; declared policy and revision must stay unchanged.
 | Both peer members down | No negotiated members; spare carries both VLANs bidirectionally |
 | One member returned | Bundle returns for threshold 1; threshold 2 remains on spare |
 | Both members returned | Both negotiate; original common-tree bundle path returns |
-| Two cycles per threshold | Packet delivery recovers naturally within the bounded test deadline; runtime static marker survives |
+| Two cycles per threshold | Opt-in worker repairs dynamic learning after settled path changes; packet recovery has its own deadline; runtime static marker survives |
 | Actual path captures | Warmed bidirectional echo for VLANs 10/20 appears on the selected bundle/spare, absent on the inactive path; IPv4 TTL stays 64 |
 | Drift and saved restart | External peer admin changes cannot be saved as declared policy; after restoration, save/restart rebuilds threshold/topology without runtime FDB markers |
 
 Control convergence and packet recovery have independent checks. The scenario
 checks host IPv4 routes/rules/forwarding and virtual-link cleanup. It records the
 actual runner kernel; passing there does not establish a fix on the original
-6.17 kernel or all kernels. No carrier watchdog, generic automatic FDB repair,
-MSTP/PVST, OVS, optical faults or one-way LACP loss is introduced by this test.
+6.17 kernel or all kernels. The initial worker scope is exactly two opted-in Linux common-STP switches,
+each with one paired two-member LACP channel and initially UP interfaces. Trust,
+STP and network edits on those switches require recreation. Two equal settled
+observations with a common root and a ready selected LACP root port precede a
+repair; incomplete/failed reads do not flush. Each namespace identity is checked
+before use. Partial flush failures remain incomplete and retry after stable
+observations, including when the path changes back. Only dynamic FDB entries
+are touched, never static/permanent entries or addresses/routes. Worker health,
+repair count and the last event are reported as `stp_carrier_recovery` by inspect;
+they are not a packet-delivery verdict. Save rejects an unavailable/stale worker.
+The worker is stopped before namespace teardown and recreated with fresh runtime
+state after cold restore. Runtime PID/tokens/events do not enter saved policy.
+
+This does not provide generic FDB repair for arbitrary topologies, MSTP/PVST,
+OVS, optical faults, one-way LACP loss or support on every kernel.

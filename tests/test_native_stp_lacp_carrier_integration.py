@@ -1,4 +1,4 @@
-"""Peer-induced carrier loss without managed edits or FDB reconciliation."""
+"""Peer-induced carrier loss with opt-in automatic dynamic FDB recovery."""
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
@@ -21,7 +21,7 @@ from test_native_integration import unexpected_host_link_changes
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class NativeSTPLACPCarrierTests(unittest.TestCase):
-    def test_peer_carrier_cycles_min_links_natural_paths_and_saved_restart(self):
+    def test_peer_carrier_cycles_min_links_automatic_paths_and_saved_restart(self):
         self.assertEqual(os.geteuid(), 0)
         for tool in ('busybox', 'crun', 'ip', 'bridge', 'tcpdump'):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
@@ -46,7 +46,11 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                         self.fail(label + ': ' + repr([manager.inspect(name) for name in ('SW1', 'SW2')]))
                     def control(spare, members):
                         left, right = manager.inspect('SW1'), manager.inspect('SW2')
-                        return (left['spanning_tree']['local_state_settled'] and right['spanning_tree']['local_state_settled'] and
+                        expected = [[actual['name'], actual['spanning_tree']['root_id'], actual['spanning_tree']['root_port'],
+                                     sorted([[name, p['state']] for name, p in actual['spanning_tree']['ports'].items()])]
+                                    for actual in (left, right)]
+                        worker = left['stp_carrier_recovery']
+                        return (worker['available'] and worker.get('paths') == [expected] and left['spanning_tree']['local_state_settled'] and right['spanning_tree']['local_state_settled'] and
                                 right['spanning_tree']['root_id'] == left['spanning_tree']['bridge_id'] and
                                 right['spanning_tree']['root_port'] == ('eth4' if spare else 'bond1') and
                                 right['spanning_tree']['ports']['eth4']['state'] == ('forwarding' if spare else 'blocking') and
@@ -57,7 +61,7 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                         for source, target in (('PC1', '192.0.2.20'), ('PC3', '192.0.2.10'), ('PC2', '198.18.0.20'), ('PC4', '198.18.0.10')):
                             wait(lambda: manager.crun('exec', source, '/bin/busybox', 'ping', '-c', '1', '-W', '1', '-w', '2',
                                                      target, check=False, timeout=4).returncode == 0,
-                                 'Natural carrier packet path failed for ' + source, 20)
+                                 'Automatic carrier packet path failed for ' + source, 20)
                     def capture_path(label, spare):
                         # Warm both directions first, so unknown-unicast flooding
                         # is not mistaken for the selected steady-state path.
@@ -92,10 +96,12 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                             self.assertTrue(any(r['mac'] == marker for r in rows), rows)
                     try:
                         with manager.locked(): manager.start(spec)
+                        from network_labs.appliances.snooping import alive
+                        worker_record = copy.deepcopy(manager.state['stp_carrier_worker'])
                         saved_state = copy.deepcopy(manager.state['spec']); revision = manager.state['revision']
                         original_ns = manager.ns
                         def observed_ns(index, *args, **options):
-                            if args[:3] == ('bridge', 'fdb', 'flush'): self.fail('Carrier test must not repair FDB state')
+                            if args[:3] == ('bridge', 'fdb', 'flush'): self.fail('Test helper must not repair FDB state; only the managed worker may do so')
                             if args[:2] == ('ip', 'link') and 'set' in args: mutations.append((index, args))
                             return original_ns(index, *args, **options)
                         with patch.object(manager, 'ns', side_effect=observed_ns):
@@ -116,19 +122,28 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                                 if cycle == 0: capture_path('restored', False)
                                 self.assertEqual(manager.state['spec'], saved_state); self.assertEqual(manager.state['revision'], revision)
                                 self.assertEqual(manager.state['phase'], 'running'); self.assertNotIn('pending_spec', manager.state)
+                            recovery = manager.inspect('SW1')['stp_carrier_recovery']
+                            self.assertTrue(recovery['available'], recovery)
+                            self.assertGreaterEqual(recovery['repairs'], 2, recovery)
+                            self.assertTrue(recovery['last_event']['complete'], recovery)
+                            self.assertEqual(recovery['last_event']['bridges'], ['SW1', 'SW2'])
                             self.assertTrue(all(index == 5 and args in tuple(('ip', 'link', 'set', 'dev', port, state)
                                                 for port in ('eth2', 'eth3') for state in ('up', 'down')) for index, args in mutations), mutations)
                         with manager.locked():
                             manager.write_startup(); saved = load_startup(spec['name']); self.assertEqual(saved, spec)
-                            manager.stop(); manager.start(saved)
+                            manager.stop(); self.assertFalse(alive(worker_record)); manager.start(saved)
                         wait(lambda: control(False, 2), 'Restored saved carrier policy not ready'); traffic()
                         for index in (4, 5):
                             rows = json.loads(manager.ns(index, 'bridge', '-j', 'fdb', 'show').stdout)
                             self.assertFalse(any(r['mac'] == marker for r in rows), 'Runtime static marker entered saved policy')
+                        self.assertNotEqual(manager.state['stp_carrier_worker']['token'], worker_record['token'])
+                        self.assertTrue(manager.inspect('SW1')['stp_carrier_recovery']['available'])
                         with manager.locked(): manager.write_startup()
                     finally:
                         if manager.directory.exists():
+                            final_worker = copy.deepcopy(manager.state.get('stp_carrier_worker'))
                             with manager.locked(): manager.stop()
+                            self.assertFalse(alive(final_worker))
         for kind, value in baseline.items():
             self.assertEqual(run(['ip', '-j', '-4', kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout, value)
         self.assertEqual(run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout, forwarding)

@@ -5596,9 +5596,14 @@ Both switches have the same threshold, a two-member active/passive LACP trunk
 and a higher-cost tagged spare under classic common STP. There is no routing,
 per-VLAN spanning tree or vendor-specific control plane.
 
-See [STP/LACP validation](STP_LACP_VALIDATION.md#peer-induced-carrier-validation)
-for the separate peer-induced carrier scenario, packet path assertions, natural
-recovery deadlines, persistence semantics and explicit kernel/hardware limits.
-The runtime's existing dynamic-only FDB reconciliation still belongs to managed
-administrative recovery; the carrier test does not call it or introduce a
-background carrier-repair process.
+See [STP/LACP validation](STP_LACP_VALIDATION.md#peer-induced-carrier-and-opt-in-automatic-recovery)
+for the separate peer-induced carrier scenario, packet path assertions,
+persistence semantics and explicit kernel/hardware limits. This example opts
+both switches into `spanning_tree.carrier_recovery:true`: one managed background
+worker observes stable common-tree path changes and reconciles dynamic FDB
+learning on the two owned bridges. Other profiles default to false. The first
+natural min-links-1 recovery attempt failed despite settled control state; the
+opt-in mechanism addresses that observed stale-learning case. It preserves
+static entries, reports actual worker health/events separately from delivery,
+and stops before namespace cleanup. Configuration edits require recreation.
+The original managed-administrative recovery path remains separate.
