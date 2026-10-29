@@ -5,7 +5,20 @@ profile. The SSH key authenticates the transport account `lab`; a fresh RADIUS
 username/password and the user's local `shell` permission are then required.
 The default diagnostic profile still denies shell and PTY requests.
 
-Generate a combined profile with an existing Dropbear/FreeRADIUS rootfs:
+Build the small unprivileged relay from the repository's trusted source:
+
+```bash
+cc -O2 -Wall -Wextra -Werror network_labs/appliances/ssh_radius_relay.c -o ./ssh-radius-client
+```
+
+Add `--ssh-relay ./ssh-radius-client` to the existing rootfs build command,
+alongside `--dropbear` and the FreeRADIUS assets. The builder checks the ELF
+identity/version and copies its resolved libraries. The compiler is needed
+only on the build host, never in the node. Shell-enabled policies fail
+preflight without this executable. Diagnostic-only profiles retain the
+BusyBox client.
+
+Generate a combined profile with that rootfs:
 
 ```bash
 umask 077
@@ -62,10 +75,10 @@ Neither completed commands nor filesystem changes are rolled back.
 Shell output uses bounded base64 data records, separate from final status, so
 a user's output cannot forge a successful completion. The relay buffers are
 bounded and total shell output is limited to 1 MiB; exceeding it ends the
-session with an unsuccessful status and cleanup. Private FIFO transports carry
-credentials and input as streams, not persistent file contents, and are removed
-on normal completion/handled termination. Uncatchable process death retains
-usual cleanup limitations. One bridge handles one request/session at a time;
+session with an unsuccessful status and cleanup. The dedicated relay handles credentials and terminal bytes directly over
+the protected socket, without background processes or FIFO files. It restores
+the terminal on normal completion and handled signals. Uncatchable process
+death retains usual cleanup limitations. One bridge handles one request/session at a time;
 concurrent requests may time out while a shell is active.
 
 This remains a trusted educational lab with a shared UID, not per-user OS

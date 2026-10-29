@@ -5,6 +5,7 @@ ACTIONS = {'identity': ['/bin/busybox', 'id'],
            'hostname': ['/bin/busybox', 'hostname'],
            'security-context': ['/bin/busybox', 'cat', '/proc/self/status']}
 SCRIPT = '/lab/ssh-dispatch.sh'
+RELAY_BINARY = '/usr/lib/network-labs/ssh-radius-client'
 KEY_OPTIONS = 'command="/bin/sh ' + SCRIPT + '",no-port-forwarding,no-agent-forwarding,no-pty'
 
 
@@ -16,8 +17,11 @@ def dispatcher(actions, *, radius=False, session_seconds=300):
     for action in sorted(actions):
         label = "''|shell" if action == 'shell' else action
         duration = session_seconds + 15 if action == 'shell' else 15
-        args = (['/bin/busybox', 'timeout', '-s', 'KILL', str(duration), '/bin/sh', '/lab/ssh-radius-client.sh', action]
-                if radius else ACTIONS[action])
+        if radius and 'shell' in actions:
+            args = [RELAY_BINARY, action, str(duration)]
+        else:
+            args = (['/bin/busybox', 'timeout', '-s', 'KILL', str(duration), '/bin/sh', '/lab/ssh-radius-client.sh', action]
+                    if radius else ACTIONS[action])
         branches.append('    ' + label + ') exec ' + shlex.join(args) + ';;')
     branches = '\n'.join(branches)
     return '''#!/bin/sh

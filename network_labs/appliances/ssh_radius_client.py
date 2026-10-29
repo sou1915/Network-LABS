@@ -50,31 +50,32 @@ fi
 work=$(/bin/busybox mktemp -d /tmp/ssh-radius.XXXXXX) || exit 125
 /bin/busybox mkfifo "$work/input" "$work/output" || exit 125
 exec 4<&0
-{
-    /bin/busybox cat <<REQUEST
+# Linux permits a private FIFO to be opened read/write without blocking.
+# Keep the request writer in the foreground until authentication completes;
+# the terminal reader is started only after the supervisor grants a shell.
+exec 5<>"$work/input"
+/bin/busybox nc -w 3610 127.0.0.1 813 < "$work/input" > "$work/output" 5>&- &
+transport=$!; transport_start=$(process_start "$transport")
+exec 3<"$work/output"
+/bin/busybox cat >&5 <<REQUEST
 NLSSH1
 $action
 $username
 $password
 REQUEST
-    unset password
-    case "$action" in shell|shell-tty) exec /bin/busybox cat;; esac
-} <&4 > "$work/input" &
-producer=$!; producer_start=$(process_start "$producer")
 unset password
-# -w is also an idle timeout in some BusyBox builds. The trusted dispatcher
-# supplies a separate, policy-bounded overall timeout for this whole client.
-/bin/busybox nc -w 3610 127.0.0.1 813 < "$work/input" > "$work/output" &
-transport=$!; transport_start=$(process_start "$transport")
-exec 3<"$work/output"
 IFS= read -r -n 32 status <&3 || exit 126
 case "$status" in
     OK)
+        exec 5>&-
         /bin/busybox cat <&3
         wait "$transport"; code=$?; transport=
         [ "$code" -eq 0 ] || exit 125
         exit 0;;
     SHELL)
+        /bin/busybox cat <&4 >&5 5>&- &
+        producer=$!; producer_start=$(process_start "$producer")
+        exec 5>&-
         while IFS= read -r -n 4097 packet <&3; do
             [ "${#packet}" -le 4096 ] || exit 125
             case "$packet" in

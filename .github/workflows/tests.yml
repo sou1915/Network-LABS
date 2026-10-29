@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install independent RADIUS server
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux gcc libc6-dev
       - name: Verify accounting writer failures and concurrent appends
         run: /usr/bin/python3 -m unittest discover -s tests -p test_radius_accounting_writer.py -v
       - name: Verify real FreeRADIUS PAP decisions and listener cleanup

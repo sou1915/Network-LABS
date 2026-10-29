@@ -32,7 +32,10 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key])
             modules = next(p for p in ('/usr/lib/freeradius', '/usr/lib/x86_64-linux-gnu/freeradius')
                            if (Path(p) / 'rlm_pap.so').is_file())
-            rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs', dropbear=shutil.which('dropbear'),
+            relay_binary = root / 'ssh-relay'
+            relay_source = Path(__file__).parents[1] / 'network_labs/appliances/ssh_radius_relay.c'
+            run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', relay_source, '-o', relay_binary])
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs', dropbear=shutil.which('dropbear'), ssh_relay=relay_binary,
                 freeradius=shutil.which('freeradius'), freeradius_modules=modules, freeradius_dictionaries='/usr/share/freeradius')
             digest = hashlib.sha256(password.encode()).hexdigest()
             spec = radius_lab(rootfs, secret, digest, ssh_key=key.with_suffix('.pub').read_text().strip(),

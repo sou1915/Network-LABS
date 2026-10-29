@@ -132,7 +132,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -170,6 +170,10 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if dropbear is not None:
         from .management import rootfs_assets
         management_additions = rootfs_assets(dropbear)
+    if ssh_relay is not None:
+        if dropbear is None: raise ValueError('SSH relay rootfs assets require --dropbear.')
+        from .ssh_access import RELAY_BINARY
+        management_additions += dns_assets(ssh_relay, destination=RELAY_BINARY, identity='Network LABS SSH relay 1')
     collector_additions = []
     if rsyslog_modules is not None and rsyslog is None:
         raise ValueError('--rsyslog-modules requires --rsyslog.')
@@ -331,6 +335,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
             if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
                 raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
+            if 'shell' in ((node.get('management') or {}).get('ssh_actions') or []) and not (Path(node['rootfs']) / 'usr/lib/network-labs/ssh-radius-client').is_file():
+                raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
             if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):

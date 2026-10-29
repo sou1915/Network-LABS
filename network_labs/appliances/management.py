@@ -189,6 +189,11 @@ def start_servers(manager):
                 manager.crun('exec', node['name'], '/bin/busybox', 'chmod', '755', '/home', '/home/lab', '/home/lab/.ssh')
             else:
                 manager.crun('exec', node['name'], '/bin/busybox', 'chown', '65532:65532', '/home/lab')
+        if config.get('ssh_radius') and 'shell' in config['ssh_actions']:
+            from .ssh_access import RELAY_BINARY
+            checked = manager.crun('exec', node['name'], RELAY_BINARY, '--version', check=False, timeout=3)
+            if checked.returncode or checked.stdout != 'Network LABS SSH relay 1\n':
+                raise RuntimeFailure(node['name'] + ': SSH RADIUS relay identity unavailable.')
         if config.get('ssh_radius'):
             checked = manager.crun('exec', node['name'], '/bin/sh', '-c',
                                    'IFS= read -r -n 2 value; [ "$value" = ab ]', input_text='ab\n', check=False, timeout=3)
