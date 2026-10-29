@@ -62,8 +62,29 @@ SVI cleanup check now uses the existing hardware-hotplug-aware invariant while
 still rejecting removed/replaced links and leaked virtual interfaces. Broader
 switching/native suites were still running when this checkpoint was recorded.
 
-Next: RA Guard and supported service coexistence. Dynamic routing/services over
-router subinterfaces remain outside the static profile. The broader AAA and switching/service gaps above
+Conservative access-port RA Guard now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40900403159/job/123540804816)
+at implementation commit `dedfdd9276042c40bb051fb4aa30415ced15843e`.
+The job verified trusted RA/SLAAC/default-route acquisition and NDP/routed echo,
+valid untrusted RA ingress with no corresponding client egress, and blocked
+plain, extension-header, fragment, dot1Q and QinQ cases. A recreated trust
+positive control learned the same plain rogue RA's prefix/default, establishing
+that the protected result was not just an invalid wire fixture. Counters, whole
+ruleset drift refusal, cold restore and host invariants were checked.
+
+This is one Linux access switch with one access VLAN. On untrusted ports the
+profile intentionally drops all IPv6 extension headers/fragments and protocols
+other than immediate TCP/UDP/ICMPv6, including benign traffic of those forms.
+It is not full RFC 7113 interoperability, router authentication or a trunk/LAG
+profile. Changing trust requires recreation. See NATIVE_LAN_CORE.md for the
+explicit limits. The general `tests`, firewall, SVI, SSH and RADIUS jobs also
+passed; other jobs were still running at this checkpoint. All jobs for the
+previous firewall checkpoint `a5db2d3` subsequently completed successfully.
+
+Next: validate supported IPv6 service/security coexistence, then the remaining
+switching carrier/kernel profiles and LAN service polish. Broader AAA gaps
+remain tracked above. Dynamic routing/services over router subinterfaces remain
+outside the static profile; GUI and WAN remain later. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
