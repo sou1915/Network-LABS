@@ -44,8 +44,26 @@ requiring recreation from the saved manifest, since Linux may flush static
 IPv6 state. The general `tests` job passed on the same commit; broader
 switching/native suites were still running when this checkpoint was recorded.
 
-Next: IPv6 firewall, RA Guard and supported service coexistence. Dynamic
-routing/services over router subinterfaces remain outside the static profile. The broader AAA and switching/service gaps above
+Static physical IPv6 forwarding filtering now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/40892432671/job/123512527185)
+at implementation checkpoint `a5db2d3d8a42d702c32da3fa4393529f7e6fd664`.
+The separate `firewall_ipv6` profile verified ordered allow/default-deny rules,
+actual ICMPv6 and TCP packets, IPv6 conntrack/counters, stateful returns versus
+explicit stateless ICMP return, blocked TCP to a proven listener, rule/extra-table
+drift refusal and cold restore. It filters forwarding only; local input/output,
+RA Guard, NAT66 and dynamic/dual-stack/subinterface combinations remain outside
+this increment. Policy edits require recreation.
+
+The same checkpoint passed the general `tests`, PD, relay, IPv6 SVI,
+subinterface, OSPFv3, SSH and RADIUS jobs. PD readiness now requires a preferred
+SLAAC address and live RA default, asking the real router with RS while waiting;
+it no longer treats a stale deprecated address as restored connectivity. The
+SVI cleanup check now uses the existing hardware-hotplug-aware invariant while
+still rejecting removed/replaced links and leaked virtual interfaces. Broader
+switching/native suites were still running when this checkpoint was recorded.
+
+Next: RA Guard and supported service coexistence. Dynamic routing/services over
+router subinterfaces remain outside the static profile. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
 ## Current AAA increment
