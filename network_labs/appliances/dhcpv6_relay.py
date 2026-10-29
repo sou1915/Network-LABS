@@ -18,7 +18,7 @@ def validate_node(node):
             node['role'] not in ('host', 'router') or not node['ipv6'] or node['forwarding'] or
             any(node['interfaces'].values()) or any(node.get(k) for k in
             ('svis', 'subinterfaces', 'port_channels', 'ospf', 'ospfv3', 'router_advertisements',
-             'slaac', 'dhcpv6_clients', 'dhcpv6_server'))):
+             'slaac', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server'))):
         raise ValueError('DHCPv6 relay/remote server requires a separate physical IPv6-only OCI node without other DHCP/RA/routing daemons.')
     if relay is not None:
         keys(relay, ('interface', 'upstream', 'server', 'advertise'), 'DHCPv6 relay')

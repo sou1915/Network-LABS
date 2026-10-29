@@ -30,6 +30,8 @@ def drift(manager):
         errors.extend(dhcpv6_drift(manager, index, node))
         from .dhcpv6_relay import drift as dhcpv6_relay_drift
         errors.extend(dhcpv6_relay_drift(manager, node))
+        from .dhcpv6_pd import drift as pd_drift
+        errors.extend(pd_drift(manager, index, node))
         from .management import drift as management_drift
         errors.extend(management_drift(manager, node))
         from .syslog_server import drift as collector_drift

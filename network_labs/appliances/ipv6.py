@@ -68,6 +68,8 @@ def validate_lab(spec):
     validate_dhcpv6_lab(spec)
     from .dhcpv6_relay import validate_lab as validate_dhcpv6_relay_lab
     validate_dhcpv6_relay_lab(spec)
+    from .dhcpv6_pd import validate_lab as validate_pd_lab
+    validate_pd_lab(spec)
     if not any(n['ipv6'] or n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes']):
         return
     if (any(n['forwarding'] or n.get('gateway') or n['routes'] for n in spec['nodes']) and
@@ -148,12 +150,17 @@ def drift(manager, index, node):
     records = observe(manager, index)
     expected = {(port, value) for port, value in node['ipv6'].items()}
     actual, errors = set(), []
+    dynamic_connected = set()
+    from .dhcpv6_pd import dynamic_address
     for row in records:
         for address in row.get('addr_info', []):
             if address.get('family') != 'inet6' or address.get('scope') != 'global':
                 continue
             value = str(ipaddress.IPv6Interface(str(address['local']) + '/' + str(address['prefixlen'])))
-            actual.add((row['ifname'], value))
+            if dynamic_address(node, row['ifname'], value, address):
+                dynamic_connected.add((str(ipaddress.IPv6Interface(value).network), row['ifname']))
+            else:
+                actual.add((row['ifname'], value))
             if address.get('tentative') or address.get('dadfailed') or any(f in address.get('flags', []) for f in ('tentative', 'dadfailed')):
                 errors.append(node['name'] + ': IPv6 DAD incomplete or failed')
     if actual != expected:
@@ -185,6 +192,6 @@ def drift(manager, index, node):
             if route.get('protocol') != 'static':
                 errors.append(node['name'] + ': unmanaged IPv6 route protocol')
     expected_connected = {(str(ipaddress.IPv6Interface(v).network), p) for p, v in node['ipv6'].items() if p not in node['shutdown']}
-    if observed_routes != desired or connected != expected_connected:
+    if observed_routes != desired or connected != expected_connected | dynamic_connected:
         errors.append(node['name'] + ': IPv6 routes differ')
     return errors

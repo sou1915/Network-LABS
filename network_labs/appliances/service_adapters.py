@@ -16,7 +16,7 @@ def adapters(node, previous):
         raise ValueError('Syslog collector nodes require lab recreation for live changes.')
     if (node.get('management') or previous.get('management')) and node != previous:
         raise ValueError('Management service nodes require lab recreation for live changes.')
-    if any(node.get(k) or previous.get(k) for k in ('ipv6', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements')):
+    if any(node.get(k) or previous.get(k) for k in ('ipv6', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements')):
         if node != previous:
             raise ValueError('IPv6/SLAAC/RA live configuration changes require lab recreation.')
     from . import ospf, dhcp_relay

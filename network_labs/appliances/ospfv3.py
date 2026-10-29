@@ -17,7 +17,7 @@ def validate_node(node):
     if (node['runtime'] != 'oci' or not routed or not node['ipv6_forwarding'] or
             node.get('ospf') or node['ipv6_routes'] or node['forwarding'] or
             any(node['interfaces'].values()) or node.get('slaac') or node.get('router_advertisements') or
-            node.get('dhcpv6_clients') or node.get('dhcpv6_server') or node.get('dhcpv6_relay') or node.get('dhcpv6_remote_server')):
+            node.get('dhcpv6_clients') or node.get('dhcpv6_server') or node.get('dhcpv6_relay') or node.get('dhcpv6_remote_server') or node.get('dhcpv6_pd_client') or node.get('dhcpv6_pd_server')):
         raise ValueError('OSPFv3 requires an IPv6-only OCI router or Linux L3 switch with numbered SVIs, without other routing services.')
     value = policy.get('router_id')
     if not isinstance(value, str):

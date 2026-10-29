@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  dhcpv6-pd-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 PD prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends kea-dhcp6-server dnsmasq-base crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev
+      - name: Verify actual Kea PD, downstream SLAAC, renewal, expiry and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_pd_integration.py -v
   dhcpv6-relay-interop:
     runs-on: ubuntu-24.04
     steps:

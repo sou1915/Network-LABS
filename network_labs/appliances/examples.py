@@ -802,3 +802,19 @@ def dhcpv6_relay_lab(rootfs):
     server['dhcpv6_remote_server'] = {'interface': 'eth0', 'network': '2001:db8:10::/64',
                                     'start': '2001:db8:10::100', 'end': '2001:db8:10::10f', 'lease_seconds': 120}
     return validate(spec)
+
+
+def dhcpv6_pd_lab(rootfs):
+    """One real /64 delegation to a requesting router and SLAAC on its downstream LAN."""
+    spec = ipv6_routed_lab(rootfs); spec['name'] = 'dhcpv6-pd-lan'
+    host, client, server, _ = spec['nodes']
+    host.update(ipv6={}, ipv6_routes=[], slaac=['eth0'])
+    client['ipv6'] = {'eth1': '2001:db8:100::2/64'}
+    client['ipv6_routes'] = [{'destination': '2001:db8:20::/64', 'gateway': '2001:db8:100::1', 'interface': 'eth1'}]
+    client['dhcpv6_pd_client'] = {'interface': 'eth1', 'downstream': 'eth0', 'server': '2001:db8:100::1',
+                                 'prefix': '2001:db8:10::/64', 'lease_seconds': 30, 'advertise': True}
+    server['ipv6']['eth0'] = '2001:db8:100::1/64'
+    server['ipv6_routes'] = [{'destination': '2001:db8:10::/64', 'gateway': '2001:db8:100::2', 'interface': 'eth0'}]
+    server['dhcpv6_pd_server'] = {'interface': 'eth0', 'prefix': '2001:db8:10::/64', 'lease_seconds': 30}
+    server['memory_mib'] = 128
+    return validate(spec)

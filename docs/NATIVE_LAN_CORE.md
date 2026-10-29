@@ -5211,3 +5211,90 @@ Delegation remains the next increment.
 
 References: [dnsmasq relay documentation](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html)
 and [BIRD 2 RAdv documentation](https://bird.nic.cz/doc/bird-2.18.html).
+
+## Single-/64 DHCPv6 Prefix Delegation and downstream SLAAC
+
+`example --dhcpv6-pd` is a bounded **one server, one requesting router, one
+/64** profile. R2 runs Kea DHCPv6 with an IA_PD pool; R1 runs BusyBox `udhcpc6`
+with `-d -r no` (prefix request, no IA_NA). R1's WAN and the remote PC2 LAN
+are static. R1 has no declared IPv6 address on its client-facing `eth0`.
+PC1 has no declared address or route and uses kernel SLAAC.
+
+Build a trusted hook and a rootfs containing the installed Kea executable and
+its ELF dependencies, dnsmasq and static BusyBox:
+
+```bash
+cc -O2 -Wall -Wextra -Werror network_labs/appliances/dhcpv6_pd_hook.c \
+  -o "$HOME/network-labs-pd-hook"
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --dnsmasq /usr/sbin/dnsmasq --kea-dhcp6 /usr/sbin/kea-dhcp6 \
+  --dhcpv6-pd-hook "$HOME/network-labs-pd-hook" \
+  --output "$HOME/network-labs-pd-rootfs"
+python3 -m network_labs.appliances example --dhcpv6-pd \
+  --rootfs "$HOME/network-labs-pd-rootfs" > dhcpv6-pd-lan.json
+sudo python3 -m network_labs.appliances start dhcpv6-pd-lan.json
+sudo python3 -m network_labs.appliances inspect dhcpv6-pd-lan R1
+sudo python3 -m network_labs.appliances show dhcpv6-pd-lan R1 --text 'show ipv6 interface brief'
+sudo python3 -m network_labs.appliances verify dhcpv6-pd-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save dhcpv6-pd-lan
+sudo python3 -m network_labs.appliances stop dhcpv6-pd-lan
+sudo python3 -m network_labs.appliances restore dhcpv6-pd-lan
+```
+
+Fields:
+
+- Requesting router `dhcpv6_pd_client`: `interface` is its UP numbered WAN;
+  `downstream` is a different UP unnumbered physical LAN port; `server` is the
+  declared on-link server address; `prefix` is the **allowed pool constraint**,
+  not an acquired address; `lease_seconds` bounds accepted valid lifetimes;
+  `advertise:true` enables downstream RA.
+- Delegating router `dhcpv6_pd_server`: `interface`, `prefix` and
+  `lease_seconds` must match the requesting policy. Prefix/delegated lengths
+  are both 64; the initial lease range is 10..3600 seconds, default 30.
+
+All actors are isolated OCI nodes. The prefix cannot overlap any statically
+numbered subnet. R2 requires an explicit static return route for the pool via
+R1's WAN address. **That return route is preconfigured, not learned from the
+lease and not withdrawn by Kea on expiry.** The client `server` declaration
+checks this single-server lab pairing; BusyBox still performs normal on-link
+multicast DHCPv6 discovery. No authenticated server pinning is claimed.
+
+Only a received bound/renew event with the allowed /64 and a bounded finite
+lifetime reaches the native hook's `ip -6 addr replace`. It derives the LAN
+address as prefix + 1 and gives it finite kernel preferred/valid lifetimes.
+Equivalent compressed/expanded IPv6 text is accepted. Off-pool, malformed or
+oversized lifetime input cannot add an address. Renewal updates lifetimes
+without flushing the LAN. Release/deconfiguration or an explicit zero lifetime
+flushes only the exact delegated gateway, preserving WAN and link-local state.
+
+Dnsmasq's RA-only constructor follows that real LAN address. No local DHCPv6
+address allocator runs on R1, and no IPv6 address is injected into PC1.
+RAs advertise the downstream prefix for SLAAC; no DNS/RDNSS is provisioned.
+Kernel address lifetime bounds the requesting router's numbered LAN even when
+the server stops. Downstream host address/default withdrawal follows kernel
+RA/SLAAC rules; immediate deletion of every host address on PD expiry is not
+claimed. Delivery and the router's actual connected route are tested separately.
+
+Managed-file and sysctl audits accompany actual address/route observations.
+The expected finite gateway is allowed as dynamic state only on its declared
+LAN, with finite observed lifetimes bounded by policy; unexpected permanent
+addresses remain drift. This is not lease-origin authentication. Saving an
+unavailable lease may preserve policy, never manufacture a healthy lease.
+Restore reacquires from scratch: no learned gateway/address, DUID or lease
+snapshot is saved. Kea uses a volatile single-client pool; its in-memory lease
+storage is an isolated lab choice, not a production persistence policy.
+
+The `dhcpv6-pd-interop` test exercises actual IA_PD/IAPREFIX SARR and renewal
+identities, downstream RA and SLAAC, bidirectional routed traffic, release,
+server-loss expiry, recovery, config/address drift refusal and saved restart.
+The hook also has compiler-backed tests for malformed/off-pool input, finite
+renewal and exact-address removal. Host network invariants are checked after
+cleanup, with the existing verified hardware-hotplug allowance.
+
+Larger pools, /56 subdivision, multiple requesting routers/LANs, renumbering,
+PD relay chains, dynamic upstream route installation, IPv4 service coexistence,
+SVIs/subinterfaces and IPv6 security remain outside this first PD profile.
+
+References: [Kea DHCPv6 PD pools](https://kea.readthedocs.io/en/kea-2.4.1/arm/dhcp6-srv.html),
+[BusyBox DHCPv6 client source](https://github.com/mirror/busybox/blob/1_36_stable/networking/udhcp/d6_dhcpc.c),
+and [dnsmasq constructor ranges](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).

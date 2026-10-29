@@ -132,7 +132,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -203,6 +203,8 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
             raise ValueError('--freeradius requires matching --freeradius-modules and --freeradius-dictionaries.')
         from .radius_rootfs import rootfs_assets as radius_assets
         radius_additions = radius_assets(freeradius, freeradius_modules, freeradius_dictionaries)
+    from .dhcpv6_pd import rootfs_assets as pd_assets
+    pd_additions = pd_assets(kea_dhcp6, dhcpv6_pd_hook)
     target.mkdir(parents=True)
     for name in ('bin', 'sbin', 'etc', 'proc', 'sys', 'dev/pts', 'tmp', 'run', 'root', 'home/lab/.ssh', 'etc/dropbear'):
         (target / name).mkdir(parents=True, exist_ok=True)
@@ -211,7 +213,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions + ntp_additions + radius_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions + ntp_additions + radius_additions + pd_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
@@ -341,6 +343,10 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
             if (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': Managed BIRD routing/RA requires a rootfs built with --bird and --birdc.')
+            if node.get('dhcpv6_pd_server') and not (Path(node['rootfs']) / 'usr/sbin/kea-dhcp6').is_file():
+                raise RuntimeFailure(node['name'] + ': PD server requires a rootfs built with --kea-dhcp6.')
+            if node.get('dhcpv6_pd_client') and any(not (Path(node['rootfs']) / p).is_file() for p in ('usr/lib/network-labs/dhcpv6-pd-hook', 'usr/sbin/dnsmasq')):
+                raise RuntimeFailure(node['name'] + ': PD client requires --dhcpv6-pd-hook and --dnsmasq rootfs assets.')
             if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements') or node.get('dhcpv6_relay') or node.get('dhcpv6_remote_server')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA/TFTP requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
         for node in spec['nodes']:
@@ -421,6 +427,8 @@ class Manager:
             start_ra_servers(self)
             from .dhcpv6_relay import start_servers as start_dhcpv6_relay
             start_dhcpv6_relay(self)
+            from .dhcpv6_pd import start_servers as start_pd
+            start_pd(self)
             from .dhcpv6 import start_clients as start_dhcpv6_clients
             start_dhcpv6_clients(self)
             from .ovs import start_servers as start_ovs
@@ -482,6 +490,8 @@ class Manager:
         prepare_dhcpv6(bundle, node)
         from .dhcpv6_relay import prepare_files as prepare_dhcpv6_relay
         prepare_dhcpv6_relay(bundle, node)
+        from .dhcpv6_pd import prepare_files as prepare_pd
+        prepare_pd(bundle, node)
         from .management import prepare_files as prepare_management
         prepare_management(bundle, node)
         from .syslog_server import prepare_files as prepare_collector

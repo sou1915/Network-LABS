@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf', 'ospfv3')
 
 
@@ -199,6 +199,8 @@ def validate_lan(node):
     validate_radius_access(node)
     from .dhcpv6_relay import validate_node as validate_dhcpv6_relay
     validate_dhcpv6_relay(node)
+    from .dhcpv6_pd import validate_node as validate_pd
+    validate_pd(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
@@ -314,6 +316,9 @@ def configure(manager, index, node, previous=None):
     if initial and node['ipv6']:
         from .ipv6 import configure as configure_ipv6
         configure_ipv6(manager, index, node)
+    if initial and node['dhcpv6_pd_client']:
+        from .dhcpv6_pd import configure as configure_pd
+        configure_pd(manager, index, node)
 
     from .svi import configure_arp as configure_svi_arp
     configure_svi_arp(manager, index, node)
@@ -348,6 +353,9 @@ def observe(manager, index, node):
     if node['dhcpv6_relay'] or node['dhcpv6_remote_server']:
         from .dhcpv6_relay import observe as observe_dhcpv6_relay
         result['dhcpv6_relay' if node['dhcpv6_relay'] else 'dhcpv6_remote_server'] = observe_dhcpv6_relay(manager, node)
+    if node['dhcpv6_pd_client'] or node['dhcpv6_pd_server']:
+        from .dhcpv6_pd import observe as observe_pd
+        result['dhcpv6_pd'] = observe_pd(manager, node)
     if node['slaac']:
         result['slaac'] = {'interfaces': node['slaac'], 'note': 'Kernel RA acceptance policy; address/default route acquisition must be observed separately.'}
     if node.get('snmp_receiver'):

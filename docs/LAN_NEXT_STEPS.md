@@ -20,9 +20,10 @@ failure/recovery coverage appropriate to its scope.
 ## Current IPv6 sequence
 
 Physical OSPFv3, static IPv6 SVIs and OSPFv3 over a tagged SVI transit now have
-successful dedicated native CI evidence. The next increment is physical
-DHCPv6 relay/remote IA_NA allocation with separate managed RA, followed by
-Prefix Delegation. Router subinterfaces, IPv6 security/RA Guard and supported
+successful dedicated native CI evidence. Physical DHCPv6 relay/remote IA_NA allocation
+with separate managed RA has dedicated native CI evidence. A single-/64 Kea
+Prefix Delegation profile now adds finite downstream gateway installation and
+SLAAC, with its own native CI job. Router subinterfaces, IPv6 security/RA Guard and supported
 service coexistence follow. The broader AAA and switching/service gaps above
 remain tracked; these bounded increments do not complete the entire LAN.
 
