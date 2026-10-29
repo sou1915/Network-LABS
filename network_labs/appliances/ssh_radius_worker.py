@@ -12,21 +12,25 @@ from . import runtime
 from .ssh_radius import PORT, dispatch
 
 
-def request(connection):
+def request(connection, *, audit=None):
     deadline = time.monotonic() + 2
     fields = []
-    for limit in (6, 32, 64, 128):
-        raw = bytearray()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0: raise ValueError('Request deadline')
-            connection.settimeout(remaining)
-            byte = connection.recv(1)
-            if not byte: raise ValueError('Incomplete request')
-            if byte == b'\n': break
-            raw.extend(byte)
-            if len(raw) > limit: raise ValueError('Request field limit')
-        fields.append(bytes(raw).decode('utf-8'))
+    try:
+        for limit in (6, 32, 64, 128):
+            raw = bytearray()
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0: raise ValueError('Request deadline')
+                connection.settimeout(remaining)
+                byte = connection.recv(1)
+                if not byte: raise ValueError('Incomplete request')
+                if byte == b'\n': break
+                raw.extend(byte)
+                if len(raw) > limit: raise ValueError('Request field limit')
+            fields.append(bytes(raw).decode('utf-8'))
+    except (OSError, ValueError):
+        if audit: audit('FRAMING_FIELD_' + str(len(fields)))
+        raise
     if fields[0] != 'NLSSH1': raise ValueError('Protocol version')
     return fields[1:]
 
@@ -112,7 +116,7 @@ def serve(config):
             with connection:
                 stage = 'framing'
                 try:
-                    action, username, password = request(connection)
+                    action, username, password = request(connection, audit=audit)
                     stage = 'state'
                     manager = BridgeManager(config); manager.current()
                     stage = 'dispatch'

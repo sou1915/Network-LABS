@@ -149,6 +149,28 @@ class RadiusLoginTests(unittest.TestCase):
         self.assertEqual(result['status'], 'interrupted'); self.assertTrue(result['cleanup_complete'])
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
+    def test_worker_exit_preserves_signal_handler_and_stops_after_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = self.manager(folder)
+            manager.read.return_value['spec']['nodes'][0]['radius_access']['accounting'] = True
+            groups = []; events = []
+            def group(*_): groups.append(FakeGroup()); return groups[-1]
+            self.groups.side_effect = group
+            def account(*_, **request):
+                events.append(request)
+                if request['event'] == 'stop': self.assertTrue(groups[-1].closed)
+                return {'status': 'passed', 'requests_sent': 1}
+            def worker_exit(*_, **__): raise SystemExit(0)
+            with patch('network_labs.appliances.radius_login.probe', return_value=ACCEPT), \
+                 patch('network_labs.appliances.radius_login.account', side_effect=account), \
+                 patch('network_labs.appliances.radius_login.signal.signal') as replace_handler:
+                with self.assertRaises(SystemExit):
+                    self.login(manager, launcher=worker_exit, handle_signals=False)
+                replace_handler.assert_not_called()
+            self.assertTrue(groups[-1].closed)
+            self.assertEqual([event['event'] for event in events], ['start', 'stop'])
+            self.assertEqual(events[-1]['terminate_cause'], 6)
+
     def test_accounting_ack_gates_launch_and_stop_follows_confirmed_cleanup(self):
         with tempfile.TemporaryDirectory() as folder:
             manager = self.manager(folder)

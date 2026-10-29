@@ -102,7 +102,11 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
                         log = (manager.directory / 'PC1.ssh-radius.log').read_text(errors='replace')[-3000:]
                         processes = manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'pid,ppid,stat,args').stdout
                         groups = [path.name for path in session_parent(manager, 'PC1').glob('aaa-*')]
-                        self.fail('SSH PTY did not finish: ' + repr(output) + '\nBridge: ' + log + '\nProcesses: ' + processes + '\nGroups: ' + repr(groups))
+                        descriptors = manager.crun('exec', 'PC1', '/bin/sh', '-c',
+                            'for p in /proc/[0-9]*/fd; do echo "$p"; for n in 0 1 3 4; do /bin/busybox readlink "$p/$n"; done; done', check=False).stdout
+                        waits = manager.crun('exec', 'PC1', '/bin/sh', '-c',
+                            'for p in /proc/[0-9]*/wchan; do echo "$p"; /bin/busybox cat "$p"; echo; done', check=False).stdout
+                        self.fail('SSH PTY did not finish: ' + repr(output) + '\nBridge: ' + log + '\nProcesses: ' + processes + '\nGroups: ' + repr(groups) + '\nFDs: ' + descriptors + '\nWaits: ' + waits)
                     self.assertTrue(commands_sent, repr(output))
                     if not disconnect: self.assertEqual(process.wait(timeout=2), 0, repr(output))
                     self.assertIn(b'uid=65532', output); self.assertIn(b'SSH-PTY-OK', output)
