@@ -38,19 +38,22 @@ class NativeOSPFv3Tests(unittest.TestCase):
                 while time.monotonic() < deadline:
                     if predicate(): return
                     time.sleep(.2)
-                self.fail(label + ': ' + repr(manager.inspect('R1').get('ospfv3')))
-            def remote_routes():
-                return [r for r in manager.inspect('R1')['routes_ipv6'] if r.get('dst') == '2001:db8:20::/64']
+                self.fail(label + ': ' + repr({name: manager.inspect(name) for name in ('R1', 'R2')}))
+            def remote_routes(name='R1'):
+                prefix = '2001:db8:20::/64' if name == 'R1' else '2001:db8:10::/64'
+                return [r for r in manager.inspect(name)['routes_ipv6'] if r.get('dst') == prefix]
             def healthy():
-                wait(lambda: bool(remote_routes()), 'OSPFv3 kernel route not installed')
                 for name in ('R1', 'R2'):
                     wait(lambda: 'Full' in (manager.inspect(name)['ospfv3']['neighbors'] or ''), 'OSPFv3 adjacency')
+                    # A Full adjacency or one router's FIB does not establish
+                    # the return path after the peer daemon has restarted.
+                    wait(lambda: bool(remote_routes(name)), name + ' OSPFv3 kernel route not installed')
                     for query in ('show ipv6 ospf neighbor', 'show ipv6 ospf interface', 'show ipv6 ospf', 'show ipv6 route ospf'):
                         report = show(manager, name, query)
                         self.assertEqual(report['status'], 'observed', report)
-                learned = remote_routes()[0]
-                self.assertIn(learned.get('protocol'), ('bird', 192, '192'))
-                self.assertTrue(learned.get('gateway', '').startswith('fe80:'), learned)
+                    learned = remote_routes(name)[0]
+                    self.assertIn(learned.get('protocol'), ('bird', 192, '192'))
+                    self.assertTrue(learned.get('gateway', '').startswith('fe80:'), learned)
                 report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
                 self.assertEqual(report['status'], 'passed', report)
             try:
