@@ -9,7 +9,8 @@ or send shell-session accounting for these diagnostics.
 Build the existing BusyBox rootfs with both trusted `--dropbear` and FreeRADIUS
 assets; see [RADIUS setup](NATIVE_RADIUS.md) and the management rootfs options.
 No guest Python, PAM module, compiler or extra guest executable is required.
-The generator requires the explicit combined profile and private RADIUS files:
+An optional [bounded SSH shell](SSH_RADIUS_SHELL.md) is a separate explicit
+permission with supervised cleanup and accounting. The generator requires the explicit combined profile and private RADIUS files:
 
 ```bash
 umask 077
@@ -87,6 +88,5 @@ neither is an authentication verdict.
 The native CI scenario uses actual OpenSSH, Dropbear and FreeRADIUS packets:
 correct/wrong credentials, per-user command denial, UTF-8/128-byte passwords,
 wrong SSH key, command/subsystem denial, server/supervisor outages, low-port
-impersonation refusal, saved restart and process cleanup. Interactive SSH
-RADIUS login, richer roles and remote session supervision/accounting remain
-later work.
+impersonation refusal, saved restart and process cleanup. The optional shell profile reuses session supervision/accounting; richer
+roles, SSH-handshake password authentication and Telnet AAA remain later work.

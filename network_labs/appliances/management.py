@@ -59,9 +59,10 @@ def validate_node(node):
     actions = config.get('ssh_actions')
     if actions is not None:
         from .ssh_access import ACTIONS
-        if (not isinstance(actions, list) or len(actions) > len(ACTIONS) or
-                any(not isinstance(a, str) or a not in ACTIONS for a in actions) or len(set(actions)) != len(actions)):
-            raise ValueError('SSH actions must be distinct identity, hostname or security-context actions; an empty list denies all commands.')
+        supported = (*ACTIONS, 'shell') if config.get('ssh_radius') else tuple(ACTIONS)
+        if (not isinstance(actions, list) or len(actions) > len(supported) or
+                any(not isinstance(a, str) or a not in supported for a in actions) or len(set(actions)) != len(actions)):
+            raise ValueError('SSH actions require distinct supported diagnostics, or shell with RADIUS; an empty list denies all commands.')
         if not config['ssh_keys'] or password:
             raise ValueError('Restricted SSH actions require SSH keys and no Telnet shell on the same node.')
         config['ssh_actions'] = sorted(actions)
@@ -132,11 +133,12 @@ def managed_files(node):
         if len(groups) > 65536: raise ValueError('Rootfs group file exceeds 64 KiB.')
         result['management-group'] = '\n'.join([line for line in groups.splitlines() if not line.startswith('lab:')] + ['lab:x:65532:']) + '\n'
     if config['ssh_keys']:
-        from .ssh_access import KEY_OPTIONS, dispatcher
+        from .ssh_access import key_options, dispatcher
         actions = config.get('ssh_actions')
-        prefix = '' if actions is None else KEY_OPTIONS + ' '
+        prefix = '' if actions is None else key_options(actions) + ' '
         result['authorized_keys'] = '\n'.join(prefix + key for key in config['ssh_keys']) + '\n'
-        if actions is not None: result['ssh-dispatch.sh'] = dispatcher(actions, radius=config.get('ssh_radius', False))
+        if actions is not None: result['ssh-dispatch.sh'] = dispatcher(actions, radius=config.get('ssh_radius', False),
+                session_seconds=(node.get('radius_access') or {}).get('session_seconds', 300))
         if config.get('ssh_radius'):
             from .ssh_radius import CLIENT
             result['ssh-radius-client.sh'] = CLIENT
@@ -156,7 +158,7 @@ def start_service(manager, node, service):
     if service == 'ssh' and node['management'].get('ssh_actions') is not None:
         from .ssh_access import service_process
         with tempfile.NamedTemporaryFile(mode='w+', prefix='ssh-process-', suffix='.json', dir=manager.directory) as process:
-            json.dump(service_process(argv), process); process.flush()
+            json.dump(service_process(argv, terminal='shell' in node['management']['ssh_actions']), process); process.flush()
             manager.crun('exec', '--detach', '--process', process.name, node['name'], log=log)
     else:
         manager.crun('exec', '--detach', node['name'], *argv, log=log)
@@ -169,7 +171,7 @@ def start_servers(manager):
         if not config: continue
         expected = {'syslogd', 'logger'} if config['syslog_remote'] else set()
         if config['telnet_password_hash']: expected.update(('telnetd', 'login'))
-        if config.get('ssh_radius'): expected.update(('nc', 'timeout', 'cat'))
+        if config.get('ssh_radius'): expected.update(('nc', 'timeout', 'cat', 'stty', 'base64', 'mktemp', 'mkfifo', 'rm'))
         installed = manager.crun('exec', node['name'], '/bin/busybox', '--list', timeout=3).stdout.splitlines()
         if expected - set(installed):
             raise RuntimeFailure(node['name'] + ': missing BusyBox management applets: ' + ', '.join(sorted(expected - set(installed))))
@@ -225,7 +227,7 @@ def observe(manager, node):
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to fixed diagnostics with no PTY, forwarding or shell; SSH key authentication is followed by RADIUS per diagnostic only when ssh_radius is enabled. Worker availability is a process observation, not an authentication verdict. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; forwarding stays disabled; SSH key authentication is followed by RADIUS per diagnostic only when ssh_radius is enabled. Worker availability is a process observation, not an authentication verdict. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
 
 
 def drift(manager, node):

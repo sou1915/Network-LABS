@@ -87,4 +87,6 @@ Optional [restricted SSH actions](SSH_ACCESS_POLICY.md) now enforce a node-wide
 fixed diagnostic allowlist in Dropbear's forced-command path. This prepares
 server-side authorization. Optional [RADIUS-gated SSH diagnostics](SSH_RADIUS.md)
 now add a fresh credential check per fixed action through a host supervisor.
-Interactive RADIUS-backed SSH login and remote session accounting remain separate work.
+An explicitly permitted [bounded SSH shell](SSH_RADIUS_SHELL.md) now reuses
+the RADIUS session supervisor and optional accounting. Telnet AAA, richer roles,
+SSH-handshake password authentication and durable accounting remain separate work.

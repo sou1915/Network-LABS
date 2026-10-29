@@ -38,6 +38,8 @@ jobs:
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_managed_radius -v
       - name: Verify SSH diagnostics with real RADIUS credentials and bridge cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius.py -v
+      - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
     runs-on: ubuntu-latest
     steps:

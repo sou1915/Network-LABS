@@ -65,3 +65,7 @@ command dispatch and unavailable permission observations.
 The optional RADIUS bridge covers fixed diagnostics only. Interactive remote
 SSH login still needs session supervision/accounting; this forced-command
 policy alone does not provide that integration.
+
+The separately enabled [RADIUS SSH shell](SSH_RADIUS_SHELL.md) adds `shell` to
+the supported action list, permits PTY for those keys and still denies original
+exec requests other than the declared action names.

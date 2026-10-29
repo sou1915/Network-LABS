@@ -8,12 +8,18 @@ SCRIPT = '/lab/ssh-dispatch.sh'
 KEY_OPTIONS = 'command="/bin/sh ' + SCRIPT + '",no-port-forwarding,no-agent-forwarding,no-pty'
 
 
-def dispatcher(actions, *, radius=False):
+def dispatcher(actions, *, radius=False, session_seconds=300):
     # All command names and argv come from constants. Never evaluate the
     # command requested by the remote client, including subsystem requests.
-    branches = '\n'.join('    ' + action + ') exec ' +
-                         (shlex.join(['/bin/busybox', 'timeout', '-s', 'KILL', '15', '/bin/sh', '/lab/ssh-radius-client.sh', action])
-                          if radius else shlex.join(ACTIONS[action])) + ';;' for action in sorted(actions))
+    if 'shell' in actions and not radius: raise ValueError('SSH shell requires RADIUS.')
+    branches = []
+    for action in sorted(actions):
+        label = "''|shell" if action == 'shell' else action
+        duration = session_seconds + 15 if action == 'shell' else 15
+        args = (['/bin/busybox', 'timeout', '-s', 'KILL', str(duration), '/bin/sh', '/lab/ssh-radius-client.sh', action]
+                if radius else ACTIONS[action])
+        branches.append('    ' + label + ') exec ' + shlex.join(args) + ';;')
+    branches = '\n'.join(branches)
     return '''#!/bin/sh
 PATH=/bin:/usr/bin
 LC_ALL=C
@@ -26,11 +32,16 @@ esac
 ''' % branches
 
 
-def service_process(args):
+def key_options(actions):
+    return KEY_OPTIONS.removesuffix(',no-pty') if 'shell' in actions else KEY_OPTIONS
+
+
+def service_process(args, *, terminal=False):
     # crun exec starts from a host process, not the container init's privilege
     # context. Explicitly set NNP; Dropbear needs only these capabilities to
     # bind SSH and switch the authenticated child's UID/groups.
     caps = ['CAP_SETUID', 'CAP_SETGID', 'CAP_NET_BIND_SERVICE']
+    if terminal: caps += ['CAP_CHOWN', 'CAP_FOWNER', 'CAP_KILL']
     return {'terminal': False, 'user': {'uid': 0, 'gid': 0, 'additionalGids': []},
             'args': list(args), 'cwd': '/', 'env': ['PATH=/bin:/usr/bin', 'HOME=/root'],
             'noNewPrivileges': True,

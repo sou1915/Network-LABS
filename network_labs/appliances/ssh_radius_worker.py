@@ -116,6 +116,12 @@ def serve(config):
                     stage = 'state'
                     manager = BridgeManager(config); manager.current()
                     stage = 'dispatch'
+                    if action in ('shell', 'shell-tty'):
+                        from .ssh_radius_shell import serve_shell
+                        serve_shell(manager, config['node'], connection, username, password,
+                                    terminal=action == 'shell-tty', audit=audit)
+                        password = None
+                        continue
                     result = dispatch(manager, config['node'], action, username, password,
                                       audit=audit)
                     password = None

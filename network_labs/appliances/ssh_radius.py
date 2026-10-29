@@ -11,26 +11,7 @@ import uuid
 
 PORT = 813
 _PROCESSES = {}
-CLIENT = r'''#!/bin/sh
-PATH=/bin:/usr/bin
-LC_ALL=C
-export PATH LC_ALL
-unset ENV BASH_ENV CDPATH username password
-# Two credential lines arrive only on SSH stdin, never argv or environment.
-IFS= read -r -n 65 username || exit 126
-IFS= read -r -n 129 password || exit 126
-[ "${#username}" -le 64 ] && [ "${#password}" -le 128 ] || exit 126
-{
-    printf 'NLSSH1\n%s\n%s\n%s\n' "$1" "$username" "$password"
-    unset password
-} | /bin/busybox nc -w 10 127.0.0.1 813 | {
-    IFS= read -r status || exit 126
-    case "$status" in
-        OK) /bin/busybox cat; exit $?;;
-        *) printf 'SSH RADIUS request denied or unavailable.\n' >&2; exit 126;;
-    esac
-}
-'''
+from .ssh_radius_client import CLIENT
 
 
 def managed_secret(spec, node):
