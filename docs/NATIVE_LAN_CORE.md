@@ -4976,3 +4976,67 @@ suppression, encrypted packet/ACK evidence, source/user restrictions, stopped
 monitor behavior, drift refusal and declarative restore with host isolation.
 
 Reference: [Net-SNMP DisMan monitoring and notificationEvent](https://www.net-snmp.org/docs/man/snmpd.conf.html).
+
+## OSPFv3 between internal IPv6 LANs
+
+`example --ospfv3` replaces the static remote routes on the two routers of
+`--ipv6-routed` with real BIRD 2 OSPFv3. The end hosts keep their explicit
+IPv6 default gateways. No IPv4 addresses, static fallback router routes, RA,
+or DHCPv6 are used in this profile.
+
+```bash
+# Build once using the installed, trusted BusyBox and BIRD 2 executables.
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --bird /usr/sbin/bird --birdc /usr/sbin/birdc \
+  --output "$HOME/network-labs-ospf-rootfs"
+python3 -m network_labs.appliances example --ospfv3 \
+  --rootfs "$HOME/network-labs-ospf-rootfs" > ospfv3-lan.json
+sudo python3 -m network_labs.appliances start ospfv3-lan.json
+sudo python3 -m network_labs.appliances show ospfv3-lan R1 --text 'show ipv6 ospf neighbor'
+sudo python3 -m network_labs.appliances show ospfv3-lan R1 --text 'show ipv6 ospf interface'
+sudo python3 -m network_labs.appliances show ospfv3-lan R1 --text 'show ipv6 ospf'
+sudo python3 -m network_labs.appliances show ospfv3-lan R1 --text 'show ipv6 route ospf'
+sudo python3 -m network_labs.appliances show ospfv3-lan R1 --text 'show ipv6 route'
+sudo python3 -m network_labs.appliances verify ospfv3-lan PC1 PC2 --family ipv6 --bidirectional
+sudo python3 -m network_labs.appliances save ospfv3-lan
+sudo python3 -m network_labs.appliances stop ospfv3-lan
+sudo python3 -m network_labs.appliances restore ospfv3-lan
+```
+
+Adjacency and kernel installation are asynchronous. Inspect them before testing
+packet delivery. `show ipv6 route ospf` reads the BIRD RIB; `show ipv6 route`
+reads the kernel table. Missing control output remains unknown.
+
+The router field `ospfv3` accepts `router_id` (unique usable IPv4 text, even
+though the router has no IPv4 interfaces), `hello` (1..60, default 1), `dead`
+(2..240, default 4, greater than hello), and `interfaces`. Each interface must
+be a statically numbered, administratively UP physical IPv6 port, with `cost`
+(1..65535, default 10) and `passive` (boolean, default false). At least one
+port must be active. Area 0, point-to-point transit, and passive LAN prefixes
+are explicit in the generated config. BIRD exports only OSPF routes to the
+IPv6 kernel table and imports no kernel/static routes for redistribution.
+
+The existing BIRD executable/config/socket ownership checks also cover v3.
+DAD completes before daemon startup. IPv6 save auditing permits BIRD-labelled
+dynamic routes only on declared OSPFv3 nodes, while rejecting unexpected static
+routes and changed managed config files. This is a protocol-label allowance,
+not route-origin attestation or a convergence/liveness claim. Save persists
+only declarations; restore starts new adjacencies and learns routes afresh.
+
+This first profile excludes multi-area, broadcast DR/BDR, ECMP, authentication,
+SVIs/subinterfaces, dual-stack/v2 coexistence, RA/DHCPv6 composition and live
+configuration edits. Recreate the lab to change policy.
+
+`test_native_ospfv3_integration.py` exercises real adjacency, link-local next-hop
+kernel installation, bidirectional traffic, neighbor-stop route withdrawal and
+failed delivery, recovery, drift refusal, and saved restart. It checks that host
+IPv6 routes, rules, forwarding and interfaces remain unchanged. The dedicated
+`ospfv3-interop` CI job runs it with BIRD 2 and OCI containers.
+
+Reference: [BIRD 2 OSPF and kernel protocol documentation](https://bird.nic.cz/doc/bird-2.18.html).
+
+The earlier SSH/RADIUS PTY blocker is validated by the successful
+[radius-interop job for 3ad5176](https://github.com/sou1915/Network-LABS/actions/runs/40824737068/job/123285059196),
+including expiry, disconnect, accounting and cleanup. Remaining IPv6 work after
+this profile includes relay/PD, SVIs and IPv6 security; switching and service
+polish still precede the GUI.

@@ -123,6 +123,9 @@ def validate(data):
     ospf_ids = [n['ospf']['router_id'] for n in data['nodes'] if n.get('ospf')]
     if len(set(ospf_ids)) != len(ospf_ids):
         raise ValueError('OSPF router IDs must be unique within the lab.')
+    v3_ids = [n['ospfv3']['router_id'] for n in data['nodes'] if n.get('ospfv3')]
+    if len(set(v3_ids)) != len(v3_ids):
+        raise ValueError('OSPFv3 router IDs must be unique within the lab.')
     links = data.setdefault('links', [])
     if not isinstance(links, list) or len(links) > 512:
         raise ValueError('links must be an array with at most 512 entries.')

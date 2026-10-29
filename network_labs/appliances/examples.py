@@ -738,3 +738,15 @@ def snmp_links_lab(rootfs, user, mode='trap'):
     spec['name'] = 'snmp-link-events'
     spec['nodes'][2]['snmp_agent']['link_events'] = {'interfaces': ['eth1'], 'interval': 2}
     return validate(spec)
+
+
+def ospfv3_lab(rootfs):
+    """Two IPv6 LANs; remote router prefixes are learned only by OSPFv3."""
+    spec = ipv6_routed_lab(rootfs)
+    spec['name'] = 'ospfv3-lan'
+    for index, passive in ((1, 'eth0'), (2, 'eth1')):
+        node = spec['nodes'][index]
+        node['ipv6_routes'] = []
+        node['ospfv3'] = {'router_id': f'{index}.{index}.{index}.{index}',
+                          'interfaces': {port: {'passive': port == passive} for port in node['ipv6']}}
+    return validate(spec)

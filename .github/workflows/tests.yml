@@ -1,6 +1,14 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  ospfv3-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 routing prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bird2 crun iproute2 busybox-static util-linux
+      - name: Verify real OSPFv3 adjacency, kernel delivery, withdrawal and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
   switching-interop:
     runs-on: ubuntu-latest
     steps:

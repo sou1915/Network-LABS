@@ -62,6 +62,8 @@ def drift(manager):
             errors.append(node['name'] + ': DHCP server configuration differs or is unavailable')
         if node.get('ospf') is not None and actual.get('ospf', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': OSPF configuration differs or is unavailable')
+        if node.get('ospfv3') is not None and actual.get('ospfv3', {}).get('configuration_verified') is not True:
+            errors.append(node['name'] + ': OSPFv3 configuration differs or is unavailable')
         if node.get('dhcp_pools') is not None and actual.get('dhcp_pools', {}).get('configuration_verified') is not True:
             errors.append(node['name'] + ': DHCP pools configuration differs or is unavailable')
         if node.get('dhcp_relay') is not None and actual.get('dhcp_relay', {}).get('configuration_verified') is not True:

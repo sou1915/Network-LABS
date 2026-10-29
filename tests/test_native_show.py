@@ -162,6 +162,8 @@ class NativeShowTests(unittest.TestCase):
     def test_ospf_queries_use_readonly_daemon_evidence_without_kernel_fallback(self):
         from network_labs.appliances.show import BIRD_COMMANDS
         for command, daemon_command in BIRD_COMMANDS.items():
+            if command.startswith('show ipv6 '):
+                continue  # OSPFv3 has a separate IPv6-router fixture.
             manager = manager_for(); before = copy.deepcopy(manager.read())
             raw = '0001 BIRD ready.\n1000 Router ID State\n 2.2.2.2 Full/DR\n'
             with patch('network_labs.appliances.ospf.read_cli', return_value=raw) as read:

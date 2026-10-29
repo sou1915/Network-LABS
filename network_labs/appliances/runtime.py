@@ -339,7 +339,7 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
-            if node.get('ospf') is not None and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
+            if (node.get('ospf') is not None or node.get('ospfv3') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': OSPF requires a rootfs built with --bird and --birdc.')
             if (node.get('dns_server') is not None or node.get('tftp_server') is not None or node.get('dhcp_relay') is not None or node.get('dhcp_pools') is not None or node.get('router_advertisements')) and not (Path(node['rootfs']) / 'usr/sbin/dnsmasq').is_file():
                 raise RuntimeFailure(node['name'] + ': DNS/DHCP/RA/TFTP requires a rootfs built with --dnsmasq or an explicitly supplied compatible /usr/sbin/dnsmasq.')
@@ -438,6 +438,8 @@ class Manager:
             start_clients(self)
             from .ospf import start_servers as start_ospf
             start_ospf(self)
+            from .ospfv3 import start_servers as start_ospfv3
+            start_ospfv3(self)
             from .management import start_servers as start_management
             start_management(self)
             from .syslog_server import start_servers as start_collectors
@@ -470,6 +472,8 @@ class Manager:
         prepare_pools(bundle, node)
         from .ospf import prepare_files as prepare_ospf
         prepare_ospf(bundle, node)
+        from .ospfv3 import prepare_files as prepare_ospfv3
+        prepare_ospfv3(bundle, node)
         from .slaac import prepare_files as prepare_ra
         prepare_ra(bundle, node)
         from .dhcpv6 import prepare_files as prepare_dhcpv6

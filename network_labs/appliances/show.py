@@ -20,6 +20,10 @@ COMMANDS = {
 
 
 BIRD_COMMANDS = {
+    'show ipv6 ospf neighbor': 'show ospf neighbors ospf6',
+    'show ipv6 ospf interface': 'show ospf interface ospf6',
+    'show ipv6 ospf': 'show protocols all ospf6',
+    'show ipv6 route ospf': 'show route protocol ospf6 all',
     'show ip ospf neighbor': 'show ospf neighbors',
     'show ip ospf interface': 'show ospf interface ospf4',
     'show ip ospf': 'show protocols all ospf4',
@@ -73,7 +77,7 @@ def show(manager, name, command):
         raise ValueError('Select a declared Linux switch port or br0.')
     if command in LLDP_COMMANDS and node.get('lldp') is None:
         raise ValueError('This node has no declared LLDP service.')
-    if command in BIRD_COMMANDS and node.get('ospf') is None:
+    if command in BIRD_COMMANDS and node.get('ospfv3' if command.startswith('show ipv6 ') else 'ospf') is None:
         raise ValueError('This node has no declared OSPF process. Configure it before querying BIRD.')
     report = dict(lab=manager.name, node=name, command=command, query=query, selection=selection, revision=state.get('revision', 0),
                   started_at=datetime.now(timezone.utc).isoformat(), status='unknown', observation=None,

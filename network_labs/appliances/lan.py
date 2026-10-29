@@ -11,7 +11,7 @@ import re
 from .spec import integer, keys
 
 LAN_FIELDS = ('radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
-              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf')
+              'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf', 'ospfv3')
 
 
 def addresses(node):
@@ -175,6 +175,8 @@ def validate_lan(node):
     validate_pools(node)
     from .ospf import validate_ospf
     validate_ospf(node)
+    from .ospfv3 import validate_node as validate_ospfv3
+    validate_ospfv3(node)
     from .spanning_tree import validate_tree
     validate_tree(node)
     from .ovs import validate_ovs
@@ -404,6 +406,9 @@ def observe(manager, index, node):
     if node.get('ospf') is not None:
         from .ospf import observe as observe_ospf
         result['ospf'] = observe_ospf(manager, node)
+    if node.get('ospfv3') is not None:
+        from .ospfv3 import observe as observe_ospfv3
+        result['ospfv3'] = observe_ospfv3(manager, node)
     if node.get('dhcp_pools') is not None:
         from .dhcp_multi import observe as observe_pools
         result['dhcp_pools'] = observe_pools(manager, index, node)

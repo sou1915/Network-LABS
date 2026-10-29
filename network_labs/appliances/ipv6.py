@@ -167,6 +167,9 @@ def drift(manager, index, node):
             if not ipaddress.IPv6Network(destination).network_address.is_link_local:
                 connected.add((destination, route.get('dev')))
         else:
+            from .ospfv3 import dynamic_route
+            if dynamic_route(node, route):
+                continue
             observed_routes.add((destination, route.get('gateway'), route.get('dev')))
             if route.get('protocol') != 'static':
                 errors.append(node['name'] + ': unmanaged IPv6 route protocol')
