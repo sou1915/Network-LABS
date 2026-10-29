@@ -187,6 +187,10 @@ def start_servers(manager):
         if 'udhcpc6' not in applets:
             from .runtime import RuntimeFailure
             raise RuntimeFailure('PD requires a rootfs BusyBox with udhcpc6.')
+        help_result = manager.crun('exec', node['name'], '/bin/busybox', 'udhcpc6', '--help', check=False, timeout=3)
+        if 'Network LABS PD source-address fix 1' not in help_result.stdout + help_result.stderr:
+            from .runtime import RuntimeFailure
+            raise RuntimeFailure('PD-only renewal/release requires tools/build_pd_busybox.py; stock BusyBox 1.36.1 dereferences a missing IA_NA source.')
         manager.crun('exec', node['name'], '/usr/sbin/dnsmasq', '--test', '--conf-file=/lab/pd-ra.conf', timeout=3)
         manager.crun('exec', '--detach', node['name'], '/usr/sbin/dnsmasq', '--keep-in-foreground',
                      '--conf-file=/lab/pd-ra.conf', log=manager.directory / node['name'] / 'pd-ra.log')

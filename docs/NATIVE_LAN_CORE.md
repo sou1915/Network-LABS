@@ -5221,12 +5221,22 @@ are static. R1 has no declared IPv6 address on its client-facing `eth0`.
 PC1 has no declared address or route and uses kernel SLAAC.
 
 Build a trusted hook and a rootfs containing the installed Kea executable and
-its ELF dependencies, dnsmasq and static BusyBox:
+its ELF dependencies, dnsmasq and patched static BusyBox. Stock BusyBox 1.36.1
+dereferences a null IA_NA source in PD-only unicast Renew/Release. The pinned
+build below uses the existing WAN link-local source when no IA_NA exists;
+startup requires its compatibility marker. The source checkout must be clean:
+
+```bash
+git clone --depth 1 --branch 1_36_1 https://github.com/mirror/busybox.git /tmp/network-labs-pd-source
+python3 tools/build_pd_busybox.py /tmp/network-labs-pd-source /tmp/network-labs-pd-busybox
+```
+
+Then:
 
 ```bash
 cc -O2 -Wall -Wextra -Werror network_labs/appliances/dhcpv6_pd_hook.c \
   -o "$HOME/network-labs-pd-hook"
-python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+python3 -m network_labs.appliances rootfs --busybox /tmp/network-labs-pd-busybox \
   --dnsmasq /usr/sbin/dnsmasq --kea-dhcp6 /usr/sbin/kea-dhcp6 \
   --dhcpv6-pd-hook "$HOME/network-labs-pd-hook" \
   --output "$HOME/network-labs-pd-rootfs"

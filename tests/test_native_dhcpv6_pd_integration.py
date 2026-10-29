@@ -37,7 +37,7 @@ class NativePDTests(unittest.TestCase):
             root = Path(folder); hook = root / 'pd-hook'
             source = Path(__file__).parents[1] / 'network_labs/appliances/dhcpv6_pd_hook.c'
             run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', source, '-o', hook])
-            rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs', dnsmasq=shutil.which('dnsmasq'),
+            rootfs = static_busybox_rootfs(os.environ.get('NETWORK_LABS_PD_BUSYBOX', shutil.which('busybox')), root / 'rootfs', dnsmasq=shutil.which('dnsmasq'),
                                           kea_dhcp6=shutil.which('kea-dhcp6'), dhcpv6_pd_hook=hook)
             spec = dhcpv6_pd_lab(rootfs); spec['name'] = 'pd-lan-' + str(os.getpid())
             manager = Manager(spec['name']); server = spec['nodes'][2]
