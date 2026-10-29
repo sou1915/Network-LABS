@@ -846,3 +846,24 @@ def ipv6_subinterfaces_lab(rootfs):
         'links': [[['PC1', 'eth0'], ['SW1', 'eth0']], [['PC2', 'eth0'], ['SW1', 'eth1']],
                   [['PC3', 'eth0'], ['SW1', 'eth2']], [['R1', 'eth0'], ['SW1', 'eth3']],
                   [['R2', 'eth0'], ['SW1', 'eth4']], [['R2', 'eth1'], ['PC4', 'eth0']]]})
+
+
+def ipv6_firewall_lab(rootfs):
+    """Two internal IPv6 LANs, stateful forwarding and a default-deny firewall."""
+    spec = {'version': 2, 'name': 'ipv6-firewall-lan', 'nodes': [],
+            'links': [[['PC1', 'eth0'], ['FW1', 'eth0']], [['FW1', 'eth1'], ['PC2', 'eth0']]]}
+    for name, subnet in (('PC1', 10), ('PC2', 20)):
+        spec['nodes'].append({'name': name, 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': ''},
+                              'ipv6': {'eth0': f'2001:db8:{subnet}::{subnet}/64'},
+                              'ipv6_routes': [{'destination': '::/0', 'gateway': f'2001:db8:{subnet}::1', 'interface': 'eth0'}]})
+    spec['nodes'].insert(1, {'name': 'FW1', 'runtime': 'oci', 'role': 'firewall', 'rootfs': str(rootfs),
+                            'interfaces': {'eth0': '', 'eth1': ''}, 'forwarding': False, 'ipv6_forwarding': True,
+                            'ipv6': {'eth0': '2001:db8:10::1/64', 'eth1': '2001:db8:20::1/64'},
+                            'firewall_ipv6': {'default': 'drop', 'stateful': True, 'rules': [
+                                {'name': 'echo-out', 'action': 'accept', 'in': 'eth0', 'out': 'eth1',
+                                 'source': '2001:db8:10::10/128', 'destination': '2001:db8:20::20/128',
+                                 'protocol': 'icmpv6', 'icmp_type': 'echo-request'},
+                                {'name': 'http-out', 'action': 'accept', 'in': 'eth0', 'out': 'eth1',
+                                 'source': '2001:db8:10::10/128', 'destination': '2001:db8:20::20/128',
+                                 'protocol': 'tcp', 'dport': 8080}]}})
+    return validate(spec)

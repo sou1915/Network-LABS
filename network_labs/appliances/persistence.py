@@ -51,6 +51,10 @@ def drift(manager):
             from .firewall import fingerprint
             if fingerprint(actual['firewall']) != manager.read().get('firewall_fingerprints', {}).get(node['name']):
                 errors.append(node['name'] + ': firewall rules differ')
+        if node.get('firewall_ipv6') is not None:
+            from .firewall import fingerprint
+            if fingerprint(actual['firewall_ipv6']) != manager.read().get('firewall_ipv6_fingerprints', {}).get(node['name']):
+                errors.append(node['name'] + ': IPv6 firewall rules differ')
         if node.get('port_security') and actual.get('port_security', {}).get('fingerprint_matches') is not True:
             errors.append(node['name'] + ': port security rules differ or are unavailable')
         from .snooping import effective

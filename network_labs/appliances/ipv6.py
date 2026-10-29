@@ -15,8 +15,9 @@ def validate_node(node):
     subs = node.get('subinterfaces', {})
     if not isinstance(subs, dict):
         raise ValueError('Subinterfaces must be declared as an object.')
+    firewall = node['role'] == 'firewall' and node.get('firewall_ipv6') is not None
     ports = svis if switch else set(node['interfaces']) | (set(subs) if node['role'] == 'router' else set())
-    if values and (node['runtime'] != 'oci' or node['role'] not in ('host', 'router', 'switch') or
+    if values and (node['runtime'] != 'oci' or (node['role'] not in ('host', 'router', 'switch') and not firewall) or
                    (node['role'] == 'switch' and not switch) or set(values) - set(ports)):
         raise ValueError('IPv6 addresses require physical OCI host/router ports, router subinterfaces or declared Linux switch SVIs.')
     for port, value in values.items():
@@ -29,8 +30,8 @@ def validate_node(node):
         values[port] = str(address)
 
     forwarding = node.setdefault('ipv6_forwarding', False)
-    if type(forwarding) is not bool or (forwarding and ((node['role'] != 'router' and not switch) or not values)):
-        raise ValueError('ipv6_forwarding requires a numbered OCI router or Linux switch SVI and a boolean.')
+    if type(forwarding) is not bool or (forwarding and ((node['role'] != 'router' and not switch and not firewall) or not values)):
+        raise ValueError('ipv6_forwarding requires a numbered OCI router, managed IPv6 firewall or Linux switch SVI and a boolean.')
     networks = [ipaddress.IPv6Interface(v).network for v in values.values()]
     if len(set(networks)) != len(networks):
         raise ValueError('IPv6 interfaces on one node require disjoint /64 networks.')
@@ -78,16 +79,18 @@ def validate_lab(spec):
     if (any(n['forwarding'] or n.get('gateway') or n['routes'] for n in spec['nodes']) and
             any(n['slaac'] or n['router_advertisements'] or n['dhcpv6_clients'] for n in spec['nodes'])):
         raise ValueError('Initial dual-stack routing requires static IPv6; RA/SLAAC/DHCPv6 coexistence is not in this profile.')
+    from .firewall_ipv6 import validate_lab as validate_firewall_lab
+    validate_firewall_lab(spec)
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
         forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
-        if (node['runtime'] != 'oci' or node['role'] not in ('host', 'switch', 'router') or
+        if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or
                 node.get('switch_backend') == 'ovs' or any(node.get(key) for key in forbidden) or
                 node.get('spanning_tree', {}).get('mode', 'off') != 'off'):
-            raise ValueError('IPv6 lab supports OCI hosts, static dot1Q routers and Linux VLAN switches; no IPv4 services, security, STP or bundles.')
+            raise ValueError('IPv6 lab supports OCI hosts, static dot1Q routers and Linux VLAN switches; no unvalidated IPv4 services/security, STP or bundles.')
         if node['subinterfaces']:
             if (node['role'] != 'router' or not node['ipv6'] or node['forwarding'] or node['routes'] or node.get('gateway') or
                     any(node['interfaces'].values()) or any(sub['address'] for sub in node['subinterfaces'].values()) or

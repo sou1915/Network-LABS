@@ -82,6 +82,8 @@ def validate(data):
         validate_lan(node)
         from .firewall import validate_firewall
         validate_firewall(node)
+        from .firewall_ipv6 import validate_node as validate_firewall_ipv6
+        validate_firewall_ipv6(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
@@ -96,7 +98,7 @@ def validate(data):
                 raise ValueError('startup must be a list of argv arrays.')
             for command in startup:
                 argv(command)
-            if role == 'firewall' and not startup and node.get('firewall') is None:
+            if role == 'firewall' and not startup and node.get('firewall') is None and node.get('firewall_ipv6') is None:
                 raise ValueError('Firewall requires explicit startup rules; no fake firewall or default pass-through.')
             if role == 'switch' and (any(interfaces.values()) or (node.get('gateway') and not node['svis'])):
                 raise ValueError('Switch physical ports remain unnumbered; use SVIs for management/routing.')

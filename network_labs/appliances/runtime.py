@@ -364,7 +364,7 @@ class Manager:
             for node in spec['nodes']:
                 if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
-        if any(n.get('firewall') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+        if any(n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed firewall/port security/DHCP snooping requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
@@ -394,6 +394,10 @@ class Manager:
                 if node.get('firewall') is not None:
                     from .firewall import apply
                     self.state['firewall_fingerprints'][node['name']] = apply(self, i, node)
+                    self.save()
+                if node.get('firewall_ipv6') is not None:
+                    from .firewall_ipv6 import apply as apply_ipv6_firewall
+                    self.state.setdefault('firewall_ipv6_fingerprints', {})[node['name']] = apply_ipv6_firewall(self, i, node)
                     self.save()
                 if node['runtime'] == 'firecracker':
                     self.ns(i, 'ip', 'tuntap', 'add', 'tap0', 'mode', 'tap')
@@ -588,6 +592,9 @@ class Manager:
                 if node.get('firewall') is not None:
                     from .firewall import observe as firewall_observe
                     result['firewall'] = firewall_observe(self, index)
+                if node.get('firewall_ipv6') is not None:
+                    from .firewall_ipv6 import observe as observe_ipv6_firewall
+                    result['firewall_ipv6'] = observe_ipv6_firewall(self, index)
                 return result
         raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
 

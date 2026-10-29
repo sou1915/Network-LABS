@@ -5383,3 +5383,76 @@ fault/recreation path is also tested; no background reconciliation or automatic
 local-admin recovery is claimed. It checks host routes, rules,
 forwarding and virtual link cleanup. These are scoped Linux results, not a
 vendor CLI, gateway redundancy or IPv6 security implementation.
+
+## IPv6 forwarding firewall
+
+`example --ipv6-firewall` connects two internal static IPv6 LANs through an
+OCI firewall. The separate `firewall_ipv6` declaration never translates an
+IPv4 policy into IPv6 or implies NAT66. The example admits PC1's ICMPv6 echo
+requests and TCP/8080 to PC2, accepts tracked return traffic, and drops other
+forwarded traffic. It declares no HTTP server; native tests start temporary
+BusyBox listeners to verify real TCP decisions.
+
+```bash
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --output "$HOME/network-labs-ipv6-fw-rootfs"
+python3 -m network_labs.appliances example --ipv6-firewall \
+  --rootfs "$HOME/network-labs-ipv6-fw-rootfs" > ipv6-firewall-lan.json
+sudo python3 -m network_labs.appliances start ipv6-firewall-lan.json
+sudo python3 -m network_labs.appliances inspect ipv6-firewall-lan FW1
+sudo python3 -m network_labs.appliances exec ipv6-firewall-lan PC1 -- /bin/busybox ping6 -c 2 2001:db8:20::20
+sudo python3 -m network_labs.appliances exec ipv6-firewall-lan PC2 -- /bin/busybox ping6 -c 2 2001:db8:10::10
+sudo python3 -m network_labs.appliances save ipv6-firewall-lan
+sudo python3 -m network_labs.appliances stop ipv6-firewall-lan
+sudo python3 -m network_labs.appliances restore ipv6-firewall-lan
+```
+
+The PC1 ping should receive replies; the independent PC2-initiated ping should
+fail under this directional policy. A bidirectional success requirement would
+be incorrect for the example. NDP and traffic addressed to the firewall itself
+remain outside the forward hook. This is not an input/output ACL, RA Guard,
+source-validation policy or hardened management plane.
+
+The policy contains `default` (`accept` or `drop`), `stateful` (boolean) and
+ordered `rules` (at most 256). Rules require a unique `name` and an `action`
+(`accept` or `drop`), with optional physical `in`/`out`, IPv6 `source` and
+`destination` prefixes, `protocol` (`any`, `tcp`, `udp`, `icmpv6`), TCP/UDP
+`dport`, and ICMPv6 `icmp_type`. Supported types are echo-request, echo-reply,
+destination-unreachable, packet-too-big, time-exceeded and parameter-problem.
+Zone identifiers, IPv4/mapped prefixes, NAT fields, undeclared interfaces and
+port/type combinations inconsistent with the protocol are rejected.
+
+The runtime installs `table ip6 network_labs_ipv6` before enabling node
+forwarding. An invalid-conntrack-state drop comes first. With `stateful:true`,
+`established,related` acceptance precedes user rules; later drops therefore do
+not revoke tracked return traffic. With `stateful:false`, return traffic needs
+its own explicit rule. User rules run in declaration order, followed by a
+counter for the declared default verdict. Transport matching uses
+`meta l4proto`, rather than matching only the immediate IPv6 next-header field.
+No implicit blanket ICMPv6 allowance or complete PMTU/fragment-interoperability
+claim is made. Echo/TCP statefulness is verified separately from renderer
+support for UDP and ICMPv6 error types.
+
+The bounded lab has one managed IPv6 firewall, 2..16 UP numbered physical
+firewall interfaces, static IPv6 peers/routes and IPv4 forwarding disabled.
+Dynamic routing/RA/SLAAC/DHCPv6, dual stack, SVIs/subinterfaces, multi-firewall
+compositions and live policy edits remain outside this increment. Edit the
+manifest and recreate to change policy. Existing IPv4 `firewall`,
+`firewall-config` and `sessions` operations retain their IPv4 scope.
+
+`inspect` returns actual nft JSON and counters under `firewall_ipv6`. Save
+compares the actual node ruleset fingerprint with the installed baseline;
+counter/handle changes are ignored, while altered rules or extra tables are
+drift. Syntax checking precedes the atomic owned-table apply; neither operation
+flushes the host or other node rulesets. Cold restore rebuilds policy and
+routing, with fresh counters and conntrack state rather than saved sessions.
+
+The dedicated `ipv6-firewall-interop` job verifies allowed echo/TCP traffic,
+blocked TCP to an independently proven listener, denied reverse initiation,
+local NDP/firewall reachability, ingress/egress packet evidence, real counters
+and IPv6 conntrack tuples. It contrasts stateless explicit ICMP return with
+blocked TCP replies, refuses rule/extra-table drift, and restores from the
+saved declaration after a rule flush. Host nftables, routes, rules, forwarding
+and virtual-link cleanup are checked independently.
+
+Reference: [nftables primary manual](https://netfilter.org/projects/nftables/manpage.html).
