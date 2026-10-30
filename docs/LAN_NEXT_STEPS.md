@@ -8,8 +8,10 @@ failure/recovery coverage appropriate to its scope.
 1. AAA: RADIUS-gated execution and declared per-node action policy, then
    Interactive SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
    and protected transports require their own implementations and validation.
-2. IPv6: IPv6 SVIs/subinterfaces, OSPFv3, DHCPv6 relay/PD, firewall and RA Guard;
-   validate coexistence with the existing IPv4 services.
+2. IPv6: the bounded SVI/subinterface, OSPFv3, relay/PD, forwarding-firewall
+   and RA Guard increments below have dedicated evidence. Remaining work is
+   broader IPv4/IPv6 and service/security coexistence, subinterface service
+   combinations and separately scoped local-input firewall behavior.
 3. Switching: physical/carrier failure coverage, remaining kernel validation,
    broader topology/security interactions and separately scoped MSTP/PVST.
 4. Services: persistent HTTPS, Syslog TCP/TLS, broader DNS and file services;
@@ -124,11 +126,40 @@ case with an explicit runtime worker, not natural recovery on every kernel or
 a physical cable/one-way loss test. See STP_LACP_VALIDATION.md for the matrix.
 
 General tests, the older managed STP/LACP job and all dedicated IPv6/AAA jobs
-passed on the same commit; the full native suite was still running when this
-checkpoint was recorded. Next: one-way LACP/control loss with carrier retained
-and broader kernel/failure validation, then LAN service polish. Broader AAA,
-IPv6 coexistence and subinterface service gaps remain tracked; GUI/WAN stay later. The broader AAA and switching/service gaps above
-remain tracked; these bounded increments do not complete the entire LAN.
+passed on the same commit; the full native suite subsequently completed
+successfully. The newer one-way control-loss increment is described below.
+Broader AAA, IPv6 coexistence and subinterface service gaps remain tracked;
+GUI/WAN stay later. These bounded increments do not complete the entire LAN.
+
+## One-way control-loss increment
+
+The new dedicated scenario suppresses SW2-to-SW1 Slow Protocol multicast
+on one, then both LACP members without changing their physical carrier or
+admin state. The initial test exposed a real min-links-1 limitation: both
+peers reported no negotiated members, but Linux retained bond carrier and
+STP kept selecting the bundle. The existing worker only repairs FDB after
+path changes and cannot force a spare when the kernel keeps that path.
+
+`inspect` now exposes `carrier_without_ready_lacp`, alongside the existing
+`ready:false` and actual member states. The revised test distinguishes
+min-links-2 automatic spare-path failover from the min-links-1 fallback
+boundary, and requires positive drop counters, intact physical carrier,
+restored qdiscs, normal traffic after recovery and cold restore. This adds
+no runtime link/STP override. See STP_LACP_VALIDATION.md for the exact scope.
+The revised scenario has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/41036997483/job/124000165427)
+at implementation commit `b234b9a294298d1e4fec4f82054b4f726d866f2a` on
+`7.0.0-1017-azure` with iproute2 6.1.0 (293 seconds). Both threshold-1 boundary
+cycles and the threshold-2 failover/recovery, tagged traffic, static marker,
+saved restart and cleanup completed. General tests, older switching, peer
+carrier, all dedicated IPv6 jobs and SSH/RADIUS also passed; the full
+`native-containers` suite was still running at this checkpoint. The local
+suite passed 762 tests with 116 environment-dependent skips.
+
+Next switching work: negotiate a separately validated strict-LACP policy
+for silent loss at min-links 1 (including kernel/tool support), reverse-direction
+active-to-passive control loss, and broader kernel/topology coverage. Then
+continue LAN service polish; the AAA and IPv6 gaps above remain open.
 
 ## Current AAA increment
 

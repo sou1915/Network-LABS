@@ -171,7 +171,18 @@ same assertions as the carrier scenario. Threshold 1 also verifies normal
 traffic after partial/full recovery, static markers, cold restore and cleanup. External tc injection is removed
 before save: persistence does **not** currently audit arbitrary tc filters,
 and this test does not claim that saving during an injected fault is refused.
-Native CI evidence for this new scenario is pending.
+The revised scenario passed the
+[dedicated one-way control-loss job](https://github.com/sou1915/Network-LABS/actions/runs/41036997483/job/124000165427)
+at implementation commit `b234b9a294298d1e4fec4f82054b4f726d866f2a` on
+`7.0.0-1017-azure` with iproute2 6.1.0 in 293 seconds. The log explicitly
+records the min-links-1 boundary in both cycles; the min-links-2 automatic
+failover/recovery, tagged traffic, preserved static marker and saved restart
+checks completed. General tests, older administrative switching, peer carrier,
+all dedicated IPv6 jobs, SSH and RADIUS also passed on this commit. Its full
+`native-containers` suite was still running when this checkpoint was recorded.
+The local suite completed 762 tests with 116 environment-dependent skips.
+This proves the bounded threshold-2 scenario and threshold-1 limitation, not
+strict LACP failover with threshold 1 or arbitrary one-way data-plane faults.
 
 References: [iproute2 flower manual](https://man7.org/linux/man-pages/man8/tc-flower.8.html)
 and [Linux bonding options](https://www.kernel.org/doc/html/latest/networking/bonding.html).
