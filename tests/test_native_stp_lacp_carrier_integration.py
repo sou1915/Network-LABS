@@ -19,14 +19,13 @@ from network_labs.appliances.verify import verify
 from test_native_integration import unexpected_host_link_changes
 
 
-@unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
-class NativeSTPLACPCarrierTests(unittest.TestCase):
-    def test_peer_carrier_cycles_min_links_automatic_paths_and_saved_restart(self):
+class STPLACPPathScenario:
+    def exercise(self, control_loss=False):
         self.assertEqual(os.geteuid(), 0)
-        for tool in ('busybox', 'crun', 'ip', 'bridge', 'tcpdump'):
+        for tool in ('busybox', 'crun', 'ip', 'bridge', 'tcpdump', *(['tc'] if control_loss else [])):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
         self.assertTrue(Path('/sys/module/bonding').exists(), 'Preload bonding with max_bonds=0')
-        print('Carrier test kernel: ' + run(['uname', '-r']).stdout.strip(), flush=True)
+        print(('One-way control' if control_loss else 'Carrier') + ' test kernel: ' + run(['uname', '-r']).stdout.strip(), flush=True)
         baseline = {kind: run(['ip', '-j', '-4', kind, 'show', *(['table', 'all'] if kind == 'route' else [])]).stdout
                     for kind in ('route', 'rule')}
         forwarding = run(['sysctl', '-n', 'net.ipv4.ip_forward']).stdout
@@ -36,7 +35,7 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
             root = Path(folder); rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs')
             for threshold in (1, 2):
                 with self.subTest(min_links=threshold):
-                    spec = stp_lacp_lab(rootfs, threshold); spec['name'] = 'carrier-' + str(os.getpid()) + '-' + str(threshold)
+                    spec = stp_lacp_lab(rootfs, threshold); spec['name'] = ('control-' if control_loss else 'carrier-') + str(os.getpid()) + '-' + str(threshold)
                     manager = Manager(spec['name']); mutations = []; marker = '02:aa:bb:00:00:92'
                     def wait(predicate, label, seconds=40):
                         until = time.monotonic() + seconds
@@ -85,8 +84,31 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                             self.assertIn(expected, active, active)
                         self.assertNotIn('ICMP echo', inactive, inactive)
                     def peer(port, up):
-                        manager.ns(5, 'ip', 'link', 'set', 'dev', port, 'up' if up else 'down')
+                        if not control_loss:
+                            manager.ns(5, 'ip', 'link', 'set', 'dev', port, 'up' if up else 'down')
+                            return
+                        # SW2 -> SW1 only. Match Slow Protocol multicast (including
+                        # LACP); IP/ARP/data and the reverse direction are untouched.
+                        if up:
+                            rows = json.loads(manager.ns(4, 'tc', '-j', '-s', 'filter', 'show', 'dev', port, 'ingress').stdout)
+                            actions = [a for r in rows for a in r.get('options', {}).get('actions', [])]
+                            self.assertTrue(any(a.get('stats', {}).get('drops', 0) > 0 for a in actions), rows)
+                            manager.ns(4, 'tc', 'qdisc', 'del', 'dev', port, 'clsact')
+                        else:
+                            manager.ns(4, 'tc', 'qdisc', 'add', 'dev', port, 'clsact')
+                            manager.ns(4, 'tc', 'filter', 'add', 'dev', port, 'ingress', 'protocol', '0x8809',
+                                       'pref', '1', 'flower', 'skip_hw', 'dst_mac', '01:80:c2:00:00:02', 'action', 'drop')
+                    def all_carriers_up():
+                        for index in (4, 5):
+                            for port in ('eth2', 'eth3'):
+                                row = json.loads(manager.ns(index, 'ip', '-j', 'link', 'show', 'dev', port).stdout)[0]
+                                self.assertTrue({'UP', 'LOWER_UP'}.issubset(row['flags']), row)
+                                if control_loss:
+                                    self.assertTrue(next(m for m in manager.inspect('SW1' if index == 4 else 'SW2')
+                                                         ['port_channels']['bond1']['members'] if m['name'] == port)['mii_up'])
                     def local_carrier(port, up):
+                        if control_loss:
+                            all_carriers_up(); return
                         rows = json.loads(manager.ns(4, 'ip', '-j', 'link', 'show', 'dev', port).stdout)
                         self.assertIn('UP', rows[0]['flags'], 'Local member was administratively changed')
                         self.assertEqual('LOWER_UP' in rows[0]['flags'], up)
@@ -106,18 +128,27 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                             return original_ns(index, *args, **options)
                         with patch.object(manager, 'ns', side_effect=observed_ns):
                             wait(lambda: control(False, 2), 'Initial common tree/LACP not ready'); traffic()
+                            qdiscs = {(i, p): json.loads(manager.ns(i, 'tc', '-j', 'qdisc', 'show', 'dev', p).stdout)
+                                      for i in (4, 5) for p in ('eth2', 'eth3')} if control_loss else {}
                             for index in (4, 5): manager.ns(index, 'bridge', 'fdb', 'add', marker, 'dev', 'eth0', 'master', 'static', 'vlan', '10')
                             capture_path('initial', False)
                             for cycle in range(2):
                                 peer('eth2', False); wait(lambda: control(threshold == 2, 1), 'One-member carrier threshold failed')
                                 local_carrier('eth2', False); traffic()
-                                with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
+                                if not control_loss:
+                                    with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
+                                # External tc filters are not part of persisted policy.
+                                # Do not claim save audits this injection.
                                 peer('eth3', False); wait(lambda: control(True, 0), 'Complete aggregate carrier loss did not select spare')
                                 local_carrier('eth3', False); traffic()
                                 if cycle == 0: capture_path('spare', True)
                                 peer('eth2', True); wait(lambda: control(threshold == 2, 1), 'Partial carrier return selected wrong path')
                                 local_carrier('eth2', True); traffic()
-                                peer('eth3', True); wait(lambda: control(False, 2), 'Full carrier return did not restore bundle path')
+                                peer('eth3', True); wait(lambda: control(False, 2), 'Full recovery did not restore bundle path')
+                                if control_loss:
+                                    all_carriers_up()
+                                    for (i, p), expected in qdiscs.items():
+                                        self.assertEqual(json.loads(manager.ns(i, 'tc', '-j', 'qdisc', 'show', 'dev', p).stdout), expected)
                                 local_carrier('eth3', True); traffic(); markers()
                                 if cycle == 0: capture_path('restored', False)
                                 self.assertEqual(manager.state['spec'], saved_state); self.assertEqual(manager.state['revision'], revision)
@@ -127,6 +158,7 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
                             self.assertGreaterEqual(recovery['repairs'], 2, recovery)
                             self.assertTrue(recovery['last_event']['complete'], recovery)
                             self.assertEqual(recovery['last_event']['bridges'], ['SW1', 'SW2'])
+                            if control_loss: self.assertEqual(mutations, [], 'Control-loss test must never flap a link')
                             self.assertTrue(all(index == 5 and args in tuple(('ip', 'link', 'set', 'dev', port, state)
                                                 for port in ('eth2', 'eth3') for state in ('up', 'down')) for index, args in mutations), mutations)
                         with manager.locked():
@@ -150,3 +182,9 @@ class NativeSTPLACPCarrierTests(unittest.TestCase):
         after = {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
         hardware = {name for name, _ in after - before if (Path('/sys/class/net') / name / 'device').exists()}
         self.assertEqual(unexpected_host_link_changes(before, after, hardware), {'removed_or_replaced': set(), 'added_virtual': set()})
+
+
+@unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
+class NativeSTPLACPCarrierTests(STPLACPPathScenario, unittest.TestCase):
+    def test_peer_carrier_cycles_min_links_automatic_paths_and_saved_restart(self):
+        self.exercise()
