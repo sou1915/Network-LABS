@@ -139,9 +139,22 @@ class STPLACPPathScenario:
                                     with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
                                 # External tc filters are not part of persisted policy.
                                 # Do not claim save audits this injection.
-                                peer('eth3', False); wait(lambda: control(True, 0), 'Complete aggregate carrier loss did not select spare')
-                                local_carrier('eth3', False); traffic()
-                                if cycle == 0: capture_path('spare', True)
+                                # On this kernel min-links 1 can fall back to an
+                                # individual carrier-up link without negotiated LACP.
+                                # Reproduce that boundary rather than call it failover.
+                                fallback = control_loss and threshold == 1
+                                peer('eth3', False); wait(lambda: control(not fallback, 0),
+                                                         'Complete control/carrier loss selected unexpected path')
+                                if fallback:
+                                    for name in ('SW1', 'SW2'):
+                                        bundle = manager.inspect(name)['port_channels']['bond1']
+                                        self.assertTrue(bundle['carrier_without_ready_lacp'], bundle)
+                                        self.assertFalse(bundle['ready'], bundle)
+                                    print('min-links 1: reproduced carrier without negotiated LACP; spare not selected', flush=True)
+                                local_carrier('eth3', False)
+                                if not fallback:
+                                    traffic()
+                                    if cycle == 0: capture_path('spare', True)
                                 peer('eth2', True); wait(lambda: control(threshold == 2, 1), 'Partial carrier return selected wrong path')
                                 local_carrier('eth2', True); traffic()
                                 peer('eth3', True); wait(lambda: control(False, 2), 'Full recovery did not restore bundle path')
@@ -155,9 +168,10 @@ class STPLACPPathScenario:
                                 self.assertEqual(manager.state['phase'], 'running'); self.assertNotIn('pending_spec', manager.state)
                             recovery = manager.inspect('SW1')['stp_carrier_recovery']
                             self.assertTrue(recovery['available'], recovery)
-                            self.assertGreaterEqual(recovery['repairs'], 2, recovery)
-                            self.assertTrue(recovery['last_event']['complete'], recovery)
-                            self.assertEqual(recovery['last_event']['bridges'], ['SW1', 'SW2'])
+                            if not control_loss or threshold == 2:
+                                self.assertGreaterEqual(recovery['repairs'], 2, recovery)
+                                self.assertTrue(recovery['last_event']['complete'], recovery)
+                                self.assertEqual(recovery['last_event']['bridges'], ['SW1', 'SW2'])
                             if control_loss: self.assertEqual(mutations, [], 'Control-loss test must never flap a link')
                             self.assertTrue(all(index == 5 and args in tuple(('ip', 'link', 'set', 'dev', port, state)
                                                 for port in ('eth2', 'eth3') for state in ('up', 'down')) for index, args in mutations), mutations)

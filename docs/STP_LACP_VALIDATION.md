@@ -109,7 +109,8 @@ The worker is stopped before namespace teardown and recreated with fresh runtime
 state after cold restore. Runtime PID/tokens/events do not enter saved policy.
 
 This does not provide generic FDB repair for arbitrary topologies, MSTP/PVST,
-OVS, optical faults, one-way LACP loss or support on every kernel.
+OVS, optical faults or support on every kernel. One-way control-loss coverage
+is separately described below.
 
 The opt-in automatic carrier profile passed the
 [dedicated carrier job](https://github.com/sou1915/Network-LABS/actions/runs/40960722168/job/123752453718)
@@ -119,6 +120,58 @@ full cycles for each threshold, both tagged packet paths, static-marker
 preservation, successful worker repairs, unchanged revision/configuration,
 saved restart, fresh worker identity and worker termination before cleanup.
 The general tests and older managed-administrative `switching-interop` job also
-passed on this commit; its complete native suite was still running at the
-checkpoint. This records the implemented opt-in repair, not natural recovery
+passed on this commit; its complete native suite subsequently finished
+successfully as well. This records the implemented opt-in repair, not natural recovery
 without a worker or validation on the original 6.17 kernel.
+
+
+## One-way control loss with member carrier retained
+
+The dedicated `stp-lacp-control-loss-interop` job runs
+`test_native_stp_lacp_control_loss_integration.py` using the same bounded
+`--stp-lacp` profile and its existing opt-in dynamic FDB worker.
+The injector installs a software `tc flower` ingress drop on SW1 eth2,
+then eth3, matching EtherType `0x8809` and destination
+`01:80:c2:00:00:02`. This suppresses SW2-to-SW1 Slow Protocol multicast,
+including LACP; it does not match IP, ARP, VLAN data or reverse-direction
+traffic. This is not a physical unidirectional cable fault or arbitrary
+packet loss. The sender is the passive peer and receiver the active peer.
+
+For min-links 1 and 2, two cycles require the actual negotiated-member
+counts to decrease 2 -> 1 -> 0 and return 0 -> 1 -> 2. Every member on both
+peers must remain administratively UP, LOWER_UP and MII up at the fault and
+recovery checkpoints. No test-helper link mutations, managed configuration
+edits or FDB repairs are allowed. Positive tc action drop counters are
+required before each filter is removed, and all four member qdiscs must
+match their initial state after recovery.
+
+The first native run at commit `87351bdcd2f6590b4d9763852b35e8ecaac4d966`
+on `7.0.0-1017-azure` exposed a min-links-1 boundary: both peers had zero
+negotiated members and defaulted/expired partner state while both bonds still
+had carrier and STP continued selecting bond1. The test's original assumption
+that all-control loss would always select the spare was false. That
+[initial run](https://github.com/sou1915/Network-LABS/actions/runs/41036138771/job/123997315590)
+failed only the min-links-1 subtest; min-links 2 completed the failover matrix.
+The existing dynamic-FDB worker cannot fix a forwarding-path selection that
+has not changed, and this increment does not add a runtime link/STP override.
+
+The revised matrix requires **automatic failover with min-links 2** and
+explicitly reproduces **carrier without ready LACP with min-links 1**.
+`inspect` reports `port_channels.bond1.carrier_without_ready_lacp:true`
+when the bond is UP/LOWER_UP but lacks enough negotiated members. It still
+reports `ready:false`; physical carrier must not be mistaken for negotiation.
+This diagnostic does not prove actual fallback packet delivery. The threshold-1
+all-control-loss checkpoint does not claim packet recovery or spare selection.
+Use threshold 2 for the bounded silent-control-loss failover scenario.
+
+For threshold 2, control checks, selected-path tagged captures, bidirectional
+VLAN 10/20 traffic with TTL 64, worker repair evidence, static FDB preservation,
+unchanged declaration/revision, cold restore and worker cleanup use the
+same assertions as the carrier scenario. Threshold 1 also verifies normal
+traffic after partial/full recovery, static markers, cold restore and cleanup. External tc injection is removed
+before save: persistence does **not** currently audit arbitrary tc filters,
+and this test does not claim that saving during an injected fault is refused.
+Native CI evidence for this new scenario is pending.
+
+References: [iproute2 flower manual](https://man7.org/linux/man-pages/man8/tc-flower.8.html)
+and [Linux bonding options](https://www.kernel.org/doc/html/latest/networking/bonding.html).

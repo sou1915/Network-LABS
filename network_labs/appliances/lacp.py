@@ -132,9 +132,11 @@ def observe(manager, index, node, links):
             member['collecting_distributing'] = member['collecting_distributing'] and member['operational']
         negotiated = [p['name'] for p in members if p['collecting_distributing']]
         kernel = next((r for r in links if r['ifname'] == name), {})
+        carrier = 'UP' in kernel.get('flags', []) and 'LOWER_UP' in kernel.get('flags', [])
+        ready = len(negotiated) >= channel['min_links'] and carrier
         result[name] = {'source': 'Linux bonding /proc and netlink', 'members': members, 'kernel': kernel,
                         'negotiated_members': negotiated,
-                        'ready': len(negotiated) >= channel['min_links'] and 'UP' in kernel.get('flags', []) and 'LOWER_UP' in kernel.get('flags', []),
+                        'ready': ready, 'carrier_without_ready_lacp': carrier and not ready,
                         'proc': text}
     return result
 

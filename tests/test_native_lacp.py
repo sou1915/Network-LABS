@@ -120,9 +120,20 @@ details partner lacp pdu:
                  {'ifname': 'eth2', 'flags': ['UP', 'LOWER_UP'], 'linkinfo': {'info_slave_data': {
                      'state': 'BACKUP', 'mii_status': 'UP', 'ad_aggregator_id': 1}}}]
         manager = SimpleNamespace(ns=lambda *args: subprocess.CompletedProcess(args, 0, proc, ''))
-        self.assertFalse(observe(manager, 0, node, links)['bond1']['ready'])
+        actual = observe(manager, 0, node, links)['bond1']
+        self.assertFalse(actual['ready'])
+        self.assertTrue(actual['carrier_without_ready_lacp'])
         links[1]['linkinfo']['info_slave_data']['state'] = 'ACTIVE'
-        self.assertTrue(observe(manager, 0, node, links)['bond1']['ready'])
+        actual = observe(manager, 0, node, links)['bond1']
+        self.assertTrue(actual['ready'])
+        self.assertFalse(actual['carrier_without_ready_lacp'])
+        # Both peers can default after LACP expiry while physical carrier is up.
+        proc = proc.replace('port state: 63', 'port state: 0')
+        actual = observe(manager, 0, node, links)['bond1']
+        self.assertFalse(actual['ready'])
+        self.assertTrue(actual['carrier_without_ready_lacp'])
+        links[0]['flags'] = ['UP']
+        self.assertFalse(observe(manager, 0, node, links)['bond1']['carrier_without_ready_lacp'])
 
     def test_invalid_configuration_never_applied(self):
         manager = Manager('lacp-lan'); manager.state = {'spec': lacp_lab('/rootfs'), 'phase': 'running'}
