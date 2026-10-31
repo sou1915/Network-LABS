@@ -2,6 +2,8 @@
 
 
 def adapters(node, previous):
+    if any('lacp_strict' in c for n in (node, previous) for c in n.get('port_channels', {}).values()) and node != previous:
+        raise ValueError('Explicit strict-LACP switch edits require lab recreation.')
     if (node.get('spanning_tree', {}).get('carrier_recovery') or previous.get('spanning_tree', {}).get('carrier_recovery')) and node != previous:
         raise ValueError('Carrier-recovery component edits require lab recreation.')
     if (node.get('ra_guard') is not None or previous.get('ra_guard') is not None) and node != previous:

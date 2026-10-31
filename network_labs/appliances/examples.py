@@ -894,7 +894,7 @@ def ra_guard_dhcpv6_lab(rootfs):
     return validate(spec)
 
 
-def stp_lacp_lab(rootfs, min_links=1):
+def stp_lacp_lab(rootfs, min_links=1, lacp_strict=None):
     """Common STP chooses one LACP trunk or a higher-cost tagged spare."""
     from .spec import integer
     integer(min_links, 1, 2, 'STP/LACP min_links')
@@ -904,6 +904,7 @@ def stp_lacp_lab(rootfs, min_links=1):
         node['interface_aliases']['fa0/5'] = 'eth4'
         node['switchports']['eth4'] = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
         node['port_channels']['bond1']['min_links'] = min_links
+        if lacp_strict is not None: node['port_channels']['bond1']['lacp_strict'] = lacp_strict
         node['spanning_tree'] = {'mode': 'stp', 'priority': (index + 1) * 4096, 'hello_time': 1,
                                  'max_age': 6, 'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}, 'carrier_recovery': True}
     spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']])

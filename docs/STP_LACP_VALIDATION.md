@@ -186,3 +186,51 @@ strict LACP failover with threshold 1 or arbitrary one-way data-plane faults.
 
 References: [iproute2 flower manual](https://man7.org/linux/man-pages/man8/tc-flower.8.html)
 and [Linux bonding options](https://www.kernel.org/doc/html/latest/networking/bonding.html).
+
+
+## Explicit native strict LACP and reverse control loss
+
+An experimental optional `port_channels.bond1.lacp_strict:true` policy maps
+to Linux's native bonding option. Generate the bounded reference with:
+
+```bash
+python3 -m network_labs.appliances example --stp-lacp --stp-lacp-strict \
+  --stp-lacp-min-links 1 --rootfs /path/to/rootfs > strict-stp-lacp.json
+```
+
+Omission keeps the legacy profile and its documented threshold-1 fallback
+boundary. Explicit `true` or `false` requires a supporting iproute2 and
+kernel; integers and strings are rejected. Tool preflight checks the installed
+`ip link help bond` before allocating a lab. The requested option is passed
+at bond creation, then exact `lacp_strict` netlink readback is required before
+enslaving members. A rejected command or missing/mismatched readback aborts
+startup and uses ordinary owned-lab cleanup. Unsupported kernels may silently
+ignore an unknown netlink attribute, so successful command exit alone is
+insufficient. No userspace bridge/link override is substituted.
+
+`inspect` reports both `lacp_strict_requested` and actual `lacp_strict` (null
+when evidence is absent). Save rejects changed/missing strict readback.
+Explicit-policy switch edits require recreation. The option is declarative;
+runtime member/FDB states remain outside saved startup policy.
+
+`lacp-strict-capability` builds upstream iproute2 at
+`30365d0967bd4ec993600bb8f27532061bec7413` into a private CI path, leaving
+the system binary in place. It verifies either actual strict readback on both
+switches or explicit refusal without leaked lab state/namespaces/virtual links.
+Its log distinguishes `STRICT_UNSUPPORTED` from `STRICT_VERIFIED`. Only a
+verified host proceeds to the full strict matrix: both receive directions,
+min-links 1 and 2, two cycles, tagged packet paths, static markers and cold
+restore. `NETWORK_LABS_REQUIRE_STRICT=1` makes unsupported hosts fail rather
+than accept the refusal branch. A passing refusal branch is **not** native
+strict packet-delivery evidence. Native evidence is pending for this increment.
+
+Separately, `stp-lacp-reverse-control-loss-interop` runs the legacy
+min-links-2 profile with receive drops on SW2: active SW1 -> passive SW2.
+It requires two full fault/recovery cycles with all physical member carriers
+retained, actual negotiated member counts, positive drop counters, tagged
+VLAN 10/20 packets on the selected path, static-marker preservation, qdisc
+restoration, unchanged declaration/revision, save/restart and cleanup.
+This direction does not assume threshold-1 fallback behaves identically.
+
+References: [Linux bonding strict option](https://www.kernel.org/doc/html/latest/networking/bonding.html)
+and [upstream iproute2 strict support](https://kernel.googlesource.com/pub/scm/network/iproute2/iproute2/+/30365d0967bd4ec993600bb8f27532061bec7413).

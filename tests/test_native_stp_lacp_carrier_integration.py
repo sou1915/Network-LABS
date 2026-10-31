@@ -20,7 +20,7 @@ from test_native_integration import unexpected_host_link_changes
 
 
 class STPLACPPathScenario:
-    def exercise(self, control_loss=False):
+    def exercise(self, control_loss=False, receiver=4, strict=False, thresholds=(1, 2)):
         self.assertEqual(os.geteuid(), 0)
         for tool in ('busybox', 'crun', 'ip', 'bridge', 'tcpdump', *(['tc'] if control_loss else [])):
             self.assertIsNotNone(shutil.which(tool), tool + ' required')
@@ -33,9 +33,9 @@ class STPLACPPathScenario:
         with tempfile.TemporaryDirectory() as folder, ThreadPoolExecutor(max_workers=2) as pool, \
              patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
             root = Path(folder); rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs')
-            for threshold in (1, 2):
+            for threshold in thresholds:
                 with self.subTest(min_links=threshold):
-                    spec = stp_lacp_lab(rootfs, threshold); spec['name'] = ('control-' if control_loss else 'carrier-') + str(os.getpid()) + '-' + str(threshold)
+                    spec = stp_lacp_lab(rootfs, threshold, True if strict else None); spec['name'] = ('control-' if control_loss else 'carrier-') + str(os.getpid()) + '-' + str(threshold)
                     manager = Manager(spec['name']); mutations = []; marker = '02:aa:bb:00:00:92'
                     def wait(predicate, label, seconds=40):
                         until = time.monotonic() + seconds
@@ -45,6 +45,9 @@ class STPLACPPathScenario:
                         self.fail(label + ': ' + repr([manager.inspect(name) for name in ('SW1', 'SW2')]))
                     def control(spare, members):
                         left, right = manager.inspect('SW1'), manager.inspect('SW2')
+                        if strict:
+                            for actual in (left, right):
+                                self.assertIs(actual['port_channels']['bond1']['lacp_strict'], True)
                         expected = [[actual['name'], actual['spanning_tree']['root_id'], actual['spanning_tree']['root_port'],
                                      sorted([[name, p['state']] for name, p in actual['spanning_tree']['ports'].items()])]
                                     for actual in (left, right)]
@@ -87,16 +90,16 @@ class STPLACPPathScenario:
                         if not control_loss:
                             manager.ns(5, 'ip', 'link', 'set', 'dev', port, 'up' if up else 'down')
                             return
-                        # SW2 -> SW1 only. Match Slow Protocol multicast (including
+                        # One receive direction only. Match Slow Protocol multicast (including
                         # LACP); IP/ARP/data and the reverse direction are untouched.
                         if up:
-                            rows = json.loads(manager.ns(4, 'tc', '-j', '-s', 'filter', 'show', 'dev', port, 'ingress').stdout)
+                            rows = json.loads(manager.ns(receiver, 'tc', '-j', '-s', 'filter', 'show', 'dev', port, 'ingress').stdout)
                             actions = [a for r in rows for a in r.get('options', {}).get('actions', [])]
                             self.assertTrue(any(a.get('stats', {}).get('drops', 0) > 0 for a in actions), rows)
-                            manager.ns(4, 'tc', 'qdisc', 'del', 'dev', port, 'clsact')
+                            manager.ns(receiver, 'tc', 'qdisc', 'del', 'dev', port, 'clsact')
                         else:
-                            manager.ns(4, 'tc', 'qdisc', 'add', 'dev', port, 'clsact')
-                            manager.ns(4, 'tc', 'filter', 'add', 'dev', port, 'ingress', 'protocol', '0x8809',
+                            manager.ns(receiver, 'tc', 'qdisc', 'add', 'dev', port, 'clsact')
+                            manager.ns(receiver, 'tc', 'filter', 'add', 'dev', port, 'ingress', 'protocol', '0x8809',
                                        'pref', '1', 'flower', 'skip_hw', 'dst_mac', '01:80:c2:00:00:02', 'action', 'drop')
                     def all_carriers_up():
                         for index in (4, 5):
@@ -142,7 +145,7 @@ class STPLACPPathScenario:
                                 # On this kernel min-links 1 can fall back to an
                                 # individual carrier-up link without negotiated LACP.
                                 # Reproduce that boundary rather than call it failover.
-                                fallback = control_loss and threshold == 1
+                                fallback = control_loss and threshold == 1 and not strict
                                 peer('eth3', False); wait(lambda: control(not fallback, 0),
                                                          'Complete control/carrier loss selected unexpected path')
                                 if fallback:
@@ -168,7 +171,7 @@ class STPLACPPathScenario:
                                 self.assertEqual(manager.state['phase'], 'running'); self.assertNotIn('pending_spec', manager.state)
                             recovery = manager.inspect('SW1')['stp_carrier_recovery']
                             self.assertTrue(recovery['available'], recovery)
-                            if not control_loss or threshold == 2:
+                            if not control_loss or threshold == 2 or strict:
                                 self.assertGreaterEqual(recovery['repairs'], 2, recovery)
                                 self.assertTrue(recovery['last_event']['complete'], recovery)
                                 self.assertEqual(recovery['last_event']['bridges'], ['SW1', 'SW2'])

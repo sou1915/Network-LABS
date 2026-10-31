@@ -1,6 +1,43 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  lacp-strict-capability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated strict-LACP prerequisites and iproute2 build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump gcc make pkg-config bison flex libelf-dev libmnl-dev libcap-dev libbpf-dev
+      - name: Build pinned upstream iproute2 with native lacp_strict support
+        run: |
+          git init /tmp/network-labs-strict-iproute2
+          git -C /tmp/network-labs-strict-iproute2 remote add origin https://github.com/iproute2/iproute2.git
+          git -C /tmp/network-labs-strict-iproute2 fetch --depth 1 origin 30365d0967bd4ec993600bb8f27532061bec7413
+          git -C /tmp/network-labs-strict-iproute2 checkout --detach FETCH_HEAD
+          cd /tmp/network-labs-strict-iproute2
+          ./configure
+          make -j2
+          install -D ip/ip /tmp/network-labs-strict-bin/ip
+      - name: Verify kernel policy or explicit unsupported refusal and cleanup
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          /tmp/network-labs-strict-bin/ip -Version
+          sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
+  stp-lacp-reverse-control-loss-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated control-loss/STP/LACP prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds and record kernel
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          ip -Version
+      - name: Verify active-to-passive min-links 2 failover with physical carrier retained
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_control_loss_reverse_integration.py -v
   stp-lacp-control-loss-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
