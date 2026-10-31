@@ -1,12 +1,211 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  syslog-tls-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated mutual TLS syslog prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
+      - name: Verify mutual names and trust, encrypted storage, rejection, retry, drift and cold restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_integration.py -v
+  syslog-tcp-forward-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated TCP syslog forwarding prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog
+      - name: Verify guest logger forwarding, suspended retry, volatile queues, drift and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_forward_integration.py -v
+  syslog-tcp-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated TCP syslog prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog
+      - name: Verify real framing, stored delivery, rejected sender, rotation, outage and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tcp_integration.py -v
+  lacp-strict-capability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated strict-LACP prerequisites and iproute2 build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump gcc make pkg-config bison flex libelf-dev libmnl-dev libcap-dev libbpf-dev
+      - name: Build pinned upstream iproute2 with native lacp_strict support
+        run: |
+          git init /tmp/network-labs-strict-iproute2
+          git -C /tmp/network-labs-strict-iproute2 remote add origin https://github.com/iproute2/iproute2.git
+          git -C /tmp/network-labs-strict-iproute2 fetch --depth 1 origin 30365d0967bd4ec993600bb8f27532061bec7413
+          git -C /tmp/network-labs-strict-iproute2 checkout --detach FETCH_HEAD
+          cd /tmp/network-labs-strict-iproute2
+          ./configure
+          make -j2
+          install -D ip/ip /tmp/network-labs-strict-bin/ip
+      - name: Require verified strict kernel policy and both-direction packet recovery
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          /tmp/network-labs-strict-bin/ip -Version
+          sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_REQUIRE_STRICT=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
+  stp-lacp-reverse-control-loss-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated control-loss/STP/LACP prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds and record kernel
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          ip -Version
+      - name: Verify active-to-passive min-links 2 failover with physical carrier retained
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_control_loss_reverse_integration.py -v
+  stp-lacp-control-loss-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated control-loss/STP/LACP prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds and record kernel
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          ip -Version
+      - name: Verify min-links 2 one-way LACP failover and min-links 1 fallback boundary
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_control_loss_integration.py -v
+  stp-lacp-carrier-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated carrier/STP/LACP prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds and record kernel
+        run: |
+          sudo modprobe bonding max_bonds=0
+          uname -r
+          ip -Version
+      - name: Verify peer carrier loss and automatic dynamic FDB recovery without test-helper repair
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_carrier_integration.py -v
+  ra-guard-dhcpv6-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 and RA Guard prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+      - name: Verify local IA_NA and RA Guard wire evidence, renewal, outage, trust control and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_dhcpv6_integration.py -v
+  ra-guard-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated RA Guard prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+      - name: Verify trusted SLAAC, untrusted RA variants, drift, saved restart and trust control
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_integration.py -v
+  ipv6-firewall-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 firewall prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables conntrack
+      - name: Verify actual IPv6 allow/deny, conntrack, stateless controls, drift and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_firewall_integration.py -v
+  ipv6-subinterfaces-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 router-on-a-stick prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify actual dot1Q routing, static next hops, failure isolation and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_subinterfaces_integration.py -v
+  dhcpv6-pd-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 PD prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends kea-dhcp6-server dnsmasq-base crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev make git
+      - name: Build pinned PD-compatible BusyBox
+        run: |
+          git clone --depth 1 --branch 1_36_1 https://github.com/mirror/busybox.git /tmp/network-labs-pd-source
+          python3 tools/build_pd_busybox.py /tmp/network-labs-pd-source /tmp/network-labs-pd-busybox
+      - name: Verify actual Kea PD, downstream SLAAC, renewal, expiry and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_PD_BUSYBOX=/tmp/network-labs-pd-busybox /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_pd_integration.py -v
+  dhcpv6-relay-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DHCPv6 relay prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dnsmasq-base bird2 crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify remote DHCPv6 allocation, relay/RA wire evidence, outages and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_relay_integration.py -v
+  ipv6-svi-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 SVI prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify actual IPv6 SVI routing, trunk tags, drift refusal and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_svi_integration.py -v
+  ospfv3-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 routing prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bird2 crun iproute2 busybox-static util-linux tcpdump
+      - name: Verify real physical/SVI OSPFv3, tagged transit pruning, kernel delivery and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
+  switching-interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated switching prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+      - name: Prepare bonding without host bonds
+        run: |
+          uname -r
+          ip -Version
+          sudo modprobe bonding max_bonds=0
+      - name: Verify real trunk VLAN edits, tags, native pruning, rollback and restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_trunk_vlan.py -v
+      - name: Verify common STP and LACP restore packet path
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
+  ssh-access:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated SSH prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dropbear-bin openssh-client crun iproute2 busybox-static util-linux
+      - name: Verify server-enforced SSH actions, bypass denials and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
+  radius-interop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install independent RADIUS server
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux gcc libc6-dev
+      - name: Verify accounting writer failures and concurrent appends
+        run: /usr/bin/python3 -m unittest discover -s tests -p test_radius_accounting_writer.py -v
+      - name: Verify real FreeRADIUS PAP decisions and listener cleanup
+        run: env NETWORK_LABS_RADIUS_INTEROP=1 /usr/bin/python3 -m unittest discover -s tests -p test_radius_freeradius.py -v
+      - name: Verify managed RADIUS containers, policy and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_managed_radius -v
+      - name: Verify SSH diagnostics with real RADIUS credentials and bridge cleanup
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius.py -v
+      - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install native desktop test dependencies
-        run: sudo apt-get update && sudo apt-get install -y python3-tk python3-venv xvfb
+        run: sudo apt-get update && sudo apt-get install -y python3-tk python3-venv xvfb chrony
       - name: Install optional executable-appliance test runtime
         run: |
           /usr/bin/python3 -m venv .venv-ci
@@ -21,3 +220,17 @@ jobs:
           .venv-ci/bin/python -m network_labs.micro_appliances project examples/wasm_lan.json --source PC1 --target 192.168.50.20 --protocol tcp --port 8080
       - name: Python syntax
         run: /usr/bin/python3 -m compileall -q network_labs
+  native-containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native appliance prerequisites
+        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony freeradius
+      - name: Prepare Linux bonding without creating default host bonds
+        run: |
+          uname -r
+          ip -Version
+          sudo modprobe bonding max_bonds=0
+          sudo modprobe openvswitch
+      - name: Boot isolated nodes and verify actual packet delivery and cleanup
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -f -v

@@ -1,0 +1,129 @@
+"""Real OSPFv3 adjacency, kernel delivery, withdrawal and saved restart."""
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+
+from network_labs.appliances.examples import ospfv3_lab, ospfv3_svi_lab
+from network_labs.appliances.ospf import start_one, stop_one
+from network_labs.appliances.persistence import load_startup
+from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
+from network_labs.appliances.show import show
+from network_labs.appliances.verify import verify
+
+
+@unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
+class NativeOSPFv3Tests(unittest.TestCase):
+    def test_real_adjacency_delivery_withdrawal_drift_and_saved_restart(self):
+        self.check_topology(ospfv3_lab, 'ospfv3', ('R1', 'R2'))
+
+    def test_svi_adjacency_tagged_transit_pruning_withdrawal_drift_and_saved_restart(self):
+        self.check_topology(ospfv3_svi_lab, 'ospfv3-svi', ('SW1', 'R1'), svi=True)
+
+    def check_topology(self, factory, label, routers, *, svi=False):
+        self.assertEqual(os.geteuid(), 0)
+        for tool in ('bird', 'birdc', 'busybox', 'crun', 'ip'):
+            self.assertIsNotNone(shutil.which(tool), tool + ' required')
+        host_routes = run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout
+        host_rules = run(['ip', '-j', '-6', 'rule', 'show']).stdout
+        host_forwarding = run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout
+        host_links = {(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
+            root = Path(folder)
+            rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs',
+                                         bird=shutil.which('bird'), birdc=shutil.which('birdc'))
+            spec = factory(rootfs); spec['name'] = label + '-' + str(os.getpid())
+            manager = Manager(spec['name'])
+            def wait(predicate, label):
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    if predicate(): return
+                    time.sleep(.2)
+                self.fail(label + ': ' + repr({name: manager.inspect(name) for name in routers}))
+            def remote_routes(name=None):
+                name = name or routers[0]
+                prefix = '2001:db8:20::/64' if name == routers[0] else '2001:db8:10::/64'
+                return [r for r in manager.inspect(name)['routes_ipv6'] if r.get('dst') == prefix]
+            def healthy():
+                for name in routers:
+                    wait(lambda: 'Full' in (manager.inspect(name)['ospfv3']['neighbors'] or ''), 'OSPFv3 adjacency')
+                    # A Full adjacency or one router's FIB does not establish
+                    # the return path after the peer daemon has restarted.
+                    wait(lambda: bool(remote_routes(name)), name + ' OSPFv3 kernel route not installed')
+                    for query in ('show ipv6 ospf neighbor', 'show ipv6 ospf interface', 'show ipv6 ospf', 'show ipv6 route ospf'):
+                        report = show(manager, name, query)
+                        self.assertEqual(report['status'], 'observed', report)
+                    learned = remote_routes(name)[0]
+                    self.assertIn(learned.get('protocol'), ('bird', 192, '192'))
+                    self.assertTrue(learned.get('gateway', '').startswith('fe80:'), learned)
+                # FIB installation may precede working NDP after withdrawal.
+                # Observe bounded delivery readiness in both directions, then
+                # require the separate verification to have zero packet loss.
+                for source, target in (('PC1', '2001:db8:20::20'), ('PC2', '2001:db8:10::10')):
+                    wait(lambda: manager.crun('exec', source, '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
+                                             target, check=False, timeout=4).returncode == 0,
+                         source + ' OSPFv3 delivery did not recover')
+                report = verify(manager, 'PC1', 'PC2', family='ipv6', count=2, bidirectional=True)
+                self.assertEqual(report['status'], 'passed', report)
+                self.assertTrue(all(d['reply_hop_limits'] == [62, 62] for d in report['directions']), report)
+            try:
+                with manager.locked(): manager.start(spec)
+                healthy()
+                if svi:
+                    from concurrent.futures import ThreadPoolExecutor
+                    import threading
+                    from network_labs.appliances.capture import capture
+                    self.assertIsNotNone(shutil.which('tcpdump'))
+                    actual = manager.inspect('SW1')
+                    self.assertTrue(actual['svis']['vlan100']['encapsulation_verified'])
+                    self.assertTrue(actual['ospfv3']['configuration_verified'])
+                    ready = threading.Event(); path = root / 'ospfv3-svi.pcap'
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(capture, Manager(spec['name']), 'SW1', 'eth1', path,
+                                             seconds=4, packets=100, snaplen=512, ready=ready.set)
+                        if not ready.wait(5):
+                            if future.done(): future.result()
+                            self.fail('OSPFv3 transit capture did not become ready')
+                        self.assertGreater(future.result(timeout=10)['captured_packets'], 0)
+                    decoded = run(['tcpdump', '-nn', '-e', '-vv', '-r', path]).stdout
+                    self.assertIn('vlan 100', decoded); self.assertIn('OSPFv3', decoded)
+                    # Prune the actual tagged transit. Neither declared SVI
+                    # addresses nor the still-running daemon imply a path.
+                    manager.ns(1, 'bridge', 'vlan', 'del', 'dev', 'eth1', 'vid', '100')
+                    wait(lambda: not remote_routes(routers[0]) and not remote_routes(routers[1]),
+                         'Pruned transit routes not withdrawn in both directions')
+                    failed = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
+                                          '2001:db8:20::20', check=False, timeout=4)
+                    self.assertNotEqual(failed.returncode, 0)
+                    with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
+                    manager.ns(1, 'bridge', 'vlan', 'add', 'dev', 'eth1', 'vid', '100'); healthy()
+                router = spec['nodes'][2]
+                stop_one(manager, router)
+                wait(lambda: not remote_routes(), 'Dead neighbor route not withdrawn')
+                failed = manager.crun('exec', 'PC1', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
+                                      '2001:db8:20::20', check=False, timeout=4)
+                self.assertNotEqual(failed.returncode, 0)
+                start_one(manager, router); healthy()
+                # A manually inserted route must not be saved as OSPF policy.
+                transit = 'vlan100' if svi else 'eth1'
+                manager.ns(1, 'ip', '-6', 'route', 'add', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', transit, 'proto', 'static')
+                with manager.locked(), self.assertRaises(RuntimeFailure): manager.write_startup()
+                manager.ns(1, 'ip', '-6', 'route', 'del', '2001:db8:99::/64', 'via', '2001:db8:100::2', 'dev', transit)
+                with manager.locked():
+                    manager.write_startup(); saved = load_startup(spec['name'])
+                    self.assertEqual(saved, spec)
+                    self.assertTrue(all(not n['ipv6_routes'] for n in saved['nodes'][1:3]))
+                    manager.stop(); manager.start(saved)
+                healthy()
+            finally:
+                if manager.directory.exists():
+                    with manager.locked(): manager.stop()
+        self.assertEqual(run(['ip', '-j', '-6', 'route', 'show', 'table', 'all']).stdout, host_routes)
+        self.assertEqual(run(['ip', '-j', '-6', 'rule', 'show']).stdout, host_rules)
+        self.assertEqual(run(['sysctl', '-n', 'net.ipv6.conf.all.forwarding']).stdout, host_forwarding)
+        self.assertEqual({(r['ifname'], r['ifindex']) for r in json.loads(run(['ip', '-j', 'link', 'show']).stdout)}, host_links)
