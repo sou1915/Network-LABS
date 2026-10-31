@@ -4101,7 +4101,9 @@ sender. The separate [node-local collector profile](#node-local-udp-syslog-colle
 provides a managed rsyslog receiver in the destination node. Native
 tests use a bounded independent UDP socket receiver in PC1's namespace and
 check the real packet, priority `<133>`, source and message; they do not invent
-successful delivery. UDP has no acknowledgement. Syslog TCP/TLS, RFC5424
+successful delivery. UDP has no acknowledgement. A separately scoped
+[plain TCP collector and finite diagnostic](SYSLOG_TCP.md) now exist; this
+management sender remains UDP. Persistent TCP forwarding/TLS, RFC5424
 structured data, central retention/search and automatic vendor-event mapping
 remain future work. SSH daemon diagnostics are recorded separately in ssh.log;
 this profile does not claim every daemon event is forwarded to Syslog.
@@ -4212,9 +4214,11 @@ sudo python3 -m network_labs.appliances capture syslog-lan PC1 eth0 \
 
 Then run `logger` from terminal B during those ten seconds. Use a new output
 filename for each capture. Live collector edits require lab recreation.
-IPv6/dual-stack collector combinations, TCP/TLS, richer RFC5424 policies,
-central search, durable logs and structured device-event mapping remain
-separate work.
+The separately scoped [plain TCP collector](SYSLOG_TCP.md) now adds
+`transport:"tcp"`, explicit rootfs assets and a storage-observed diagnostic.
+IPv6/dual-stack collector combinations, persistent TCP forwarding/TLS, richer
+RFC5424 policies, central search, durable logs and structured device-event
+mapping remain separate work.
 
 The privileged collector test uses actual rsyslog and BusyBox daemons: it
 captures accepted and disallowed senders on the wire, verifies only the

@@ -10,8 +10,8 @@ TCP creates no UDP listener. Collector edits require lab recreation.
 Build matching offline assets and generate the three-node reference:
 
 ```bash
-python3 -m network_labs.appliances rootfs --help
-# Add --rsyslog /usr/sbin/rsyslogd --rsyslog-tcp to the existing rootfs command.
+python3 -m network_labs.appliances rootfs --busybox /usr/bin/busybox \
+  --rsyslog /usr/sbin/rsyslogd --rsyslog-tcp --output /path/to/rootfs
 python3 -m network_labs.appliances example --syslog-tcp --rootfs /path/to/rootfs > syslog-tcp.json
 sudo python3 -m network_labs.appliances start syslog-tcp.json
 sudo python3 -m network_labs.appliances syslog-send syslog-tcp-lan PC2 PC1 --message 'Interface restored' --json
@@ -55,7 +55,12 @@ The dedicated `syslog-tcp-interop` scenario checks split/coalesced octet-counted
 frames, LF framing, allowed storage versus a transmitted-but-rejected sender,
 packet evidence, rotation, external config drift refusal, collector outage
 and restart, cold save/restore and host namespace/link/IPv4-route invariants.
-Native CI evidence is pending.
+At implementation commit `d07b96fcf4ce77b0a52f11edcf5f3de833430905`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41175172265/job/124461114710)
+passed all these checks in 7.922 seconds. The local suite completed 772 tests
+with 119 environment-dependent skips. The general CI tests also passed;
+broader suites were still running at this checkpoint. This records actual plain-TCP receipt
+and collector storage, not persistent forwarding, TLS or durable delivery.
 
 References: [rsyslog imptcp](https://docs.rsyslog.com/doc/configuration/modules/imptcp.html)
 and [RFC6587 framing](https://www.rfc-editor.org/rfc/rfc6587).

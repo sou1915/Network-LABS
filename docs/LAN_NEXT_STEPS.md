@@ -14,7 +14,7 @@ failure/recovery coverage appropriate to its scope.
    combinations and separately scoped local-input firewall behavior.
 3. Switching: physical/carrier failure coverage, remaining kernel validation,
    broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: persistent HTTPS, Syslog TCP/TLS, broader DNS and file services;
+4. Services: persistent HTTPS, Syslog TCP forwarding/TLS, broader DNS and file services;
    improve diagnostics, lifecycle, save/restore and documentation.
 5. GUI: connect the native lifecycle, configuration and observations to the UI
    after the above profiles are ready.
@@ -259,3 +259,33 @@ now add a fresh credential check per fixed action through a host supervisor.
 An explicitly permitted [bounded SSH shell](SSH_RADIUS_SHELL.md) now reuses
 the RADIUS session supervisor and optional accounting. Telnet AAA, richer roles,
 SSH-handshake password authentication and durable accounting remain separate work.
+
+
+## Plain TCP syslog collector increment
+
+An optional `syslog_server.transport:"tcp"` now runs persistent node-local
+rsyslog imptcp on the declared IPv4 address and TCP/514, with no UDP listener.
+The rootfs builder's `--rsyslog-tcp` flag packages its matching input module.
+`example --syslog-tcp` creates the collector/client profile. Omitted transport
+preserves UDP. Collector edits continue to require recreation.
+
+`syslog-send LAB SOURCE COLLECTOR --message TEXT --json` submits one bounded
+ASCII message using octet-counted framing from the observed source address,
+then independently checks exact fresh message/source storage at the collector.
+TCP submission alone cannot pass; missing storage is unknown, while failed
+transport is failed. This is a finite host-Python diagnostic, not a persistent
+TCP sender, application acknowledgement, TLS or a durable delivery guarantee.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41175172265/job/124461114710)
+passed at implementation commit `d07b96fcf4ce77b0a52f11edcf5f3de833430905`
+(7.922 seconds): allowed storage versus transmitted/rejected source, actual
+TCP packets, split/coalesced octet-counted and LF frames, log rotation,
+configuration drift refusal, outage/restart, cold restore without old logs
+and host cleanup. Local tests passed 772 cases with 119 environment-dependent
+skips. See [SYSLOG_TCP.md](SYSLOG_TCP.md) for usage and limits.
+
+Next Syslog work: persistent TCP forwarding and separately scoped TLS/trust
+and retry behavior. The existing BusyBox management sender remains UDP.
+HTTPS persistence, broader DNS/file services and AAA/IPv6 coexistence remain.
+All jobs for the earlier strict-LACP implementation `f090de3`, including the
+full native-containers suite, subsequently completed successfully.
