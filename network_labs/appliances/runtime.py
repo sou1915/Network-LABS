@@ -58,6 +58,8 @@ def oci_config(spec, node, index, rootfs):
             'CAP_KILL', 'CAP_NET_ADMIN', 'CAP_NET_RAW', 'CAP_NET_BIND_SERVICE']
     if node.get('lldp') is not None:
         caps.append('CAP_SYS_CHROOT')
+    from .syslog_tls import config as tls_config, BASE as TLS_BASE
+    tls_masks = [TLS_BASE] if tls_config(node) is None and (Path(node['rootfs']) / TLS_BASE.lstrip('/')).exists() else []
     management_mounts = []
     if node.get('dhcpv6_pd_server'):
         management_mounts.append({'destination': '/etc/kea/kea-dhcp6.conf', 'type': 'bind',
@@ -100,7 +102,7 @@ def oci_config(spec, node, index, rootfs):
                                       {'allow': True, 'type': 'c', 'major': 5, 'minor': 0, 'access': 'rwm'},
                                       {'allow': True, 'type': 'c', 'major': 5, 'minor': 2, 'access': 'rwm'},
                                       {'allow': True, 'type': 'c', 'major': 136, 'access': 'rwm'}]},
-            'maskedPaths': ['/proc/kcore', '/proc/keys', '/proc/timer_list', '/proc/sysrq-trigger'],
+            'maskedPaths': ['/proc/kcore', '/proc/keys', '/proc/timer_list', '/proc/sysrq-trigger'] + tls_masks,
             'readonlyPaths': ['/proc/sys', '/proc/irq', '/proc/bus'],
         },
     }
@@ -135,7 +137,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -177,12 +179,16 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         if dropbear is None: raise ValueError('SSH relay rootfs assets require --dropbear.')
         from .ssh_access import relay_assets
         management_additions += relay_assets(ssh_relay)
+    from .syslog_tls import assets as tls_assets, install as install_tls
+    if any(v is not None for v in (syslog_ca, syslog_certificate, syslog_private_key)) != bool(rsyslog_tls) or (rsyslog_tls and any(v is None for v in (syslog_ca, syslog_certificate, syslog_private_key))):
+        raise ValueError('--rsyslog-tls requires all three syslog CA, certificate and private-key files; omit them otherwise.')
+    tls_values = tls_assets(syslog_ca, syslog_certificate, syslog_private_key) if rsyslog_tls else None
     collector_additions = []
-    if (rsyslog_modules is not None or rsyslog_tcp or rsyslog_forward) and rsyslog is None:
+    if (rsyslog_modules is not None or rsyslog_tcp or rsyslog_forward or rsyslog_tls) and rsyslog is None:
         raise ValueError('--rsyslog-modules/--rsyslog-tcp/--rsyslog-forward requires --rsyslog.')
     if rsyslog is not None:
         from .syslog_server import rootfs_assets
-        collector_additions = rootfs_assets(rsyslog, rsyslog_modules, tcp=rsyslog_tcp, forward=rsyslog_forward)
+        collector_additions = rootfs_assets(rsyslog, rsyslog_modules, tcp=rsyslog_tcp, forward=rsyslog_forward, tls=rsyslog_tls)
     snmp_additions = []
     if snmpd is not None:
         from .snmp import rootfs_assets
@@ -221,6 +227,7 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
         path.chmod(0o755)
+    if tls_values is not None: install_tls(target, tls_values)
     if kea_dhcp6 is not None:
         (target / 'etc/kea').mkdir(parents=True, exist_ok=True)
         (target / 'etc/kea/kea-dhcp6.conf').write_text('{}\n')
@@ -341,6 +348,11 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
+            from .syslog_tls import config as tls_config, preflight as tls_preflight, MODULES as TLS_MODULES
+            if tls_config(node) is not None:
+                tls_preflight(node)
+                if any(not (Path(node['rootfs']) / ('usr/lib/network-labs/rsyslog/' + name)).is_file() for name in TLS_MODULES):
+                    raise RuntimeFailure(node['name'] + ': syslog TLS requires --rsyslog-tls assets and matching GnuTLS rsyslog modules.')
             from .syslog_forward import enabled as tcp_syslog_forwarding, REQUIRED_MODULES
             if tcp_syslog_forwarding(node) and any(not (Path(node['rootfs']) / path).is_file() for path in
                     ('usr/lib/network-labs/rsyslogd', *('usr/lib/network-labs/rsyslog/' + name for name in REQUIRED_MODULES))):
@@ -489,6 +501,11 @@ class Manager:
             raise
 
     def start_oci(self, spec, node, index):
+        from .syslog_tls import preflight as tls_preflight
+        key_hash = tls_preflight(node)
+        if key_hash is not None:
+            self.state.setdefault('syslog_tls_key_hashes', {})[node['name']] = key_hash
+            self.save()
         bundle = self.directory / node['name']; bundle.mkdir()
         from .dhcp import prepare_files
         prepare_files(bundle, node)

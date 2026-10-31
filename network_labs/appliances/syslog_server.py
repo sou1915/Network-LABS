@@ -17,9 +17,15 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('syslog_server', None)
     if config is None: return
-    keys(config, ('interface', 'senders', 'transport'), 'Syslog server')
-    if config.get('transport', 'udp') not in ('udp', 'tcp'):
-        raise ValueError('Syslog collector transport: udp or tcp; TLS is not implemented.')
+    keys(config, ('interface', 'senders', 'transport', 'tls'), 'Syslog server')
+    if config.get('transport', 'udp') not in ('udp', 'tcp', 'tls'):
+        raise ValueError('Syslog collector transport: udp, tcp or tls.')
+    if config.get('transport') == 'tls':
+        from .syslog_tls import validate_policy
+        validate_policy(config.get('tls'))
+        if node['role'] != 'host' or set(node['interfaces']) != {'eth0'}:
+            raise ValueError('TLS syslog collector initially requires a single-interface OCI host.')
+    elif 'tls' in config: raise ValueError('Syslog TLS policy requires transport tls.')
     values = addresses(node); port = config.get('interface')
     if (node['runtime'] != 'oci' or not isinstance(port, str) or not values.get(port) or
             port in node['shutdown'] or node.get('startup')):
@@ -38,6 +44,8 @@ def validate_node(node):
             raise ValueError('Syslog collector requires remote unicast IPv4 senders.')
         canonical.append(str(address))
     config['senders'] = sorted(set(canonical))
+    if config.get('transport') == 'tls' and len(config['senders']) != 1:
+        raise ValueError('TLS syslog collector initially requires one sender address and one peer identity.')
 
 
 def validate_lab(spec):
@@ -57,12 +65,15 @@ def listen_address(node):
 
 
 def files(node):
+    tls = node['syslog_server'].get('transport') == 'tls'
     tcp = node['syslog_server'].get('transport', 'udp') == 'tcp'
+    from .syslog_tls import global_options
+    tls_input = ('input(type="imtcp" address="' + listen_address(node) + '" port="6514" ruleset="NetworkLabsRemote" SupportOctetCountedFraming="on" MaxFrameSize="1024" PermittedPeer="' + node['syslog_server']['tls']['peer'] + '")') if tls else ''
     allowed = ' or '.join('$fromhost-ip == "' + ip + '"' for ip in node['syslog_server']['senders'])
     config = '\n'.join([
-        'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k")',
+        'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k"' + (global_options() if tls else '') + ')',
         'main_queue(queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1")',
-        'module(load="imptcp" threads="1" maxSessions="16")' if tcp else 'module(load="imudp" threads="1")',
+        'module(load="imtcp" MaxSessions="16" StreamDriver.Name="gtls" StreamDriver.Mode="1" StreamDriver.AuthMode="x509/name" StreamDriver.CheckExtendedKeyPurpose="on" StreamDriver.PrioritizeSAN="on" gnutlsPriorityString="NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3")' if tls else 'module(load="imptcp" threads="1" maxSessions="16")' if tcp else 'module(load="imudp" threads="1")',
         'template(name="NetworkLabsWire" type="string" string="%fromhost-ip% %rawmsg%\\n")',
         'ruleset(name="NetworkLabsRemote") {',
         '  if not (' + allowed + ') then stop',
@@ -70,7 +81,7 @@ def files(node):
         '         fileCreateMode="0600" flushOnTXEnd="on" rotation.sizeLimit="65536"',
         '         rotation.sizeLimitCommand="/bin/sh ' + ROTATE + '")',
         '}',
-        ('input(type="imptcp" address="' + listen_address(node) + '" port="514"'
+        tls_input if tls else ('input(type="imptcp" address="' + listen_address(node) + '" port="514"'
          ' supportOctetCountedFraming="on" maxFrameSize="1024" ruleset="NetworkLabsRemote")') if tcp else
         ('input(type="imudp" address="' + listen_address(node) + '" port="514" ipFreeBind="0"\n'
          '      ruleset="NetworkLabsRemote" rateLimit.interval="5" rateLimit.burst="1000")'),
@@ -105,17 +116,19 @@ def start_servers(manager):
 
 def observe(manager, node):
     checks = {name: observe_config(manager, node['name'], '/lab/' + name, value) for name, value in files(node).items()}
-    return {'configuration_verified': all(row['configuration_verified'] for row in checks.values()),
-            'files': checks, 'address': listen_address(node), 'port': 514, 'transport': node['syslog_server'].get('transport', 'udp'),
+    from .syslog_tls import observe as observe_tls
+    tls = observe_tls(manager, node)
+    return {'configuration_verified': all(row['configuration_verified'] for row in checks.values()) and (tls is None or tls['configuration_verified']), 'tls': tls,
+            'files': checks, 'address': listen_address(node), 'port': 6514 if node['syslog_server'].get('transport') == 'tls' else 514, 'transport': node['syslog_server'].get('transport', 'udp'),
             'allowed_senders': node['syslog_server']['senders'], 'log': LOG,
-            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. TCP uses plain imptcp with octet-counted and LF framing, 16 sessions; no TLS, durable sender queue or application acknowledgement.'}
+            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. TCP uses plain imptcp with octet-counted and LF framing, 16 sessions; TLS optionally uses mutually authenticated gtls with pinned public trust and explicit peer names on TCP/6514. No durable sender queue or application acknowledgement.'}
 
 
 def drift(manager, node):
     return [node['name'] + ': syslog collector configuration differs or is unavailable'] if node.get('syslog_server') and not observe(manager, node)['configuration_verified'] else []
 
 
-def rootfs_assets(binary, modules=None, *, tcp=False, forward=False):
+def rootfs_assets(binary, modules=None, *, tcp=False, forward=False, tls=False):
     from .dns_rootfs import assets, shared_library_assets
     planned = assets(binary, destination=BINARY, version_args=('-v',), identity='rsyslogd',
                      version_check=lambda r: r.returncode == 0 and r.stdout.lower().startswith('rsyslogd '))
@@ -126,7 +139,8 @@ def rootfs_assets(binary, modules=None, *, tcp=False, forward=False):
         modules = candidates[0]
     modules = Path(modules).resolve()
     from .syslog_forward import REQUIRED_MODULES
-    names = ['imudp.so', 'lmnet.so', *(['imptcp.so'] if tcp else []), *(REQUIRED_MODULES if forward else [])]
+    from .syslog_tls import MODULES as TLS_MODULES
+    names = ['imudp.so', 'lmnet.so', *(['imptcp.so'] if tcp else []), *(REQUIRED_MODULES if forward or tls else []), *(TLS_MODULES if tls else [])]
     for name in dict.fromkeys(names):
         planned.extend(shared_library_assets(modules / name, Path(MODULES) / name))
     return planned

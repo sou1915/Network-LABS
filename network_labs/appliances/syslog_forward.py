@@ -7,7 +7,7 @@ REQUIRED_MODULES = ('imuxsock.so', 'lmnet.so', 'lmnetstrms.so', 'lmnsd_ptcp.so',
 
 
 def enabled(node):
-    return (node.get('management') or {}).get('syslog_transport', 'udp') == 'tcp'
+    return (node.get('management') or {}).get('syslog_transport', 'udp') in ('tcp', 'tls')
 
 
 def command():
@@ -16,8 +16,11 @@ def command():
 
 def files(node):
     remote = node['management']['syslog_remote']
+    tls = node['management'].get('syslog_transport') == 'tls'
+    from .syslog_tls import global_options
+    driver = ('StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name" StreamDriverPermittedPeers="' + node['management']['syslog_tls']['peer'] + '" StreamDriver.CheckExtendedKeyPurpose="on" StreamDriver.PrioritizeSAN="on" gnutlsPriorityString="NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3"') if tls else 'StreamDriver="ptcp"'
     config = '\n'.join([
-        'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k")',
+        'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k"' + (global_options() if tls else '') + ')',
         'main_queue(queue.type="FixedArray" queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1" queue.timeoutEnqueue="0")',
         'module(load="imuxsock" SysSock.Use="off")',
         'template(name="NetworkLabsLocal" type="string" string="%rawmsg%\\n")',
@@ -25,8 +28,8 @@ def files(node):
         '  action(type="omfile" file="/run/messages" template="NetworkLabsLocal"',
         '         fileCreateMode="0600" flushOnTXEnd="on" rotation.sizeLimit="65536"',
         '         rotation.sizeLimitCommand="/bin/sh /lab/rotate-syslog-local.sh")',
-        '  action(type="omfwd" target="' + remote + '" port="514" protocol="tcp"',
-        '         TCP_Framing="octet-counted" StreamDriver="ptcp" template="RSYSLOG_SyslogProtocol23Format"',
+        '  action(type="omfwd" target="' + remote + '" port="' + ('6514' if tls else '514') + '" protocol="tcp"',
+        '         TCP_Framing="octet-counted" ' + driver + ' template="RSYSLOG_SyslogProtocol23Format"',
         '         action.resumeRetryCount="-1" action.resumeInterval="1" action.resumeIntervalMax="5"',
         '         action.reportSuspension="on" action.reportSuspensionContinuation="on"',
         '         queue.type="FixedArray" queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1"',

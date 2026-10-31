@@ -33,12 +33,16 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'telnet_password_hash', 'syslog_remote', 'syslog_transport'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'telnet_password_hash', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
     transport = config.get('syslog_transport', 'udp')
-    if transport not in ('udp', 'tcp'):
-        raise ValueError('Syslog forwarding transport: udp or tcp; TLS is not implemented.')
-    if transport == 'tcp' and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or node.get('syslog_server')):
+    if transport not in ('udp', 'tcp', 'tls'):
+        raise ValueError('Syslog forwarding transport: udp, tcp or tls.')
+    if transport in ('tcp', 'tls') and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or node.get('syslog_server')):
         raise ValueError('TCP syslog forwarding requires a single-interface OCI host without a co-located collector.')
+    if transport == 'tls':
+        from .syslog_tls import validate_policy
+        validate_policy(config.get('syslog_tls'))
+    elif 'syslog_tls' in config: raise ValueError('Syslog TLS policy requires transport tls.')
     port = config.get('interface')
     values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or port not in values or not values[port] or
@@ -78,7 +82,7 @@ def validate_node(node):
         if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_reserved or address == local:
             raise ValueError('Syslog forwarding requires a remote unicast IPv4 collector.')
         config['syslog_remote'] = str(address)
-    if transport == 'tcp' and not remote:
+    if transport in ('tcp', 'tls') and not remote:
         raise ValueError('TCP syslog forwarding requires syslog_remote.')
     if not (config['ssh_keys'] or password or remote):
         raise ValueError('Enable at least one management service.')
@@ -97,11 +101,11 @@ def validate_lab(spec):
             peers = [n['name'] for n in spec['nodes'] if remote in {str(ipaddress.IPv4Interface(v).ip) for v in addresses(n).values() if v}]
             if peers != [name for name in peers if name != node['name']] or len(peers) != 1:
                 raise ValueError('Syslog collector must be one other uniquely numbered managed IPv4 node.')
-            if (node['management']).get('syslog_transport', 'udp') == 'tcp':
+            if (node['management']).get('syslog_transport', 'udp') in ('tcp', 'tls'):
                 target = next(n for n in spec['nodes'] if n['name'] == peers[0])
                 collector = target.get('syslog_server') or {}
                 from .syslog_server import listen_address as collector_address
-                if (collector.get('transport', 'udp') != 'tcp' or collector_address(target) != remote or
+                if (collector.get('transport', 'udp') != node['management'].get('syslog_transport', 'udp') or collector_address(target) != remote or
                         listen_address(node) not in collector['senders']):
                     raise ValueError('TCP syslog forwarding requires a managed TCP collector admitting the sender address.')
 
@@ -243,17 +247,19 @@ def observe(manager, node):
         except (OSError, RuntimeError, subprocess.TimeoutExpired):
             pass
         checks['ssh_policy_permissions'] = {'configuration_verified': verified}
+    from .syslog_tls import observe as observe_tls
+    tls = observe_tls(manager, node)
     bridge_available = None
     if config.get('ssh_radius'):
         from .ssh_radius import alive
         bridge_available = alive(manager.read().get('ssh_radius_workers', {}).get(node['name']))
-    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()),
+    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']), 'tls': tls,
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
             'syslog_transport': config.get('syslog_transport', 'udp'),
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, without TLS or an application acknowledgement. Runtime logs, queues and host keys are not saved.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 
 def drift(manager, node):

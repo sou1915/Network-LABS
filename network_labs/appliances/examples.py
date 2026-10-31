@@ -920,3 +920,13 @@ def syslog_tcp_lab(rootfs, forward=False):
     if forward:
         spec['nodes'][2]['management'] = {'interface': 'eth0', 'syslog_remote': '192.0.2.10', 'syslog_transport': 'tcp'}
     return validate(spec)
+
+
+def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name):
+    """Mutual TLS with explicit certificate names and pinned offline public assets."""
+    from .syslog_tls import policy
+    spec = syslog_tcp_lab(server_rootfs, forward=True); spec['name'] = 'syslog-tls-lan'
+    spec['nodes'][0]['syslog_server'].update(transport='tls', tls=policy(server_rootfs, client_name))
+    spec['nodes'][2]['rootfs'] = str(Path(client_rootfs).resolve())
+    spec['nodes'][2]['management'].update(syslog_transport='tls', syslog_tls=policy(client_rootfs, server_name))
+    return validate(spec)
