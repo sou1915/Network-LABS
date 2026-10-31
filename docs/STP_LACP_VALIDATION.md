@@ -182,7 +182,9 @@ all dedicated IPv6 jobs, SSH and RADIUS also passed on this commit. Its full
 `native-containers` suite was still running when this checkpoint was recorded.
 The local suite completed 762 tests with 116 environment-dependent skips.
 This proves the bounded threshold-2 scenario and threshold-1 limitation, not
-strict LACP failover with threshold 1 or arbitrary one-way data-plane faults.
+strict LACP failover with threshold 1 at that checkpoint or arbitrary
+one-way data-plane faults. The later explicit strict profile below now has
+separate positive evidence.
 
 References: [iproute2 flower manual](https://man7.org/linux/man-pages/man8/tc-flower.8.html)
 and [Linux bonding options](https://www.kernel.org/doc/html/latest/networking/bonding.html).
@@ -190,7 +192,7 @@ and [Linux bonding options](https://www.kernel.org/doc/html/latest/networking/bo
 
 ## Explicit native strict LACP and reverse control loss
 
-An experimental optional `port_channels.bond1.lacp_strict:true` policy maps
+An optional `port_channels.bond1.lacp_strict:true` policy maps
 to Linux's native bonding option. Generate the bounded reference with:
 
 ```bash
@@ -222,7 +224,9 @@ verified host proceeds to the full strict matrix: both receive directions,
 min-links 1 and 2, two cycles, tagged packet paths, static markers and cold
 restore. `NETWORK_LABS_REQUIRE_STRICT=1` makes unsupported hosts fail rather
 than accept the refusal branch. A passing refusal branch is **not** native
-strict packet-delivery evidence. Native evidence is pending for this increment.
+strict packet-delivery evidence. After the first positive run, CI now sets
+this flag: losing actual strict support must fail CI, not become a green
+unsupported result. Manual diagnostic runs may omit it.
 
 Separately, `stp-lacp-reverse-control-loss-interop` runs the legacy
 min-links-2 profile with receive drops on SW2: active SW1 -> passive SW2.
@@ -234,3 +238,26 @@ This direction does not assume threshold-1 fallback behaves identically.
 
 References: [Linux bonding strict option](https://www.kernel.org/doc/html/latest/networking/bonding.html)
 and [upstream iproute2 strict support](https://kernel.googlesource.com/pub/scm/network/iproute2/iproute2/+/30365d0967bd4ec993600bb8f27532061bec7413).
+
+
+At implementation commit `f090de33b2751128e668dd95a7b4a19d25fe3e04`, the
+[strict native job](https://github.com/sou1915/Network-LABS/actions/runs/41173134745/job/124455117420)
+reported **STRICT_VERIFIED**, not refusal, and passed in 630.853 seconds.
+The actual kernel was `7.0.0-1017-azure`; the pinned tool reported iproute2
+7.1.0 (libbpf 1.3.0). Both receive directions completed min-links 1 and 2,
+two cycles per threshold, actual negotiated members, preserved physical
+carrier, positive drop counters, selected-path VLAN 10/20 packets with TTL 64,
+static-marker preservation, restored qdiscs, unchanged declarations/revisions,
+saved restart with strict readback and worker cleanup. This establishes
+strict threshold-1 failover for this bounded profile on this kernel/tool
+combination. It does not change the legacy profile's default fallback or
+establish arbitrary physical one-way faults, all kernels or vendor behavior.
+
+The independent [reverse legacy threshold-2 job](https://github.com/sou1915/Network-LABS/actions/runs/41173134745/job/124455117354)
+passed in 164.449 seconds on the same kernel with stock iproute2 6.1.0.
+General tests, older switching, carrier/forward-control-loss, all dedicated
+IPv6 jobs and SSH/RADIUS also passed; the full native-containers suite was
+still running at this checkpoint. Local tests passed 768 cases with 118
+environment-dependent skips. Unsupported-tool preflight and rejected/ignored
+kernel readback are covered by unit tests; this runner's strict job exercised
+the positive path, not an unsupported-kernel branch.

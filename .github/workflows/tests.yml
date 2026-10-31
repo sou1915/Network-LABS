@@ -18,12 +18,12 @@ jobs:
           ./configure
           make -j2
           install -D ip/ip /tmp/network-labs-strict-bin/ip
-      - name: Verify kernel policy or explicit unsupported refusal and cleanup
+      - name: Require verified strict kernel policy and both-direction packet recovery
         run: |
           sudo modprobe bonding max_bonds=0
           uname -r
           /tmp/network-labs-strict-bin/ip -Version
-          sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
+          sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_REQUIRE_STRICT=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
   stp-lacp-reverse-control-loss-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

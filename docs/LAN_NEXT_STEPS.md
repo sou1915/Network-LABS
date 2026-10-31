@@ -153,13 +153,38 @@ at implementation commit `b234b9a294298d1e4fec4f82054b4f726d866f2a` on
 cycles and the threshold-2 failover/recovery, tagged traffic, static marker,
 saved restart and cleanup completed. General tests, older switching, peer
 carrier, all dedicated IPv6 jobs and SSH/RADIUS also passed; the full
-`native-containers` suite was still running at this checkpoint. The local
+`native-containers` suite subsequently completed successfully. The local
 suite passed 762 tests with 116 environment-dependent skips.
 
-Next switching work: negotiate a separately validated strict-LACP policy
-for silent loss at min-links 1 (including kernel/tool support), reverse-direction
-active-to-passive control loss, and broader kernel/topology coverage. Then
-continue LAN service polish; the AAA and IPv6 gaps above remain open.
+A newer optional strict policy now maps optional `lacp_strict` directly
+to native Linux bonding. Installed iproute2 help is checked before allocating
+a lab, the kernel must return the requested option through netlink before
+members are enslaved, and rejected/ignored options abort with cleanup.
+Save rejects missing/changed actual policy; explicit-policy edits require
+recreation. `--stp-lacp-strict` generates the reference manifest. Omission
+retains the legacy behavior; no userspace link/STP override is substituted.
+
+Dedicated CI now separates active-to-passive min-links-2 silent-loss coverage
+from strict capability testing with a pinned newer iproute2. The strict job
+must distinguish verified strict packet-path tests from clean unsupported
+refusal; only a verified host runs both directions at min-links 1 and 2.
+Positive strict native evidence now exists at implementation commit
+`f090de33b2751128e668dd95a7b4a19d25fe3e04`:
+[strict job](https://github.com/sou1915/Network-LABS/actions/runs/41173134745/job/124455117420),
+630.853 seconds, `7.0.0-1017-azure` and pinned iproute2 7.1.0.
+It reported STRICT_VERIFIED and completed both directions at thresholds 1/2,
+with tagged packet recovery, static markers, policy persistence and worker
+cleanup. CI now requires the positive path and cannot pass by silently
+switching to unsupported refusal. The independent reverse legacy threshold-2
+job also passed with stock iproute2 6.1.0. All other dedicated jobs and general
+tests passed; the full native-containers suite was still running. Local tests
+passed 768 cases with 118 environment-dependent skips. See STP_LACP_VALIDATION.md.
+
+The explicit strict profile now covers threshold-1 silent-control loss on
+this tested kernel/tool combination. Broader kernel/topology coverage remains;
+the legacy omitted-option profile retains its documented threshold-1 fallback.
+Next: LAN service polish and the remaining AAA/IPv6 coexistence gaps above,
+before GUI integration. Generic vendor/physical-fault coverage remains separate.
 
 ## Current AAA increment
 
