@@ -14,7 +14,7 @@ failure/recovery coverage appropriate to its scope.
    combinations and separately scoped local-input firewall behavior.
 3. Switching: physical/carrier failure coverage, remaining kernel validation,
    broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: persistent HTTPS, Syslog TCP forwarding/TLS, broader DNS and file services;
+4. Services: persistent HTTPS, Syslog TLS/durable retry, broader DNS and file services;
    improve diagnostics, lifecycle, save/restore and documentation.
 5. GUI: connect the native lifecycle, configuration and observations to the UI
    after the above profiles are ready.
@@ -284,8 +284,44 @@ configuration drift refusal, outage/restart, cold restore without old logs
 and host cleanup. Local tests passed 772 cases with 119 environment-dependent
 skips. See [SYSLOG_TCP.md](SYSLOG_TCP.md) for usage and limits.
 
-Next Syslog work: persistent TCP forwarding and separately scoped TLS/trust
-and retry behavior. The existing BusyBox management sender remains UDP.
+A later optional persistent TCP forwarder is described below. The existing
+BusyBox management sender remains the UDP default; TLS/trust and durable
+retry remain separately scoped work.
 HTTPS persistence, broader DNS/file services and AAA/IPv6 coexistence remain.
 All jobs for the earlier strict-LACP implementation `f090de3`, including the
 full native-containers suite, subsequently completed successfully.
+
+
+## Persistent TCP syslog forwarding increment
+
+Optional `management.syslog_transport:"tcp"` now selects an actual rsyslog
+sender inside a single-interface OCI host. Guest logger writes to its local
+Unix `/dev/log` input, local logs continue, and omfwd forwards automatically
+to an explicitly admitting managed TCP collector using octet-counted frames.
+`--rsyslog-forward` packages the matching input/network modules, while
+`example --syslog-tcp --syslog-tcp-forward` opts the reference client in.
+Omission keeps the BusyBox UDP sender. Co-located sender/collector and
+router/multi-interface sender combinations are refused in this increment.
+
+Fixed-array main/action queues hold 256 configured messages each, with one
+worker and zero enqueue wait; full queues may discard. Remote retries
+continue while the daemon runs, with one-second resume interval capped at
+five seconds. No disk queue/save-on-shutdown is configured. Save retains
+only declared policy, and generated-config drift is refused. Inspection
+reports managed conformity and selected transport, not liveness or queue
+contents. TCP has no application acknowledgement or durable delivery claim.
+
+The [dedicated native forwarding job](https://github.com/sou1915/Network-LABS/actions/runs/41186199336/job/124493509259)
+passed at implementation commit `61bf203c48075d00a5f35bf49535abd8cac7d7a1`
+(9.227 seconds, rsyslog 8.2312.0): real guest logger, TCP packets, local
+logging during a stopped collector, a freshly observed retry suspension,
+post-suspension marker delivery after restart, config drift refusal, save
+during a second outage, cold restore without queued/local/remote snapshots
+and host invariants. Local tests passed 776 cases with 120 skips; the separate
+TCP collector job also passed. See [SYSLOG_FORWARD.md](SYSLOG_FORWARD.md).
+
+Next: Syslog TLS with explicit trust/identity policy, then the remaining
+persistent HTTPS, broader DNS/file services and AAA/IPv6 coexistence gaps.
+Durable retries/RELP and queue-overflow behavior need separate validation.
+The full native suite for the earlier plain-TCP collector `d07b96f` has also
+subsequently completed successfully.

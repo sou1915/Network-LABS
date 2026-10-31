@@ -4103,7 +4103,8 @@ tests use a bounded independent UDP socket receiver in PC1's namespace and
 check the real packet, priority `<133>`, source and message; they do not invent
 successful delivery. UDP has no acknowledgement. A separately scoped
 [plain TCP collector and finite diagnostic](SYSLOG_TCP.md) now exist; this
-management sender remains UDP. Persistent TCP forwarding/TLS, RFC5424
+management sender remains UDP by default. A separately scoped
+[persistent plain TCP sender](SYSLOG_FORWARD.md) is now optional. TLS/durable retry, RFC5424
 structured data, central retention/search and automatic vendor-event mapping
 remain future work. SSH daemon diagnostics are recorded separately in ssh.log;
 this profile does not claim every daemon event is forwarded to Syslog.
@@ -4216,7 +4217,9 @@ Then run `logger` from terminal B during those ten seconds. Use a new output
 filename for each capture. Live collector edits require lab recreation.
 The separately scoped [plain TCP collector](SYSLOG_TCP.md) now adds
 `transport:"tcp"`, explicit rootfs assets and a storage-observed diagnostic.
-IPv6/dual-stack collector combinations, persistent TCP forwarding/TLS, richer
+The separately scoped [persistent TCP sender](SYSLOG_FORWARD.md) adds guest
+logger forwarding with bounded volatile retry queues. IPv6/dual-stack
+collector combinations, TLS/durable retry, richer
 RFC5424 policies, central search, durable logs and structured device-event
 mapping remain separate work.
 

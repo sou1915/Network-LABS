@@ -32,7 +32,8 @@ messages. The action retries indefinitely while the node remains running,
 starting with a one-second resume interval capped at five seconds. Local
 logging precedes the asynchronous forwarding action, so a suspended remote
 action need not block local output until queues/resources are exhausted.
-The global message size is 1 KiB. These settings bound configured message
+Suspension/continuation reporting is explicitly enabled; status messages may
+appear in the local log as well as daemon stderr. The global message size is 1 KiB. These settings bound configured message
 counts; they are not a hard total memory cap or an unlimited-outage guarantee.
 Local logs use the same 64 KiB rotation threshold and one backup as the
 collector, with normal message/batch overshoot.
@@ -60,7 +61,22 @@ local Unix input, automatic TCP packets and collector storage, a stopped
 collector and fresh suspension, local logging while down, queued-marker
 recovery after restart, config drift refusal, declarative save during an
 outage, cold restore without queued/log snapshots, and host cleanup. Native
-CI evidence is pending.
+CI passed at implementation commit `61bf203c48075d00a5f35bf49535abd8cac7d7a1`:
+[dedicated forwarding job](https://github.com/sou1915/Network-LABS/actions/runs/41186199336/job/124493509259),
+9.227 seconds, rsyslog 8.2312.0. It verified three real guest logger messages,
+TCP packet evidence, fresh suspension before a queued marker, local storage
+while the collector was down, automatic marker recovery, a second outage,
+drift refusal and cold restore without pending-message or local/remote-log
+snapshots. The local suite passed 776 tests with 120 environment-dependent
+skips. The general CI tests and separate plain-TCP collector job also passed;
+broader suites were still running at this checkpoint.
+
+The initial run at `531bbc9` failed an observer assumption: suspension messages
+were checked only in daemon stderr, while rsyslog can route them to local
+syslog. The corrected observer requires a fresh report from stderr or the
+local log; it does not treat old startup suspension as current failure.
+This records retry for the tested post-suspension marker, not lossless
+replay of every message around a disconnect or queue overflow.
 
 References: [rsyslog omfwd](https://docs.rsyslog.com/doc/configuration/modules/omfwd.html),
 [imuxsock](https://docs.rsyslog.com/doc/configuration/modules/imuxsock.html)

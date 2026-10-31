@@ -44,10 +44,11 @@ storage reports `passed`. There is no application acknowledgement or claim
 of exactly-once/durable delivery. The nonce, frames and runtime logs do not
 enter saved policy. Save verifies managed configuration; it does not imply
 service liveness. After cold restore the transport/allowlist return and logs
-start empty. The existing BusyBox management forwarder remains UDP.
+start empty. The existing BusyBox management forwarder remains the UDP default. A separately
+scoped [persistent TCP forwarder](SYSLOG_FORWARD.md) is now available.
 
-This increment provides plain TCP reception and a finite diagnostic, without
-TLS, sender authentication, persistent TCP forwarding, durable retries, RELP,
+This collector increment provides plain TCP reception and a finite diagnostic, without
+TLS, sender authentication, durable retries, RELP,
 IPv6 collectors or a general RFC5424 validation claim. IP filtering is an
 allowlist, not identity authentication.
 
