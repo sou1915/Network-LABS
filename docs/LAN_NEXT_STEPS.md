@@ -14,7 +14,7 @@ failure/recovery coverage appropriate to its scope.
    combinations and separately scoped local-input firewall behavior.
 3. Switching: physical/carrier failure coverage, remaining kernel validation,
    broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: persistent HTTPS, Syslog TLS/durable retry, broader DNS and file services;
+4. Services: persistent HTTPS, Syslog certificate lifecycle/durable retry, broader DNS and file services;
    improve diagnostics, lifecycle, save/restore and documentation.
 5. GUI: connect the native lifecycle, configuration and observations to the UI
    after the above profiles are ready.
@@ -285,8 +285,8 @@ and host cleanup. Local tests passed 772 cases with 119 environment-dependent
 skips. See [SYSLOG_TCP.md](SYSLOG_TCP.md) for usage and limits.
 
 A later optional persistent TCP forwarder is described below. The existing
-BusyBox management sender remains the UDP default; TLS/trust and durable
-retry remain separately scoped work.
+BusyBox management sender remains the UDP default. The mutual TLS/trust
+increment is described further below; durable retry remains separate work.
 HTTPS persistence, broader DNS/file services and AAA/IPv6 coexistence remain.
 All jobs for the earlier strict-LACP implementation `f090de3`, including the
 full native-containers suite, subsequently completed successfully.
@@ -320,8 +320,46 @@ during a second outage, cold restore without queued/local/remote snapshots
 and host invariants. Local tests passed 776 cases with 120 skips; the separate
 TCP collector job also passed. See [SYSLOG_FORWARD.md](SYSLOG_FORWARD.md).
 
-Next: Syslog TLS with explicit trust/identity policy, then the remaining
-persistent HTTPS, broader DNS/file services and AAA/IPv6 coexistence gaps.
+A later bounded mutual TLS profile is now described below. Remaining work
+includes persistent HTTPS, broader DNS/file services and AAA/IPv6 coexistence.
 Durable retries/RELP and queue-overflow behavior need separate validation.
 The full native suite for the earlier plain-TCP collector `d07b96f` has also
 subsequently completed successfully.
+
+
+## Mutual TLS syslog increment
+
+An explicit TLS profile now runs rsyslog gtls on TCP/6514 with mandatory
+mode 1 and x509/name checks in both directions. The managed sender and
+collector each present their own offline leaf identity and verify the
+configured peer name against the explicit CA. SAN prioritization, extended
+key purpose and TLS 1.2/1.3 priority are configured. The collector's managed
+source-IP allowlist still applies; no 514 listener or plaintext downgrade
+is created. Scope is one single-interface sender/collector identity pair.
+
+`--rsyslog-tls` packages matching GnuTLS modules and three supplied offline
+identity files. Example generation requires separate client/server rootfs
+references and explicit peer names. The manifest stores public CA/local
+certificate file pins, not private keys. Startup verifies the public pins,
+key mode and matching key/certificate. Runtime audit checks public assets,
+key permissions and a runtime-only private digest; drift blocks save.
+Non-TLS OCI nodes mask identity assets if they share an identity-bearing base.
+Cold restore reuses conforming supplied offline identities, without runtime
+TLS sessions, queues or logs. Policy/certificate changes require recreation.
+
+The [dedicated mutual TLS job](https://github.com/sou1915/Network-LABS/actions/runs/41204838147/job/124547706724)
+passed at implementation commit `c27e6f0603154433a7c170246c71ebcbdd0fdf9d`
+(13.851 seconds, Ubuntu 24.04): guest logger storage plus an independently
+verified TLS client, wrong trust/name negative cases with working positive
+controls, same-CA unauthorized-client rejection, plaintext rejection,
+encrypted-marker packet checks, identity masking, CA/key-mode drift refusal,
+post-suspension recovery, declarative cold restore and host invariants.
+Local tests passed 781 cases with 121 environment-dependent skips. General CI
+and existing plain TCP collector/forwarder jobs also passed; broader suites
+were still running. See [SYSLOG_TLS.md](SYSLOG_TLS.md) for exact usage/limits.
+
+Next services: persistent HTTPS, then broader DNS/file services and remaining
+AAA/IPv6 coexistence work. Automatic certificate renewal/revocation, durable
+retry/RELP and multi-identity TLS remain separately scoped work. All jobs for
+the prior plain TCP forwarding checkpoint `61bf203`, including its full
+native suite, subsequently completed successfully.

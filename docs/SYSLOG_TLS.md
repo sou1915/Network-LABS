@@ -46,7 +46,8 @@ Collector policy is `syslog_server.transport:"tls"` with a `tls` object;
 sender policy is `management.syslog_transport:"tls"` with `syslog_tls`.
 Each object has `peer`, `ca_sha256` and `certificate_sha256`. Names are explicit
 lowercase DNS names without wildcard authorization. Pins are SHA-256 of
-complete public PEM file bytes, not a DER certificate thumbprint. The example
+complete public PEM file bytes for the local CA and local identity certificate,
+not a remote-leaf pin or DER certificate thumbprint. The example
 reads only public files to generate these pins. The saved manifest contains
 public pins and rootfs references, never raw keys or a restored TLS session.
 
@@ -72,7 +73,21 @@ outside the repository, verifies guest logger storage and a separate Python
 TLS client, checks encrypted packet payloads, rejects wrong trust/name and a
 same-CA unauthorized client identity, rejects plaintext input, audits asset
 changes, exercises collector outage/retry and cold restore, and checks host
-cleanup. Native evidence is pending.
+cleanup. At implementation commit
+`c27e6f0603154433a7c170246c71ebcbdd0fdf9d`, the
+[dedicated mutual TLS job](https://github.com/sou1915/Network-LABS/actions/runs/41204838147/job/124547706724)
+passed in 13.851 seconds on Ubuntu 24.04. It completed the valid, wrong-name
+and wrong-CA recreated profiles, independent verified TLS connections,
+same-CA unauthorized-client rejection, plaintext rejection, encrypted-marker
+packet checks, non-TLS-node identity masking, CA/key-mode drift refusal,
+post-suspension retry, declarative save/cold restore and cleanup.
+
+The local suite passed 781 tests with 121 environment-dependent skips.
+General CI, the existing plain TCP collector/forwarder, SSH/RADIUS and several
+IPv6 jobs also passed; broader suites were still running at this checkpoint.
+This is evidence for the bounded mutual TLS profile and listed controls,
+not automatic certificate lifecycle, revocation, durable retry or arbitrary
+vendor interoperability.
 
 References: [gtls](https://docs.rsyslog.com/doc/concepts/ns_gtls.html),
 [imtcp](https://docs.rsyslog.com/doc/configuration/modules/imtcp.html)

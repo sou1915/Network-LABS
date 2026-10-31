@@ -47,8 +47,10 @@ service liveness. After cold restore the transport/allowlist return and logs
 start empty. The existing BusyBox management forwarder remains the UDP default. A separately
 scoped [persistent TCP forwarder](SYSLOG_FORWARD.md) is now available.
 
-This collector increment provides plain TCP reception and a finite diagnostic, without
-TLS, sender authentication, durable retries, RELP,
+This collector increment provides plain TCP reception and a finite diagnostic.
+A separately scoped [mutual TLS profile](SYSLOG_TLS.md) now provides encrypted
+forwarding with explicit peer/CA policy. This plain collector increment does not
+provide durable retries, RELP,
 IPv6 collectors or a general RFC5424 validation claim. IP filtering is an
 allowlist, not identity authentication.
 

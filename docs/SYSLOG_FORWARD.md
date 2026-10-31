@@ -53,8 +53,10 @@ establish exactly-once or guaranteed durable delivery. The native retry
 check therefore waits for a fresh rsyslog suspension before submitting its
 queue-recovery marker, then verifies actual storage after collector restart.
 It does not claim every message submitted during an outage is delivered.
-TLS, authenticated sender identity, durable retry, RELP, router/multi-interface
-senders and generic device-event generation remain separate work.
+A separately scoped [mutual TLS profile](SYSLOG_TLS.md) now adds explicit
+trust/peer identity and offline private assets. Plain TCP remains unchanged.
+Durable retry, RELP, router/multi-interface senders and generic device-event
+generation remain separate work.
 
 `syslog-tcp-forward-interop` exercises real BusyBox logger inside the guest,
 local Unix input, automatic TCP packets and collector storage, a stopped

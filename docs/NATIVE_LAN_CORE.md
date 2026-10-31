@@ -4104,7 +4104,9 @@ check the real packet, priority `<133>`, source and message; they do not invent
 successful delivery. UDP has no acknowledgement. A separately scoped
 [plain TCP collector and finite diagnostic](SYSLOG_TCP.md) now exist; this
 management sender remains UDP by default. A separately scoped
-[persistent plain TCP sender](SYSLOG_FORWARD.md) is now optional. TLS/durable retry, RFC5424
+[persistent plain TCP sender](SYSLOG_FORWARD.md) and
+[mutual TLS profile](SYSLOG_TLS.md) are now optional. Durable retry, certificate
+lifecycle, RFC5424
 structured data, central retention/search and automatic vendor-event mapping
 remain future work. SSH daemon diagnostics are recorded separately in ssh.log;
 this profile does not claim every daemon event is forwarded to Syslog.
@@ -4219,7 +4221,7 @@ The separately scoped [plain TCP collector](SYSLOG_TCP.md) now adds
 `transport:"tcp"`, explicit rootfs assets and a storage-observed diagnostic.
 The separately scoped [persistent TCP sender](SYSLOG_FORWARD.md) adds guest
 logger forwarding with bounded volatile retry queues. IPv6/dual-stack
-collector combinations, TLS/durable retry, richer
+collector combinations, durable retry/certificate lifecycle, richer
 RFC5424 policies, central search, durable logs and structured device-event
 mapping remain separate work.
 
@@ -5614,3 +5616,14 @@ opt-in mechanism addresses that observed stale-learning case. It preserves
 static entries, reports actual worker health/events separately from delivery,
 and stops before namespace cleanup. Configuration edits require recreation.
 The original managed-administrative recovery path remains separate.
+
+
+## Optional mutual TLS syslog
+
+[SYSLOG_TLS.md](SYSLOG_TLS.md) describes the separately validated TCP/6514
+profile: actual rsyslog gtls, mutual CA/name checks, pinned public offline
+assets, private-key permissions/audit, sender retry, encrypted packet evidence
+and explicit trust/name rejection controls. It requires matching GnuTLS
+modules and separately supplied server/client identities. Legacy UDP and
+plain TCP profiles keep their defaults. Startup JSON contains public pins
+and rootfs references, not private keys or TLS/queue/log snapshots.
