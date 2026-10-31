@@ -28,6 +28,7 @@ def files(node):
         '  action(type="omfwd" target="' + remote + '" port="514" protocol="tcp"',
         '         TCP_Framing="octet-counted" StreamDriver="ptcp" template="RSYSLOG_SyslogProtocol23Format"',
         '         action.resumeRetryCount="-1" action.resumeInterval="1" action.resumeIntervalMax="5"',
+        '         action.reportSuspension="on" action.reportSuspensionContinuation="on"',
         '         queue.type="FixedArray" queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1"',
         '         queue.timeoutEnqueue="0" queue.saveOnShutdown="off")',
         '}',

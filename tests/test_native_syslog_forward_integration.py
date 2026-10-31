@@ -37,7 +37,7 @@ class NativeSyslogForwardTests(unittest.TestCase):
                 while time.monotonic()<end:
                     if predicate(): return
                     time.sleep(.1)
-                self.fail(label+': sender='+sender_log()+'; collector='+logs())
+                self.fail(label+': sender='+sender_log()+'; local='+logs('PC2','/run/messages')+'; collector='+logs())
             def ready():
                 wait(lambda:'192.0.2.10:514' in manager.ns(0,'ss','-H','-ltn','sport = :514').stdout,'collector not ready')
                 wait(lambda:manager.crun('exec','PC2','/bin/busybox','test','-S','/dev/log',check=False).returncode==0,'sender socket not ready')
@@ -46,14 +46,14 @@ class NativeSyslogForwardTests(unittest.TestCase):
                 wait(lambda:token in logs(),'collector did not store '+token,20)
                 self.assertTrue(any(line.startswith('192.0.2.20 <133>') and token in line for line in logs().splitlines()),logs())
             def suspend_collector():
-                offset=len(sender_log())
+                offset=len(sender_log()); local_offset=len(logs('PC2','/run/messages'))
                 manager.crun('exec','PC1','/bin/sh','-c','/bin/kill -TERM "$(/bin/cat /run/rsyslogd.pid)"')
                 wait(lambda:not manager.ns(0,'ss','-H','-ltn','sport = :514').stdout,'collector still listening')
                 count=0
                 def suspended():
                     nonlocal count
                     count+=1; emit('OUTAGE-TRIGGER-'+str(count))
-                    return 'suspended' in sender_log()[offset:].lower()
+                    return 'suspended' in (sender_log()[offset:] + logs('PC2','/run/messages')[local_offset:]).lower()
                 wait(suspended,'TCP action did not report a fresh suspension',20)
             try:
                 with manager.locked(): manager.start(spec)
