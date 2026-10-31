@@ -1,4 +1,4 @@
-"""Explicit rsyslog UDP collector, isolated inside an OCI node."""
+"""Explicit rsyslog UDP or plain TCP collector, isolated inside an OCI node."""
 import ipaddress
 from pathlib import Path
 from .service_config import observe_config
@@ -17,7 +17,9 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('syslog_server', None)
     if config is None: return
-    keys(config, ('interface', 'senders'), 'Syslog server')
+    keys(config, ('interface', 'senders', 'transport'), 'Syslog server')
+    if config.get('transport', 'udp') not in ('udp', 'tcp'):
+        raise ValueError('Syslog collector transport: udp or tcp; TLS is not implemented.')
     values = addresses(node); port = config.get('interface')
     if (node['runtime'] != 'oci' or not isinstance(port, str) or not values.get(port) or
             port in node['shutdown'] or node.get('startup')):
@@ -55,11 +57,12 @@ def listen_address(node):
 
 
 def files(node):
+    tcp = node['syslog_server'].get('transport', 'udp') == 'tcp'
     allowed = ' or '.join('$fromhost-ip == "' + ip + '"' for ip in node['syslog_server']['senders'])
     config = '\n'.join([
         'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k")',
         'main_queue(queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1")',
-        'module(load="imudp" threads="1")',
+        'module(load="imptcp" threads="1" maxSessions="16")' if tcp else 'module(load="imudp" threads="1")',
         'template(name="NetworkLabsWire" type="string" string="%fromhost-ip% %rawmsg%\\n")',
         'ruleset(name="NetworkLabsRemote") {',
         '  if not (' + allowed + ') then stop',
@@ -67,8 +70,10 @@ def files(node):
         '         fileCreateMode="0600" flushOnTXEnd="on" rotation.sizeLimit="65536"',
         '         rotation.sizeLimitCommand="/bin/sh ' + ROTATE + '")',
         '}',
-        'input(type="imudp" address="' + listen_address(node) + '" port="514" ipFreeBind="0"',
-        '      ruleset="NetworkLabsRemote" rateLimit.interval="5" rateLimit.burst="1000")',
+        ('input(type="imptcp" address="' + listen_address(node) + '" port="514"'
+         ' supportOctetCountedFraming="on" maxFrameSize="1024" ruleset="NetworkLabsRemote")') if tcp else
+        ('input(type="imudp" address="' + listen_address(node) + '" port="514" ipFreeBind="0"\n'
+         '      ruleset="NetworkLabsRemote" rateLimit.interval="5" rateLimit.burst="1000")'),
         '',
     ])
     return {'syslog-server.conf': config,
@@ -101,16 +106,16 @@ def start_servers(manager):
 def observe(manager, node):
     checks = {name: observe_config(manager, node['name'], '/lab/' + name, value) for name, value in files(node).items()}
     return {'configuration_verified': all(row['configuration_verified'] for row in checks.values()),
-            'files': checks, 'address': listen_address(node), 'port': 514, 'transport': 'udp',
+            'files': checks, 'address': listen_address(node), 'port': 514, 'transport': node['syslog_server'].get('transport', 'udp'),
             'allowed_senders': node['syslog_server']['senders'], 'log': LOG,
-            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. No TCP/TLS collector.'}
+            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. TCP uses plain imptcp with octet-counted and LF framing, 16 sessions; no TLS, durable sender queue or application acknowledgement.'}
 
 
 def drift(manager, node):
     return [node['name'] + ': syslog collector configuration differs or is unavailable'] if node.get('syslog_server') and not observe(manager, node)['configuration_verified'] else []
 
 
-def rootfs_assets(binary, modules=None):
+def rootfs_assets(binary, modules=None, *, tcp=False):
     from .dns_rootfs import assets, shared_library_assets
     planned = assets(binary, destination=BINARY, version_args=('-v',), identity='rsyslogd',
                      version_check=lambda r: r.returncode == 0 and r.stdout.lower().startswith('rsyslogd '))
@@ -120,6 +125,6 @@ def rootfs_assets(binary, modules=None):
             raise ValueError('Provide --rsyslog-modules with the trusted rsyslog module directory.')
         modules = candidates[0]
     modules = Path(modules).resolve()
-    for name in ('imudp.so', 'lmnet.so'):
+    for name in ('imudp.so', 'lmnet.so', *(['imptcp.so'] if tcp else [])):
         planned.extend(shared_library_assets(modules / name, Path(MODULES) / name))
     return planned

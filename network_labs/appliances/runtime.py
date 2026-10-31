@@ -135,7 +135,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -178,11 +178,11 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         from .ssh_access import relay_assets
         management_additions += relay_assets(ssh_relay)
     collector_additions = []
-    if rsyslog_modules is not None and rsyslog is None:
-        raise ValueError('--rsyslog-modules requires --rsyslog.')
+    if (rsyslog_modules is not None or rsyslog_tcp) and rsyslog is None:
+        raise ValueError('--rsyslog-modules/--rsyslog-tcp requires --rsyslog.')
     if rsyslog is not None:
         from .syslog_server import rootfs_assets
-        collector_additions = rootfs_assets(rsyslog, rsyslog_modules)
+        collector_additions = rootfs_assets(rsyslog, rsyslog_modules, tcp=rsyslog_tcp)
     snmp_additions = []
     if snmpd is not None:
         from .snmp import rootfs_assets
@@ -341,6 +341,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
+            if (node.get('syslog_server') or {}).get('transport') == 'tcp' and not (Path(node['rootfs']) / 'usr/lib/network-labs/rsyslog/imptcp.so').is_file():
+                raise RuntimeFailure(node['name'] + ': TCP syslog requires rebuilding the rootfs with --rsyslog-tcp.')
             if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
                 raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
             if 'shell' in ((node.get('management') or {}).get('ssh_actions') or []) and not (Path(node['rootfs']) / 'usr/lib/network-labs/ssh-radius-client').is_file():

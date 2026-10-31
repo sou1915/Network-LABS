@@ -909,3 +909,11 @@ def stp_lacp_lab(rootfs, min_links=1, lacp_strict=None):
                                  'max_age': 6, 'forward_delay': 4, 'ports': {'eth4': {'cost': 1000}}, 'carrier_recovery': True}
     spec['links'].append([['SW1', 'eth4'], ['SW2', 'eth4']])
     return validate(spec)
+
+
+def syslog_tcp_lab(rootfs):
+    """Plain TCP collector and a diagnostic client on an isolated switched LAN."""
+    from .spec import example
+    spec = example(rootfs); spec['name'] = 'syslog-tcp-lan'
+    spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'transport': 'tcp', 'senders': ['192.0.2.20']}
+    return validate(spec)
