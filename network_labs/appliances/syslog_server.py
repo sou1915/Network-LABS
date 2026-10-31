@@ -115,7 +115,7 @@ def drift(manager, node):
     return [node['name'] + ': syslog collector configuration differs or is unavailable'] if node.get('syslog_server') and not observe(manager, node)['configuration_verified'] else []
 
 
-def rootfs_assets(binary, modules=None, *, tcp=False):
+def rootfs_assets(binary, modules=None, *, tcp=False, forward=False):
     from .dns_rootfs import assets, shared_library_assets
     planned = assets(binary, destination=BINARY, version_args=('-v',), identity='rsyslogd',
                      version_check=lambda r: r.returncode == 0 and r.stdout.lower().startswith('rsyslogd '))
@@ -125,6 +125,8 @@ def rootfs_assets(binary, modules=None, *, tcp=False):
             raise ValueError('Provide --rsyslog-modules with the trusted rsyslog module directory.')
         modules = candidates[0]
     modules = Path(modules).resolve()
-    for name in ('imudp.so', 'lmnet.so', *(['imptcp.so'] if tcp else [])):
+    from .syslog_forward import REQUIRED_MODULES
+    names = ['imudp.so', 'lmnet.so', *(['imptcp.so'] if tcp else []), *(REQUIRED_MODULES if forward else [])]
+    for name in dict.fromkeys(names):
         planned.extend(shared_library_assets(modules / name, Path(MODULES) / name))
     return planned

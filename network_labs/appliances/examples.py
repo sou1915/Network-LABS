@@ -911,9 +911,12 @@ def stp_lacp_lab(rootfs, min_links=1, lacp_strict=None):
     return validate(spec)
 
 
-def syslog_tcp_lab(rootfs):
+def syslog_tcp_lab(rootfs, forward=False):
     """Plain TCP collector and a diagnostic client on an isolated switched LAN."""
     from .spec import example
+    if type(forward) is not bool: raise ValueError('TCP syslog forward selection must be boolean.')
     spec = example(rootfs); spec['name'] = 'syslog-tcp-lan'
     spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'transport': 'tcp', 'senders': ['192.0.2.20']}
+    if forward:
+        spec['nodes'][2]['management'] = {'interface': 'eth0', 'syslog_remote': '192.0.2.10', 'syslog_transport': 'tcp'}
     return validate(spec)

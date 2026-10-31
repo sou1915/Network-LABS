@@ -1,4 +1,4 @@
-"""Real Dropbear SSH, authenticated BusyBox Telnet and UDP syslog forwarding."""
+"""Real Dropbear SSH, authenticated BusyBox Telnet and optional UDP/TCP syslog forwarding."""
 import base64
 import ipaddress
 import json
@@ -33,7 +33,12 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'telnet_password_hash', 'syslog_remote'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'telnet_password_hash', 'syslog_remote', 'syslog_transport'), 'Management')
+    transport = config.get('syslog_transport', 'udp')
+    if transport not in ('udp', 'tcp'):
+        raise ValueError('Syslog forwarding transport: udp or tcp; TLS is not implemented.')
+    if transport == 'tcp' and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or node.get('syslog_server')):
+        raise ValueError('TCP syslog forwarding requires a single-interface OCI host without a co-located collector.')
     port = config.get('interface')
     values = addresses(node)
     if (node['runtime'] != 'oci' or not isinstance(port, str) or port not in values or not values[port] or
@@ -73,6 +78,8 @@ def validate_node(node):
         if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_reserved or address == local:
             raise ValueError('Syslog forwarding requires a remote unicast IPv4 collector.')
         config['syslog_remote'] = str(address)
+    if transport == 'tcp' and not remote:
+        raise ValueError('TCP syslog forwarding requires syslog_remote.')
     if not (config['ssh_keys'] or password or remote):
         raise ValueError('Enable at least one management service.')
 
@@ -90,6 +97,13 @@ def validate_lab(spec):
             peers = [n['name'] for n in spec['nodes'] if remote in {str(ipaddress.IPv4Interface(v).ip) for v in addresses(n).values() if v}]
             if peers != [name for name in peers if name != node['name']] or len(peers) != 1:
                 raise ValueError('Syslog collector must be one other uniquely numbered managed IPv4 node.')
+            if (node['management']).get('syslog_transport', 'udp') == 'tcp':
+                target = next(n for n in spec['nodes'] if n['name'] == peers[0])
+                collector = target.get('syslog_server') or {}
+                from .syslog_server import listen_address as collector_address
+                if (collector.get('transport', 'udp') != 'tcp' or collector_address(target) != remote or
+                        listen_address(node) not in collector['senders']):
+                    raise ValueError('TCP syslog forwarding requires a managed TCP collector admitting the sender address.')
 
 
 def rootfs_assets(binary):
@@ -106,7 +120,8 @@ def listen_address(node):
 def commands(node):
     config = node['management']; result = {}
     if config['syslog_remote']:
-        result['syslog'] = ['/bin/busybox', 'syslogd', '-n', '-O', '/run/messages', '-s', '64', '-b', '1',
+        from .syslog_forward import enabled, command
+        result['syslog'] = command() if enabled(node) else ['/bin/busybox', 'syslogd', '-n', '-O', '/run/messages', '-s', '64', '-b', '1',
                             '-R', config['syslog_remote'] + ':514', '-L']
     if config['ssh_keys']:
         result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
@@ -120,6 +135,8 @@ def commands(node):
 def managed_files(node):
     config = node['management']
     result = {'management.json': json.dumps({'commands': commands(node)}, sort_keys=True, indent=2) + '\n'}
+    from .syslog_forward import enabled, files
+    if enabled(node): result.update(files(node))
     if config['ssh_keys'] or config['telnet_password_hash']:
         # Copy the trusted offline base account file, preserving service users.
         with (Path(node['rootfs']) / 'etc/passwd').open() as source:
@@ -154,6 +171,8 @@ def prepare_files(bundle, node):
 def start_service(manager, node, service):
     argv = commands(node).get(service)
     if argv is None: raise ValueError('Management service is not enabled.')
+    from .syslog_forward import enabled, start
+    if service == 'syslog' and enabled(node): return start(manager, node)
     log = manager.directory / node['name'] / (service + '.log')
     if service == 'ssh' and node['management'].get('ssh_actions') is not None:
         from .ssh_access import service_process
@@ -169,13 +188,14 @@ def start_servers(manager):
     for index, node in enumerate(manager.state['spec']['nodes']):
         config = node['management']
         if not config: continue
-        expected = {'syslogd', 'logger'} if config['syslog_remote'] else set()
+        from .syslog_forward import enabled
+        expected = ({'logger'} if enabled(node) else {'syslogd', 'logger'}) if config['syslog_remote'] else set()
         if config['telnet_password_hash']: expected.update(('telnetd', 'login'))
         if config.get('ssh_radius'): expected.update(('nc', 'timeout', 'cat', 'stty', 'base64', 'mktemp', 'mkfifo', 'rm'))
         installed = manager.crun('exec', node['name'], '/bin/busybox', '--list', timeout=3).stdout.splitlines()
         if expected - set(installed):
             raise RuntimeFailure(node['name'] + ': missing BusyBox management applets: ' + ', '.join(sorted(expected - set(installed))))
-        for applet, flags in ([('telnetd', ('-F', '-b', '-p', '-l'))] if config['telnet_password_hash'] else []) + ([('syslogd', ('-R', '-L', '-s', '-b'))] if config['syslog_remote'] else []):
+        for applet, flags in ([('telnetd', ('-F', '-b', '-p', '-l'))] if config['telnet_password_hash'] else []) + ([('syslogd', ('-R', '-L', '-s', '-b'))] if config['syslog_remote'] and not enabled(node) else []):
             help_result = manager.crun('exec', node['name'], '/bin/busybox', applet, '--help', check=False, timeout=3)
             help_text = help_result.stdout + help_result.stderr
             if any(flag not in help_text for flag in flags):
@@ -230,9 +250,10 @@ def observe(manager, node):
     return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()),
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
+            'syslog_transport': config.get('syslog_transport', 'udp'),
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; forwarding stays disabled; SSH key authentication is followed by RADIUS per diagnostic only when ssh_radius is enabled. Worker availability is a process observation, not an authentication verdict. Syslog sends UDP/514; no collector/TCP/TLS service or runtime log/host-key snapshot.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, without TLS or an application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 
 def drift(manager, node):

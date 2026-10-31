@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  syslog-tcp-forward-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated TCP syslog forwarding prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog
+      - name: Verify guest logger forwarding, suspended retry, volatile queues, drift and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_forward_integration.py -v
   syslog-tcp-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
