@@ -4042,7 +4042,9 @@ commands again after restore to recheck traffic.
 
 This first routed dual-stack profile uses static IPv6. Mixing IPv4 routing with
 RA/SLAAC/DHCPv6 is refused pending its own coexistence validation. Existing
-IPv6-only RA/SLAAC/DHCPv6 examples retain their behavior. IPv4 DHCP/DNS/OSPF,
+IPv6-only RA/SLAAC/DHCPv6 examples retain their behavior. A later bounded
+[static dual-stack DNS profile](DUAL_STACK_DNS.md) adds local A/AAAA service
+over both families. Other IPv4 DHCP/OSPF,
 firewall/security, SVIs/subinterfaces, STP, bundles, OVS and VM guests remain
 outside the IPv6/dual-stack profile. Live changes on numbered IPv6 nodes still
 require recreation, including IPv4-only changes on a dual-stack node. This does

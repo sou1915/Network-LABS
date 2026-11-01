@@ -81,11 +81,22 @@ def validate_lab(spec):
         raise ValueError('Initial dual-stack routing requires static IPv6; RA/SLAAC/DHCPv6 coexistence is not in this profile.')
     from .firewall_ipv6 import validate_lab as validate_firewall_lab
     validate_firewall_lab(spec)
+    dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
+    if dns_coexistence:
+        for node in spec['nodes']:
+            if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
+                                        'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
+                                        'ospfv3', 'svis', 'subinterfaces', 'firewall_ipv6', 'ra_guard')):
+                raise ValueError('Dual-stack DNS coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
+            if node['role'] in ('host', 'router') and (set(node['ipv6']) != set(node['interfaces']) or not all(node['interfaces'].values())):
+                raise ValueError('Dual-stack DNS requires IPv4 and static IPv6 on every physical host/router port.')
+            if (node.get('dns_server') or node.get('resolvers')) and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'}):
+                raise ValueError('Dual-stack DNS service/resolvers require single-interface OCI hosts.')
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
         forbidden = ('https_server', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
-                     'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
+                     'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or
                 node.get('switch_backend') == 'ovs' or any(node.get(key) for key in forbidden) or

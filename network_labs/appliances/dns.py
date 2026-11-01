@@ -40,7 +40,7 @@ def validate_dns(node):
     policy = node.setdefault('dns_server', None)
     if policy is None:
         return
-    keys(policy, ('interface', 'zone', 'records', 'ttl'), 'DNS server')
+    keys(policy, ('interface', 'zone', 'records', 'ttl', 'records_ipv6', 'listen_ipv6'), 'DNS server')
     if node['runtime'] != 'oci' or node['role'] == 'switch' or node.get('startup'):
         raise ValueError('DNS requires an OCI numbered endpoint without untracked startup commands.')
     interface = policy.get('interface')
@@ -67,6 +67,26 @@ def validate_dns(node):
     if len(set(normalized.values())) != len(normalized):
         raise ValueError('Initial DNS profile requires unique IPv4 addresses; CNAME/multiple PTRs are not exposed.')
     policy['records'] = dict(sorted(normalized.items()))
+    records6 = policy.get('records_ipv6', {})
+    if not isinstance(records6, dict) or len(records6) > 256:
+        raise ValueError('DNS records_ipv6 requires at most 256 hostname/IPv6 records.')
+    normalized6 = {}
+    for host, value in records6.items():
+        host = name(host)
+        if host != zone and not host.endswith('.' + zone):
+            raise ValueError('DNS AAAA records must belong to the local zone.')
+        if host in normalized6 or not isinstance(value, str) or '%' in value:
+            raise ValueError('Duplicate DNS AAAA name or invalid unscoped IPv6 address.')
+        address = ipaddress.IPv6Address(value)
+        if address.is_unspecified or address.is_loopback or address.is_multicast or address.is_link_local or address.ipv4_mapped:
+            raise ValueError('DNS AAAA requires a nonlocal unicast IPv6 address.')
+        normalized6[host] = str(address)
+    if len(set(normalized6.values())) != len(normalized6):
+        raise ValueError('DNS AAAA requires unique IPv6 addresses for deterministic PTRs.')
+    if 'records_ipv6' in policy: policy['records_ipv6'] = dict(sorted(normalized6.items()))
+    listen6 = policy.get('listen_ipv6', False)
+    if type(listen6) is not bool or (listen6 and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or interface != 'eth0' or not node.get('ipv6', {}).get(interface))):
+        raise ValueError('DNS listen_ipv6 requires a static dual-stack single-interface OCI host.')
     if len(server_config(node).encode('utf-8')) > 65536:
         raise ValueError('DNS configuration exceeds the 64 KiB observable file budget.')
 
@@ -78,8 +98,12 @@ def server_config(node):
              'no-resolv', 'no-hosts', 'no-poll', 'cache-size=0',
              'local=/' + policy['zone'] + '/', 'local-ttl=' + str(policy['ttl']),
              'pid-file=/run/dnsmasq.pid', 'user=root', 'group=root', 'log-facility=-']
-    for host, address in policy['records'].items():
-        lines.append(f'host-record={host},{address},{policy["ttl"]}')
+    if policy.get('listen_ipv6'):
+        lines.append('listen-address=' + str(ipaddress.IPv6Interface(node['ipv6'][policy['interface']]).ip))
+    records6 = policy.get('records_ipv6', {})
+    for host in sorted(set(policy['records']) | set(records6)):
+        values = [host] + [records[host] for records in (policy['records'], records6) if host in records] + [str(policy['ttl'])]
+        lines.append('host-record=' + ','.join(values))
     return '\n'.join(lines) + '\n'
 
 
@@ -96,8 +120,11 @@ def prepare_files(bundle, node):
 
 
 def start_servers(manager):
-    for node in manager.state['spec']['nodes']:
+    for index, node in enumerate(manager.state['spec']['nodes']):
         if node.get('dns_server') is not None:
+            if node['dns_server'].get('listen_ipv6'):
+                from .ipv6 import wait_addresses
+                wait_addresses(manager, index, node)
             manager.crun('exec', node['name'], BINARY, '--test', '--conf-file=/lab/dnsmasq.conf',
                          log=manager.directory / node['name'] / 'dns.log')
             manager.crun('exec', '--detach', node['name'], BINARY, '--keep-in-foreground', '--conf-file=/lab/dnsmasq.conf',
@@ -110,6 +137,7 @@ def observe_server(manager, index, node):
     listeners = manager.ns(index, 'ss', '-H', '-lntu', '( sport = :53 )', check=False)
     return {**observation, 'source': 'Container dnsmasq config and kernel DNS listener snapshot',
             'zone': node['dns_server']['zone'], 'records': node['dns_server']['records'],
+            'records_ipv6': node['dns_server'].get('records_ipv6', {}), 'listen_ipv6': node['dns_server'].get('listen_ipv6', False),
             'listener_snapshot': listeners.stdout.splitlines() if listeners.returncode == 0 else None,
             'note': 'File conformity/listening sockets do not prove DNS answers. Local static records only; no upstream, DNSSEC, dynamic registration, or cache snapshot.'}
 

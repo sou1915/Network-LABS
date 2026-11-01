@@ -941,3 +941,14 @@ def https_lab(server_rootfs, client_rootfs):
     spec['nodes'][0]['memory_mib']=max(spec['nodes'][0]['memory_mib'],32)
     spec['nodes'][2]['rootfs']=str(Path(client_rootfs).resolve())
     return validate(spec)
+
+
+def dual_stack_dns_lab(rootfs):
+    """Static physical dual-stack routing with explicit local A/AAAA DNS service."""
+    spec = dual_stack_lab(rootfs); spec['name'] = 'dual-stack-dns-lan'
+    client, _, _, server = spec['nodes']
+    client['resolvers'] = ['198.51.100.20']
+    server['dns_server'] = {'interface': 'eth0', 'zone': 'lab.test', 'listen_ipv6': True,
+                            'records': {'server.lab.test': '198.51.100.20'},
+                            'records_ipv6': {'server.lab.test': '2001:db8:20::20'}}
+    return validate(spec)

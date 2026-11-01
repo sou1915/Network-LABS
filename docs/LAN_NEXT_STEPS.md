@@ -451,3 +451,18 @@ with 124 environment-dependent skips. Broader CI was still running at this
 checkpoint. Remaining LAN work
 includes AAA/IPv6 service coexistence before GUI; planned VXLAN remains tracked
 above, with EVPN/BGP separately scoped.
+
+
+## Static dual-stack DNS coexistence increment
+
+An explicit `example --dual-stack-dns` now composes local DNS with static
+physical IPv4/IPv6 routing across two routers. Optional `records_ipv6` supplies
+AAAA data and `listen_ipv6:true` binds UDP/TCP DNS to the declared IPv6 address
+alongside IPv4. DAD readiness precedes daemon startup. Existing IPv4-only DNS
+configuration and probe defaults remain unchanged. The general probe still
+supports IPv4 A only; native IPv6 DNS proof uses an independent socket client.
+Dynamic IPv6, SVI/subinterface, RA Guard/firewall and other service/security
+combinations remain excluded here. See [DUAL_STACK_DNS.md](DUAL_STACK_DNS.md).
+Dedicated CI validation and remaining broader jobs are recorded after completion.
+Next: further AAA/IPv6 service integration and combined failure/recovery checks
+before GUI. VXLAN remains a planned later milestone.
