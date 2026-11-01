@@ -74,7 +74,14 @@ class NativeDualStackRadiusTests(unittest.TestCase):
             def denied(family=6,**kwargs):
                 result=ssh(family,**kwargs);self.assertEqual(result.returncode,126,result);self.assertEqual(result.stdout,'')
             def echo(family='ipv6'):
-                result=verify(manager,'PC1','PC2',family=family,count=1,bidirectional=True);self.assertEqual(result['status'],'passed',result)
+                # Readiness allows initial neighbor discovery; success still requires
+                # complete bidirectional delivery, without installing neighbor entries.
+                until=time.monotonic()+8
+                while True:
+                    result=verify(manager,'PC1','PC2',family=family,count=2,bidirectional=True)
+                    if result['status']=='passed':break
+                    if time.monotonic()>=until:self.fail(str(result))
+                    time.sleep(.2)
             try:
                 with manager.locked():manager.start(spec)
                 workers.append(dict(manager.state['ssh_radius_workers']['PC1']));ready();trust();echo('ipv4');echo()

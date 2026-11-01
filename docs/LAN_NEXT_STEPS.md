@@ -529,7 +529,16 @@ use IPv4/IPv6 SSH and the existing literal IPv4 RADIUS backend. DNS server
 co-location with AAA/management stays rejected. Static NAS resolvers are allowed.
 Native validation independently removes DNS, RADIUS and the DNS-specific routes,
 checks the surviving service and fail-closed AAA, and audits cold restore/cleanup.
-See [DUAL_STACK_SERVICES.md](DUAL_STACK_SERVICES.md); results are recorded after CI.
+The [dedicated combined native job](https://github.com/sou1915/Network-LABS/actions/runs/41356420727/job/124997326461)
+passed in 24.409 seconds on Ubuntu 24.04 at implementation commit
+`09efe039714c4e96ac680ab62f44749323ac204a`. See [DUAL_STACK_SERVICES.md](DUAL_STACK_SERVICES.md).
+Local tests passed 821 cases with 127 environment-dependent skips. The prior
+PD repair `f58c4c4` also subsequently completed all workflow jobs successfully.
+A separate existing DNS scenario lost its first initial IPv6 echo while the
+reverse direction succeeded. The static service tests now use a bounded
+healthy-control readiness loop requiring complete bidirectional two-packet
+verification; they do not seed neighbors or change production probe behavior.
+Its revalidation and broader CI status are recorded after completion.
 This supersedes the earlier DNS/AAA-combination exclusion only for the explicit
 separate-node static profile. Shell/accounting, Telnet, dynamic/security service
 compositions and broader LAN coverage remain before GUI; VXLAN stays planned.

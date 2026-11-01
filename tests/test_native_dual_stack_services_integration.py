@@ -75,7 +75,14 @@ class NativeDualStackServicesTests(unittest.TestCase):
                 self.assertEqual(probe(manager,'PC1','nas.lab.test',protocol='dns',dns_transport='tcp')['status'],'passed')
             def echo():
                 for family in ('ipv4','ipv6'):
-                    actual=verify(manager,'PC1','DNS1',family=family,count=1,bidirectional=True);self.assertEqual(actual['status'],'passed',actual)
+                    # Readiness allows initial neighbor discovery; success still requires
+                    # complete bidirectional delivery, without installing neighbor entries.
+                    until=time.monotonic()+8
+                    while True:
+                        actual=verify(manager,'PC1','DNS1',family=family,count=2,bidirectional=True)
+                        if actual['status']=='passed':break
+                        if time.monotonic()>=until:self.fail(str(actual))
+                        time.sleep(.2)
             try:
                 with manager.locked():manager.start(spec)
                 workers.append(dict(manager.state['ssh_radius_workers']['PC1']));ready();trust();echo()
