@@ -1,4 +1,4 @@
-"""Bounded accounting for authorized local shell sessions; no delivery queue."""
+"""Bounded accounting for authorized local shell sessions; finite optional retries, no delivery queue."""
 import json
 from pathlib import Path
 import re
@@ -27,7 +27,8 @@ def send(manager, source, server, *, username, secret, session_id, event, sessio
     index, node = next((i, n) for i, n in enumerate(manager.read()['spec']['nodes']) if n['name'] == source)
     if node['radius_access'].get('accounting') is not True:
         raise ValueError('Session accounting must be explicitly enabled in the node policy.')
-    report = {'status': 'unknown', 'event': event, 'session_id': session_id, 'response_verified': False,
+    retries = node['radius_access'].get('accounting_retries', 0)
+    report = {'retries_allowed': retries, 'status': 'unknown', 'event': event, 'session_id': session_id, 'response_verified': False,
               'requests_sent': 0, 'discarded_responses': 0, 'response_code': None, 'error': None}
     endpoint = _endpoint(manager, index, node)
     if endpoint['status'] != 'ready': return {**report, 'error': 'ENDPOINT_UNAVAILABLE'}
@@ -37,7 +38,7 @@ def send(manager, source, server, *, username, secret, session_id, event, sessio
         return {**report, 'error': 'REMOTE_TARGET_REQUIRED'}
     request = dict(source=endpoint['address'], address=server, port=1813, username=username, secret=secret,
                    session_id=session_id, event=event, session_seconds=session_seconds,
-                   terminate_cause=terminate_cause, timeout=timeout)
+                   terminate_cause=terminate_cause, timeout=timeout, retries=retries)
     worker = Path(__file__).with_name('radius_accounting_worker.py').read_text()
     try:
         process = manager.ns(index, sys.executable, '-I', '-c', worker, input_text=json.dumps(request),
@@ -47,11 +48,11 @@ def send(manager, source, server, *, username, secret, session_id, event, sessio
         value = {key: value[key] for key in ('status', 'response_verified', 'requests_sent',
                  'discarded_responses', 'response_code', 'error')}
         if (value['status'] not in ('passed', 'unknown') or type(value['response_verified']) is not bool or
-                type(value['requests_sent']) is not int or value['requests_sent'] not in (0, 1) or
+                type(value['requests_sent']) is not int or not 0 <= value['requests_sent'] <= 1 + retries or
                 type(value['discarded_responses']) is not int or not 0 <= value['discarded_responses'] <= 64 or
                 value['error'] not in (None, 'TIMEOUT', 'PACKET_LIMIT', 'TRANSPORT_ERROR')): raise ValueError
         if value['status'] == 'passed':
-            if (not value['response_verified'] or value['requests_sent'] != 1 or
+            if (not value['response_verified'] or not 1 <= value['requests_sent'] <= 1 + retries or
                     type(value['response_code']) is not int or value['response_code'] != 5 or value['error'] is not None):
                 raise ValueError
         elif value['response_verified'] or value['response_code'] is not None: raise ValueError

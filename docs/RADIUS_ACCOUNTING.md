@@ -1,7 +1,8 @@
 # Bounded session accounting
 
-Accounting is optional and applies to `radius-login` sessions, not the existing
-administrative `exec`, SSH/Telnet services or fixed `radius-exec` diagnostics.
+Accounting is optional and applies to `radius-login` and the explicitly
+RADIUS-gated SSH shell using that supervisor. Ordinary administrative exec,
+SSH/Telnet access and fixed `radius-exec` diagnostics are unchanged.
 Enable `"accounting": true` in both the source's `radius_access` policy and
 the managed server's `radius_server` declaration. The same server address and
 NAS shared secret are used for authentication and accounting.
@@ -24,7 +25,7 @@ present in the supplied module directory, together with trusted host util-linux
 accounting startup refuses a root without it. Existing roots may need rebuilding.
 Private credential-file rules and [login policy](RADIUS_LOGIN.md) remain required.
 
-The client sends one IPv4 UDP/1813 Accounting-Request per event and validates
+By default the client sends one IPv4 UDP/1813 Accounting-Request per event and validates
 the Accounting-Response identifier, source endpoint, packet lengths, TLVs and
 shared-secret Response Authenticator. It uses the accounting Request
 Authenticator defined in [RFC 2866](https://www.rfc-editor.org/rfc/rfc2866.html),
@@ -47,8 +48,8 @@ If Stop is unacknowledged after a launched session, the invocation reports
 `ACCOUNTING_STOP_UNCONFIRMED`; completed commands are not rolled back.
 
 Each event has a 1..5-second deadline and at most 64 received datagrams.
-There are no retries, failover, interim updates, durable resend queue or crash
-reconciliation. Lost receipts can leave uncertain or unmatched records.
+Optional finite retries are described below. There is no alternate-server
+failover, interim update, durable resend queue or crash reconciliation. Lost receipts can leave uncertain or unmatched records.
 Host crashes and uncatchable termination retain the login supervisor's existing
 limitations. This profile is not a billing or durable audit guarantee.
 
@@ -74,3 +75,49 @@ No log rotation or durable central storage is implemented. The additional
 native scenario fills that filesystem and requires an unrecorded Start to
 receive no acknowledgement and grant no shell. Native CI must validate this
 alongside real Start/Stop matching, termination causes and private file modes.
+
+
+## Optional bounded retries
+
+`radius_access.accounting_retries` accepts an integer from 0 to 2, only when
+accounting is enabled. Omission preserves the existing one-send behavior;
+the reference generator exposes `--radius-accounting-retries 2` alongside
+`--radius --radius-shell --radius-accounting`, or the explicit SSH shell profile.
+The currently bounded dual-stack diagnostic profiles still exclude shell and
+accounting combinations.
+
+Each Start or Stop exchange shares its original 1..5-second deadline across
+all sends. Exponential waits divide that finite budget: with two retries,
+the base wait is one seventh of the budget, followed by twice that wait after
+the next send; the remaining time waits for a verified receipt. Scheduler delay
+never triggers catch-up bursts or extends the absolute deadline. At most three requests and
+64 received datagrams are processed, including invalid/unrelated replies.
+A packet flood does not reset either limit. `requests_sent` reports the actual
+count and `retries_allowed` the declared maximum additional sends.
+
+The integer Acct-Delay-Time is recomputed from monotonic elapsed time. If it
+changes, a new Identifier and Request Authenticator are generated, as described
+in [RFC 2866](https://www.rfc-editor.org/rfc/rfc2866.html). If attributes remain
+identical, the packet/Identifier remain identical. A late receipt is accepted
+only if it verifies against a request actually sent during this exchange.
+The secret still arrives only on worker stdin and is absent from normal results.
+
+Start remains a verified-receipt gate: retries never open a shell on uncertain
+accounting. Stop remains after confirmed cleanup; a lost Stop receipt is still
+reported as unknown after the bounded attempts, with no rollback or reopened
+session. Retry state exists only during this invocation. Saving the retry policy
+does not save undelivered events; restart does not replay them. A compensating
+Stop after an uncertain Start has its own bounded exchange as before.
+
+The backend can append duplicate Start/Stop records, especially after a changed
+Acct-Delay-Time or lost receipt. This feature offers neither exactly-once logging
+nor a durable audit guarantee. The existing private node-local tmpfs records
+remain ephemeral. Durable queues/reconciliation require separate work.
+
+The dedicated native scenario uses real FreeRADIUS and owned NAS nftables rules
+to discard the first two accounting responses, while leaving authentication
+working. It checks actual retransmitted packets and delay/authenticator changes,
+one non-root shell launch after acknowledged Start, no launch with all Start
+receipts lost, unconfirmed Stop after cleanup, explicit later receipt, persisted
+retry policy, cold restore and host invariants. Results are recorded in
+LAN_NEXT_STEPS.md.

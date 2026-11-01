@@ -607,7 +607,10 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0):
+    from .spec import integer
+    integer(accounting_retries, 0, 2, 'Accounting retries')
+    if accounting_retries and not accounting: raise ValueError('Accounting retries require accounting.')
     if ssh_shell:
         if ssh_key is None: raise ValueError('SSH RADIUS shell requires an SSH key.')
         allow_shell = True
@@ -621,6 +624,7 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
     if allow_shell: spec['nodes'][0]['radius_access']['users'][username].append('shell')
     if accounting:
         spec['nodes'][0]['radius_access']['accounting'] = True
+        if accounting_retries: spec['nodes'][0]['radius_access']['accounting_retries'] = accounting_retries
         spec['nodes'][2]['radius_server']['accounting'] = True
     if ssh_key is not None:
         spec['nodes'][0]['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key],

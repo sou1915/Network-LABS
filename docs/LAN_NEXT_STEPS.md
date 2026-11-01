@@ -577,3 +577,19 @@ All jobs for the prior combined-readiness checkpoint `d7b426e` subsequently
 completed successfully.
 Combined/dynamic/security profiles and broader AAA remain separate work before
 GUI; planned VXLAN remains tracked above.
+
+
+## Bounded RADIUS accounting retransmission increment
+
+An explicit `radius_access.accounting_retries:0..2` permits finite retransmission
+inside each existing accounting deadline. The default still sends once. The
+reference supports `--radius-accounting-retries` with enabled shell accounting.
+Whole-second Acct-Delay-Time changes update Identifier/Request Authenticator;
+identical packets retain them, and only verified replies matching actually sent
+requests can confirm receipt. Start gating and Stop-after-cleanup remain in force.
+This is volatile per-exchange retry, not durable delivery or exactly-once logging;
+backend duplicate records remain possible. The IPv4 shell/accounting scope is
+unchanged. See [RADIUS_ACCOUNTING.md](RADIUS_ACCOUNTING.md).
+Native packet-loss, session-gating and cold-restore results follow after CI.
+Durable accounting, broader AAA and dynamic/security combinations remain before
+GUI as separately scoped work. VXLAN stays planned above.
