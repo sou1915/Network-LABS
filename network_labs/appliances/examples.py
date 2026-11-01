@@ -930,3 +930,14 @@ def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name):
     spec['nodes'][2]['rootfs'] = str(Path(client_rootfs).resolve())
     spec['nodes'][2]['management'].update(syslog_transport='tls', syslog_tls=policy(client_rootfs, server_name))
     return validate(spec)
+
+
+def https_lab(server_rootfs, client_rootfs):
+    """Persistent server-authenticated HTTPS with offline supplied identity."""
+    from .spec import example
+    from .https_server import policy
+    spec=example(server_rootfs);spec['name']='https-lan'
+    spec['nodes'][0]['https_server']=policy(server_rootfs)
+    spec['nodes'][0]['memory_mib']=max(spec['nodes'][0]['memory_mib'],32)
+    spec['nodes'][2]['rootfs']=str(Path(client_rootfs).resolve())
+    return validate(spec)

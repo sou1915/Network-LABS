@@ -84,7 +84,7 @@ def validate_lab(spec):
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
+        forbidden = ('https_server', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay', 'dns_server', 'resolvers',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or

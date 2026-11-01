@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('ra_guard', 'firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('https_server', 'ra_guard', 'firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf', 'ospfv3')
 
 
@@ -201,6 +201,8 @@ def validate_lan(node):
     validate_radius_access(node)
     from .dhcpv6_relay import validate_node as validate_dhcpv6_relay
     validate_dhcpv6_relay(node)
+    from .https_server import validate_node as validate_https
+    validate_https(node)
     from .dhcpv6_pd import validate_node as validate_pd
     validate_pd(node)
     if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
@@ -387,6 +389,9 @@ def observe(manager, index, node):
     if node['management']:
         from .management import observe as observe_management
         result['management'] = observe_management(manager, node)
+    if node.get('https_server'):
+        from .https_server import observe as observe_https
+        result['https_server'] = observe_https(manager, node)
     from .route_lookup import ipv4_settings
     result['ipv4_settings'] = ipv4_settings(manager, index, node)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':

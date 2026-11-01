@@ -60,6 +60,8 @@ def oci_config(spec, node, index, rootfs):
         caps.append('CAP_SYS_CHROOT')
     from .syslog_tls import config as tls_config, BASE as TLS_BASE
     tls_masks = [TLS_BASE] if tls_config(node) is None and (Path(node['rootfs']) / TLS_BASE.lstrip('/')).exists() else []
+    from .https_server import BASE as HTTPS_BASE
+    if not node.get('https_server') and (Path(node['rootfs']) / HTTPS_BASE.lstrip('/')).exists(): tls_masks.append(HTTPS_BASE)
     management_mounts = []
     if node.get('dhcpv6_pd_server'):
         management_mounts.append({'destination': '/etc/kea/kea-dhcp6.conf', 'type': 'bind',
@@ -137,7 +139,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, nginx=None, https_ca=None, https_certificate=None, https_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -189,6 +191,12 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
     if rsyslog is not None:
         from .syslog_server import rootfs_assets
         collector_additions = rootfs_assets(rsyslog, rsyslog_modules, tcp=rsyslog_tcp, forward=rsyslog_forward, tls=rsyslog_tls)
+    from .https_server import identity_assets as https_identity, rootfs_assets as nginx_assets
+    supplied_https = (https_ca, https_certificate, https_private_key)
+    if (nginx is not None and not all(v is not None for v in supplied_https)) or (nginx is None and any(v is not None for v in supplied_https)):
+        raise ValueError('--nginx requires all three HTTPS CA, certificate and private-key files; omit them otherwise.')
+    https_values = https_identity(*supplied_https) if nginx is not None else None
+    https_additions = nginx_assets(nginx) if nginx is not None else []
     snmp_additions = []
     if snmpd is not None:
         from .snmp import rootfs_assets
@@ -222,12 +230,17 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         (target / 'bin' / applet).symlink_to('busybox')
     (target / 'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (target / 'etc/group').write_text('root:x:0:\n')
-    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + snmp_additions + notification_additions + ntp_additions + radius_additions + pd_additions:
+    for source, destination in additions + lldp_additions + ovs_additions + bird_additions + management_additions + collector_additions + https_additions + snmp_additions + notification_additions + ntp_additions + radius_additions + pd_additions:
         path = target / str(destination).lstrip('/')
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, path)
         path.chmod(0o755)
     if tls_values is not None: install_tls(target, tls_values)
+    if https_values is not None:
+        from .https_server import install as install_https
+        install_https(target, https_values)
+        with (target / 'etc/passwd').open('a') as account: account.write('https:x:65531:65531:HTTPS:/nonexistent:/bin/false\n')
+        with (target / 'etc/group').open('a') as group: group.write('https:x:65531:\n')
     if kea_dhcp6 is not None:
         (target / 'etc/kea').mkdir(parents=True, exist_ok=True)
         (target / 'etc/kea/kea-dhcp6.conf').write_text('{}\n')
@@ -348,6 +361,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP receiver requires a rootfs built with --snmptrapd.')
             if node.get('snmp_agent') and not (Path(node['rootfs']) / 'usr/lib/network-labs/snmpd').is_file():
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
+            from .https_server import preflight as https_preflight
+            https_preflight(node)
             from .syslog_tls import config as tls_config, preflight as tls_preflight, MODULES as TLS_MODULES
             if tls_config(node) is not None:
                 tls_preflight(node)
@@ -484,6 +499,8 @@ class Manager:
             start_management(self)
             from .syslog_server import start_servers as start_collectors
             start_collectors(self)
+            from .https_server import start_servers as start_https
+            start_https(self)
             from .ntp_server import start_servers as start_ntp
             start_ntp(self)
             from .snmp_notifications import start_receivers as start_notification_receivers
@@ -501,6 +518,11 @@ class Manager:
             raise
 
     def start_oci(self, spec, node, index):
+        from .https_server import preflight as https_preflight
+        https_key_hash = https_preflight(node)
+        if https_key_hash is not None:
+            self.state.setdefault('https_key_hashes', {})[node['name']] = https_key_hash
+            self.save()
         from .syslog_tls import preflight as tls_preflight
         key_hash = tls_preflight(node)
         if key_hash is not None:
@@ -533,6 +555,8 @@ class Manager:
         prepare_management(bundle, node)
         from .syslog_server import prepare_files as prepare_collector
         prepare_collector(bundle, node)
+        from .https_server import prepare_files as prepare_https
+        prepare_https(bundle, node)
         from .ntp_server import prepare_files as prepare_ntp
         prepare_ntp(bundle, node)
         from .radius_server import prepare_files as prepare_radius
@@ -552,6 +576,9 @@ class Manager:
         # Record before run: crun can create state before reporting a startup error.
         self.state['containers'].append(node['name']); self.save()
         self.crun('run', '--detach', '--bundle', bundle, node['name'], log=bundle / 'console.log')
+        if node.get('https_server'):
+            from .https_server import BASE, CA, CERT, KEY
+            self.crun('exec', node['name'], '/bin/busybox', 'chown', '0:0', BASE, CA, CERT, KEY)
         for command in node['startup']:
             self.crun('exec', node['name'], *command, log=bundle / 'console.log')
 

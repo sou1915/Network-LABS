@@ -22,6 +22,8 @@ def drift(manager):
     for index, node in enumerate(manager.read()['spec']['nodes']):
         if node['runtime'] != 'oci':
             continue
+        from .https_server import drift as https_drift
+        errors.extend(https_drift(manager, node))
         from .ipv6 import drift as ipv6_drift
         errors.extend(ipv6_drift(manager, index, node))
         from .slaac import drift as slaac_drift
