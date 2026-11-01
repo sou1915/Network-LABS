@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  dual-stack-services-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DNS and AAA coexistence prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base dropbear-bin openssh-client freeradius
+      - name: Verify real DNS and AAA, independent outages, route isolation and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_services_integration.py -v
   dual-stack-radius-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

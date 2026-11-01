@@ -84,8 +84,10 @@ def validate_lab(spec):
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
     if aaa_coexistence:
-        if dns_coexistence or not any(n.get('radius_server') for n in spec['nodes']):
-            raise ValueError('Dual-stack AAA requires a separate managed RADIUS profile without DNS coexistence.')
+        if not any(n.get('radius_server') for n in spec['nodes']):
+            raise ValueError('Dual-stack AAA requires a separate managed RADIUS server.')
+        if dns_coexistence and any(n.get('dns_server') and (n.get('management') or n.get('radius_access') or n.get('radius_server')) for n in spec['nodes']):
+            raise ValueError('Combined dual-stack services require a separate DNS server without AAA/management on that node.')
         for node in spec['nodes']:
             management = node.get('management') or {}
             access = node.get('radius_access') or {}

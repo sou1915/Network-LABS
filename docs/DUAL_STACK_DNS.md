@@ -66,3 +66,6 @@ transports, exact listener scope, actual packet captures, independent forwarding
 outages, DNS outage with working ICMP in both families, service recovery,
 config/resolver drift refusal, cold restore and host cleanup. CI results are
 recorded in LAN_NEXT_STEPS.md after completion.
+
+The explicit [combined DNS/AAA profile](DUAL_STACK_SERVICES.md) also validates
+separate DNS and RADIUS nodes with a managed dual-stack SSH NAS.

@@ -518,3 +518,18 @@ tentative link-local restart and declarative cold restore. Local tests passed
 dual-stack AAA job also passed on that repair commit; broader native/switching
 jobs were still running at this checkpoint. The earlier failed PD cold restore
 at `a9a182f` is retained above as the observed cause, not a passing baseline.
+
+
+## Combined static dual-stack DNS and AAA increment
+
+`example --radius --radius-ssh --radius-dual-stack --radius-dns` now composes
+five nodes: SSH NAS/DNS client, two routers, separate RADIUS server and separate
+DNS server. DNS A/AAAA and UDP/TCP run over both families; protected diagnostics
+use IPv4/IPv6 SSH and the existing literal IPv4 RADIUS backend. DNS server
+co-location with AAA/management stays rejected. Static NAS resolvers are allowed.
+Native validation independently removes DNS, RADIUS and the DNS-specific routes,
+checks the surviving service and fail-closed AAA, and audits cold restore/cleanup.
+See [DUAL_STACK_SERVICES.md](DUAL_STACK_SERVICES.md); results are recorded after CI.
+This supersedes the earlier DNS/AAA-combination exclusion only for the explicit
+separate-node static profile. Shell/accounting, Telnet, dynamic/security service
+compositions and broader LAN coverage remain before GUI; VXLAN stays planned.

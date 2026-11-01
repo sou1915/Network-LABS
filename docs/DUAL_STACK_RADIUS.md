@@ -44,7 +44,7 @@ single-interface OCI host, SSH keys, and a declared IPv6 address on eth0.
 In IPv6 labs, the currently supported management composition additionally
 requires a managed IPv4 RADIUS server, `ssh_radius:true`, a fixed `ssh_actions`
 list and the matching `radius_access` policy. Ordinary unrestricted SSH,
-Telnet, shell/accounting, syslog, DNS combination, dynamic IPv6, SVIs,
+Telnet, shell/accounting, syslog, dynamic IPv6, SVIs,
 subinterfaces, RA Guard and firewall combinations remain excluded here.
 Forwarding and other SSH bypass paths keep their existing restrictions.
 
@@ -66,3 +66,6 @@ and negative controls, wrong keys/passwords, arbitrary-command denial, encrypted
 SSH wire content, actual IPv4 RADIUS traffic, independent routing failures,
 backend outage/recovery, policy drift refusal, cold restore, supervisor cleanup
 and host network invariants. Results are recorded in LAN_NEXT_STEPS.md.
+
+A later explicit [combined DNS/AAA profile](DUAL_STACK_SERVICES.md) permits
+a separate DNS service node plus static NAS resolvers; other exclusions remain.

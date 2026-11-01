@@ -5683,3 +5683,7 @@ transport alongside the existing IPv4 listener and IPv4 RADIUS backend. Each
 fixed diagnostic still needs SSH key access, local action authorization and a
 fresh verified Access-Accept. RADIUS-over-IPv6, general shells, Telnet/accounting
 and combined DNS/security profiles are not implied by this increment.
+
+The later [combined static DNS/AAA profile](DUAL_STACK_SERVICES.md) validates
+separate DNS and RADIUS nodes alongside the dual-stack SSH NAS. It does not
+enable the other excluded service/security combinations.

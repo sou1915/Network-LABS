@@ -965,3 +965,23 @@ def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *
     client['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key], 'ssh_radius': True,
                             'ssh_ipv6': True, 'ssh_actions': actions}
     return validate(spec)
+
+
+def dual_stack_services_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None):
+    """Routed dual-stack DNS and RADIUS/SSH on separate bounded service nodes."""
+    spec = dual_stack_radius_lab(rootfs, secret, password_sha256, username, ssh_key=ssh_key, ssh_actions=ssh_actions)
+    spec['name'] = 'dual-stack-services-lan'
+    client, first, second, _ = spec['nodes']
+    client['resolvers'] = ['203.0.113.53']
+    first['routes'].append({'destination': '203.0.113.0/24', 'gateway': '198.18.0.2', 'interface': 'eth1'})
+    first['ipv6_routes'].append({'destination': '2001:db8:30::/64', 'gateway': '2001:db8:100::2', 'interface': 'eth1'})
+    second['interfaces']['eth2'] = '203.0.113.1/24'
+    second['ipv6']['eth2'] = '2001:db8:30::1/64'
+    spec['nodes'].append({'name': 'DNS1', 'runtime': 'oci', 'rootfs': str(Path(rootfs).resolve()), 'role': 'host',
+        'interfaces': {'eth0': '203.0.113.53/24'}, 'gateway': '203.0.113.1',
+        'ipv6': {'eth0': '2001:db8:30::53/64'},
+        'ipv6_routes': [{'destination': '::/0', 'gateway': '2001:db8:30::1', 'interface': 'eth0'}],
+        'dns_server': {'interface': 'eth0', 'zone': 'lab.test', 'listen_ipv6': True,
+                       'records': {'nas.lab.test': '192.0.2.10'}, 'records_ipv6': {'nas.lab.test': '2001:db8:10::10'}}})
+    spec['links'].append([['R2', 'eth2'], ['DNS1', 'eth0']])
+    return validate(spec)

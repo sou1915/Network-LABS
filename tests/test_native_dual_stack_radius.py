@@ -49,9 +49,9 @@ class DualStackRadiusTests(unittest.TestCase):
             else:spec['nodes'][1]['interfaces']['eth0']=''
             with self.subTest(edit=edit),self.assertRaises(ValueError):validate(spec)
 
-    def test_dns_and_aaa_profile_combination_remains_rejected(self):
+    def test_dns_server_co_location_with_nas_remains_rejected(self):
         spec=dual_stack_radius_lab('/rootfs',SECRET,DIGEST,ssh_key=KEY)
-        spec['nodes'][0]['resolvers']=['198.51.100.20']
+        spec['nodes'][0]['dns_server']={'interface':'eth0','zone':'lab.test','records':{'nas.lab.test':'192.0.2.10'}}
         with self.assertRaises(ValueError):validate(spec)
 
     def test_dad_wait_precedes_ssh_launch_and_changes_require_recreation(self):
