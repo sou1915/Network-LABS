@@ -14,8 +14,9 @@ from .verify import _endpoint
 from .route_lookup import _json_read
 
 
-def read(manager, source, address, filename, *, timeout=5, expected_sha256=None):
+def read(manager, source, address, filename, *, timeout=5, expected_sha256=None, block_size=None):
     integer(timeout, 1, 10, 'TFTP deadline seconds')
+    if block_size is not None: integer(block_size, 512, 1428, 'TFTP requested block size')
     if not isinstance(address, str): raise ValueError('TFTP requires a literal IPv4 server address.')
     address = unicast(address)
     if not isinstance(filename, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', filename) or filename in ('.', '..'):
@@ -30,9 +31,9 @@ def read(manager, source, address, filename, *, timeout=5, expected_sha256=None)
         raise ValueError('TFTP requires a managed single-interface OCI host.')
     index, node = match; endpoint = _endpoint(manager, index, node)
     report = {'lab': manager.name, 'node': source, 'server': address, 'filename': filename, 'port': 69,
-              'endpoint': endpoint, 'status': endpoint['status'], 'transfer': None, 'hash_matches': None,
+              'requested_block_size': block_size, 'endpoint': endpoint, 'status': endpoint['status'], 'transfer': None, 'hash_matches': None,
               'started_at': datetime.now(timezone.utc).isoformat(), 'configuration_changed': False,
-              'scope': 'One unauthenticated IPv4 TFTP octet read, at most 65536 bytes and 256 received datagrams including final ACK dally. At most three timeout retransmissions per block with exponential backoff within the overall deadline. Identical final DATA may be acknowledged again for up to one second within the same deadline. Passed means content received locally and initial final ACK sent, not confirmed server receipt. No file is saved, no writes, option negotiation, IPv6 or DNS. A failed transfer does not establish its cause.'}
+              'scope': 'One unauthenticated IPv4 TFTP octet read, at most 65536 bytes and 256 received datagrams including final ACK dally. At most three timeout retransmissions per block with exponential backoff within the overall deadline. Identical final DATA may be acknowledged again for up to one second within the same deadline. Passed means content received locally and initial final ACK sent, not confirmed server receipt. No file is saved, no writes, IPv6 or DNS. Optional blksize-only negotiation accepts 512..1428 bytes; ignored options retain 512. A failed transfer does not establish its cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         return report
@@ -43,6 +44,7 @@ def read(manager, source, address, filename, *, timeout=5, expected_sha256=None)
         report['error'] = 'A remote target is required.'
         return finish('blocked')
     request = {'source': endpoint['address'], 'address': address, 'filename': filename, 'timeout': timeout, 'port': 69}
+    if block_size is not None: request['block_size'] = block_size
     worker = Path(__file__).with_name('tftp_worker.py').read_text()
     try:
         process = manager.ns(index, sys.executable, '-I', '-c', worker, json.dumps(request), check=False, timeout=timeout + 2)
@@ -72,6 +74,7 @@ def render(report):
     transfer = report.get('transfer')
     if transfer:
         lines.append('Octets reçus : ' + str(transfer.get('bytes_received', 0)))
+        if 'block_size' in transfer: lines.append('Bloc : ' + str(transfer['block_size']) + ' octets')
         if 'retransmissions' in transfer: lines.append('Retransmissions : ' + str(transfer['retransmissions']))
         if transfer.get('final_ack'):
             lines.append('Dernier ACK : ' + str(transfer['final_ack']['duplicate_acks']) +

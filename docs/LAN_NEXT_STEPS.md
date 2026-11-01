@@ -431,3 +431,19 @@ handling, tenant isolation, MTU/encapsulation, underlay loss/recovery and resour
 budgets. Require native packet captures plus save/restart and host-cleanup checks.
 EVPN/BGP control-plane support is a separate later milestone; static VXLAN must
 not be described as EVPN. WAN work remains separately tracked.
+
+
+## TFTP blocksize increment
+
+Read-only TFTP gains explicit `--block-size 512..1428` negotiation; omission
+keeps the existing option-free 512-byte mode. Valid OACK selects the bounded
+size and transfer peer, with ACK-0 retry and identical OACK recovery. Ignored
+options fall back to DATA-1/classic 512. Unknown, duplicate, oversized, changed,
+late or unsolicited options fail without a completed digest; changed duplicate
+DATA is also rejected. File size, datagram count and absolute deadline budgets
+remain unchanged. This is not PMTU discovery or authenticated file transfer.
+Native validation uses the existing real dnsmasq server, including binary
+content/hash and empty/exact/max-size files, wire capture, drift refusal and
+cold restore; results will be recorded after CI completes. Remaining LAN work
+includes AAA/IPv6 service coexistence before GUI; planned VXLAN remains tracked
+above, with EVPN/BGP separately scoped.

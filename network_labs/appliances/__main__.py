@@ -175,6 +175,7 @@ def main(arguments=None):
     tftp.add_argument('name'); tftp.add_argument('source'); tftp.add_argument('server'); tftp.add_argument('filename')
     tftp.add_argument('--timeout', type=int, default=5, help='Total transfer deadline, 1..10 seconds.')
     tftp.add_argument('--sha256', help='Optional expected SHA-256 of the complete transfer.')
+    tftp.add_argument('--block-size', type=int, help='Request blksize negotiation, 512..1428 bytes; omitted keeps classic 512.')
     tftp.add_argument('--json', action='store_true')
     radius = commands.add_parser('radius-auth', help='One explicit PAP authentication request to an existing RADIUS server; no node access changes.')
     radius.add_argument('name'); radius.add_argument('source'); radius.add_argument('server')
@@ -439,7 +440,7 @@ def main(arguments=None):
                     return 130 if result['status'] == 'interrupted' else 124 if result['status'] == 'expired' else 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
                     from .tftp import read, render
-                    result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256)
+                    result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256, **({'block_size': args.block_size} if args.block_size is not None else {}))
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'sntp-demo':

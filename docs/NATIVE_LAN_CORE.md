@@ -3299,7 +3299,26 @@ does not invalidate already received content. UDP tests cover lost final ACKs
 for empty files, exact 512-byte multiples and multiple blocks, plus peer/payload
 filtering and the fixed time/packet limits. A privileged integration test also
 exercises a repeated final packet across the actual bridge.
-There is no DNS, IPv6, file write or option negotiation.
+There is no DNS, IPv6 or file write. Optional blocksize negotiation now uses
+`--block-size 512..1428`; omission sends the original option-free request.
+
+```bash
+sudo python3 -m network_labs.appliances tftp-read tftp-lan PC1 192.0.2.20 sample.bin --block-size 1428 --json
+```
+
+Only `blksize` is requested ([RFC 2348](https://www.rfc-editor.org/rfc/rfc2348),
+[RFC 2347](https://www.rfc-editor.org/rfc/rfc2347)). The supported local subset is
+512..1428 bytes, not the full RFC range. OACK must contain exactly one blksize
+at most the requested size; lower values below 512, unknown/duplicate options,
+missing terminators, unsolicited or changed/late OACK fail with option error 8
+and an unknown result. Initial OACK selects the transfer peer and is acknowledged
+with ACK 0; identical repeats are re-acknowledged without resetting retry/deadline
+budgets. DATA 1 without OACK means the server ignored the option: classic 512 is
+used and reported. A changed duplicate DATA is rejected without a completed hash.
+The 64 KiB content limit, 256-datagram budget, overall deadline, retry limits and
+final ACK dally remain in force. The selected size is a bounded choice, not PMTU
+discovery; smaller underlay MTUs can still cause failure. No windowsize, tsize or
+timeout negotiation is supplied.
 Timeout, retry limit, size limit or protocol errors are reported without
 claiming their underlying cause. See [RFC 1350](https://www.rfc-editor.org/rfc/rfc1350.html).
 
