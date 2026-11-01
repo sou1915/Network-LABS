@@ -488,5 +488,26 @@ is opt-in and startup waits for DAD. Backend unavailability must deny execution
 even if IPv6 SSH still connects. This is fixed diagnostics only; RADIUS IPv6,
 RadSec, shell/accounting, Telnet, DNS combination and dynamic/security service
 compositions remain outside the increment. See [DUAL_STACK_RADIUS.md](DUAL_STACK_RADIUS.md).
-Dedicated native results are recorded after CI; broader AAA and combined service
-work remains before GUI. Planned VXLAN stays separately tracked.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41353429942/job/124988323041)
+passed in 26.686 seconds on Ubuntu 24.04 at implementation commit
+`1d88487fefc89c230cf56d6a378d83002d910581`. Both SSH families, per-user
+positive/negative actions, wrong keys/passwords, UID/capabilities, arbitrary
+command rejection, encrypted SSH captures, actual IPv4 RADIUS packets,
+family-specific routing failures, backend outage/recovery, policy drift refusal,
+cold restore, fresh supervisor tokens and host cleanup passed. General CI and
+the dual-stack DNS job also passed. Local tests passed 813 cases with 126 skips.
+Broader AAA and combined service work remains before GUI; planned VXLAN stays
+separately tracked.
+
+## DHCPv6 PD startup race repair
+
+The earlier dual-stack DNS implementation's full CI exposed an independent
+PD cold-restore failure: Kea logged a failed link-local bind and continued as a
+process with no DHCPv6 sockets. A ready global IPv6 address did not imply ready
+link-local DAD. PD server startup now waits up to eight seconds for a usable
+server-port link-local address, rejects failed DAD, and requires both the owned
+Kea process and an actual UDP/547 socket before returning ready. It does not
+skip DAD or install an address to make the check pass.
+The native PD scenario now deliberately recreates a tentative link-local
+address before restarting Kea, then repeats actual delegation, SLAAC, expiry,
+recovery and cold restore. Results are recorded after its dedicated CI job.

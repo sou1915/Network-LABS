@@ -167,9 +167,31 @@ def stop_server(manager, node):
         time.sleep(.1)
 
 
+def wait_server_linklocal(manager, node):
+    """Kea needs a usable link-local socket even when its global address is ready."""
+    from .runtime import RuntimeFailure
+    index = next(i for i, n in enumerate(manager.state['spec']['nodes']) if n['name'] == node['name'])
+    port = node['dhcpv6_pd_server']['interface']
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        rows = json.loads(manager.ns(index, 'ip', '-j', '-6', 'addr', 'show', 'dev', port, 'scope', 'link', timeout=3).stdout)
+        for row in rows:
+            for address in row.get('addr_info', []):
+                if address.get('family') != 'inet6' or address.get('scope') != 'link': continue
+                flags = address.get('flags', [])
+                if address.get('dadfailed') or 'dadfailed' in flags:
+                    raise RuntimeFailure(node['name'] + ': PD server link-local DAD failed.')
+                if (ipaddress.IPv6Address(address['local']).is_link_local and not address.get('tentative') and
+                        'tentative' not in flags and not address.get('deprecated') and 'deprecated' not in flags):
+                    return index
+        time.sleep(.1)
+    raise RuntimeFailure(node['name'] + ': PD server link-local address unavailable after DAD deadline.')
+
+
 def start_server(manager, node):
     from .runtime import RuntimeFailure
     if processes(manager, node, managed=False): raise RuntimeFailure('Refusing PD startup while a Kea process already exists.')
+    index = wait_server_linklocal(manager, node)
     manager.crun('exec', node['name'], '/bin/busybox', 'mkdir', '-p', '/run/kea', '/run/lock/kea', timeout=3)
     command = ['/bin/busybox', 'env', 'KEA_PIDFILE_DIR=/run/kea', 'KEA_LOCKFILE_DIR=/run/lock/kea', KEA]
     result = manager.crun('exec', node['name'], *command, '-t', '/etc/kea/kea-dhcp6.conf', timeout=5, check=False)
@@ -179,8 +201,8 @@ def start_server(manager, node):
     manager.crun('exec', '--detach', node['name'], *command, '-c', '/etc/kea/kea-dhcp6.conf',
                  log=manager.directory / node['name'] / 'pd-server.log')
     deadline = time.monotonic() + 5
-    while len(processes(manager, node)) != 1:
-        if time.monotonic() >= deadline: raise RuntimeFailure('Managed PD server process unavailable.')
+    while len(processes(manager, node)) != 1 or not manager.ns(index, 'ss', '-H', '-lun', 'sport = :547', timeout=3).stdout.strip():
+        if time.monotonic() >= deadline: raise RuntimeFailure('Managed PD server process or UDP/547 socket unavailable.')
         time.sleep(.1)
 
 

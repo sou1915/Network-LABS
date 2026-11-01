@@ -125,7 +125,19 @@ class NativePDTests(unittest.TestCase):
                 failed = manager.crun('exec', 'PC2', '/bin/busybox', 'ping6', '-c', '1', '-W', '1', '-w', '2',
                                       addresses(0, 'eth0')[0]['local'] if addresses(0, 'eth0') else '2001:db8:10::123', check=False, timeout=4)
                 self.assertNotEqual(failed.returncode, 0)
-                start_server(manager, server); signal('USR1'); ready()
+                # Force the formerly racy state: global IPv6 is already usable,
+                # but Kea's required server link-local address is still in DAD.
+                rows = json.loads(manager.ns(2, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0', 'scope', 'link').stdout)
+                linklocal = next(a['local'] for row in rows for a in row.get('addr_info', []) if a.get('scope') == 'link')
+                dad_count = manager.ns(2, 'sysctl', '-n', 'net.ipv6.conf.eth0.dad_transmits').stdout.strip()
+                manager.ns(2, 'sysctl', '-w', 'net.ipv6.conf.eth0.dad_transmits=3')
+                manager.ns(2, 'ip', '-6', 'addr', 'del', linklocal + '/64', 'dev', 'eth0')
+                manager.ns(2, 'ip', '-6', 'addr', 'add', linklocal + '/64', 'dev', 'eth0')
+                rows = json.loads(manager.ns(2, 'ip', '-j', '-6', 'addr', 'show', 'dev', 'eth0', 'scope', 'link').stdout)
+                self.assertTrue(any(a.get('tentative') or 'tentative' in a.get('flags', []) for row in rows for a in row.get('addr_info', [])))
+                start_server(manager, server)
+                manager.ns(2, 'sysctl', '-w', 'net.ipv6.conf.eth0.dad_transmits=' + dad_count)
+                signal('USR1'); ready()
                 for target in ('R1/files/dhcpv6-pd.policy', 'R1/files/pd-ra.conf', 'R2/files/kea-pd.json'):
                     path = manager.directory / target; original = path.read_text()
                     try:
