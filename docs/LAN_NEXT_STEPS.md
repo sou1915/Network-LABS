@@ -538,7 +538,15 @@ A separate existing DNS scenario lost its first initial IPv6 echo while the
 reverse direction succeeded. The static service tests now use a bounded
 healthy-control readiness loop requiring complete bidirectional two-packet
 verification; they do not seed neighbors or change production probe behavior.
-Its revalidation and broader CI status are recorded after completion.
+At readiness-check commit `d7b426e254e38f02f3b733e5a919c6355e9a9413`,
+the [combined scenario](https://github.com/sou1915/Network-LABS/actions/runs/41356644172/job/124998013391)
+passed again in 39.409 seconds; the
+[standalone DNS scenario](https://github.com/sou1915/Network-LABS/actions/runs/41356640261/job/124998001290)
+passed in 26.385 seconds and the
+[standalone AAA scenario](https://github.com/sou1915/Network-LABS/actions/runs/41356644172/job/124998013369)
+passed in 36.382 seconds. General CI also passed at that commit. Other broader
+native/switching jobs were still running at this checkpoint. The initial DNS
+readiness failure is retained as observed evidence, not a passing baseline.
 This supersedes the earlier DNS/AAA-combination exclusion only for the explicit
 separate-node static profile. Shell/accounting, Telnet, dynamic/security service
 compositions and broader LAN coverage remain before GUI; VXLAN stays planned.
