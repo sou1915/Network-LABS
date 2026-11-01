@@ -463,6 +463,16 @@ configuration and probe defaults remain unchanged. The general probe still
 supports IPv4 A only; native IPv6 DNS proof uses an independent socket client.
 Dynamic IPv6, SVI/subinterface, RA Guard/firewall and other service/security
 combinations remain excluded here. See [DUAL_STACK_DNS.md](DUAL_STACK_DNS.md).
-Dedicated CI validation and remaining broader jobs are recorded after completion.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41344735730/job/124962027968)
+passed in 15.100 seconds on Ubuntu 24.04 at implementation commit
+`a9a182f81d5ef5ff8891789357cb26b21330a991`. It verified A/AAAA over
+IPv4/IPv6 UDP/TCP across two routers, exact listener addresses, NXDOMAIN,
+packet captures, family-independent forwarding failures, DNS outage while both
+families still carry ICMP, daemon recovery, config/resolver drift refusal,
+declarative cold restore and host invariants. Local tests passed 807 cases with
+125 environment-dependent skips. Existing DNS transport, TFTP blocksize and
+HTTPS dedicated jobs also passed; general CI and broader native jobs were still
+running at this checkpoint. All jobs for the earlier TFTP implementation
+`125a1c7` subsequently completed successfully.
 Next: further AAA/IPv6 service integration and combined failure/recovery checks
 before GUI. VXLAN remains a planned later milestone.
