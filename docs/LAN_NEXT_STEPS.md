@@ -590,6 +590,15 @@ requests can confirm receipt. Start gating and Stop-after-cleanup remain in forc
 This is volatile per-exchange retry, not durable delivery or exactly-once logging;
 backend duplicate records remain possible. The IPv4 shell/accounting scope is
 unchanged. See [RADIUS_ACCOUNTING.md](RADIUS_ACCOUNTING.md).
-Native packet-loss, session-gating and cold-restore results follow after CI.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41360541418/job/125009768831)
+passed in 19.115 seconds on Ubuntu 24.04 at implementation commit
+`96f69bd28dd9784f2b37f05b912c767caa0e8594`. Real FreeRADIUS receipts,
+deterministically lost accounting responses, three-send packet/authenticator
+checks, dropped-response counters, one non-root shell launch after Start,
+blocked launch with uncertain Start, uncertain Stop after confirmed cleanup,
+explicit later receipt, saved retry policy and cold restore all passed.
+Local tests passed 837 cases with 129 environment-dependent skips. General CI,
+dual-stack AAA, combined services and IPv6 service-probe jobs also passed;
+broader native/switching and RADIUS suites were still running at this checkpoint.
 Durable accounting, broader AAA and dynamic/security combinations remain before
 GUI as separately scoped work. VXLAN stays planned above.
