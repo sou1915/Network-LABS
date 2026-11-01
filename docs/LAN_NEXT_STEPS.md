@@ -510,4 +510,11 @@ Kea process and an actual UDP/547 socket before returning ready. It does not
 skip DAD or install an address to make the check pass.
 The native PD scenario now deliberately recreates a tentative link-local
 address before restarting Kea, then repeats actual delegation, SLAAC, expiry,
-recovery and cold restore. Results are recorded after its dedicated CI job.
+recovery and cold restore. The [dedicated native PD job](https://github.com/sou1915/Network-LABS/actions/runs/41353673264/job/124989049388)
+passed in 52.310 seconds on Ubuntu 24.04 at repair commit
+`f58c4c4e9d7239f5699c16b7f6d90826a9832663`, including the deliberately
+tentative link-local restart and declarative cold restore. Local tests passed
+816 cases with 126 environment-dependent skips. General CI and the routed
+dual-stack AAA job also passed on that repair commit; broader native/switching
+jobs were still running at this checkpoint. The earlier failed PD cold restore
+at `a9a182f` is retained above as the observed cause, not a passing baseline.
