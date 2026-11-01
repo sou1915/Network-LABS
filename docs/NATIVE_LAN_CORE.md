@@ -3537,10 +3537,11 @@ Existing NTP labs must be stopped and recreated to use the corrected generated
 configuration; a code update does not rewrite an active daemon configuration.
 
 `probe` sends real, bounded traffic from a running single-NIC OCI host. It reads
-its observed IPv4 and guest `/etc/resolv.conf`, then reports each executed stage.
+its observed source address and guest `/etc/resolv.conf`, then reports each stage.
 The host Python standard library runs in the owned node network namespace; no
 Python installation in the guest is needed. It binds sockets to the observed
-source IPv4. It does not change configuration or use the host DNS resolver.
+source address: IPv4 by default, or IPv6 with explicit `--family ipv6`. It does
+not change configuration or use the host DNS resolver.
 
 ```bash
 sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test
@@ -3556,8 +3557,9 @@ fail the requested check. Redirects are not followed, response bodies are not
 validated. HTTPS additionally requires an explicit CA bundle (see the HTTPS section). TCP success proves connection establishment,
 not application correctness. A later HTTP failure can occur after TCP success.
 
-DNS support covers a direct IPv4 A query to exactly one IPv4 nameserver read
-from the guest. `--dns-transport udp` is the default; `tcp` uses a length-framed
+DNS support covers direct A (default IPv4 target family) or AAAA (`--family
+ipv6`) queries to exactly one guest IP nameserver. The DNS transport follows
+that resolver address family and requires a usable source of that family. `--dns-transport udp` is the default; `tcp` uses a length-framed
 TCP/53 exchange; `auto` starts with UDP and retries TCP only after validating a
 matching response ID, question and TC flag. Both attempts share one stage deadline
 and query. A timeout or malformed UDP reply never triggers retry; partial TC
@@ -3571,9 +3573,10 @@ No search domains, CNAME chain following, alternate-server fallback, recursion
 implementation, EDNS/DNSSEC validation or host resolver fallback. NXDOMAIN and an
 empty direct A answer fail resolution; malformed replies remain unknown. All
 sections must fit their declared lengths; unknown RDATA is opaque. Multiple A
-addresses block subsequent transport selection. Literal IPv4 targets bypass DNS.
+addresses block subsequent transport selection. Literal IP targets bypass DNS and must match the selected family.
 Local/loopback targets are rejected for transport checks. Source endpoints require
-one observed usable IPv4 on physical eth0 and a running lab without pending config.
+one observed usable selected-family address on physical eth0 and a running lab
+without pending config. See [PROBE_IPV6.md](PROBE_IPV6.md) for IPv6 limits.
 
 ```bash
 sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --protocol dns --dns-transport tcp

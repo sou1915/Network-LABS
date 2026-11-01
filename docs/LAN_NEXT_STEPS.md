@@ -563,6 +563,17 @@ family, host resolver or implicit address choice is used. IPv6 HTTP Host syntax,
 TLS name/IP verification, matched-TC retry and bounded AAAA parsing are checked.
 Native validation uses real dnsmasq and explicit owned HTTP/TLS/SNTP fixtures;
 it does not expand the persistent managed HTTPS/NTP server profiles.
-See [PROBE_IPV6.md](PROBE_IPV6.md). Dedicated CI results follow after completion.
+See [PROBE_IPV6.md](PROBE_IPV6.md). The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41359596279/job/125006941953)
+passed in 25.786 seconds on Ubuntu 24.04 at implementation commit
+`468aa7c0af049edea28f6afa7e4ea06884df2206`. It checked both DNS record and
+resolver transport families, HTTP status errors, explicit IPv6 TLS SAN and DNS
+name verification, wrong CA/name rejection, SNTP and invalid originate replies,
+NXDOMAIN/NODATA without A fallback, DNS/route/service outage, resolver drift,
+cold restore and host cleanup. Local tests passed 829 cases with 128 skips.
+General CI, existing DNS transport, dual-stack DNS, combined services and HTTPS
+native jobs also passed. Broader native/switching suites were still running.
+All jobs for the prior combined-readiness checkpoint `d7b426e` subsequently
+completed successfully.
 Combined/dynamic/security profiles and broader AAA remain separate work before
 GUI; planned VXLAN remains tracked above.
