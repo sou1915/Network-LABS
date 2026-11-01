@@ -82,20 +82,34 @@ def validate_lab(spec):
     from .firewall_ipv6 import validate_lab as validate_firewall_lab
     validate_firewall_lab(spec)
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
-    if dns_coexistence:
+    aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
+    if aaa_coexistence:
+        if dns_coexistence or not any(n.get('radius_server') for n in spec['nodes']):
+            raise ValueError('Dual-stack AAA requires a separate managed RADIUS profile without DNS coexistence.')
+        for node in spec['nodes']:
+            management = node.get('management') or {}
+            access = node.get('radius_access') or {}
+            if management and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or
+                    not management.get('ssh_radius') or not management.get('ssh_ipv6') or
+                    management.get('telnet_password_hash') or management.get('syslog_remote') or
+                    'shell' in (management.get('ssh_actions') or [])):
+                raise ValueError('Dual-stack management requires explicit IPv6 RADIUS-gated SSH diagnostics; no Telnet, syslog or shells.')
+            if access.get('accounting') or any('shell' in actions for actions in access.get('users', {}).values()) or (node.get('radius_server') or {}).get('accounting'):
+                raise ValueError('Dual-stack AAA shell/accounting combinations require separate validation.')
+    if dns_coexistence or aaa_coexistence:
         for node in spec['nodes']:
             if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                         'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
                                         'ospfv3', 'svis', 'subinterfaces', 'firewall_ipv6', 'ra_guard')):
-                raise ValueError('Dual-stack DNS coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
+                raise ValueError('Dual-stack service coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
             if node['role'] in ('host', 'router') and (set(node['ipv6']) != set(node['interfaces']) or not all(node['interfaces'].values())):
-                raise ValueError('Dual-stack DNS requires IPv4 and static IPv6 on every physical host/router port.')
+                raise ValueError('Dual-stack services require IPv4 and static IPv6 on every physical host/router port.')
             if (node.get('dns_server') or node.get('resolvers')) and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'}):
                 raise ValueError('Dual-stack DNS service/resolvers require single-interface OCI hosts.')
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('https_server', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'startup', 'port_channels', 'firewall',
+        forbidden = ('https_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or

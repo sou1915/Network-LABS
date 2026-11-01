@@ -476,3 +476,17 @@ running at this checkpoint. All jobs for the earlier TFTP implementation
 `125a1c7` subsequently completed successfully.
 Next: further AAA/IPv6 service integration and combined failure/recovery checks
 before GUI. VXLAN remains a planned later milestone.
+
+
+## Routed dual-stack RADIUS-gated SSH increment
+
+`example --radius --radius-ssh --radius-dual-stack` adds explicit IPv4/IPv6
+SSH listeners on a static dual-stack host while keeping a separate managed
+IPv4 RADIUS backend across two routers. SSH key authentication and the same
+forced user/action policy apply on both transports; `management.ssh_ipv6:true`
+is opt-in and startup waits for DAD. Backend unavailability must deny execution
+even if IPv6 SSH still connects. This is fixed diagnostics only; RADIUS IPv6,
+RadSec, shell/accounting, Telnet, DNS combination and dynamic/security service
+compositions remain outside the increment. See [DUAL_STACK_RADIUS.md](DUAL_STACK_RADIUS.md).
+Dedicated native results are recorded after CI; broader AAA and combined service
+work remains before GUI. Planned VXLAN stays separately tracked.

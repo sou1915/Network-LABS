@@ -952,3 +952,16 @@ def dual_stack_dns_lab(rootfs):
                             'records': {'server.lab.test': '198.51.100.20'},
                             'records_ipv6': {'server.lab.test': '2001:db8:20::20'}}
     return validate(spec)
+
+
+def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None):
+    """IPv4 RADIUS gates fixed SSH diagnostics over static routed IPv4 and IPv6."""
+    spec = dual_stack_lab(rootfs); spec['name'] = 'dual-stack-radius-lan'
+    client, _, _, server = spec['nodes']
+    server['radius_server'] = {'interface': 'eth0', 'clients': [{'address': '192.0.2.10', 'secret': secret}],
+                               'users': {username: {'password_sha256': password_sha256}}}
+    actions = list(ssh_actions) if ssh_actions is not None else ['identity', 'hostname', 'security-context']
+    client['radius_access'] = {'server': '198.51.100.20', 'users': {username: actions}}
+    client['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key], 'ssh_radius': True,
+                            'ssh_ipv6': True, 'ssh_actions': actions}
+    return validate(spec)

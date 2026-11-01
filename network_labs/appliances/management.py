@@ -33,7 +33,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'telnet_password_hash', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
     transport = config.get('syslog_transport', 'udp')
     if transport not in ('udp', 'tcp', 'tls'):
         raise ValueError('Syslog forwarding transport: udp, tcp or tls.')
@@ -75,6 +75,10 @@ def validate_node(node):
         if not config['ssh_keys'] or password:
             raise ValueError('Restricted SSH actions require SSH keys and no Telnet shell on the same node.')
         config['ssh_actions'] = sorted(actions)
+    ipv6 = config.get('ssh_ipv6', False)
+    if type(ipv6) is not bool or (ipv6 and (not config['ssh_keys'] or node['role'] != 'host' or
+            set(node['interfaces']) != {'eth0'} or port != 'eth0' or not node.get('ipv6', {}).get(port))):
+        raise ValueError('SSH IPv6 requires a boolean and a static dual-stack single-interface OCI host with SSH keys.')
     remote = config.setdefault('syslog_remote', '')
     if not isinstance(remote, str): raise ValueError('syslog_remote must be IPv4 text.')
     if remote:
@@ -130,6 +134,9 @@ def commands(node):
     if config['ssh_keys']:
         result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
                          '-p', listen_address(node) + ':22', '-P', '/run/dropbear.pid']
+    if config.get('ssh_ipv6'):
+        address6 = str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip)
+        result['ssh'] += ['-p', '[' + address6 + ']:22']
     if config['telnet_password_hash']:
         result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-K', '-b', listen_address(node),
                             '-p', '23', '-l', '/bin/login']
@@ -175,6 +182,10 @@ def prepare_files(bundle, node):
 def start_service(manager, node, service):
     argv = commands(node).get(service)
     if argv is None: raise ValueError('Management service is not enabled.')
+    if service == 'ssh' and node['management'].get('ssh_ipv6'):
+        from .ipv6 import wait_addresses
+        index = next(i for i, n in enumerate(manager.state['spec']['nodes']) if n['name'] == node['name'])
+        wait_addresses(manager, index, node)
     from .syslog_forward import enabled, start
     if service == 'syslog' and enabled(node): return start(manager, node)
     log = manager.directory / node['name'] / (service + '.log')
@@ -258,7 +269,8 @@ def observe(manager, node):
             'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
             'syslog_transport': config.get('syslog_transport', 'udp'),
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
-            'ssh_radius_worker_available': bridge_available,
+            'ssh_radius_worker_available': bridge_available, 'ssh_ipv6': config.get('ssh_ipv6', False),
+            'ssh_address_ipv6': str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip) if config.get('ssh_ipv6') else None,
             'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 

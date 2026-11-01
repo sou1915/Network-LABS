@@ -5674,3 +5674,12 @@ private-key audits and explicit client CA/identity checks. It includes native
 wire/response, wrong-trust/name, outage/restart and cold-restore evidence.
 The temporary `https-demo` stays independent. This is not a vendor GUI or a
 general application server; service co-location and IPv6 remain separate work.
+
+
+### Static dual-stack RADIUS-gated SSH diagnostics
+
+The explicit [dual-stack AAA profile](DUAL_STACK_RADIUS.md) adds IPv6 SSH
+transport alongside the existing IPv4 listener and IPv4 RADIUS backend. Each
+fixed diagnostic still needs SSH key access, local action authorization and a
+fresh verified Access-Accept. RADIUS-over-IPv6, general shells, Telnet/accounting
+and combined DNS/security profiles are not implied by this increment.
