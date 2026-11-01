@@ -14,7 +14,7 @@ failure/recovery coverage appropriate to its scope.
    combinations and separately scoped local-input firewall behavior.
 3. Switching: physical/carrier failure coverage, remaining kernel validation,
    broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: persistent HTTPS, Syslog certificate lifecycle/durable retry, broader DNS and file services;
+4. Services: broader DNS/file services, service coexistence, and HTTPS/Syslog certificate lifecycle/durable retry;
    improve diagnostics, lifecycle, save/restore and documentation.
 5. GUI: connect the native lifecycle, configuration and observations to the UI
    after the above profiles are ready.
@@ -363,3 +363,40 @@ AAA/IPv6 coexistence work. Automatic certificate renewal/revocation, durable
 retry/RELP and multi-identity TLS remain separately scoped work. All jobs for
 the prior plain TCP forwarding checkpoint `61bf203`, including its full
 native suite, subsequently completed successfully.
+
+
+## Persistent HTTPS increment
+
+A managed `https_server` now runs NGINX inside a standalone single-interface
+OCI IPv4 host until lab stop. One master and one UID/GID-65531 worker handle
+only the declared address on TLS/443; the fixed GET/HEAD `/` endpoint is 200,
+unknown paths are 404 and other methods are 405. TLS 1.2/1.3, explicit offline
+identity and existing client CA/name verification are used. No HTTP/80,
+application login, reverse proxy, user uploads or vendor GUI is introduced.
+The temporary `https-demo` remains separate.
+
+`--nginx` packages a trusted HTTP-SSL-capable binary and its ELF dependencies
+with three supplied HTTPS identity files. The builder creates the key with
+mode 0600, startup applies root ownership inside the node overlay, and other
+nodes sharing that image mask the identity directory. Public PEM file pins
+enter the manifest; key bytes do not. Managed config/public pins and private
+key digest/root permissions are audited before save, separately from daemon
+liveness or TLS delivery. Edits require recreation; cold restore starts fresh
+processes from conforming offline identity assets. Node resource budgets
+remain in force; the reference reserves at least 32 MiB for its server.
+
+The [dedicated native HTTPS job](https://github.com/sou1915/Network-LABS/actions/runs/41307135602/job/124849728937)
+passed at implementation commit `8db923fedc81937844c2ed177e1cdbe648ff8998`
+(7.637 seconds, Ubuntu 24.04): repeated verified HEAD, actual GET/body and
+TLS version, encrypted response capture, 404/405, wrong CA and wrong-IP
+certificate negative cases with a working identity positive control, non-root
+worker and identity masking, configuration/CA/key-mode drift refusal,
+service stop/restart, declarative cold restore and host cleanup. Local tests
+passed 785 cases with 122 skips; general CI and all three dedicated Syslog
+jobs also passed. Broader suites were still running. See [HTTPS_SERVER.md](HTTPS_SERVER.md).
+
+Next: broader DNS/file services and remaining AAA/IPv6 service coexistence,
+before GUI. Automatic certificate renewal/revocation, mutual HTTPS client
+authentication, HTTP application policies and broader server combinations
+remain separately scoped work. The earlier Syslog TLS checkpoint `c27e6f0`
+also subsequently completed its full native-containers suite successfully.

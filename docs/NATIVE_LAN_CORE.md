@@ -5627,3 +5627,14 @@ and explicit trust/name rejection controls. It requires matching GnuTLS
 modules and separately supplied server/client identities. Legacy UDP and
 plain TCP profiles keep their defaults. Startup JSON contains public pins
 and rootfs references, not private keys or TLS/queue/log snapshots.
+
+
+## Persistent node-local HTTPS
+
+[HTTPS_SERVER.md](HTTPS_SERVER.md) describes the separately validated NGINX
+service: one persistent node-local master/non-root worker, fixed GET/HEAD
+readiness endpoint on TLS/443, supplied offline identity, pinned public assets,
+private-key audits and explicit client CA/identity checks. It includes native
+wire/response, wrong-trust/name, outage/restart and cold-restore evidence.
+The temporary `https-demo` stays independent. This is not a vendor GUI or a
+general application server; service co-location and IPv6 remain separate work.

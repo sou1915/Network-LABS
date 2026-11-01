@@ -69,8 +69,23 @@ remain separate work.
 GET body over TLS, 404/405 behavior, wrong CA and wrong-IP certificate controls
 with independently proven live servers, encrypted payload capture, non-root
 worker identity, masking on other nodes, config/CA/key-mode drift refusal,
-service outage/restart, saved cold restore and host cleanup. Native evidence
-is pending.
+service outage/restart, saved cold restore and host cleanup.
+
+At implementation commit `8db923fedc81937844c2ed177e1cdbe648ff8998`, the
+[dedicated native HTTPS job](https://github.com/sou1915/Network-LABS/actions/runs/41307135602/job/124849728937)
+passed in 7.637 seconds on Ubuntu 24.04. It completed both valid and wrong-IP
+identity profiles, repeated verified HEAD probes, an independently verified
+GET/body, HTTP 404/405 responses, wrong CA rejection, encrypted-response
+capture, non-root worker observation, shared-image identity masking, config/
+CA/key-mode drift refusal, explicit daemon outage/restart and cold restore.
+The wrong-IP service was independently verified with its valid DNS identity,
+so a dead service did not masquerade as successful identity rejection.
+
+Local tests passed 785 cases with 122 environment-dependent skips. General CI
+and the existing Syslog TCP collector/forwarder/TLS jobs also passed; broader
+suites were still running at this checkpoint. This is the bounded fixed
+HTTPS endpoint with supplied offline identity, not application authentication,
+user website deployment, live certificate reload or general vendor GUI support.
 
 References: [NGINX HTTPS](https://nginx.org/en/docs/http/configuring_https_servers.html),
 [SSL module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html)
