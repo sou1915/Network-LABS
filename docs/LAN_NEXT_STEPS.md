@@ -413,7 +413,13 @@ records. The budget remains 4096 bytes and direct IPv4 A only; no CNAME traversa
 EDNS/DNSSEC validation or alternate resolver. The real dnsmasq server is unchanged.
 A dedicated native job separates real dnsmasq UDP/TCP and NXDOMAIN observations
 from an explicitly owned responder that forces TC and framing failures. Validation
-results are recorded after that job completes. Next: broader file-service checks
+passed at `baaad333a2f203f59bb3449f7fd17f4c8157ac8c` in the
+[dedicated DNS job](https://github.com/sou1915/Network-LABS/actions/runs/41319155688/job/124885472668)
+(11.946 seconds, Ubuntu 24.04), including NXDOMAIN, layered HTTP name resolution,
+packet evidence, configuration drift refusal, declarative cold restore and host
+cleanup. Local tests passed 793 cases with 123 environment-dependent skips;
+dedicated HTTPS and all three Syslog jobs also passed. General CI and broader
+native suites were still running at this checkpoint. Next: broader file-service checks
 and remaining AAA/IPv6 coexistence, before GUI.
 
 ## Tracked overlay milestone: VXLAN (planned)
