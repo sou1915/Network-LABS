@@ -444,6 +444,10 @@ DATA is also rejected. File size, datagram count and absolute deadline budgets
 remain unchanged. This is not PMTU discovery or authenticated file transfer.
 Native validation uses the existing real dnsmasq server, including binary
 content/hash and empty/exact/max-size files, wire capture, drift refusal and
-cold restore; results will be recorded after CI completes. Remaining LAN work
+cold restore. The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41319989712/job/124887925287)
+passed in 14.434 seconds on Ubuntu 24.04 at implementation commit
+`125a1c7cbad1e9966e69a7ec5dfb157d35ea4137`. Local tests passed 800 cases
+with 124 environment-dependent skips. Broader CI was still running at this
+checkpoint. Remaining LAN work
 includes AAA/IPv6 service coexistence before GUI; planned VXLAN remains tracked
 above, with EVPN/BGP separately scoped.
