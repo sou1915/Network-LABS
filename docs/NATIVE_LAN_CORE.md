@@ -3534,17 +3534,32 @@ sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --pa
 Default HTTP probing performs DNS when needed, TCP connect, then a separate HTTP
 HEAD connection. Only HTTP 2xx passes; 3xx/4xx/5xx retain their actual status and
 fail the requested check. Redirects are not followed, response bodies are not
-validated, and TLS is not supported. TCP success proves connection establishment,
+validated. HTTPS additionally requires an explicit CA bundle (see the HTTPS section). TCP success proves connection establishment,
 not application correctness. A later HTTP failure can occur after TCP success.
 
-DNS support deliberately covers a direct IPv4 A query over UDP to exactly one
-IPv4 nameserver read from the guest. No search domains, CNAME chain following,
-multiple-server fallback, TCP retry, recursion implementation or host resolver
-fallback. NXDOMAIN and an empty direct A answer fail the requested resolution;
-malformed/truncated replies remain unknown. Multiple A addresses block subsequent
-TCP/HTTP selection. Literal IPv4 targets bypass DNS. Local/loopback targets are
-rejected for transport checks. Source endpoints require one observed usable IPv4
-on physical eth0, and a running lab without pending configuration.
+DNS support covers a direct IPv4 A query to exactly one IPv4 nameserver read
+from the guest. `--dns-transport udp` is the default; `tcp` uses a length-framed
+TCP/53 exchange; `auto` starts with UDP and retries TCP only after validating a
+matching response ID, question and TC flag. Both attempts share one stage deadline
+and query. A timeout or malformed UDP reply never triggers retry; partial TC
+addresses are discarded. Responses are limited to 4096 bytes; segmented TCP frames
+are read completely, while short/oversized or still-truncated frames remain unknown.
+JSON reports the attempted transports and whether fallback occurred. Selection
+also applies to DNS-name targets used by HTTP(S), TCP and SNTP probes; non-default
+DNS transport with a literal IP is rejected.
+
+No search domains, CNAME chain following, alternate-server fallback, recursion
+implementation, EDNS/DNSSEC validation or host resolver fallback. NXDOMAIN and an
+empty direct A answer fail resolution; malformed replies remain unknown. All
+sections must fit their declared lengths; unknown RDATA is opaque. Multiple A
+addresses block subsequent transport selection. Literal IPv4 targets bypass DNS.
+Local/loopback targets are rejected for transport checks. Source endpoints require
+one observed usable IPv4 on physical eth0 and a running lab without pending config.
+
+```bash
+sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --protocol dns --dns-transport tcp
+sudo python3 -m network_labs.appliances probe lan-services PC1 web.lab.test --dns-transport auto --json
+```
 
 `--timeout 1..5` (default 3) bounds each wire stage; the parent also bounds worker
 execution. HTTP reads at most 4096 bytes while finding the status line. Total time

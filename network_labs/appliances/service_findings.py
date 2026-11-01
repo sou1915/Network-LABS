@@ -31,7 +31,7 @@ def findings(report):
                     'Consulter le rcode dans les preuves et les journaux du serveur DNS.', stage)
             else:
                 add('DNS_NO_ANSWER', status, 'La sonde n’a pas obtenu de réponse DNS exploitable dans son délai.',
-                    'Vérifier le résolveur du node, le service DNS, UDP/53, les routes et le chemin retour ; la cause n’est pas déterminée.', stage)
+                    'Vérifier le résolveur du node, le service DNS, UDP/TCP 53 selon le transport sélectionné, les routes et le chemin retour ; la cause n’est pas déterminée.', stage)
         elif kind == 'sntp':
             if status == 'passed':
                 add('SNTP_REPLY_RECEIVED', status, 'Une réponse SNTP valide a été reçue ; le décalage estimé est disponible en JSON.',

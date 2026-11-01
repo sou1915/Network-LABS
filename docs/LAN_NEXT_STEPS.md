@@ -400,3 +400,28 @@ before GUI. Automatic certificate renewal/revocation, mutual HTTPS client
 authentication, HTTP application policies and broader server combinations
 remain separately scoped work. The earlier Syslog TLS checkpoint `c27e6f0`
 also subsequently completed its full native-containers suite successfully.
+
+
+## DNS transport increment
+
+Probes now offer explicit `udp` (default), `tcp` and `auto` DNS transport.
+Auto retries the same query over TCP only for a matched UDP TC response, using
+one shared stage deadline and the same guest resolver. Timeout/malformed replies
+never trigger fallback. Framed TCP reads accept segmentation and reject short,
+oversized, mismatched or still-truncated responses without returning partial A
+records. The budget remains 4096 bytes and direct IPv4 A only; no CNAME traversal,
+EDNS/DNSSEC validation or alternate resolver. The real dnsmasq server is unchanged.
+A dedicated native job separates real dnsmasq UDP/TCP and NXDOMAIN observations
+from an explicitly owned responder that forces TC and framing failures. Validation
+results are recorded after that job completes. Next: broader file-service checks
+and remaining AAA/IPv6 coexistence, before GUI.
+
+## Tracked overlay milestone: VXLAN (planned)
+
+VXLAN remains required after the LAN foundation and GUI milestones; it is not
+implemented by the DNS/HTTPS work. Start with explicit static VTEP peers over an
+IPv4 underlay, VNI and VLAN/VNI binding, then verify end-host L2 traffic, BUM
+handling, tenant isolation, MTU/encapsulation, underlay loss/recovery and resource
+budgets. Require native packet captures plus save/restart and host-cleanup checks.
+EVPN/BGP control-plane support is a separate later milestone; static VXLAN must
+not be described as EVPN. WAN work remains separately tracked.

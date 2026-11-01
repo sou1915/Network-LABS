@@ -30,8 +30,10 @@ def load_ca(path):
     return data.decode('ascii')
 
 
-def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3, ca_pem=None):
+def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3, ca_pem=None, dns_transport='udp'):
     """Caller holds lab lock. Sequential probes are evidence, not root-cause proof."""
+    if dns_transport not in ('udp', 'tcp', 'auto'):
+        raise ValueError('DNS transport: udp, tcp or auto.')
     if protocol not in ('dns', 'tcp', 'http', 'https', 'sntp'):
         raise ValueError('Choose dns, tcp, http, https or sntp.')
     if protocol == 'https':
@@ -45,7 +47,7 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     if port is not None:
         integer(port, 1, 65535, 'Destination port')
     if protocol == 'dns' and port is not None:
-        raise ValueError('DNS uses UDP port 53; omit --port.')
+        raise ValueError('DNS uses port 53; omit --port.')
     if protocol == 'sntp' and port is not None:
         raise ValueError('SNTP uses UDP port 123; omit --port.')
     if protocol == 'tcp' and port is None:
@@ -65,6 +67,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
             raise ValueError('Use an IPv4 literal or a fully qualified ASCII DNS name.')
     else:
         address = unicast(target)
+        if dns_transport != 'udp':
+            raise ValueError('DNS transport selection requires a DNS-name target.')
         if protocol == 'dns':
             raise ValueError('DNS A probe requires a DNS name.')
     state = manager.read()
@@ -78,8 +82,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     report = {'lab': manager.name, 'node': source, 'revision': state.get('revision', 0),
               'started_at': datetime.now(timezone.utc).isoformat(), 'target': target, 'protocol': protocol,
               'port': port or (53 if protocol == 'dns' else 123 if protocol == 'sntp' else 443 if protocol == 'https' else 80), 'path': path if protocol in ('http', 'https') else None,
-              'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
-              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A over UDP; no search list, CNAME following, fallback or host resolver. TCP connect and HTTP(S) HEAD are separate connections. HTTP 2xx only; no redirects or body validation. HTTPS uses only the explicit CA bundle and verifies the target hostname/IP; no guest/host default CA fallback, revocation checking or mutual TLS. SNTP never sets clocks. Failures do not prove a routing/firewall/service root cause.'}
+              'dns_transport': dns_transport, 'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
+              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A using explicit UDP/TCP or matched-TC-only auto retry, one deadline and a 4096-byte response budget. No search list, CNAME following, timeout-based retry, alternate resolver or host resolver. TCP connect and HTTP(S) HEAD are separate connections. HTTP 2xx only; no redirects or body validation. HTTPS uses only the explicit CA bundle and verifies the target hostname/IP; no guest/host default CA fallback, revocation checking or mutual TLS. SNTP never sets clocks. Failures do not prove a routing/firewall/service root cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         from .service_findings import findings
@@ -117,7 +121,7 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
         except (OSError, RuntimeFailure, ValueError, subprocess.TimeoutExpired) as error:
             report['stages'].append({'stage': 'dns', 'status': 'unknown', 'error': str(error)[:300]})
             return finish('unknown')
-        dns = execute('dns', server=server)
+        dns = execute('dns', server=server, transport=dns_transport)
         if dns['status'] != 'passed' or protocol == 'dns':
             return finish(dns['status'])
         try:
