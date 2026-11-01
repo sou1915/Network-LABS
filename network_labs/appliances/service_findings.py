@@ -6,10 +6,11 @@ def findings(report):
     def add(code, status, message, next_step, evidence):
         rows.append(dict(code=code, status=status, message=message, next_step=next_step, evidence=evidence))
     endpoint = report['endpoint']
+    ip_label = 'IPv6' if report.get('address_family') == 'ipv6' else 'IPv4'
     if endpoint['status'] != 'ready':
         add('SOURCE_NOT_READY', endpoint['status'],
-            'La source ne présente pas un conteneur actif, un lien opérationnel et une IPv4 unique observables.',
-            'Consulter inspect pour ce node : état du conteneur, interface eth0 et adresse IPv4/DHCP.', endpoint)
+            'La source ne présente pas un conteneur actif, un lien opérationnel et une ' + ip_label + ' unique observables.',
+            'Consulter inspect pour ce node : état du conteneur, interface eth0 et adresse ' + ip_label + '.', endpoint)
     for stage in report['stages']:
         kind, status = stage['stage'], stage['status']
         if status in ('unknown', 'blocked'):
@@ -17,15 +18,17 @@ def findings(report):
                 'Le résultat de cette étape est indisponible, non pris en charge ou ambigu ; aucun succès ne peut être affirmé.',
                 'Consulter les détails JSON et les limites du profil avant de modifier la configuration.', stage)
         elif kind == 'dns':
+            record = stage.get('record_type', 'AAAA' if report.get('address_family') == 'ipv6' else 'A')
+            label = 'IPv6' if record == 'AAAA' else 'IPv4'
             if status == 'passed':
-                add('DNS_A_RECEIVED', status, 'Le serveur DNS interrogé a répondu avec une ou plusieurs adresses IPv4 pour ce nom.',
+                add('DNS_' + record + '_RECEIVED', status, 'Le serveur DNS interrogé a répondu avec une ou plusieurs adresses ' + label + ' pour ce nom.',
                     'Une réponse DNS ne prouve pas que le service à cette adresse est joignable.', stage)
             elif stage.get('rcode') == 3:
                 add('DNS_NXDOMAIN', status, 'Le serveur DNS interrogé indique que ce nom n’existe pas (NXDOMAIN).',
                     'Vérifier le nom saisi, la zone et les enregistrements sur ce serveur DNS.', stage)
             elif stage.get('rcode') == 0:
-                add('DNS_NO_DIRECT_A', status, 'La réponse DNS ne contient pas d’adresse A directement associée au nom demandé.',
-                    'Vérifier les enregistrements A. Cette sonde ne suit pas les chaînes CNAME.', stage)
+                add('DNS_NO_DIRECT_' + record, status, 'La réponse DNS ne contient pas d’adresse ' + record + ' directement associée au nom demandé.',
+                    'Vérifier les enregistrements ' + record + '. Cette sonde ne suit pas les chaînes CNAME.', stage)
             elif stage.get('rcode') is not None:
                 add('DNS_ERROR_RESPONSE', status, 'Le serveur DNS a renvoyé un code d’erreur.',
                     'Consulter le rcode dans les preuves et les journaux du serveur DNS.', stage)

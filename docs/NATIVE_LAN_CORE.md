@@ -5687,3 +5687,13 @@ and combined DNS/security profiles are not implied by this increment.
 The later [combined static DNS/AAA profile](DUAL_STACK_SERVICES.md) validates
 separate DNS and RADIUS nodes alongside the dual-stack SSH NAS. It does not
 enable the other excluded service/security combinations.
+
+
+### Explicit IPv6 service probes
+
+`probe --family ipv6` now selects IPv6 source/target transport and AAAA queries,
+while the DNS transport follows the single guest resolver's own address family.
+The default stays IPv4 A. Static IPv6 resolvers can be selected explicitly in
+the dual-stack DNS and combined service examples. DNS TCP/auto bounds, explicit
+HTTPS CA/name verification, HTTP HEAD behavior and SNTP clock neutrality remain.
+See [PROBE_IPV6.md](PROBE_IPV6.md) for usage, evidence and exact exclusions.

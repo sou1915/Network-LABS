@@ -28,11 +28,22 @@ def ipv4(value):
     return str(address)
 
 
+def resolver_address(value):
+    if not isinstance(value, str) or ':' not in value: return ipv4(value)
+    if '%' in value: raise ValueError('IPv6 resolver must not have a zone.')
+    address = ipaddress.IPv6Address(value)
+    if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_link_local or address.ipv4_mapped:
+        raise ValueError('DNS resolver requires a remote unicast IPv6 address.')
+    return str(address)
+
+
 def validate_dns(node):
     resolvers = node.setdefault('resolvers', [])
     if not isinstance(resolvers, list) or len(resolvers) > 3:
-        raise ValueError('resolvers must be an array of at most three IPv4 addresses.')
-    node['resolvers'] = [ipv4(value) for value in resolvers]
+        raise ValueError('resolvers must be an array of at most three literal IP addresses.')
+    node['resolvers'] = [resolver_address(value) for value in resolvers]
+    if any(':' in value for value in node['resolvers']) and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or not node.get('ipv6', {}).get('eth0')):
+        raise ValueError('IPv6 resolvers require a statically numbered single-interface OCI IPv6 host.')
     if len(set(node['resolvers'])) != len(resolvers):
         raise ValueError('Duplicate DNS resolver.')
     if resolvers and (node['runtime'] != 'oci' or node.get('dhcp_clients') or node['role'] == 'switch' or node.get('startup')):

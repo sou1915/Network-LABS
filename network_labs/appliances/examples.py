@@ -943,11 +943,12 @@ def https_lab(server_rootfs, client_rootfs):
     return validate(spec)
 
 
-def dual_stack_dns_lab(rootfs):
+def dual_stack_dns_lab(rootfs, *, resolver_family='ipv4'):
     """Static physical dual-stack routing with explicit local A/AAAA DNS service."""
+    if resolver_family not in ('ipv4', 'ipv6'): raise ValueError('DNS resolver family must be ipv4 or ipv6.')
     spec = dual_stack_lab(rootfs); spec['name'] = 'dual-stack-dns-lan'
     client, _, _, server = spec['nodes']
-    client['resolvers'] = ['198.51.100.20']
+    client['resolvers'] = ['2001:db8:20::20' if resolver_family == 'ipv6' else '198.51.100.20']
     server['dns_server'] = {'interface': 'eth0', 'zone': 'lab.test', 'listen_ipv6': True,
                             'records': {'server.lab.test': '198.51.100.20'},
                             'records_ipv6': {'server.lab.test': '2001:db8:20::20'}}
@@ -967,12 +968,13 @@ def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *
     return validate(spec)
 
 
-def dual_stack_services_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None):
+def dual_stack_services_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None, resolver_family='ipv4'):
     """Routed dual-stack DNS and RADIUS/SSH on separate bounded service nodes."""
     spec = dual_stack_radius_lab(rootfs, secret, password_sha256, username, ssh_key=ssh_key, ssh_actions=ssh_actions)
+    if resolver_family not in ('ipv4', 'ipv6'): raise ValueError('DNS resolver family must be ipv4 or ipv6.')
     spec['name'] = 'dual-stack-services-lan'
     client, first, second, _ = spec['nodes']
-    client['resolvers'] = ['203.0.113.53']
+    client['resolvers'] = ['2001:db8:30::53' if resolver_family == 'ipv6' else '203.0.113.53']
     first['routes'].append({'destination': '203.0.113.0/24', 'gateway': '198.18.0.2', 'interface': 'eth1'})
     first['ipv6_routes'].append({'destination': '2001:db8:30::/64', 'gateway': '2001:db8:100::2', 'interface': 'eth1'})
     second['interfaces']['eth2'] = '203.0.113.1/24'

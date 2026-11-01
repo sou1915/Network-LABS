@@ -17,8 +17,8 @@ matching modules/dictionaries, as described in the individual service guides.
 R1 declares routes to both the RADIUS LAN and DNS LAN through R2; all hosts
 have explicit return paths in both families. DNS serves A/AAAA for nas.lab.test
 and listens on the DNS1 addresses over UDP/TCP. PC1's managed resolver file
-contains DNS1's IPv4 address. General `probe` remains IPv4 A only; explicit
-IPv6 DNS clients can query the IPv6 listener independently.
+contains DNS1's IPv4 address. General `probe` defaults to IPv4 A; the later [IPv6 probe increment](PROBE_IPV6.md)
+adds explicit `--family ipv6` and optional IPv6 resolver selection.
 
 ```bash
 umask 077

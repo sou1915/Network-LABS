@@ -74,19 +74,19 @@ def dns_name(packet, offset):
         offset += size
 
 
-def dns_header(packet, ident, name):
+def dns_header(packet, ident, name, qtype=1):
     if len(packet) < 12: raise ValueError('Truncated DNS header')
     rid, flags, qd, an, ns, ar = struct.unpack('!6H', packet[:12])
     if rid != ident or not flags & 0x8000 or flags & 0x7800 or qd != 1:
         raise ValueError('Unmatched DNS response')
     question, pos = dns_name(packet, 12)
-    if question != name or packet[pos:pos + 4] != b'\x00\x01\x00\x01':
+    if question != name or packet[pos:pos + 4] != struct.pack('!HH', qtype, 1):
         raise ValueError('Unmatched DNS question')
     return flags, an, ns, ar, pos + 4
 
 
-def dns_answers(packet, ident, name):
-    flags, answers, authority, additional, pos = dns_header(packet, ident, name)
+def dns_answers(packet, ident, name, qtype=1):
+    flags, answers, authority, additional, pos = dns_header(packet, ident, name, qtype)
     if flags & 0x0200: raise ValueError('Truncated DNS response; no complete answer')
     addresses = []
     for index in range(answers + authority + additional):
@@ -94,9 +94,9 @@ def dns_answers(packet, ident, name):
         if pos + 10 > len(packet): raise ValueError('Truncated DNS record')
         kind, cls, ttl, size = struct.unpack('!HHIH', packet[pos:pos + 10]); pos += 10
         if pos + size > len(packet): raise ValueError('Truncated DNS data')
-        if index < answers and owner == name and kind == cls == 1:
-            if size != 4: raise ValueError('Invalid IPv4 A record size')
-            addresses.append(str(ipaddress.IPv4Address(packet[pos:pos + 4])))
+        if index < answers and owner == name and kind == qtype and cls == 1:
+            if size != (16 if qtype == 28 else 4): raise ValueError('Invalid DNS address record size')
+            addresses.append(str(ipaddress.ip_address(packet[pos:pos + size])))
         pos += size
     if pos != len(packet): raise ValueError('Trailing DNS data outside declared sections')
     return flags & 15, sorted(set(addresses))
@@ -105,14 +105,17 @@ def dns_answers(packet, ident, name):
 def dns_exchange(request, bounded, result):
     transport = request.get('transport', 'udp')
     if transport not in ('udp', 'tcp', 'auto'): raise ValueError('Unsupported DNS transport')
+    qtype = request.get('qtype', 1)
+    if type(qtype) is not int or qtype not in (1, 28): raise ValueError('Only A or AAAA queries are supported')
+    result['record_type'] = 'AAAA' if qtype == 28 else 'A'
     ident = secrets.randbelow(65536); name = request['target']
     wire = b''.join(bytes([len(label)]) + label.encode('ascii') for label in name.split('.')) + b'\x00'
-    query = struct.pack('!6H', ident, 0x0100, 1, 0, 0, 0) + wire + b'\x00\x01\x00\x01'
+    query = struct.pack('!6H', ident, 0x0100, 1, 0, 0, 0) + wire + struct.pack('!HH', qtype, 1)
     result.update(attempts=[], fallback=False)
     def exchange(mode):
         attempt = {'transport': mode, 'response_received': False}; result['attempts'].append(attempt)
         result['transport'] = mode
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if mode == 'udp' else socket.SOCK_STREAM) as channel:
+        with socket.socket(socket.AF_INET6 if ipaddress.ip_address(request['server']).version == 6 else socket.AF_INET, socket.SOCK_DGRAM if mode == 'udp' else socket.SOCK_STREAM) as channel:
             channel.bind((request['source'], 0)); bounded(channel); channel.connect((request['server'], DNS_PORT))
             bounded(channel)
             if mode == 'udp':
@@ -130,16 +133,16 @@ def dns_exchange(request, bounded, result):
                 size = struct.unpack('!H', exact(2))[0]
                 if not 12 <= size <= 4096: raise ValueError('DNS TCP frame outside 12..4096-byte probe budget')
                 packet = exact(size)
-            flags, *_ = dns_header(packet, ident, name)
+            flags, *_ = dns_header(packet, ident, name, qtype)
             attempt.update(response_received=True, truncated=bool(flags & 0x0200))
             return packet, flags
     packet, flags = exchange('tcp' if transport == 'tcp' else 'udp')
     if transport == 'auto' and flags & 0x0200:
         result['fallback'] = True
         packet, flags = exchange('tcp')
-    code, addresses = dns_answers(packet, ident, name)
+    code, addresses = dns_answers(packet, ident, name, qtype)
     result.update(status='passed' if code == 0 and addresses else 'failed', rcode=code, addresses=addresses,
-                  detail='Direct A response; CNAME chains are not followed')
+                  detail='Direct address response; CNAME chains are not followed')
 
 
 def run_probe(request):
@@ -157,7 +160,7 @@ def run_probe(request):
             if stage == 'dns':
                 dns_exchange(request, bounded, result)
                 return result
-            sock = resources.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM if stage == 'sntp' else socket.SOCK_STREAM))
+            sock = resources.enter_context(socket.socket(socket.AF_INET6 if ipaddress.ip_address(request['address']).version == 6 else socket.AF_INET, socket.SOCK_DGRAM if stage == 'sntp' else socket.SOCK_STREAM))
             sock.bind((request['source'], 0))
             bounded(sock)
             if stage == 'sntp':
@@ -182,7 +185,9 @@ def run_probe(request):
                         sock = resources.enter_context(context.wrap_socket(sock, server_hostname=request['target']))
                         result.update(certificate_verified=True, tls_version=sock.version(), cipher=sock.cipher()[0])
                     default_port = 443 if stage == 'https' else 80
-                    host = request['target'] + (':' + str(request['port']) if request['port'] != default_port else '')
+                    host = request['target']
+                    if ':' in host: host = '[' + host + ']'
+                    host += ':' + str(request['port']) if request['port'] != default_port else ''
                     bounded(sock)
                     sock.sendall(('HEAD ' + request['path'] + ' HTTP/1.0\r\nHost: ' + host + '\r\nConnection: close\r\n\r\n').encode('ascii'))
                     line = b''

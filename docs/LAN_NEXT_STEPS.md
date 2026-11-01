@@ -550,3 +550,19 @@ readiness failure is retained as observed evidence, not a passing baseline.
 This supersedes the earlier DNS/AAA-combination exclusion only for the explicit
 separate-node static profile. Shell/accounting, Telnet, dynamic/security service
 compositions and broader LAN coverage remain before GUI; VXLAN stays planned.
+
+
+## Explicit IPv6 service probe increment
+
+`probe --family ipv6` adds direct AAAA resolution and source-bound IPv6 TCP,
+HTTP(S) HEAD and SNTP observations. The default remains IPv4/A. Resolver
+transport follows exactly one guest nameserver; it may differ from the target
+family, and needs its own observed usable source. Optional static IPv6 resolvers
+and `--dns-resolver-family ipv6` example selection are now available. No alternate
+family, host resolver or implicit address choice is used. IPv6 HTTP Host syntax,
+TLS name/IP verification, matched-TC retry and bounded AAAA parsing are checked.
+Native validation uses real dnsmasq and explicit owned HTTP/TLS/SNTP fixtures;
+it does not expand the persistent managed HTTPS/NTP server profiles.
+See [PROBE_IPV6.md](PROBE_IPV6.md). Dedicated CI results follow after completion.
+Combined/dynamic/security profiles and broader AAA remain separate work before
+GUI; planned VXLAN remains tracked above.

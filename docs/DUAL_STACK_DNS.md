@@ -15,7 +15,7 @@ sudo python3 -m network_labs.appliances probe dual-stack-dns-lan PC1 server.lab.
 ```
 
 The last command still exercises the existing IPv4 A probe. It does not select
-AAAA or an IPv6 resolver. General probe IPv6 support is separate work. Guest
+AAAA or an IPv6 resolver. The later [IPv6 probe increment](PROBE_IPV6.md) adds explicit `--family ipv6`. Guest
 DNS tools that support explicit IPv6 servers can query 2001:db8:20::20 directly;
 the dedicated native test uses an independent source-bound stdlib socket client
 for both record types over both address families and UDP/TCP.
@@ -51,7 +51,8 @@ service, DNSSEC or dynamic registration is introduced.
 
 DNS/resolver coexistence in an IPv6 lab requires IPv4 plus static IPv6 on every
 physical host/router port. DNS and static resolver declarations are limited to
-single-interface hosts; resolver files still contain IPv4 nameservers only.
+single-interface hosts; resolver files default to IPv4 nameservers; explicit static IPv6 resolvers are
+also supported by the later [IPv6 probe increment](PROBE_IPV6.md).
 RA/SLAAC/DHCPv6, OSPFv3, SVIs, subinterfaces, RA Guard and IPv6 firewall profiles
 are excluded from this service composition, as are the other previously
 unvalidated service/security combinations. This does not infer IPv6 security

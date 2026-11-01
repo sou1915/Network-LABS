@@ -22,6 +22,15 @@ def unicast(value):
     return str(address)
 
 
+def remote_address(value, family):
+    if family == 'ipv4': return unicast(value)
+    if not isinstance(value, str) or '%' in value: raise ValueError('Use an unscoped remote IPv6 address.')
+    address = ipaddress.IPv6Address(value)
+    if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_link_local or address.ipv4_mapped:
+        raise ValueError('Expected a remote unicast IPv6 address without a zone.')
+    return str(address)
+
+
 def load_ca(path):
     with Path(path).open('rb') as source:
         data = source.read(65537)
@@ -30,8 +39,9 @@ def load_ca(path):
     return data.decode('ascii')
 
 
-def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3, ca_pem=None, dns_transport='udp'):
+def probe(manager, source, target, *, protocol='http', port=None, path='/', timeout=3, ca_pem=None, dns_transport='udp', family='ipv4'):
     """Caller holds lab lock. Sequential probes are evidence, not root-cause proof."""
+    if family not in ('ipv4', 'ipv6'): raise ValueError('Probe family: ipv4 or ipv6.')
     if dns_transport not in ('udp', 'tcp', 'auto'):
         raise ValueError('DNS transport: udp, tcp or auto.')
     if protocol not in ('dns', 'tcp', 'http', 'https', 'sntp'):
@@ -57,20 +67,21 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     if protocol not in ('http', 'https') and path != '/':
         raise ValueError('--path is only supported for HTTP/HTTPS.')
     if not isinstance(target, str):
-        raise ValueError('Expected an IPv4 address or DNS name, not a URL.')
+        raise ValueError('Expected an IP address or DNS name, not a URL.')
     try:
-        ipaddress.IPv4Address(target)
+        literal = ipaddress.ip_address(target)
     except ValueError:
         address = None
         target = target.rstrip('.').lower()
         if len(target) > 253 or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+', target) or re.fullmatch(r'[0-9.]+', target):
-            raise ValueError('Use an IPv4 literal or a fully qualified ASCII DNS name.')
+            raise ValueError('Use an IP literal matching --family or a fully qualified ASCII DNS name.')
     else:
-        address = unicast(target)
+        if literal.version != (6 if family == 'ipv6' else 4): raise ValueError('Literal address differs from selected probe family.')
+        address = remote_address(target, family)
         if dns_transport != 'udp':
             raise ValueError('DNS transport selection requires a DNS-name target.')
         if protocol == 'dns':
-            raise ValueError('DNS A probe requires a DNS name.')
+            raise ValueError('DNS address probe requires a DNS name.')
     state = manager.read()
     if state['phase'] != 'running' or 'pending_spec' in state or 'pending_node' in state:
         raise RuntimeFailure('Probe requires a running lab without pending configuration.')
@@ -78,12 +89,12 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
     if match is None or match[1]['runtime'] != 'oci' or match[1]['role'] != 'host' or set(match[1]['interfaces']) != {'eth0'} or match[1].get('subinterfaces') or match[1].get('port_channels'):
         raise ValueError('Probe supports a managed OCI host with one physical eth0.')
     index, node = match
-    endpoint = _endpoint(manager, index, node)
+    endpoint = _endpoint(manager, index, node) if family == 'ipv4' else _endpoint(manager, index, node, family=family)
     report = {'lab': manager.name, 'node': source, 'revision': state.get('revision', 0),
               'started_at': datetime.now(timezone.utc).isoformat(), 'target': target, 'protocol': protocol,
               'port': port or (53 if protocol == 'dns' else 123 if protocol == 'sntp' else 443 if protocol == 'https' else 80), 'path': path if protocol in ('http', 'https') else None,
-              'dns_transport': dns_transport, 'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
-              'scope': 'Host Python sockets in the owned network namespace, bound to observed source IPv4. DNS uses exactly one guest IPv4 resolver, direct A using explicit UDP/TCP or matched-TC-only auto retry, one deadline and a 4096-byte response budget. No search list, CNAME following, timeout-based retry, alternate resolver or host resolver. TCP connect and HTTP(S) HEAD are separate connections. HTTP 2xx only; no redirects or body validation. HTTPS uses only the explicit CA bundle and verifies the target hostname/IP; no guest/host default CA fallback, revocation checking or mutual TLS. SNTP never sets clocks. Failures do not prove a routing/firewall/service root cause.'}
+              'address_family': family, 'dns_transport': dns_transport, 'endpoint': endpoint, 'stages': [], 'status': endpoint['status'], 'configuration_changed': False,
+              'scope': 'Host Python sockets in the owned network namespace, bound to the observed source address of the selected family. DNS uses exactly one guest resolver, direct A for ipv4 or AAAA for ipv6 using explicit UDP/TCP or matched-TC-only auto retry, one deadline and a 4096-byte response budget. DNS transport follows the resolver family and requires an observed source of that family; no family fallback, search list, CNAME following, timeout-based retry, alternate resolver or host resolver. TCP connect and HTTP(S) HEAD are separate connections. HTTP 2xx only; no redirects or body validation. HTTPS uses only the explicit CA bundle and verifies the target hostname/IP; no guest/host default CA fallback, revocation checking or mutual TLS. SNTP never sets clocks. Failures do not prove a routing/firewall/service root cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         from .service_findings import findings
@@ -93,7 +104,8 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
         return finish(endpoint['status'])
     worker = Path(__file__).with_name('service_probe_worker.py').read_text()
     def execute(stage, **kwargs):
-        request = dict(stage=stage, target=target, source=endpoint['address'], timeout=timeout, **kwargs)
+        request = dict(stage=stage, target=target, timeout=timeout, **kwargs)
+        request.setdefault('source', endpoint['address'])
         try:
             process = manager.ns(index, sys.executable, '-I', '-c', worker, json.dumps(request), check=False, timeout=timeout + 2)
             value = json.loads(process.stdout)
@@ -116,23 +128,29 @@ def probe(manager, source, target, *, protocol='http', port=None, path='/', time
             servers = [line.split('#', 1)[0].split() for line in resolver.stdout.splitlines()]
             servers = [row for row in servers if row and row[0] == 'nameserver']
             if len(servers) != 1 or len(servers[0]) != 2:
-                raise ValueError('Exactly one guest IPv4 nameserver is required')
-            server = unicast(servers[0][1])
+                raise ValueError('Exactly one guest IP nameserver is required')
+            resolver_family = 'ipv6' if ipaddress.ip_address(servers[0][1]).version == 6 else 'ipv4'
+            server = remote_address(servers[0][1], resolver_family)
+            dns_endpoint = endpoint if resolver_family == family else _endpoint(manager, index, node, family=resolver_family)
+            if dns_endpoint['status'] != 'ready': raise ValueError('DNS resolver family requires a ready source address of that family')
         except (OSError, RuntimeFailure, ValueError, subprocess.TimeoutExpired) as error:
             report['stages'].append({'stage': 'dns', 'status': 'unknown', 'error': str(error)[:300]})
             return finish('unknown')
-        dns = execute('dns', server=server, transport=dns_transport)
+        report['dns_endpoint'] = dns_endpoint
+        dns = execute('dns', server=server, source=dns_endpoint['address'], transport=dns_transport, qtype=28 if family == 'ipv6' else 1)
         if dns['status'] != 'passed' or protocol == 'dns':
             return finish(dns['status'])
         try:
             addresses = dns.get('addresses', [])
             if len(addresses) != 1:
                 raise ValueError('Multiple DNS addresses; no implicit target selection')
-            address = unicast(addresses[0])
+            address = remote_address(addresses[0], family)
         except (ValueError, TypeError) as error:
             report['stages'].append({'stage': 'target', 'status': 'blocked', 'error': str(error)})
             return finish('blocked')
-    route = _json_read(manager, index, 'ip', '-j', '-4', 'route', 'get', address)
+    lookup = ['ip', '-j', '-6' if family == 'ipv6' else '-4', 'route', 'get', address]
+    if family == 'ipv6': lookup += ['from', endpoint['address']]
+    route = _json_read(manager, index, *lookup)
     report.update(address=address, route=route)
     if address == endpoint['address'] or any(row.get('type') in ('local', 'broadcast', 'multicast') or row.get('dev') == 'lo' for row in route['records'] or []):
         report['stages'].append({'stage': 'target', 'status': 'blocked', 'error': 'Remote target required'})
