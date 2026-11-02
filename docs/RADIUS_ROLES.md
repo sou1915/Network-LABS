@@ -95,3 +95,9 @@ control, wrong passwords, non-root shell accounting/journal handoff, backend
 outage/recovery, saved role retention, reduced grants after recreation and host
 cleanup. The successful dedicated native job and local test results are recorded
 in LAN_NEXT_STEPS.md.
+
+
+An explicit standalone [RADIUS Telnet diagnostic profile](TELNET_RADIUS.md)
+now applies the same local role/direct grants and a separate node action
+ceiling before authentication. It admits one fixed diagnostic per connection;
+interactive Telnet shells and accounting remain separate work.

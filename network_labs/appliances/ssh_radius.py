@@ -62,9 +62,11 @@ def alive(record):
     return observed_alive(record)
 
 
-def stop_worker(manager, name):
+def stop_worker(manager, name, *, transport='ssh'):
     from .runtime import RuntimeFailure
-    record = manager.state.setdefault('ssh_radius_workers', {}).get(name)
+    if transport not in ('ssh', 'telnet'): raise ValueError('Unknown RADIUS bridge transport.')
+    records = transport + '_radius_workers'
+    record = manager.state.setdefault(records, {}).get(name)
     if alive(record):
         # All subprocesses are in this new, owned session. Stop the bridge
         # before container teardown, including an in-flight auth subprocess.
@@ -86,24 +88,27 @@ def stop_worker(manager, name):
         else:
             try: os.waitpid(record['pid'], os.WNOHANG)
             except ChildProcessError: pass
-    manager.state['ssh_radius_workers'].pop(name, None); manager.save()
+    manager.state[records].pop(name, None); manager.save()
 
 
-def start_worker(manager, index, node):
+def start_worker(manager, index, node, *, transport='ssh'):
     from .runtime import CONFIG_ROOT, RuntimeFailure, process_identity
     from .spec import namespace
-    if not (node.get('management') or {}).get('ssh_radius'): return
+    if transport not in ('ssh', 'telnet'): raise ValueError('Unknown RADIUS bridge transport.')
+    if not (node.get('management') or {}).get(transport + '_radius'): return
+    prefix = node['name'] + '.' + transport + '-radius'
+    records = transport + '_radius_workers'
     token = uuid.uuid4().hex
     ns = Path('/run/netns') / namespace(manager.state['spec'], index)
-    output = manager.directory / (node['name'] + '.ssh-radius-ready.json')
-    config = manager.directory / (node['name'] + '.ssh-radius-config.json')
-    config.write_text(json.dumps({'name': manager.name, 'node': node['name'], 'token': token,
+    output = manager.directory / (prefix + '-ready.json')
+    config = manager.directory / (prefix + '-config.json')
+    config.write_text(json.dumps({'name': manager.name, 'node': node['name'], 'token': token, 'transport': transport,
                                  'namespace': str(ns), 'namespace_inode': ns.stat().st_ino,
                                  'state_root': str(manager.directory.parent), 'config_root': str(CONFIG_ROOT), 'output': str(output)}))
     config.chmod(0o600)
     # -I ignores user Python environment; only this trusted checkout is added.
     code = 'import sys; sys.path.insert(0, ' + repr(str(Path(__file__).resolve().parents[2])) + '); from network_labs.appliances.ssh_radius_worker import main; main()'
-    log = manager.directory / (node['name'] + '.ssh-radius.log'); log.touch(mode=0o600)
+    log = manager.directory / (prefix + '.log'); log.touch(mode=0o600)
     with log.open('ab') as handle:
         process = subprocess.Popen([sys.executable, '-I', '-c', code, str(config)],
                                    stdin=subprocess.DEVNULL, stdout=handle, stderr=handle, start_new_session=True)
@@ -111,7 +116,7 @@ def start_worker(manager, index, node):
     if start is None:
         process.kill(); process.wait(); raise RuntimeFailure('SSH RADIUS worker identity unavailable.')
     _PROCESSES[process.pid] = process
-    manager.state.setdefault('ssh_radius_workers', {})[node['name']] = {'pid': process.pid, 'starttime': start, 'token': token}
+    manager.state.setdefault(records, {})[node['name']] = {'pid': process.pid, 'starttime': start, 'token': token}
     manager.save()
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and process.poll() is None:
@@ -120,5 +125,5 @@ def start_worker(manager, index, node):
             if ready.get('token') == token and ready.get('status') == 'ready': return
         except (OSError, ValueError): pass
         time.sleep(.02)
-    stop_worker(manager, node['name'])
+    stop_worker(manager, node['name'], transport=transport)
     raise RuntimeFailure('SSH RADIUS bridge failed readiness; private log not echoed.')

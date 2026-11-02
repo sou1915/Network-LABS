@@ -33,7 +33,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'telnet_radius', 'telnet_actions', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
     transport = config.get('syslog_transport', 'udp')
     if transport not in ('udp', 'tcp', 'tls'):
         raise ValueError('Syslog forwarding transport: udp, tcp or tls.')
@@ -75,6 +75,27 @@ def validate_node(node):
         if not config['ssh_keys'] or password:
             raise ValueError('Restricted SSH actions require SSH keys and no Telnet shell on the same node.')
         config['ssh_actions'] = sorted(actions)
+    telnet_radius = config.get('telnet_radius', False)
+    if type(telnet_radius) is not bool:
+        raise ValueError('Telnet RADIUS selection must be boolean.')
+    if telnet_radius:
+        from .ssh_access import ACTIONS
+        actions = config.get('telnet_actions')
+        if (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or port != 'eth0'
+                or config['ssh_keys'] or password or config.get('ssh_actions') is not None
+                or config.get('ssh_radius') or config.get('syslog_remote') or not node.get('radius_access')):
+            raise ValueError('Telnet RADIUS requires a standalone single-interface host, access policy and no SSH/local-password/syslog service.')
+        if (not isinstance(actions, list) or len(actions) > len(ACTIONS)
+                or any(not isinstance(a, str) or a not in ACTIONS for a in actions) or len(set(actions)) != len(actions)):
+            raise ValueError('Telnet actions require distinct fixed diagnostics; an empty list denies all.')
+        config['telnet_actions'] = sorted(actions)
+        access = node['radius_access']
+        if not isinstance(access, dict): raise ValueError('Telnet RADIUS requires an access policy object.')
+        from .radius_access import allowed_actions
+        if access.get('accounting') or any('shell' in allowed_actions(access, name) for name in access.get('user_roles', access.get('users', {}))):
+            raise ValueError('Initial Telnet RADIUS profile excludes shell/accounting grants.')
+    elif 'telnet_actions' in config:
+        raise ValueError('Telnet actions require Telnet RADIUS.')
     ipv6 = config.get('ssh_ipv6', False)
     if type(ipv6) is not bool or (ipv6 and (not config['ssh_keys'] or node['role'] != 'host' or
             set(node['interfaces']) != {'eth0'} or port != 'eth0' or not node.get('ipv6', {}).get(port))):
@@ -88,14 +109,14 @@ def validate_node(node):
         config['syslog_remote'] = str(address)
     if transport in ('tcp', 'tls') and not remote:
         raise ValueError('TCP syslog forwarding requires syslog_remote.')
-    if not (config['ssh_keys'] or password or remote):
+    if not (config['ssh_keys'] or password or remote or telnet_radius):
         raise ValueError('Enable at least one management service.')
 
 
 def validate_lab(spec):
     from .lan import addresses
     for node in spec['nodes']:
-        if (node.get('management') or {}).get('ssh_radius'):
+        if (node.get('management') or {}).get('ssh_radius') or (node.get('management') or {}).get('telnet_radius'):
             from .ssh_radius import managed_secret
             if node['role'] != 'host' or set(node['interfaces']) != {'eth0'}:
                 raise ValueError('SSH RADIUS requires a single-interface OCI host.')
@@ -140,6 +161,9 @@ def commands(node):
     if config['telnet_password_hash']:
         result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-K', '-b', listen_address(node),
                             '-p', '23', '-l', '/bin/login']
+    if config.get('telnet_radius'):
+        from .telnet_radius import LOGIN
+        result['telnet'] = ['/bin/busybox', 'telnetd', '-F', '-K', '-b', listen_address(node), '-p', '23', '-l', LOGIN]
     return result
 
 
@@ -189,7 +213,12 @@ def start_service(manager, node, service):
     from .syslog_forward import enabled, start
     if service == 'syslog' and enabled(node): return start(manager, node)
     log = manager.directory / node['name'] / (service + '.log')
-    if service == 'ssh' and node['management'].get('ssh_actions') is not None:
+    if service == 'telnet' and node['management'].get('telnet_radius'):
+        from .telnet_radius import service_process
+        with tempfile.NamedTemporaryFile(mode='w+', prefix='telnet-process-', suffix='.json', dir=manager.directory) as process:
+            json.dump(service_process(argv), process); process.flush()
+            manager.crun('exec', '--detach', '--process', process.name, node['name'], log=log)
+    elif service == 'ssh' and node['management'].get('ssh_actions') is not None:
         from .ssh_access import service_process
         with tempfile.NamedTemporaryFile(mode='w+', prefix='ssh-process-', suffix='.json', dir=manager.directory) as process:
             json.dump(service_process(argv, terminal='shell' in node['management']['ssh_actions']), process); process.flush()
@@ -206,11 +235,12 @@ def start_servers(manager):
         from .syslog_forward import enabled
         expected = ({'logger'} if enabled(node) else {'syslogd', 'logger'}) if config['syslog_remote'] else set()
         if config['telnet_password_hash']: expected.update(('telnetd', 'login'))
+        if config.get('telnet_radius'): expected.add('telnetd')
         if config.get('ssh_radius'): expected.update(('nc', 'timeout', 'cat', 'stty', 'base64', 'mktemp', 'mkfifo', 'rm'))
         installed = manager.crun('exec', node['name'], '/bin/busybox', '--list', timeout=3).stdout.splitlines()
         if expected - set(installed):
             raise RuntimeFailure(node['name'] + ': missing BusyBox management applets: ' + ', '.join(sorted(expected - set(installed))))
-        for applet, flags in ([('telnetd', ('-F', '-b', '-p', '-l'))] if config['telnet_password_hash'] else []) + ([('syslogd', ('-R', '-L', '-s', '-b'))] if config['syslog_remote'] and not enabled(node) else []):
+        for applet, flags in ([('telnetd', ('-F', '-b', '-p', '-l'))] if config['telnet_password_hash'] or config.get('telnet_radius') else []) + ([('syslogd', ('-R', '-L', '-s', '-b'))] if config['syslog_remote'] and not enabled(node) else []):
             help_result = manager.crun('exec', node['name'], '/bin/busybox', applet, '--help', check=False, timeout=3)
             help_text = help_result.stdout + help_result.stderr
             if any(flag not in help_text for flag in flags):
@@ -235,6 +265,13 @@ def start_servers(manager):
             if checked.returncode: raise RuntimeFailure(node['name'] + ': SSH RADIUS requires bounded BusyBox read.')
             from .ssh_radius import start_worker
             start_worker(manager, index, node)
+        if config.get('telnet_radius'):
+            from .telnet_radius import LOGIN
+            checked = manager.crun('exec', node['name'], LOGIN, '--version', check=False, timeout=3)
+            if checked.returncode or checked.stdout != 'Network LABS Telnet RADIUS login 1\n':
+                raise RuntimeFailure(node['name'] + ': Telnet RADIUS login helper identity unavailable.')
+            from .ssh_radius import start_worker
+            start_worker(manager, index, node, transport='telnet')
         for service in commands(node): start_service(manager, node, service)
 
 
@@ -264,14 +301,19 @@ def observe(manager, node):
     if config.get('ssh_radius'):
         from .ssh_radius import alive
         bridge_available = alive(manager.read().get('ssh_radius_workers', {}).get(node['name']))
+    telnet_bridge = None
+    if config.get('telnet_radius'):
+        from .ssh_radius import alive
+        telnet_bridge = alive(manager.read().get('telnet_radius_workers', {}).get(node['name']))
     return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']), 'tls': tls,
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
-            'telnet': bool(config['telnet_password_hash']), 'syslog_remote': config['syslog_remote'],
+            'telnet': bool(config['telnet_password_hash'] or config.get('telnet_radius')), 'telnet_radius': config.get('telnet_radius', False),
+            'telnet_actions': config.get('telnet_actions'), 'telnet_radius_worker_available': telnet_bridge, 'syslog_remote': config['syslog_remote'],
             'syslog_transport': config.get('syslog_transport', 'udp'),
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available, 'ssh_ipv6': config.get('ssh_ipv6', False),
             'ssh_address_ipv6': str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip) if config.get('ssh_ipv6') else None,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Optional standalone Telnet RADIUS admits one fixed diagnostic per authenticated connection, without a local-password fallback or shell. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 
 def drift(manager, node):

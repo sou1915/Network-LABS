@@ -46,7 +46,7 @@ class BridgeManager(runtime.Manager):
         # rejects stale generations or transitional lab phases.
         self.state = None
         state = self.read()
-        record = state.get('ssh_radius_workers', {}).get(self.config['node'], {})
+        record = state.get(self.config.get('transport', 'ssh') + '_radius_workers', {}).get(self.config['node'], {})
         if state['phase'] != 'running' or record.get('token') != self.config['token']:
             raise runtime.RuntimeFailure('SSH RADIUS lab generation unavailable.')
         return state
@@ -85,7 +85,12 @@ def namespace_socket(config):
             if protected.read_text().strip() != '1024': raise ValueError('Unprotected bridge endpoint')
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            listener.bind(('127.0.0.1', PORT)); listener.listen(4); listener.settimeout(.25)
+            port = PORT
+            if config.get('transport', 'ssh') == 'telnet':
+                from .telnet_radius import PORT as port
+            elif config.get('transport', 'ssh') != 'ssh':
+                raise ValueError('Unknown RADIUS bridge transport')
+            listener.bind(('127.0.0.1', port)); listener.listen(4); listener.settimeout(.25)
         finally:
             enter(original)
     except BaseException:
@@ -105,11 +110,16 @@ def serve(config):
     with listener:
         output = Path(config['output'])
         output.write_text(json.dumps({'status': 'ready', 'token': config['token']})); output.chmod(0o600)
+        transport = config.get('transport', 'ssh')
+        if transport == 'telnet':
+            from .telnet_radius import dispatch as selected_dispatch
+        else:
+            selected_dispatch = dispatch
         audit_count = 0
         def audit(code):
             nonlocal audit_count
             if audit_count < 32:
-                print('SSH_RADIUS_' + code, flush=True)
+                print(transport.upper() + '_RADIUS_' + code, flush=True)
                 audit_count += 1
         while True:
             try: connection, _ = listener.accept()
@@ -121,13 +131,13 @@ def serve(config):
                     stage = 'state'
                     manager = BridgeManager(config); manager.current()
                     stage = 'dispatch'
-                    if action in ('shell', 'shell-tty'):
+                    if transport == 'ssh' and action in ('shell', 'shell-tty'):
                         from .ssh_radius_shell import serve_shell
                         serve_shell(manager, config['node'], connection, username, password,
                                     terminal=action == 'shell-tty', audit=audit)
                         password = None
                         continue
-                    result = dispatch(manager, config['node'], action, username, password,
+                    result = selected_dispatch(manager, config['node'], action, username, password,
                                       audit=audit)
                     password = None
                     stage = 'reply'

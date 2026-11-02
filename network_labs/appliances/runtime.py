@@ -56,6 +56,8 @@ def write_json(path, data):
 def oci_config(spec, node, index, rootfs):
     caps = ['CAP_CHOWN', 'CAP_DAC_OVERRIDE', 'CAP_FOWNER', 'CAP_SETGID', 'CAP_SETUID',
             'CAP_KILL', 'CAP_NET_ADMIN', 'CAP_NET_RAW', 'CAP_NET_BIND_SERVICE']
+    if (node.get('management') or {}).get('telnet_radius'):
+        caps.append('CAP_SETPCAP')
     if node.get('lldp') is not None:
         caps.append('CAP_SYS_CHROOT')
     from .syslog_tls import config as tls_config, BASE as TLS_BASE
@@ -139,7 +141,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, nginx=None, https_ca=None, https_certificate=None, https_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, telnet_login=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, nginx=None, https_ca=None, https_certificate=None, https_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -181,6 +183,9 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         if dropbear is None: raise ValueError('SSH relay rootfs assets require --dropbear.')
         from .ssh_access import relay_assets
         management_additions += relay_assets(ssh_relay)
+    if telnet_login is not None:
+        from .telnet_radius import rootfs_assets as telnet_assets
+        management_additions += telnet_assets(telnet_login)
     from .syslog_tls import assets as tls_assets, install as install_tls
     if any(v is not None for v in (syslog_ca, syslog_certificate, syslog_private_key)) != bool(rsyslog_tls) or (rsyslog_tls and any(v is None for v in (syslog_ca, syslog_certificate, syslog_private_key))):
         raise ValueError('--rsyslog-tls requires all three syslog CA, certificate and private-key files; omit them otherwise.')
@@ -376,6 +381,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': TCP syslog requires rebuilding the rootfs with --rsyslog-tcp.')
             if node.get('syslog_server') and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/lib/network-labs/rsyslogd', 'usr/lib/network-labs/rsyslog/imudp.so', 'usr/lib/network-labs/rsyslog/lmnet.so')):
                 raise RuntimeFailure(node['name'] + ': Syslog collector requires a rootfs built with --rsyslog.')
+            if (node.get('management') or {}).get('telnet_radius') and not (Path(node['rootfs']) / 'usr/lib/network-labs/telnet-radius-login').is_file():
+                raise RuntimeFailure(node['name'] + ': Telnet RADIUS requires a rootfs built with the trusted --telnet-login executable.')
             if 'shell' in ((node.get('management') or {}).get('ssh_actions') or []) and not (Path(node['rootfs']) / 'usr/lib/network-labs/ssh-radius-client').is_file():
                 raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
@@ -814,6 +821,8 @@ class Manager:
         from .ssh_radius import stop_worker as stop_ssh_radius
         for name in list(state.get('ssh_radius_workers', {})):
             stop_ssh_radius(self, name)
+        for name in list(state.get('telnet_radius_workers', {})):
+            stop_ssh_radius(self, name, transport='telnet')
         from .snooping import stop_worker
         for name in list(state.get('snooping_workers', {})):
             stop_worker(self, name)

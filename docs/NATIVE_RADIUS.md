@@ -234,3 +234,9 @@ Optional [local named roles](RADIUS_ROLES.md) reuse grants through `roles` and
 operation still requires a verified RADIUS accept, and SSH's node-wide action
 list remains an additional ceiling. Shell permission remains explicit and
 retains the existing unprivileged process limits.
+
+
+An explicit standalone [RADIUS Telnet diagnostic profile](TELNET_RADIUS.md)
+now applies the same local role/direct grants and a separate node action
+ceiling before authentication. It admits one fixed diagnostic per connection;
+interactive Telnet shells and accounting remain separate work.

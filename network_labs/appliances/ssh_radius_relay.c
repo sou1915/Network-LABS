@@ -16,6 +16,9 @@
 #ifndef NL_BRIDGE_PORT
 #define NL_BRIDGE_PORT 813
 #endif
+#ifndef NL_DENIAL_TEXT
+#define NL_DENIAL_TEXT "SSH RADIUS request denied or unavailable.\n"
+#endif
 static volatile sig_atomic_t interrupted;
 static double deadline;
 static int tty_saved, flags0 = -1, flags1 = -1;
@@ -200,7 +203,7 @@ done:
     if (flags1 >= 0) fcntl(STDOUT_FILENO, F_SETFL, flags1);
     if (tty_saved) tcsetattr(STDIN_FILENO, TCSANOW, &original);
     if (interrupted) return 130;
-    if (result == 126) fputs("SSH RADIUS request denied or unavailable.\n", stderr);
+    if (result == 126) fputs(NL_DENIAL_TEXT, stderr);
     return result;
 }
 int main(int argc, char **argv) {

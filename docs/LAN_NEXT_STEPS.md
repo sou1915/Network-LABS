@@ -720,5 +720,24 @@ host invariant helper: only newly added interfaces with an actual sysfs
 `device` entry may be ignored. Removed/replaced baseline links and every new
 virtual interface still fail. Host routes/rules/forwarding checks are unchanged.
 The helper's existing hardware/virtual-leak/baseline-change tests passed locally.
-Dedicated native repair results follow after CI; the earlier failure is retained
-as observed evidence rather than called a successful OSPFv3 job.
+The [dedicated repaired OSPFv3 job](https://github.com/sou1915/Network-LABS/actions/runs/41430509194/job/125227600217)
+passed both physical and tagged-SVI scenarios in 100.567 seconds on Ubuntu 24.04
+at that repair commit. General CI and the role native scenario also passed.
+The earlier failure is retained as observed evidence rather than called a
+successful OSPFv3 job.
+
+
+## Standalone RADIUS Telnet diagnostic increment
+
+`example --radius --radius-telnet` adds actual BusyBox Telnet with a compiled
+fixed login helper, optional local role grants and an independent Telnet action
+ceiling. The helper drops UID/GID/groups and every capability set before
+credential input, then requests one RADIUS-gated fixed diagnostic from its own
+host bridge. It never invokes a local login/password fallback or shell. The
+bridge has independent transport/generation identity and protected NAS-loopback
+TCP/814; stop/recreate owns its worker lifecycle. Old local-password Telnet and
+SSH profiles remain unchanged. See [TELNET_RADIUS.md](TELNET_RADIUS.md).
+Local tests passed 877 cases with 134 environment-dependent skips. Dedicated
+native Telnet/PTY privilege, packet, outage, drift and saved-restore results
+follow after CI. Telnet shell/accounting, broader AAA and service/security
+composition remain before GUI; static VXLAN and later EVPN/BGP remain planned.
