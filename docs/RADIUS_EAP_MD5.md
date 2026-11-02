@@ -29,17 +29,19 @@ bound explicitly; a local/loopback backend target is refused.
 PAP-only images and configurations retain their defaults. An EAP-MD5 backend
 must explicitly enable `radius_server.eap_md5:true`, package matching modules,
 and supply a private `password_file` for every declared user. The existing
-`password_sha256` pins its decoded UTF-8 password bytes (an optional final LF is
+`password_sha256` pins its printable ASCII password bytes (an optional final LF is
 removed). The method needs the original password; a SHA-256 digest alone cannot
 replace it. The file must be a regular nonsymlink file, mode 0600, owned by the
 runtime user (root for native lifecycle), with one hard link and at most 128
-password bytes. NUL/CR/LF inside the password are refused.
+password bytes. The first managed profile accepts printable ASCII passwords only.
 
 The asset remains on the host. Startup checks its ownership, bounds and digest
 before allocating a lab. Only the separate server's private 0700 configuration
-directory receives its Cleartext-Password as a hex literal in a 0600 file.
+directory receives its Cleartext-Password as a safely escaped, single-quoted literal in
+a 0600 file. Single quotes prevent attribute expansion.
 The generic rootfs, other nodes, manifest, startup.json and CLI reports do not
-receive password bytes. Hex encoding is configuration syntax, not encryption.
+receive password bytes. The server configuration contains the method's original password; its privacy
+is provided by ownership and permissions.
 Keep the trusted offline file for cold recreation. Missing or changed assets
 refuse startup/save; changing the file does not reload an already running daemon.
 

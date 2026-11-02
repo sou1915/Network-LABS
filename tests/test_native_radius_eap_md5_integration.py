@@ -51,7 +51,7 @@ class NativeEAPMD5Tests(unittest.TestCase):
         namespaces=run(['ip','netns','list']).stdout
         before={(r['ifname'],r['ifindex']) for r in json.loads(run(['ip','-j','link','show']).stdout)}
         baseline={(fam,kind):run(['ip','-j',fam,kind,'show',*(['table','all'] if kind=='route' else [])]).stdout for fam in ('-4','-6') for kind in ('route','rule')}
-        password='native-eap-md5-private-password';secret='native-eap-md5-private-secret'
+        password="native-eap-md5-'\\-%{User-Name}";secret='native-eap-md5-private-secret'
         with tempfile.TemporaryDirectory() as d,ThreadPoolExecutor(max_workers=1) as pool,patch('network_labs.appliances.runtime.CONFIG_ROOT',Path(d)/'saved'):
             root=Path(d);asset=root/'password';asset.write_text(password);asset.chmod(0o600)
             secret_file=root/'secret';secret_file.write_text(secret);secret_file.chmod(0o600)
@@ -61,13 +61,14 @@ class NativeEAPMD5Tests(unittest.TestCase):
             def auth(credential=password,username='learner',key=secret,protocol='eap-md5'):
                 with manager.locked():return probe(manager,'PC1','192.0.2.20',username=username,password=credential,secret=key,timeout=1,protocol=protocol)
             def accepted():
-                result=auth();self.assertEqual(result['status'],'passed',result)
+                result=auth();self.assertEqual(result['status'],'passed',result.get('authentication'))
                 self.assertEqual(result['authentication']['requests_sent'],2);self.assertTrue(result['authentication']['challenge_verified'])
                 self.assertTrue(result['authentication']['response_verified']);self.assertFalse(result['configuration_changed'])
-                self.assertNotIn(password,json.dumps(result));self.assertNotIn(secret,json.dumps(result));return result
+                self.assertNotIn(json.dumps(password)[1:-1],json.dumps(result));self.assertNotIn(secret,json.dumps(result));return result
             try:
                 with manager.locked():manager.start(spec)
                 snapshot=json.dumps(manager.read()['spec'],sort_keys=True)
+                self.assertEqual(auth(protocol='pap')['status'],'passed')
                 ready=threading.Event();pcap=root/'eap.pcap'
                 future=pool.submit(capture,Manager(spec['name']),'PC1','eth0',pcap,seconds=3,packets=30,expression='udp port 1812',ready=ready.set)
                 self.assertTrue(ready.wait(5));accepted();future.result(timeout=6)
@@ -87,7 +88,7 @@ class NativeEAPMD5Tests(unittest.TestCase):
                 self.assertEqual(auth(protocol='pap')['status'],'passed')
                 with redirect_stdout(io.StringIO()) as output:
                     self.assertEqual(main(['radius-eap-md5',spec['name'],'PC1','192.0.2.20','--username','learner','--password-file',str(asset),'--secret-file',str(secret_file),'--json']),0)
-                self.assertEqual(json.loads(output.getvalue())['protocol'],'eap-md5');self.assertNotIn(password,output.getvalue())
+                self.assertEqual(json.loads(output.getvalue())['protocol'],'eap-md5');self.assertNotIn(json.dumps(password)[1:-1],output.getvalue())
                 self.assertEqual(json.dumps(manager.read()['spec'],sort_keys=True),snapshot)
                 self.assertTrue(manager.inspect('PC2')['radius_server']['configuration_verified'])
                 asset.write_text('changed-private-password')
@@ -108,7 +109,7 @@ class NativeEAPMD5Tests(unittest.TestCase):
                 accepted()
                 with manager.locked():manager.write_startup();saved=load_startup(spec['name']);manager.stop()
                 self.assertEqual(saved['nodes'][2]['radius_server']['users']['learner']['password_file'],str(asset))
-                self.assertNotIn(password,json.dumps(saved));asset.write_text('changed-private-password')
+                self.assertNotIn(json.dumps(password)[1:-1],json.dumps(saved));asset.write_text('changed-private-password')
                 with manager.locked(),self.assertRaises((RuntimeFailure,ValueError)):manager.start(saved)
                 self.assertEqual(run(['ip','netns','list']).stdout,namespaces)
                 asset.write_text(password)

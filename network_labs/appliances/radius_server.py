@@ -97,7 +97,16 @@ def eap_password(user):
     if raw.endswith(b'\n'): raw = raw[:-1]
     if not 1 <= len(raw) <= 128 or any(c in raw for c in (0, 10, 13)) or hashlib.sha256(raw).hexdigest() != user['password_sha256']:
         raise ValueError('EAP password asset is unavailable or differs from its pin.')
-    return raw.decode('utf-8')
+    if any(byte < 32 or byte > 126 for byte in raw):
+        raise ValueError('Initial managed EAP-MD5 assets require printable ASCII password bytes.')
+    return raw.decode('ascii')
+
+
+def eap_literal(user):
+    # Cleartext-Password is a string: an unquoted 0x value is literal text,
+    # unlike the octet-typed SHA2-Password. Single quotes disable expansion.
+    value = eap_password(user).replace('\\', '\\\\').replace("'", "\\'")
+    return "'" + value + "'"
 
 
 def preflight_eap(node):
@@ -113,10 +122,10 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accou
 }''' % (index, client['address'], client['secret']) for index, client in enumerate(policy['clients']))
     users = '\n'.join('''        if (&User-Name == "%s") {
             update control {
-                %s := 0x%s
+                %s := %s
             }
         }''' % (name, 'Cleartext-Password' if policy.get('eap_md5') else 'SHA2-Password',
-                  eap_password(user).encode('utf-8').hex() if policy.get('eap_md5') else user['password_sha256'])
+                  eap_literal(user) if policy.get('eap_md5') else '0x' + user['password_sha256'])
                       for name, user in policy['users'].items())
     eap_module = eap_authorize = eap_authenticate = ''
     if policy.get('eap_md5'):

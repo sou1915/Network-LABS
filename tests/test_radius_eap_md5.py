@@ -108,8 +108,8 @@ class EAPMD5Tests(unittest.TestCase):
             path=Path(d)/'password'; path.write_text(PASSWORD); path.chmod(0o600)
             spec=radius_lab('/rootfs',SECRET,hashlib.sha256(PASSWORD.encode()).hexdigest(),eap_password_file=path)
             user=spec['nodes'][2]['radius_server']['users']['learner']; config=config_text(spec['nodes'][2])
-            self.assertIn('default_eap_type = md5',config); self.assertIn(PASSWORD.encode().hex(),config)
-            self.assertNotIn(PASSWORD,json.dumps(spec)); self.assertNotIn(PASSWORD,config)
+            self.assertIn('default_eap_type = md5',config); self.assertIn("Cleartext-Password := '"+PASSWORD+"'",config)
+            self.assertNotIn(PASSWORD,json.dumps(spec))
             self.assertEqual(spec,validate(spec))
             for fault in ('mode','content','hardlink'):
                 path.write_text(PASSWORD); path.chmod(0o600)
