@@ -87,7 +87,10 @@ The dedicated native scenario uses real FreeRADIUS, checks Identity/Challenge/
 MD5/Success packets and exact State/proof bytes, rejects wrong passwords/users,
 refuses wrong shared secrets, retains PAP compatibility, tests asset drift,
 backend outage/recovery and declarative cold restart, and checks host isolation.
-Results are recorded in LAN_NEXT_STEPS.md after CI.
+The successful dedicated native job and local results are recorded in
+LAN_NEXT_STEPS.md. The native password includes quotes, a backslash and
+expansion-like text to verify literal handling; raw EAP packets still contain
+only the method proof, not the password.
 
 Protocol references: [RFC 3579](https://www.rfc-editor.org/rfc/rfc3579.html),
 [RFC 3748 section 5.4](https://www.rfc-editor.org/rfc/rfc3748.html#section-5.4),

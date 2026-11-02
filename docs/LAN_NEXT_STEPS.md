@@ -814,8 +814,22 @@ password file pinned by the existing SHA-256 digest; password bytes do not enter
 manifest/startup/rootfs images. Existing PAP behavior stays the default. See
 [RADIUS_EAP_MD5.md](RADIUS_EAP_MD5.md). Local tests passed 890 cases with 137
 environment-dependent skips; independent signed peers cover proof, State,
-malformed methods/lengths, replay, early accepts and private assets. Native
-FreeRADIUS packet, failure, asset and saved-restore results follow after CI.
+malformed methods/lengths, replay, early accepts and private assets. The initial
+native run at `754101d2d4bcfc83fb14549147f992ea59ffcf37` reached a verified
+challenge but rejected the correct proof: its Cleartext-Password string had
+been assigned using the octet-style unquoted `0x` representation. Repair commit
+`34ddbaf9a06d6dc1f1d3dedd2d0b3f774dcef321` uses an escaped, nonexpanding single-
+quoted string and explicitly bounds the managed password asset to printable
+ASCII. Its [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41444614658/job/125274523414)
+passed in 6.658 seconds on Ubuntu 24.04. Real Identity/MD5/Success packets,
+opaque State echo, exact MD5 proof and terminal identifiers, quotes/backslash/
+expansion-like password bytes, verified wrong-password/user rejection, wrong
+shared-secret timeout, PAP compatibility, CLI privacy, unchanged declared
+configuration, password-asset drift/save refusal, backend outage/recovery,
+failed pre-allocation recreation with a changed asset, healthy cold restore and
+host namespace/link/route/rule isolation all passed. General CI also passed at
+the repair commit; broader RADIUS/native/switching suites were still running.
+The initial rejected run is retained as evidence rather than reported as passing.
 This does not grant access or implement EAPOL/802.1X controlled ports. That wired
 port milestone, stronger EAP methods and broader AAA/service/security work remain
 before GUI; static VXLAN and later EVPN/BGP stay separately tracked.
