@@ -4,6 +4,12 @@ Network LABS est un logiciel de simulation que nous programmons. Il ne contient
 pas Windows, Ubuntu, IOS ou FortiOS. Le nom d'un modèle dans le catalogue ne
 charge pas le système du fabricant.
 
+Un laboratoire **natif expérimental séparé** permet maintenant d'exécuter des
+containers Linux OCI/crun et de lancer des guests Firecracker fournis par
+l'utilisateur. Ce mode utilise de vrais processus et un fabric veth/TAP ; il
+ne convertit pas automatiquement les nodes du canvas ni leurs CLI constructeur.
+Voir [micro-nodes natifs : installation et limites](HYBRID_APPLIANCES.md).
+
 ## Les trois couches
 
 | Couche | Travail effectué | Ce qu'elle ne fournit pas automatiquement |

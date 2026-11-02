@@ -490,6 +490,7 @@ class App:
         file_menu.add_command(label='Exporter le lab en texte',command=self.export_text)
         file_menu.add_separator()
         file_menu.add_command(label='Lab micro-appliances (expérimental)',command=self.open_micro_lab)
+        file_menu.add_command(label='Micro-nodes natifs · runtimes / manifest',command=self.open_native_lab)
         file_menu.add_command(label='Lab FortiGate · Firewall Policy',command=self.load_fortigate_lab)
         files.configure(menu=file_menu); files.pack(side='left',padx=4)
         view=tk.Menubutton(top,text='Vue ▾',bg=PANEL,fg=TEXT,activebackground=CARD,activeforeground=TEAL,padx=10,pady=6)
@@ -528,6 +529,14 @@ class App:
     def set_backend(self,event=None):
         self.lab.execution_backend='wasm' if self.backend_choice.get()=='Wasm · LAN' else 'model'
         self.changed('Moteur Wasm : access VLAN 1, IPv4 statique /24, ICMP et TCP echo/8080. Nouvelles instances par test.' if self.lab.execution_backend=='wasm' else 'Moteur pédagogique sélectionné.')
+
+    def open_native_lab(self):
+        from .appliances.ui import ApplianceWindow
+        previous=getattr(self,'native_lab_window',None)
+        if previous is not None and previous.window.winfo_exists():
+            previous.window.lift();return previous
+        self.native_lab_window=ApplianceWindow(self)
+        return self.native_lab_window
 
     def load_wasm_lab(self):
         from .micro_appliances.project import demo
@@ -1379,8 +1388,10 @@ if __name__=='__main__':
     initial=parser.add_mutually_exclusive_group()
     initial.add_argument('--wasm-lan',action='store_true',help='Open the editable LAN project with the Wasm backend selected.')
     initial.add_argument('--fortigate-lab',action='store_true',help='Open the FortiGate policy lab in the local browser (model backend).')
+    initial.add_argument('--native-lab',action='store_true',help='Open the native OCI / Firecracker workbench; no automatic startup.')
     args=parser.parse_args()
     root=tk.Tk();app=App(root)
     if args.wasm_lan:app.load_wasm_lab()
     if args.fortigate_lab:app.load_fortigate_lab()
+    if args.native_lab:app.open_native_lab()
     root.mainloop()

@@ -1,0 +1,469 @@
+{
+  "implementation_commit": "f0f9e86ad620abe83127373b66704eb699dd1f76",
+  "actions_run": "https://github.com/sou1915/Network-LABS/actions/runs/39469314404",
+  "scope": "Headless shared-kernel BusyBox OCI LAN, 2 seconds idle and 2 seconds bounded ICMP traffic. This is not total application memory or a full 2 GiB validation.",
+  "report": {
+    "version": 1,
+    "lab": "enterprise-test-2731",
+    "node_count": 20,
+    "environment": {
+      "kernel": "7.0.0-1017-azure",
+      "machine": "x86_64",
+      "logical_cpus": 4
+    },
+    "allocated_node_mib": 1280,
+    "reserve_mib": 512,
+    "host_before": {
+      "memory_total_bytes": 16759308288,
+      "memory_available_bytes": 15710736384,
+      "swap_used_bytes": 0,
+      "cpu_ticks_total": 43074,
+      "cpu_ticks_busy": 4319
+    },
+    "startup_and_readiness_seconds": 3.83053812,
+    "idle": {
+      "duration_seconds": 2.000302418000004,
+      "samples": 11,
+      "lab_cgroup_memory_mean_bytes": 4878336,
+      "lab_cgroup_memory_sampled_peak_bytes": 5193728,
+      "lab_cgroup_swap_sampled_peak_bytes": 0,
+      "lab_cgroup_cpu_percent_one_core": 0,
+      "runner_cpu_percent_one_core": 0.4846267200782873,
+      "runner_pss_sampled_peak_bytes": 20847616,
+      "host_busy_percent_total_capacity": 0.37593984962406013,
+      "host_available_min_bytes": 15715704832,
+      "lab_memory_event_deltas": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "load": {
+      "metrics": {
+        "duration_seconds": 1.9998950279999974,
+        "samples": 11,
+        "lab_cgroup_memory_mean_bytes": 7453230.545454546,
+        "lab_cgroup_memory_sampled_peak_bytes": 8294400,
+        "lab_cgroup_swap_sampled_peak_bytes": 0,
+        "lab_cgroup_cpu_percent_one_core": 1.0356043547301637,
+        "runner_cpu_percent_one_core": 0.5194772652837509,
+        "runner_pss_sampled_peak_bytes": 20849664,
+        "host_busy_percent_total_capacity": 0.7518796992481203,
+        "host_available_min_bytes": 15718637568,
+        "lab_memory_event_deltas": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "flows": [
+        {
+          "source": "PC1",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.156 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.079 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.079 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.081 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.077 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.067 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.077 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.083 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.076 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.088 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.075 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.079 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.078 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.067 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.072 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.068 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.079 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.085 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.077 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.076 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.067/0.080/0.156 ms\n"
+        },
+        {
+          "source": "PC2",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.107 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.084 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.066 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.068 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.065 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.080 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.067 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.065 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.036 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.036/0.064/0.107 ms\n"
+        },
+        {
+          "source": "PC3",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.084 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.043 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.034 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.034 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.034 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.031 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.036 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.046 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.026/0.035/0.084 ms\n"
+        },
+        {
+          "source": "PC4",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.042 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.042 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.065 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.036 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.036 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.037 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.041 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.062 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.033/0.045/0.114 ms\n"
+        },
+        {
+          "source": "PC5",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.092 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.044 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.077 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.042 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.038/0.054/0.092 ms\n"
+        },
+        {
+          "source": "PC6",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.066 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.037 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.023 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.037 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.023/0.032/0.066 ms\n"
+        },
+        {
+          "source": "PC7",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.087 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.030 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.034 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.031 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.030 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.029 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.026/0.034/0.087 ms\n"
+        },
+        {
+          "source": "PC8",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.080 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.025 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.030 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.030 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.027 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.026 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.031 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.029 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.025/0.032/0.080 ms\n"
+        },
+        {
+          "source": "PC9",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.094 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.034 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.083 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.041 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.072 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.047 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.034/0.052/0.094 ms\n"
+        },
+        {
+          "source": "PC10",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.077 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.070 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.068 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.069 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.072 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.075 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.074 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.060 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.051/0.062/0.077 ms\n"
+        },
+        {
+          "source": "PC11",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.033 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.030 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.032 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.029 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.074 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.081 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.059 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.028/0.044/0.081 ms\n"
+        },
+        {
+          "source": "PC12",
+          "returncode": 0,
+          "transmitted": 20,
+          "received": 20,
+          "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=62 time=0.087 ms\n64 bytes from 198.51.100.10: seq=1 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=2 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=3 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=4 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=5 ttl=62 time=0.028 ms\n64 bytes from 198.51.100.10: seq=6 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=7 ttl=62 time=0.045 ms\n64 bytes from 198.51.100.10: seq=8 ttl=62 time=0.065 ms\n64 bytes from 198.51.100.10: seq=9 ttl=62 time=0.045 ms\n64 bytes from 198.51.100.10: seq=10 ttl=62 time=0.035 ms\n64 bytes from 198.51.100.10: seq=11 ttl=62 time=0.041 ms\n64 bytes from 198.51.100.10: seq=12 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=13 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=14 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=15 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=16 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=17 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=18 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=19 ttl=62 time=0.042 ms\n\n--- 198.51.100.10 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.028/0.047/0.087 ms\n"
+        }
+      ],
+      "all_packets_received": true,
+      "protocol": "icmp",
+      "target": "198.51.100.10",
+      "requested_packets_per_source": 20,
+      "requested_packets_per_second_per_source": 10,
+      "note": "Bounded connectivity workload, not maximum-throughput or application-load testing."
+    },
+    "all_nodes_running_after_load": true,
+    "nodes_after_load": {
+      "PC1": {
+        "memory_bytes": 348160,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 11093,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC2": {
+        "memory_bytes": 397312,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 4382,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC3": {
+        "memory_bytes": 188416,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3354,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "SW1": {
+        "memory_bytes": 163840,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1200,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC4": {
+        "memory_bytes": 196608,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3777,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC5": {
+        "memory_bytes": 278528,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 4001,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC6": {
+        "memory_bytes": 286720,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3127,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "SW2": {
+        "memory_bytes": 167936,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1203,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC7": {
+        "memory_bytes": 274432,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3468,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC8": {
+        "memory_bytes": 200704,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3400,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC9": {
+        "memory_bytes": 196608,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 4050,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "SW3": {
+        "memory_bytes": 163840,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1257,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC10": {
+        "memory_bytes": 299008,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 4238,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC11": {
+        "memory_bytes": 344064,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3621,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "PC12": {
+        "memory_bytes": 274432,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 3738,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "SW4": {
+        "memory_bytes": 172032,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1292,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "R1": {
+        "memory_bytes": 167936,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1257,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "FW1": {
+        "memory_bytes": 167936,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1196,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "DHCP1": {
+        "memory_bytes": 352256,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 2721,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "WAN1": {
+        "memory_bytes": 167936,
+        "swap_bytes": 0,
+        "cpu_usage_usec": 1309,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    },
+    "cleanup_complete": true,
+    "host_after": {
+      "memory_total_bytes": 16759308288,
+      "memory_available_bytes": 15722151936,
+      "swap_used_bytes": 0,
+      "cpu_ticks_total": 46322,
+      "cpu_ticks_busy": 4656
+    },
+    "host_used_increase_at_sampled_available_min_bytes": -4968448,
+    "assessment": {
+      "target_bytes": 2147483648,
+      "lab_cgroup_sampled_peak_under_target": true,
+      "total_application_under_target": "unverified",
+      "packet_test_passed": true,
+      "oom_kill_observed": false,
+      "notes": [
+        "Lab parent cgroup includes descendants; do not add per-node memory again.",
+        "Sampled peaks exclude startup spikes and may miss peaks between samples.",
+        "Runner PSS is separate; shared pages mean it must not be blindly added to cgroup memory.",
+        "Host readings include unrelated programs, caches, kernel/network work and measurement overhead.",
+        "Cgroup CPU is task attribution; networking work can run outside these cgroups.",
+        "Final GUI, vendor firmware, VMs and heavy services are not covered. No total-app 2 GiB claim."
+      ]
+    }
+  }
+}
+
