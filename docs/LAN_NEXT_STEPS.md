@@ -693,8 +693,32 @@ non-root execution and accounting cleanup rules remain mandatory. The full role
 policy stays in durable Stop/journal bindings. `example --radius-roles` offers
 the standalone reference; old direct lists remain the default. See
 [RADIUS_ROLES.md](RADIUS_ROLES.md).
-Dedicated native CLI/SSH, packet denial, accounting, outage and saved-policy
-results follow after CI. These are local action roles, not central RADIUS reply
+The [dedicated native role job](https://github.com/sou1915/Network-LABS/actions/runs/41430332566/job/125226998884)
+passed in 16.302 seconds on Ubuntu 24.04 at implementation commit
+`fe858f558b347a09bb4b07dd11ba09095ec67561`. Real CLI/SSH role unions,
+reader/auditor/session separation, the independent SSH action ceiling, a
+verified backend-only account refused locally, zero auth/accounting packets for
+local-policy denials with a capture positive control, wrong-password rejection,
+non-root shells with accounting/journal handoff, backend outage/recovery, saved
+role retention, reduced grants after recreation and host isolation all passed.
+Local tests passed 869 cases with 133 environment-dependent skips; general CI
+also passed on the same implementation. Broader native/switching jobs were
+still running at this checkpoint. These are local action roles, not central RADIUS reply
 attribute authorization, Linux privilege elevation, per-command shell filtering
 or vendor privilege levels. Broader AAA, Telnet and service/security work remain
 before GUI; static VXLAN and later EVPN/BGP remain separately planned.
+
+
+## OSPFv3 host-link observation repair
+
+The preceding SSH-journal run's physical OSPFv3 scenario completed its functional
+checks but failed its final exact host-link snapshot because a new interface
+`enP59737s1` appeared. This is consistent with hosted-runner hardware hotplug;
+the old job did not record that interface's sysfs device proof. At repair commit
+`a5dff16d47d69afd72b45ef89b1682f1a77bcc37`, the OSPFv3 test now uses the existing
+host invariant helper: only newly added interfaces with an actual sysfs
+`device` entry may be ignored. Removed/replaced baseline links and every new
+virtual interface still fail. Host routes/rules/forwarding checks are unchanged.
+The helper's existing hardware/virtual-leak/baseline-change tests passed locally.
+Dedicated native repair results follow after CI; the earlier failure is retained
+as observed evidence rather than called a successful OSPFv3 job.

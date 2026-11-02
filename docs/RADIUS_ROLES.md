@@ -93,4 +93,5 @@ local and SSH ceilings, a valid backend-only account denied locally, zero
 RADIUS packets for local-policy denials with a successful capture positive
 control, wrong passwords, non-root shell accounting/journal handoff, backend
 outage/recovery, saved role retention, reduced grants after recreation and host
-cleanup. Results are recorded in LAN_NEXT_STEPS.md after CI.
+cleanup. The successful dedicated native job and local test results are recorded
+in LAN_NEXT_STEPS.md.
