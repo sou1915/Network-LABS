@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  radius-outbox-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated durable Stop prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump freeradius
+      - name: Verify real Stop persistence, policy pinning, failed replay and cold restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_outbox_integration.py -v
   radius-accounting-retry-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

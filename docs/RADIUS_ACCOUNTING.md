@@ -48,8 +48,10 @@ If Stop is unacknowledged after a launched session, the invocation reports
 `ACCOUNTING_STOP_UNCONFIRMED`; completed commands are not rolled back.
 
 Each event has a 1..5-second deadline and at most 64 received datagrams.
-Optional finite retries are described below. There is no alternate-server
-failover, interim update, durable resend queue or crash reconciliation. Lost receipts can leave uncertain or unmatched records.
+Optional finite retries are described below. An explicit
+[Stop-only outbox](RADIUS_OUTBOX.md) can persist closed-session events for manual
+replay. Alternate-server failover, interim updates and complete crash/session
+reconciliation remain separate work. Lost receipts can leave uncertain or unmatched records.
 Host crashes and uncatchable termination retain the login supervisor's existing
 limitations. This profile is not a billing or durable audit guarantee.
 
@@ -105,8 +107,9 @@ The secret still arrives only on worker stdin and is absent from normal results.
 Start remains a verified-receipt gate: retries never open a shell on uncertain
 accounting. Stop remains after confirmed cleanup; a lost Stop receipt is still
 reported as unknown after the bounded attempts, with no rollback or reopened
-session. Retry state exists only during this invocation. Saving the retry policy
-does not save undelivered events; restart does not replay them. A compensating
+session. Retry state exists only during this invocation. Retry alone does not save undelivered events; restart does not replay them.
+The separately enabled [Stop outbox](RADIUS_OUTBOX.md) preserves committed
+closed-session intents for explicit replay. A compensating
 Stop after an uncertain Start has its own bounded exchange as before.
 
 The backend can append duplicate Start/Stop records, especially after a changed

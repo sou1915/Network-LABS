@@ -43,7 +43,10 @@ def account(request):
     maximum = request.get('retries', 0)
     if type(maximum) is not int or not 0 <= maximum <= 2: raise ValueError('Accounting retries must be 0..2')
     try:
-        packet = accounting_request(request); packets = [packet]; delay = 0
+        delay = request.get('delay_seconds', 0)
+        if type(delay) is not int or not 0 <= delay <= 0xffffffff: raise ValueError('Invalid initial accounting delay')
+        base_delay = delay
+        packet = accounting_request(request, delay_seconds=delay); packets = [packet]
         initial_id = packet[1]; peer = (request['address'], request['port'])
         interval = request['timeout'] / (2 ** (maximum + 1) - 1)
         retry_at = started + interval
@@ -57,7 +60,7 @@ def account(request):
                 now = time.monotonic()
                 if now >= deadline: raise TimeoutError
                 if now >= retry_at and result['requests_sent'] <= maximum:
-                    current_delay = int(max(0, now - started))
+                    current_delay = min(0xffffffff, base_delay + int(max(0, now - started)))
                     if current_delay != delay:
                         delay = current_delay
                         packet = accounting_request(request, identifier=(initial_id + result['requests_sent']) % 256,

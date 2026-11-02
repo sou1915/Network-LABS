@@ -1,5 +1,6 @@
 """Bounded accounting for authorized local shell sessions; finite optional retries, no delivery queue."""
 import json
+import ipaddress
 from pathlib import Path
 import re
 import subprocess
@@ -14,11 +15,12 @@ from .route_lookup import _json_read
 
 
 def send(manager, source, server, *, username, secret, session_id, event, session_seconds=0,
-         terminate_cause=1, timeout=3):
+         terminate_cause=1, timeout=3, delay_seconds=0):
     validate_credentials(username, 'accounting', secret)
     if not isinstance(session_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', session_id):
         raise ValueError('Accounting session ID requires 1..64 ASCII identifier characters.')
     if event not in ('start', 'stop'): raise ValueError('Accounting event must be start or stop.')
+    integer(delay_seconds, 0, 0xffffffff, 'Accounting initial delay seconds')
     integer(session_seconds, 0, 0xffffffff, 'Accounting session seconds')
     integer(terminate_cause, 1, 18, 'Accounting termination cause')
     integer(timeout, 1, 5, 'Accounting deadline seconds')
@@ -32,13 +34,15 @@ def send(manager, source, server, *, username, secret, session_id, event, sessio
               'requests_sent': 0, 'discarded_responses': 0, 'response_code': None, 'error': None}
     endpoint = _endpoint(manager, index, node)
     if endpoint['status'] != 'ready': return {**report, 'error': 'ENDPOINT_UNAVAILABLE'}
+    if node['radius_access'].get('accounting_outbox') and endpoint['address'] != str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip):
+        return {**report, 'error': 'NAS_ADDRESS_CHANGED'}
     route = _json_read(manager, index, 'ip', '-j', '-4', 'route', 'get', server)
     if server == endpoint['address'] or any(row.get('type') in ('local', 'broadcast', 'multicast') or
             row.get('dev') == 'lo' for row in route['records'] or []):
         return {**report, 'error': 'REMOTE_TARGET_REQUIRED'}
     request = dict(source=endpoint['address'], address=server, port=1813, username=username, secret=secret,
                    session_id=session_id, event=event, session_seconds=session_seconds,
-                   terminate_cause=terminate_cause, timeout=timeout, retries=retries)
+                   terminate_cause=terminate_cause, timeout=timeout, retries=retries, delay_seconds=delay_seconds)
     worker = Path(__file__).with_name('radius_accounting_worker.py').read_text()
     try:
         process = manager.ns(index, sys.executable, '-I', '-c', worker, input_text=json.dumps(request),

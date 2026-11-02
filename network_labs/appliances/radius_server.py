@@ -64,6 +64,12 @@ def validate_node(node):
 
 
 def validate_lab(spec):
+    for source in spec['nodes']:
+        if (source.get('radius_access') or {}).get('accounting_outbox'):
+            from .ssh_radius import managed_secret
+            address, _ = managed_secret(spec, source)
+            if not any((node.get('radius_server') or {}).get('accounting') and str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip) == address for node in spec['nodes']):
+                raise ValueError('Accounting outbox requires a separate managed accounting server and matching NAS client.')
     for node in spec['nodes']:
         if not node.get('radius_server'): continue
         for client in node['radius_server']['clients']:

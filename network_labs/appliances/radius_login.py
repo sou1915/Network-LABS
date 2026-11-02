@@ -1,5 +1,6 @@
 """Shared bounded RADIUS shell supervisor for local CLI and SSH transports."""
 import json
+import ipaddress
 import signal
 import subprocess
 import tempfile
@@ -44,6 +45,18 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
                            secret=secret, timeout=timeout)
     result['authentication'] = authentication
     if not verified_accept(authentication): return result
+    if node['radius_access'].get('accounting_outbox'):
+        from .radius_outbox import binding, prepare
+        try:
+            address, expected, _ = binding(manager, source, username)
+            if address != server or expected != secret or (authentication.get('endpoint') or {}).get('address') != str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip):
+                raise ValueError('Outbox session source/backend differs.')
+        except (OSError, RuntimeFailure, ValueError, StopIteration):
+            return {**result, 'error': 'ACCOUNTING_OUTBOX_BINDING_UNAVAILABLE'}
+        try:
+            prepare(manager)
+        except (OSError, RuntimeFailure, ValueError):
+            return {**result, 'error': 'ACCOUNTING_OUTBOX_UNAVAILABLE'}
     group = None
     launched_at = None
     try:
@@ -87,12 +100,29 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
                 else:
                     elapsed = int(max(0, time.monotonic() - launched_at)) if launched_at is not None else 0
                     cause = {'passed': 1, 'expired': 5, 'interrupted': 6}.get(result['status'], 9)
+                    queued = None
+                    if node['radius_access'].get('accounting_outbox'):
+                        from .radius_outbox import enqueue
+                        try:
+                            queued = enqueue(manager, source, server, username, secret, group.name, elapsed, cause,
+                                             int(time.time()), cleanup_complete=group.closed)
+                            result['accounting']['outbox'] = {'status': 'pending', 'session_id': group.name}
+                        except (OSError, RuntimeFailure, ValueError, StopIteration):
+                            result['accounting']['outbox'] = {'status': 'unavailable', 'error': 'OUTBOX_WRITE_UNCONFIRMED'}
                     try:
                         stop = account(manager, source, server, username=username, secret=secret, session_id=group.name,
                                        event='stop', session_seconds=elapsed, terminate_cause=cause, timeout=timeout)
                     except (OSError, RuntimeFailure, ValueError, subprocess.TimeoutExpired, KeyboardInterrupt):
                         stop = {'status': 'unknown', 'error': 'ACCOUNTING_WORKER_UNAVAILABLE'}
                     result['accounting']['stop'] = stop
+                    if queued is not None and stop.get('status') == 'passed' and stop.get('response_verified') is True:
+                        from .radius_outbox import acknowledge
+                        try:
+                            acknowledge(manager, queued)
+                            result['accounting']['outbox']['status'] = 'cleared'
+                        except (OSError, RuntimeFailure, ValueError):
+                            result['accounting']['outbox'] = {'status': 'pending', 'error': 'OUTBOX_DELETE_UNCONFIRMED'}
+                            result.update(status='unknown', error='ACCOUNTING_OUTBOX_UNCONFIRMED')
                     if stop['status'] != 'passed' and result['session_attempted']:
                         result.update(status='unknown', error='ACCOUNTING_STOP_UNCONFIRMED')
     return result

@@ -602,3 +602,18 @@ dual-stack AAA, combined services and IPv6 service-probe jobs also passed;
 broader native/switching and RADIUS suites were still running at this checkpoint.
 Durable accounting, broader AAA and dynamic/security combinations remain before
 GUI as separately scoped work. VXLAN stays planned above.
+
+
+## Private closed-session Stop outbox increment
+
+An opt-in `radius_access.accounting_outbox:true` retains committed Stop intents
+outside runtime state, only after confirmed session cleanup, and clears them
+only on a verified receipt. It requires managed IPv4 accounting and pins the
+NAS/backend/user/access policy without storing secret/password bytes. Private
+bounded files, fsync, capacity checks and explicit pending/flush commands support
+lab stop/recreation and fresh CLI processes; changed bindings refuse delivery.
+There is no Start replay, background sender, live-session journal or exactly-once
+backend guarantee. Earlier crash windows and full reconciliation remain separate.
+See [RADIUS_OUTBOX.md](RADIUS_OUTBOX.md). Native persistence, policy-change and
+Stop-only replay results are recorded after CI. Broader AAA and service/security
+composition work remains before GUI; VXLAN stays planned above.
