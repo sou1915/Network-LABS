@@ -85,15 +85,15 @@ def validate_node(node):
                 or config['ssh_keys'] or password or config.get('ssh_actions') is not None
                 or config.get('ssh_radius') or config.get('syslog_remote') or not node.get('radius_access')):
             raise ValueError('Telnet RADIUS requires a standalone single-interface host, access policy and no SSH/local-password/syslog service.')
-        if (not isinstance(actions, list) or len(actions) > len(ACTIONS)
-                or any(not isinstance(a, str) or a not in ACTIONS for a in actions) or len(set(actions)) != len(actions)):
-            raise ValueError('Telnet actions require distinct fixed diagnostics; an empty list denies all.')
+        if (not isinstance(actions, list) or len(actions) > len(ACTIONS) + 1
+                or any(not isinstance(a, str) or a not in (*ACTIONS, 'shell') for a in actions) or len(set(actions)) != len(actions)):
+            raise ValueError('Telnet actions require distinct diagnostics or an explicit bounded shell; an empty list denies all.')
         config['telnet_actions'] = sorted(actions)
         access = node['radius_access']
         if not isinstance(access, dict): raise ValueError('Telnet RADIUS requires an access policy object.')
         from .radius_access import allowed_actions
-        if access.get('accounting') or any('shell' in allowed_actions(access, name) for name in access.get('user_roles', access.get('users', {}))):
-            raise ValueError('Initial Telnet RADIUS profile excludes shell/accounting grants.')
+        if 'shell' not in actions and (access.get('accounting') or any('shell' in allowed_actions(access, name) for name in access.get('user_roles', access.get('users', {})))):
+            raise ValueError('Telnet shell/accounting grants require explicit shell in telnet_actions.')
     elif 'telnet_actions' in config:
         raise ValueError('Telnet actions require Telnet RADIUS.')
     ipv6 = config.get('ssh_ipv6', False)
@@ -270,6 +270,10 @@ def start_servers(manager):
             checked = manager.crun('exec', node['name'], LOGIN, '--version', check=False, timeout=3)
             if checked.returncode or checked.stdout != 'Network LABS Telnet RADIUS login 1\n':
                 raise RuntimeFailure(node['name'] + ': Telnet RADIUS login helper identity unavailable.')
+            if 'shell' in config['telnet_actions']:
+                checked = manager.crun('exec', node['name'], LOGIN, '--shell-version', check=False, timeout=3)
+                if checked.returncode or checked.stdout != 'Network LABS Telnet RADIUS shell 1\n':
+                    raise RuntimeFailure(node['name'] + ': Telnet shell requires rebuilding the trusted login helper.')
             from .ssh_radius import start_worker
             start_worker(manager, index, node, transport='telnet')
         for service in commands(node): start_service(manager, node, service)
@@ -313,7 +317,7 @@ def observe(manager, node):
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available, 'ssh_ipv6': config.get('ssh_ipv6', False),
             'ssh_address_ipv6': str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip) if config.get('ssh_ipv6') else None,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Optional standalone Telnet RADIUS admits one fixed diagnostic per authenticated connection, without a local-password fallback or shell. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Optional standalone Telnet RADIUS admits a fixed diagnostic or an explicitly permitted bounded shell, without local-password fallback. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 
 def drift(manager, node):

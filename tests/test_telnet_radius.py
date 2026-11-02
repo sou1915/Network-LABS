@@ -37,7 +37,7 @@ class TelnetRadiusTests(unittest.TestCase):
         self.assertEqual(commands(node), {'telnet': ['/bin/busybox', 'telnetd', '-F', '-K', '-b', '192.0.2.10', '-p', '23', '-l', LOGIN]})
         self.assertEqual(set(managed_files(node)), {'management.json'})
         self.assertNotIn(SECRET, json.dumps(managed_files(node)))
-        for fault in ({'telnet_radius': 1}, {'telnet_actions': ['shell']}, {'telnet_actions': 'identity'},
+        for fault in ({'telnet_radius': 1}, {'telnet_actions': ['root-shell']}, {'telnet_actions': 'identity'},
                       {'telnet_actions': ['identity', 'identity']}, {'telnet_password_hash': HASH},
                       {'ssh_keys': [KEY]}, {'syslog_remote': '192.0.2.20'}, {'telnet_actions': [True]}):
             with self.subTest(fault=fault), self.assertRaises(ValueError):

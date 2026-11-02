@@ -64,7 +64,15 @@ try:
             send(request['action'])
             if wait_for(b'RADIUS username: '):
                 send(request['username'])
-                if wait_for(b'RADIUS password: '): send(request['password'])
+                if wait_for(b'RADIUS password: '):
+                    send(request['password'])
+                    if request.get('shell_script') is not None and wait_for(b'$ '):
+                        script = request['shell_script'].replace('\n', '\r\n').encode().replace(b'\xff', b'\xff\xff')
+                        sock.sendall(script)
+                        if request.get('disconnect_marker'):
+                            if not wait_for(request['disconnect_marker'].encode()):
+                                raise RuntimeError('Shell disconnect marker unavailable')
+                            sock.close(); closed = True
             while not closed and time.monotonic() < deadline: receive()
             if not closed: raise RuntimeError('Telnet did not close after one diagnostic')
     print(json.dumps({'output': text.decode(errors='replace'), 'closed': closed}))

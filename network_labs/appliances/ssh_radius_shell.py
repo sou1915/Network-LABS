@@ -86,10 +86,11 @@ def relay(connection, process, reader, writer, *, terminal, seconds):
         connection.settimeout(1)
 
 
-def serve_shell(manager, source, connection, username, password, *, terminal, audit=None):
+def serve_shell(manager, source, connection, username, password, *, terminal, audit=None, transport='ssh'):
     node = next(n for n in manager.read()['spec']['nodes'] if n['name'] == source)
     policy = node.get('management') or {}
-    if policy.get('ssh_radius') is not True or 'shell' not in (policy.get('ssh_actions') or []):
+    if transport not in ('ssh', 'telnet'): raise ValueError('Unknown shell transport.')
+    if policy.get(transport + '_radius') is not True or 'shell' not in (policy.get(transport + '_actions') or []):
         connection.sendall(b'DENY\n'); return
     from .ssh_radius import managed_secret
     address, secret = managed_secret(manager.state['spec'], node)

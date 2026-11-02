@@ -145,6 +145,9 @@ static int terminal_stream(int fd) {
 static int run(const char *action, unsigned seconds) {
     char username[65], password[129], header[256], status[33]; int result = 126, fd = -1;
     deadline = now() + seconds;
+#ifdef NL_CREDENTIAL_SECONDS
+    deadline = now() + NL_CREDENTIAL_SECONDS;
+#endif
     struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = stop;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGTERM, &sa, NULL); sigaction(SIGHUP, &sa, NULL); sigaction(SIGINT, &sa, NULL);
@@ -188,6 +191,9 @@ static int run(const char *action, unsigned seconds) {
             total += (size_t)n;
         }
     } else if (!strcmp(status, "SHELL") && !strcmp(action, "shell")) {
+#ifdef NL_CREDENTIAL_SECONDS
+        deadline = now() + seconds;
+#endif
         if (tty_saved) {
             struct termios raw = original; cfmakeraw(&raw);
             if (tcsetattr(STDIN_FILENO, TCSANOW, &raw)) { result = 125; goto done; }

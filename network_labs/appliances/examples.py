@@ -607,11 +607,13 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False):
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
-    if type(telnet) is not bool or (telnet and (ssh_key is not None or allow_shell or ssh_shell or accounting)):
+    if type(telnet_shell) is not bool or (telnet_shell and not telnet): raise ValueError('Telnet shell requires explicit Telnet RADIUS.')
+    if type(telnet) is not bool or (telnet and (ssh_key is not None or ssh_shell or ((allow_shell or accounting) and not telnet_shell))):
         raise ValueError('Telnet RADIUS requires a boolean and a standalone diagnostic profile.')
+    if telnet_shell: allow_shell = True
     if type(role_policy) is not bool: raise ValueError('RADIUS role selection must be boolean.')
     if type(accounting_journal) is not bool or (accounting_journal and not accounting_outbox): raise ValueError('Accounting journal requires enabled Stop outbox.')
     if type(accounting_outbox) is not bool or (accounting_outbox and not accounting): raise ValueError('Accounting outbox requires enabled accounting.')
@@ -645,7 +647,7 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
         if allow_shell:
             access['roles']['session'] = ['shell']; access['user_roles'][username].append('session')
     if telnet:
-        spec['nodes'][0]['management'] = {'interface': 'eth0', 'telnet_radius': True, 'telnet_actions': ['identity', 'hostname', 'security-context']}
+        spec['nodes'][0]['management'] = {'interface': 'eth0', 'telnet_radius': True, 'telnet_actions': ['identity', 'hostname', 'security-context'] + (['shell'] if telnet_shell else [])}
     return validate(spec)
 
 

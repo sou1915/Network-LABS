@@ -750,3 +750,18 @@ General CI passed, and the [existing role/SSH/accounting native job](https://git
 also passed on the same implementation. Other native/SSH/switching jobs were
 still queued or running at this checkpoint. Telnet shell/accounting, broader AAA and service/security
 composition remain before GUI; static VXLAN and later EVPN/BGP remain planned.
+
+
+## Explicit bounded Telnet shell/accounting increment
+
+A separate `--radius-telnet-shell` opts into a PTY shell through the shared
+CLI/SSH session supervisor. User role/direct grants and the Telnet action
+ceiling must both admit shell. Optional accounting gates launch on verified
+Start and sends Stop only after confirmed subtree cleanup; the existing outbox
+and journal retain their durable handoff rules. Diagnostic-only Telnet remains
+the default, and older helpers are refused for shell use by a separate capability
+check. Credential input remains bounded independently of the shell duration.
+See [TELNET_RADIUS.md](TELNET_RADIUS.md). Dedicated native exit/expiry/disconnect,
+Start-loss gate, durable Stop, journal and cold-restore results follow after CI.
+Telnet worker crash coverage and broader AAA/service/security work remain before
+GUI; static VXLAN and later EVPN/BGP stay separately tracked.

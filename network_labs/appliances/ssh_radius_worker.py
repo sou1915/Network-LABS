@@ -131,10 +131,10 @@ def serve(config):
                     stage = 'state'
                     manager = BridgeManager(config); manager.current()
                     stage = 'dispatch'
-                    if transport == 'ssh' and action in ('shell', 'shell-tty'):
+                    if action in ('shell', 'shell-tty'):
                         from .ssh_radius_shell import serve_shell
                         serve_shell(manager, config['node'], connection, username, password,
-                                    terminal=action == 'shell-tty', audit=audit)
+                                    terminal=action == 'shell-tty', audit=audit, transport=transport)
                         password = None
                         continue
                     result = selected_dispatch(manager, config['node'], action, username, password,

@@ -1,5 +1,6 @@
 /* BusyBox telnetd login: discard login metadata, drop privilege, fixed diagnostics. */
 #define NL_BRIDGE_PORT 814
+#define NL_CREDENTIAL_SECONDS 15
 #define NL_DENIAL_TEXT "Telnet RADIUS request denied or unavailable.\n"
 #define main ssh_relay_main
 #include "ssh_radius_relay.c"
@@ -34,16 +35,19 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) {
         puts("Network LABS Telnet RADIUS login 1"); return 0;
     }
+    if (argc == 2 && !strcmp(argv[1], "--shell-version")) {
+        puts("Network LABS Telnet RADIUS shell 1"); return 0;
+    }
     /* No hostname, USER environment, -f option or argv can authenticate a user.
      * Always obtain a fresh action and credentials from the Telnet PTY. */
     if (unprivileged() || !isatty(STDIN_FILENO)) return 125;
     char action[33]; deadline = now() + 15;
-    if (write_all(STDERR_FILENO, "RADIUS action (identity/hostname/security-context): ",
-                  sizeof("RADIUS action (identity/hostname/security-context): ") - 1) || line(STDIN_FILENO, action, 32)) {
+    if (write_all(STDERR_FILENO, "RADIUS action (identity/hostname/security-context/shell): ",
+                  sizeof("RADIUS action (identity/hostname/security-context/shell): ") - 1) || line(STDIN_FILENO, action, 32)) {
         fputs(NL_DENIAL_TEXT, stderr); return 126;
     }
-    if (strcmp(action, "identity") && strcmp(action, "hostname") && strcmp(action, "security-context")) {
+    if (strcmp(action, "identity") && strcmp(action, "hostname") && strcmp(action, "security-context") && strcmp(action, "shell")) {
         fputs(NL_DENIAL_TEXT, stderr); return 126;
     }
-    return run(action, 15);
+    return run(action, !strcmp(action, "shell") ? 3615 : 15);
 }

@@ -136,3 +136,11 @@ checks silent local reconciliation followed by one compensating Stop on
 explicit flush. It also exercises worker-token renewal, stale runtime refusal,
 healthy SSH after saved recreation, journal handoff and host cleanup. Native
 results and the successful dedicated job are recorded in LAN_NEXT_STEPS.md.
+
+
+The explicit [bounded Telnet shell](TELNET_RADIUS.md#explicit-bounded-telnet-shell)
+now shares the CLI/SSH session supervisor, optional accounting Start gate and
+Stop-after-cleanup behavior. The normal Telnet shell path supports the Stop
+outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL recovery
+remains separately unvalidated; it is not implied by normal exit/disconnect
+coverage. Diagnostic-only Telnet stays the default.
