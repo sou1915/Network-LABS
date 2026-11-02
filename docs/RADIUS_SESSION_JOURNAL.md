@@ -16,9 +16,10 @@ sudo python3 -m network_labs.appliances start journal.json
 
 The new `radius_access.accounting_journal:true` requires the managed accounting
 Stop outbox and all its existing policy constraints. It covers local
-`radius-login` and explicitly enabled RADIUS SSH shells. Telnet,
-dynamic/dual-stack shell compositions and whole-host crash reconciliation
-remain separate work. Default non-journal profiles are unchanged.
+`radius-login` and explicitly enabled RADIUS SSH shells; normal Telnet shells
+now share its checkpoints and Stop handoff. Dedicated Telnet worker-crash
+validation, dynamic/dual-stack shell compositions and whole-host crash
+reconciliation remain separate work. Default non-journal profiles are unchanged.
 Drain/review previously pinned Stop records before changing accounting policy;
 enabling this option changes that policy's binding.
 

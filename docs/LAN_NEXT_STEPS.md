@@ -761,7 +761,17 @@ Start and sends Stop only after confirmed subtree cleanup; the existing outbox
 and journal retain their durable handoff rules. Diagnostic-only Telnet remains
 the default, and older helpers are refused for shell use by a separate capability
 check. Credential input remains bounded independently of the shell duration.
-See [TELNET_RADIUS.md](TELNET_RADIUS.md). Dedicated native exit/expiry/disconnect,
-Start-loss gate, durable Stop, journal and cold-restore results follow after CI.
+See [TELNET_RADIUS.md](TELNET_RADIUS.md). The
+[dedicated native Telnet shell job](https://github.com/sou1915/Network-LABS/actions/runs/41436399344/job/125247095236)
+passed in 12.180 seconds on Ubuntu 24.04 at implementation commit
+`dd05de8253e18dfd472c709f560026bc8aae1806`. Actual PTY and non-root/no-capability
+execution, denied users/passwords without shell effects, background subtree
+cleanup after exit/expiry/disconnect, matched Start/Stop records and causes,
+real accounting-response loss with no shell launch despite successful Access,
+retained Stop followed by explicit flush, journal handoff, saved recreation and
+host namespace/link/route/rule invariants all passed. Local tests passed 881
+cases with 135 environment-dependent skips. General CI, diagnostic-only Telnet
+and the existing role/SSH/accounting native scenario also passed on that
+implementation; broader native/switching jobs were still queued or running.
 Telnet worker crash coverage and broader AAA/service/security work remain before
 GUI; static VXLAN and later EVPN/BGP stay separately tracked.

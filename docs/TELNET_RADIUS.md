@@ -153,4 +153,5 @@ itself prove cleanup; inspect session groups and backend/queue evidence.
 The dedicated native shell job checks actual Telnet PTY, privilege limits,
 background cleanup after exit, expiry and disconnect, denied credentials/roles,
 real accounting-response loss with no shell launch, retained Stop flush,
-journal handoff and saved recreation. Its results are recorded in LAN_NEXT_STEPS.md.
+journal handoff and saved recreation. The successful 12.180-second dedicated job and local test counts are recorded
+in LAN_NEXT_STEPS.md.

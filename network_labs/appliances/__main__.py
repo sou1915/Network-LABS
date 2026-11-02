@@ -30,7 +30,7 @@ def main(arguments=None):
     sample.add_argument('--radius-ssh', action='store_true', help='Require RADIUS credentials on stdin for fixed SSH diagnostics; requires --radius and --ssh-authorized-key.')
     sample.add_argument('--radius-ssh-shell', action='store_true', help='Explicitly enable the bounded RADIUS SSH shell, including PTY; requires --radius --radius-ssh.')
     sample.add_argument('--radius-shell', action='store_true', help='With --radius, explicitly permit the learner a non-root CLI shell via radius-login.')
-    sample.add_argument('--radius-accounting', action='store_true', help='With --radius --radius-shell, require acknowledged session accounting and enable private server records.')
+    sample.add_argument('--radius-accounting', action='store_true', help='With an explicit RADIUS CLI, SSH or Telnet shell, require acknowledged accounting and enable private server records.')
     sample.add_argument('--radius-secret-file', type=Path, help='Private shared-secret file for --radius; stored in the private manifest.')
     sample.add_argument('--dns-resolver-family', choices=('ipv4', 'ipv6'), help='With --dual-stack-dns or --radius-dns, explicitly select the managed resolver address family.')
     sample.add_argument('--radius-dns', action='store_true', help='With --radius-dual-stack, add a separate routed dual-stack DNS service.')
@@ -343,7 +343,7 @@ def main(arguments=None):
             if args.radius_ssh_shell and not (args.radius and args.radius_ssh):
                 raise ValueError('--radius-ssh-shell requires --radius --radius-ssh.')
             if args.radius_accounting and not (args.radius and (args.radius_shell or args.radius_ssh_shell or args.radius_telnet_shell)):
-                raise ValueError('--radius-accounting requires --radius with --radius-shell or --radius-ssh-shell.')
+                raise ValueError('--radius-accounting requires --radius with --radius-shell, --radius-ssh-shell or --radius-telnet-shell.')
             if args.radius_ssh and (not args.radius or not key or args.management or args.telnet_password_hash_file):
                 raise ValueError('--radius-ssh requires --radius --ssh-authorized-key and no Telnet/--management profile.')
             if args.radius_dual_stack and (not args.radius or not args.radius_ssh or args.radius_shell or args.radius_ssh_shell or args.radius_accounting):
