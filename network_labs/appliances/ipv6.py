@@ -96,7 +96,8 @@ def validate_lab(spec):
                     management.get('telnet_password_hash') or management.get('syslog_remote') or
                     'shell' in (management.get('ssh_actions') or [])):
                 raise ValueError('Dual-stack management requires explicit IPv6 RADIUS-gated SSH diagnostics; no Telnet, syslog or shells.')
-            if access.get('accounting') or any('shell' in actions for actions in access.get('users', {}).values()) or (node.get('radius_server') or {}).get('accounting'):
+            from .radius_access import allowed_actions
+            if access.get('accounting') or any('shell' in allowed_actions(access, name) for name in access.get('user_roles', access.get('users', {}))) or (node.get('radius_server') or {}).get('accounting'):
                 raise ValueError('Dual-stack AAA shell/accounting combinations require separate validation.')
     if dns_coexistence or aaa_coexistence:
         for node in spec['nodes']:

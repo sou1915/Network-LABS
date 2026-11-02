@@ -90,3 +90,10 @@ correct/wrong credentials, per-user command denial, UTF-8/128-byte passwords,
 wrong SSH key, command/subsystem denial, server/supervisor outages, low-port
 impersonation refusal, saved restart and process cleanup. The optional shell profile reuses session supervision/accounting; richer
 roles, SSH-handshake password authentication and Telnet AAA remain later work.
+
+
+Optional [local named roles](RADIUS_ROLES.md) reuse grants through `roles` and
+`user_roles`, as an alternative to direct user/action lists. Every allowed
+operation still requires a verified RADIUS accept, and SSH's node-wide action
+list remains an additional ceiling. Shell permission remains explicit and
+retains the existing unprivileged process limits.

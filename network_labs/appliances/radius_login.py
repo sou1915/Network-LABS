@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager, nullcontext
 
 from .radius import probe
-from .radius_access import authorize
+from .radius_access import authorize, authorization
 from .radius_exec import process_config, verified_accept
 from .runtime import RuntimeFailure
 from .radius_session import SessionGroup, shell_args
@@ -35,6 +35,7 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
     if refusal:
         return {**result, 'error': refusal}
     node = next(node for node in manager.read()['spec']['nodes'] if node['name'] == source)
+    result['authorization'] = authorization(node['radius_access'], username)
     ceiling = node['radius_access'].get('session_seconds', 300)
     duration = ceiling if seconds is None else seconds
     if duration > ceiling: raise ValueError('Session duration exceeds the node policy limit.')

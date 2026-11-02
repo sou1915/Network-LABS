@@ -680,3 +680,21 @@ RADIUS/SSH/accounting and durable Stop-outbox jobs also passed. The local-CLI
 journal native job was still queued and broader switching/native suites were
 still running at this checkpoint. Broader AAA/service/security combinations
 remain before GUI; static VXLAN and later EVPN/BGP stay separately planned.
+
+
+## Local AAA role authorization increment
+
+An opt-in `radius_access.roles` plus `user_roles` form adds reusable local grants
+for existing CLI diagnostics, bounded shells and RADIUS-gated SSH. Effective
+permissions are an explicit union; mixed direct/role policy, unknown role names,
+empty/duplicate/unbounded declarations are refused. Local denials precede RADIUS
+and process creation; verified Access-Accept, SSH node-wide action ceilings,
+non-root execution and accounting cleanup rules remain mandatory. The full role
+policy stays in durable Stop/journal bindings. `example --radius-roles` offers
+the standalone reference; old direct lists remain the default. See
+[RADIUS_ROLES.md](RADIUS_ROLES.md).
+Dedicated native CLI/SSH, packet denial, accounting, outage and saved-policy
+results follow after CI. These are local action roles, not central RADIUS reply
+attribute authorization, Linux privilege elevation, per-command shell filtering
+or vendor privilege levels. Broader AAA, Telnet and service/security work remain
+before GUI; static VXLAN and later EVPN/BGP remain separately planned.

@@ -607,9 +607,10 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False):
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
+    if type(role_policy) is not bool: raise ValueError('RADIUS role selection must be boolean.')
     if type(accounting_journal) is not bool or (accounting_journal and not accounting_outbox): raise ValueError('Accounting journal requires enabled Stop outbox.')
     if type(accounting_outbox) is not bool or (accounting_outbox and not accounting): raise ValueError('Accounting outbox requires enabled accounting.')
     if accounting_retries and not accounting: raise ValueError('Accounting retries require accounting.')
@@ -635,6 +636,12 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
             'ssh_radius': True, 'ssh_actions': list(ssh_actions) if ssh_actions is not None else ['identity', 'hostname', 'security-context']}
         if ssh_shell and 'shell' not in spec['nodes'][0]['management']['ssh_actions']:
             spec['nodes'][0]['management']['ssh_actions'].append('shell')
+    if role_policy:
+        access = spec['nodes'][0]['radius_access']; access.pop('users')
+        access['roles'] = {'observer': ['identity', 'hostname'], 'auditor': ['security-context']}
+        access['user_roles'] = {username: ['observer', 'auditor']}
+        if allow_shell:
+            access['roles']['session'] = ['shell']; access['user_roles'][username].append('session')
     return validate(spec)
 
 

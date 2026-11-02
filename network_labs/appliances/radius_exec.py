@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 
 from .radius import probe
-from .radius_access import authorize
+from .radius_access import authorize, authorization
 from .runtime import RuntimeFailure
 
 ACTIONS = {'identity': ['/bin/busybox', 'id'],
@@ -32,11 +32,13 @@ def execute(manager, source, server, *, action, username, password, secret, time
     if refusal:
         return {'status': 'blocked', 'action': action, 'node': source, 'authentication': None,
                 'executed': False, 'returncode': None, 'error': refusal}
+    node = next(n for n in manager.read()['spec']['nodes'] if n['name'] == source)
+    grants = authorization(node['radius_access'], username)
     authentication = probe(manager, source, server, username=username, password=password,
                            secret=secret, timeout=timeout)
     result = {'status': 'blocked', 'action': action, 'node': source,
-              'authentication': authentication, 'executed': False, 'returncode': None,
-              'scope': 'One locally authorized diagnostic after a verified Access-Accept; UID/GID 65532, empty capabilities, no new privileges. No SSH/Telnet policy, shell, per-user roles, accounting or persistent session.'}
+              'authentication': authentication, 'authorization': grants, 'executed': False, 'returncode': None,
+              'scope': 'One locally authorized diagnostic after a verified Access-Accept; UID/GID 65532, empty capabilities, no new privileges. Local user/action or role policy; no elevation of Linux privileges. This diagnostic does not open a shell or send accounting.'}
     if not verified_accept(authentication):
         return result
     process = process_config(ACTIONS[action])

@@ -96,3 +96,10 @@ and explicit `--terminate` can close a populated orphan. A Stop is queued
 locally and sent only by explicit flush; the worker/listener is not restarted
 by reconciliation. Save/recreate starts a new worker, while old unclosed runtime
 identities remain conservatively refused.
+
+
+Optional [local named roles](RADIUS_ROLES.md) reuse grants through `roles` and
+`user_roles`, as an alternative to direct user/action lists. Every allowed
+operation still requires a verified RADIUS accept, and SSH's node-wide action
+list remains an additional ceiling. Shell permission remains explicit and
+retains the existing unprivileged process limits.

@@ -227,3 +227,10 @@ foreground (`-f -s`) mode, as documented in the
 [FreeRADIUS manual](https://www.freeradius.org/radiusd/man/radiusd.html).
 Without it a working foreground daemon may have no PID file; the first
 native observation test exposed this and correctly reported `unknown`.
+
+
+Optional [local named roles](RADIUS_ROLES.md) reuse grants through `roles` and
+`user_roles`, as an alternative to direct user/action lists. Every allowed
+operation still requires a verified RADIUS accept, and SSH's node-wide action
+list remains an additional ceiling. Shell permission remains explicit and
+retains the existing unprivileged process limits.

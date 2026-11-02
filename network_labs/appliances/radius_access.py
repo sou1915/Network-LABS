@@ -1,4 +1,4 @@
-"""Declared local authorization for the fixed RADIUS diagnostic executor."""
+"""Explicit local user/action or reusable role authorization for RADIUS entry points."""
 import ipaddress
 import re
 
@@ -11,7 +11,7 @@ ACTIONS = ('identity', 'hostname', 'security-context', 'shell')
 def validate_node(node):
     policy = node.get('radius_access')
     if policy is None: return
-    keys(policy, ('server', 'users', 'session_seconds', 'accounting', 'accounting_retries', 'accounting_outbox', 'accounting_journal'), 'RADIUS access')
+    keys(policy, ('server', 'users', 'roles', 'user_roles', 'session_seconds', 'accounting', 'accounting_retries', 'accounting_outbox', 'accounting_journal'), 'RADIUS access')
     integer(policy.setdefault('session_seconds', 300), 1, 3600, 'RADIUS shell session seconds')
     if type(policy.setdefault('accounting', False)) is not bool:
         raise ValueError('RADIUS access accounting must be boolean.')
@@ -33,18 +33,73 @@ def validate_node(node):
         raise ValueError('RADIUS access requires a usable remote unicast IPv4 server.')
     if node['interfaces']['eth0'] and server == ipaddress.IPv4Interface(node['interfaces']['eth0']).ip:
         raise ValueError('RADIUS access server must be remote.')
-    users = policy.get('users')
+    role_mode = 'roles' in policy or 'user_roles' in policy
+    if role_mode:
+        if 'users' in policy:
+            raise ValueError('Choose either direct users or roles with user_roles; mixed grants are refused.')
+        roles = policy.get('roles')
+        users = policy.get('user_roles')
+        if not isinstance(roles, dict) or not 1 <= len(roles) <= 16:
+            raise ValueError('RADIUS access requires 1..16 explicit roles.')
+        for name, actions in roles.items():
+            if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,31}', name):
+                raise ValueError('RADIUS role names require 1..32 ASCII letters, digits, _ or -, starting with a letter.')
+            validate_actions(actions)
+    else:
+        users = policy.get('users')
     if not isinstance(users, dict) or not 1 <= len(users) <= 16:
         raise ValueError('RADIUS access requires 1..16 explicit users.')
-    for name, actions in users.items():
+    for name, grants in users.items():
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', name):
             raise ValueError('RADIUS access requires ASCII login names, at most 64 characters.')
-        if (not isinstance(actions, list) or not actions or len(actions) > len(ACTIONS)
-                or any(not isinstance(action, str) or action not in ACTIONS for action in actions)
-                or len(set(actions)) != len(actions)):
-            raise ValueError('RADIUS access user actions must be distinct supported actions.')
+        if role_mode:
+            if (not isinstance(grants, list) or not 1 <= len(grants) <= 16
+                    or any(not isinstance(role, str) or role not in roles for role in grants)
+                    or len(set(grants)) != len(grants)):
+                raise ValueError('RADIUS user_roles requires distinct declared role names.')
+        else:
+            validate_actions(grants)
     policy['server'] = str(server)
-    policy['users'] = {name: sorted(users[name]) for name in sorted(users)}
+    if role_mode:
+        policy['roles'] = {name: sorted(roles[name]) for name in sorted(roles)}
+        policy['user_roles'] = {name: sorted(users[name]) for name in sorted(users)}
+    else:
+        policy['users'] = {name: sorted(users[name]) for name in sorted(users)}
+
+
+def validate_actions(actions):
+    if (not isinstance(actions, list) or not actions or len(actions) > len(ACTIONS)
+            or any(not isinstance(action, str) or action not in ACTIONS for action in actions)
+            or len(set(actions)) != len(actions)):
+        raise ValueError('RADIUS access actions must be distinct supported actions.')
+
+
+def allowed_actions(policy, username):
+    """Resolve one validated user's grants; malformed or mixed runtime policy denies."""
+    try:
+        if 'roles' in policy or 'user_roles' in policy:
+            if 'users' in policy: return []
+            roles = policy['roles']; assignments = policy['user_roles'].get(username, [])
+            if not isinstance(assignments, list) or not 1 <= len(assignments) <= 16:
+                return []
+            if any(not isinstance(role, str) or role not in roles for role in assignments) or len(set(assignments)) != len(assignments):
+                return []
+            actions = set()
+            for role in assignments:
+                validate_actions(roles[role]); actions.update(roles[role])
+            return sorted(actions)
+        actions = policy.get('users', {}).get(username, [])
+        validate_actions(actions)
+        return sorted(actions)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return []
+
+
+def authorization(policy, username):
+    actions = allowed_actions(policy, username)
+    roles = sorted(policy['user_roles'][username]) if actions and 'user_roles' in policy else []
+    return {'mode': 'roles' if 'roles' in policy or 'user_roles' in policy else 'users',
+            'roles': roles, 'actions': actions}
 
 
 def authorize(manager, source, server, username, action):
@@ -55,5 +110,5 @@ def authorize(manager, source, server, username, action):
     policy = node.get('radius_access')
     if policy is None: return 'NO_ACCESS_POLICY'
     if server != policy['server']: return 'SERVER_NOT_ALLOWED'
-    if action not in policy['users'].get(username, []): return 'ACTION_NOT_ALLOWED'
+    if action not in allowed_actions(policy, username): return 'ACTION_NOT_ALLOWED'
     return None

@@ -142,7 +142,8 @@ def binding(manager,source,username):
     if state['phase']!='running' or 'pending_spec' in state or 'pending_node' in state:raise ValueError('Outbox requires an unchanged running lab.')
     node=next(n for n in state['spec']['nodes'] if n['name']==source)
     policy=node.get('radius_access') or {}
-    if not policy.get('accounting') or not policy.get('accounting_outbox') or 'shell' not in policy.get('users',{}).get(username,[]):
+    from .radius_access import allowed_actions
+    if not policy.get('accounting') or not policy.get('accounting_outbox') or 'shell' not in allowed_actions(policy,username):
         raise ValueError('Accounting outbox policy/user is unavailable.')
     address,secret=managed_secret(state['spec'],node)
     server=next(n for n in state['spec']['nodes'] if n.get('radius_server') and str(ipaddress.IPv4Interface(n['interfaces']['eth0']).ip)==address)
