@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  radius-journal-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated orphan session prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius
+      - name: Verify actual killed supervisor, guarded cleanup, Stop handoff and stale runtime refusal
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_journal_integration.py -v
   radius-outbox-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

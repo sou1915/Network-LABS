@@ -19,7 +19,8 @@ MAX_BYTES=4096
 FIELDS={'version','lab','source','server','username','session_id','session_seconds','terminate_cause','event_time','policy_sha256'}
 
 
-def folder(manager,create=False):
+def folder(manager,create=False,*,kind='accounting-outbox'):
+    if kind not in ('accounting-outbox','accounting-sessions'):raise ValueError('Invalid accounting store.')
     root=runtime.CONFIG_ROOT
     if root.is_symlink():raise runtime.RuntimeFailure('Accounting outbox refuses a symlink configuration root.')
     if not root.exists() and not create:return None
@@ -29,7 +30,7 @@ def folder(manager,create=False):
     info=root.stat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:
         raise runtime.RuntimeFailure('Accounting outbox configuration root has unsafe ownership/permissions.')
-    for path in (root/identifier(manager.name),root/manager.name/'accounting-outbox'):
+    for path in (root/identifier(manager.name),root/manager.name/kind):
         if not path.exists() and not path.is_symlink() and not create:return None
         if create:path.mkdir(mode=0o700,exist_ok=True)
         info=path.lstat()
@@ -71,13 +72,13 @@ def validate_record(record,manager):
     return record
 
 
-def read(path,manager):
+def read(path,manager,*,validator=validate_record):
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     with os.fdopen(fd,'rb') as stream:
         info=os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1 or not 0<info.st_size<=MAX_BYTES:
             raise runtime.RuntimeFailure('Accounting outbox record requires a private bounded regular file.')
-        record=validate_record(json.loads(stream.read(MAX_BYTES+1)),manager)
+        record=validator(json.loads(stream.read(MAX_BYTES+1)),manager)
     if path.name!=record['session_id']+'.json':raise ValueError('Accounting outbox filename differs from session.')
     return record
 

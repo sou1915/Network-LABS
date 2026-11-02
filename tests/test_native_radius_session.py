@@ -45,3 +45,11 @@ class RadiusSessionTests(unittest.TestCase):
             (root / 'cgroup.controllers').is_file.return_value = False
             with self.assertRaisesRegex(RuntimeFailure, 'cgroup v2'): group.__enter__()
         group.path.mkdir.assert_not_called()
+
+
+class SessionCheckpointTests(unittest.TestCase):
+    def test_checkpoint_runs_after_empty_before_removal_and_failure_retains_group(self):
+        base=RadiusSessionTests();group,kill=base.group(['populated 0\n'])
+        group.on_empty=Mock(side_effect=RuntimeFailure('journal unavailable'))
+        with self.assertRaises(RuntimeFailure):group.__exit__(None,None,None)
+        group.on_empty.assert_called_once();group.path.rmdir.assert_not_called();self.assertFalse(group.closed)

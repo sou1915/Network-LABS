@@ -11,12 +11,14 @@ ACTIONS = ('identity', 'hostname', 'security-context', 'shell')
 def validate_node(node):
     policy = node.get('radius_access')
     if policy is None: return
-    keys(policy, ('server', 'users', 'session_seconds', 'accounting', 'accounting_retries', 'accounting_outbox'), 'RADIUS access')
+    keys(policy, ('server', 'users', 'session_seconds', 'accounting', 'accounting_retries', 'accounting_outbox', 'accounting_journal'), 'RADIUS access')
     integer(policy.setdefault('session_seconds', 300), 1, 3600, 'RADIUS shell session seconds')
     if type(policy.setdefault('accounting', False)) is not bool:
         raise ValueError('RADIUS access accounting must be boolean.')
     if type(policy.get('accounting_outbox', False)) is not bool or (policy.get('accounting_outbox') and not policy['accounting']):
         raise ValueError('Accounting outbox requires a boolean and enabled accounting.')
+    if type(policy.get('accounting_journal', False)) is not bool or (policy.get('accounting_journal') and not policy.get('accounting_outbox')):
+        raise ValueError('Accounting journal requires a boolean and enabled Stop outbox.')
     integer(policy.get('accounting_retries', 0), 0, 2, 'Accounting retries')
     if policy.get('accounting_retries', 0) and not policy['accounting']:
         raise ValueError('Accounting retries require accounting enabled.')

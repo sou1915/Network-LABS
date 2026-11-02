@@ -627,3 +627,19 @@ and a healthy subsequent session all passed. Local tests passed 846 cases with
 dual-stack AAA and IPv6 probe jobs also passed; broader native/switching suites
 were still running at this checkpoint. Broader AAA and service/security
 composition work remains before GUI; VXLAN stays planned above.
+
+
+## Local pre-Start session journal increment
+
+An explicit `accounting_journal:true` with the Stop outbox commits an intent
+before accounting Start and an empty-cgroup checkpoint before removal. Local
+CLI reconciliation pins the original supervisor/process, boot, namespace,
+container and session cgroup identities. Live supervisors and occupied groups
+without explicit `--terminate` are refused; missing/stale intent resources do
+not imply cleanup. Verified orphan cleanup hands off only a compensating Stop
+with zero unmeasured time and cause 9; no packet is sent until explicit flush.
+Private bounded records survive runtime teardown, but no Start replay, exact
+launch/receipt ledger, SSH crash profile or whole-host automatic recovery is
+claimed. See [RADIUS_SESSION_JOURNAL.md](RADIUS_SESSION_JOURNAL.md).
+Native SIGKILL, guarded cleanup, packet and stale-runtime results follow after CI.
+Broader AAA/service/security combinations remain before GUI; VXLAN stays planned.

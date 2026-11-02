@@ -99,3 +99,8 @@ then confirms an explicit Stop-only replay with aged Acct-Delay-Time and no
 new shell launch. A healthy subsequent session clears its intent normally.
 Packet evidence, fresh processes, saved policy and host cleanup are checked;
 results are recorded in LAN_NEXT_STEPS.md.
+
+
+The optional [local session journal](RADIUS_SESSION_JOURNAL.md) adds pre-Start
+intents and explicit dead-supervisor reconciliation. It does not broaden the
+outbox into automatic whole-host/session recovery.

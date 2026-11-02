@@ -51,6 +51,7 @@ class SessionGroup:
                 if time.monotonic() >= deadline:
                     raise RuntimeFailure('RADIUS session cleanup did not complete; session cgroup retained.')
                 time.sleep(.05)
+            if getattr(self, 'on_empty', None): self.on_empty()
             self.path.rmdir()
             self.closed = True
         except (OSError, ValueError) as error:

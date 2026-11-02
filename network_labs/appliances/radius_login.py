@@ -55,13 +55,25 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
             return {**result, 'error': 'ACCOUNTING_OUTBOX_BINDING_UNAVAILABLE'}
         try:
             prepare(manager)
+            if node['radius_access'].get('accounting_journal'):
+                from .radius_journal import prepare as prepare_journal
+                prepare_journal(manager)
         except (OSError, RuntimeFailure, ValueError):
             return {**result, 'error': 'ACCOUNTING_OUTBOX_UNAVAILABLE'}
     group = None
+    journal_record = None
     launched_at = None
     try:
         with SessionGroup(manager, source) as group:
             result['session_id'] = group.name
+            if node['radius_access'].get('accounting_journal'):
+                from . import radius_journal
+                journal_record = radius_journal.begin(manager, source, username, group)
+                result['accounting']['journal'] = {'status': 'intent', 'session_id': group.name}
+                def checkpoint_empty():
+                    nonlocal journal_record
+                    journal_record = radius_journal.mark_empty(manager, journal_record)
+                group.on_empty = checkpoint_empty
             if accounting:
                 start = account(manager, source, server, username=username, secret=secret, session_id=group.name,
                                 event='start', timeout=timeout)
@@ -94,6 +106,13 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
             if not group.closed:
                 result.update(status='unknown', error='SESSION_CLEANUP_UNCONFIRMED')
             start = result['accounting']['start']
+            if journal_record is not None and group.closed and start is not None and start.get('requests_sent') == 0:
+                from .radius_journal import handoff
+                try:
+                    handoff(manager, journal_record)
+                    result['accounting']['journal']['status'] = 'retired_unsent'
+                except (OSError, RuntimeFailure, ValueError):
+                    result['accounting']['journal'] = {'status': 'pending', 'error': 'JOURNAL_HANDOFF_UNCONFIRMED'}
             if accounting and start is not None and start.get('requests_sent') != 0:
                 if not group.closed:
                     result['accounting']['stop'] = {'status': 'withheld', 'error': 'SESSION_CLEANUP_UNCONFIRMED'}
@@ -109,6 +128,14 @@ def login(manager, source, server, *, username, password, secret, timeout=3, ter
                             result['accounting']['outbox'] = {'status': 'pending', 'session_id': group.name}
                         except (OSError, RuntimeFailure, ValueError, StopIteration):
                             result['accounting']['outbox'] = {'status': 'unavailable', 'error': 'OUTBOX_WRITE_UNCONFIRMED'}
+                    if queued is not None and journal_record is not None:
+                        from .radius_journal import handoff
+                        try:
+                            handoff(manager, journal_record)
+                            result['accounting']['journal']['status'] = 'handed_off'
+                        except (OSError, RuntimeFailure, ValueError):
+                            result['accounting']['journal'] = {'status': 'pending', 'error': 'JOURNAL_HANDOFF_UNCONFIRMED'}
+                            result.update(status='unknown', error='ACCOUNTING_JOURNAL_UNCONFIRMED')
                     try:
                         stop = account(manager, source, server, username=username, secret=secret, session_id=group.name,
                                        event='stop', session_seconds=elapsed, terminate_cause=cause, timeout=timeout)

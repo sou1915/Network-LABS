@@ -65,6 +65,8 @@ def validate_node(node):
 
 def validate_lab(spec):
     for source in spec['nodes']:
+        if (source.get('radius_access') or {}).get('accounting_journal') and (source.get('management') or {}).get('ssh_radius'):
+            raise ValueError('Initial session journal requires local CLI accounting; SSH supervisor crash coverage is separate.')
         if (source.get('radius_access') or {}).get('accounting_outbox'):
             from .ssh_radius import managed_secret
             address, _ = managed_secret(spec, source)
