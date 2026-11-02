@@ -614,6 +614,16 @@ bounded files, fsync, capacity checks and explicit pending/flush commands suppor
 lab stop/recreation and fresh CLI processes; changed bindings refuse delivery.
 There is no Start replay, background sender, live-session journal or exactly-once
 backend guarantee. Earlier crash windows and full reconciliation remain separate.
-See [RADIUS_OUTBOX.md](RADIUS_OUTBOX.md). Native persistence, policy-change and
-Stop-only replay results are recorded after CI. Broader AAA and service/security
+See [RADIUS_OUTBOX.md](RADIUS_OUTBOX.md). The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41421057088/job/125196431274)
+passed in 9.401 seconds on Ubuntu 24.04 at implementation commit
+`b890800c75847a769c9217fb9cdb430ba34bd50c`. Real Stop receipt loss,
+confirmed cleanup, private fsynced records, stopped-lab pending inspection,
+actual recreation with a rotated secret and blocked replay, restoration of the
+original policy, failed replay retention, Stop-only packet evidence with aged
+Acct-Delay-Time and preserved duration/cause, no new shell, acknowledged deletion
+and a healthy subsequent session all passed. Local tests passed 846 cases with
+130 environment-dependent skips. General CI, existing RADIUS/accounting retry,
+dual-stack AAA and IPv6 probe jobs also passed; broader native/switching suites
+were still running at this checkpoint. Broader AAA and service/security
 composition work remains before GUI; VXLAN stays planned above.
