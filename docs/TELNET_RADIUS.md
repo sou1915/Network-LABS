@@ -64,7 +64,8 @@ assignment; that user remains denied before any authentication request.
 
 The first profile requires a single-interface OCI host and excludes SSH,
 local Telnet password hashes, syslog forwarding, shell/accounting grants,
-IPv6 and combined service/security profiles. Omission preserves existing local
+IPv6. Combined service/security compositions are not validated by this increment.
+Omission preserves existing local
 password Telnet and SSH behavior. No change is made to ordinary admin exec or
 raw `radius-auth` diagnostics.
 
@@ -102,9 +103,9 @@ shell, session accounting, TLS wrapper, vendor enable/configuration mode or
 per-command shell authorization in this increment.
 
 The dedicated native test runs actual BusyBox Telnet plus FreeRADIUS. It inspects
-the real helper before credential input, verifies zero UID/GID privilege and
-capabilities, exercises permitted diagnostics and distinct user/node ceilings,
+the real helper before credential input, verifies UID/GID 65532 and empty
+capability sets, exercises permitted diagnostics and distinct user/node ceilings,
 proves local denials send no RADIUS packets with a capture positive control,
 checks backend/worker outage without fallback, low-port impersonation refusal,
 configuration drift, saved recreation and host isolation. Results are recorded
-in LAN_NEXT_STEPS.md after CI.
+with the successful dedicated job and local test counts in LAN_NEXT_STEPS.md.

@@ -737,7 +737,16 @@ host bridge. It never invokes a local login/password fallback or shell. The
 bridge has independent transport/generation identity and protected NAS-loopback
 TCP/814; stop/recreate owns its worker lifecycle. Old local-password Telnet and
 SSH profiles remain unchanged. See [TELNET_RADIUS.md](TELNET_RADIUS.md).
-Local tests passed 877 cases with 134 environment-dependent skips. Dedicated
-native Telnet/PTY privilege, packet, outage, drift and saved-restore results
-follow after CI. Telnet shell/accounting, broader AAA and service/security
+The [dedicated native Telnet job](https://github.com/sou1915/Network-LABS/actions/runs/41433708397/job/125238294335)
+passed in 13.451 seconds on Ubuntu 24.04 at implementation commit
+`39e1856d3f7bfe950ef7b1aa659610b610e9313e`. Actual BusyBox Telnet and
+FreeRADIUS, pre-auth helper UID/GID 65532 with no supplementary groups and all
+five capability sets empty, role/node ceilings, zero auth/accounting packets
+for local denials with a successful capture control, backend outage without
+fallback, stopped-worker refusal and protected low-port binding, drift refusal,
+fresh saved worker generation and host namespace/link/route/rule isolation all
+passed. Local tests passed 877 cases with 134 environment-dependent skips.
+General CI passed, and the [existing role/SSH/accounting native job](https://github.com/sou1915/Network-LABS/actions/runs/41433716525/job/125238319347)
+also passed on the same implementation. Other native/SSH/switching jobs were
+still queued or running at this checkpoint. Telnet shell/accounting, broader AAA and service/security
 composition remain before GUI; static VXLAN and later EVPN/BGP remain planned.
