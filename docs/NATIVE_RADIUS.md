@@ -250,3 +250,9 @@ outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL validation
 now also confirms guarded original-cgroup cleanup and explicit compensating Stop
 flush, including a HUP-ignoring payload and stale-runtime refusal. This is not
 automatic or whole-host recovery. Diagnostic-only Telnet stays the default.
+
+
+An explicit [EAP-MD5/RADIUS diagnostic](RADIUS_EAP_MD5.md) now supports one
+verified challenge/State continuation with a separate opt-in backend asset
+profile. PAP defaults and all existing access gates retain their method.
+This foundation does not implement EAPOL or an IEEE 802.1X controlled port.

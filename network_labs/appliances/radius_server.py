@@ -20,9 +20,10 @@ def validate_node(node):
     from .spec import keys
     policy = node.setdefault('radius_server', None)
     if policy is None: return
-    keys(policy, ('interface', 'clients', 'users', 'accounting'), 'RADIUS server')
+    keys(policy, ('interface', 'clients', 'users', 'accounting', 'eap_md5'), 'RADIUS server')
     if type(policy.setdefault('accounting', False)) is not bool:
         raise ValueError('RADIUS server accounting must be boolean.')
+    if type(policy.get('eap_md5', False)) is not bool: raise ValueError('EAP-MD5 selection must be boolean.')
     port = policy.get('interface')
     if (node['runtime'] != 'oci' or node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or
             port != 'eth0' or not node['interfaces']['eth0'] or port in node['shutdown'] or node.get('startup') or
@@ -56,7 +57,11 @@ def validate_node(node):
     for username, user in users.items():
         if not isinstance(username, str) or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', username):
             raise ValueError('RADIUS usernames require 1..64 ASCII login characters.')
-        keys(user, ('password_sha256',), 'RADIUS user')
+        keys(user, ('password_sha256', 'password_file') if policy.get('eap_md5') else ('password_sha256',), 'RADIUS user')
+        if policy.get('eap_md5'):
+            path = user.get('password_file')
+            if not isinstance(path, str) or not Path(path).is_absolute() or '..' in Path(path).parts or '\0' in path or len(path) > 4096:
+                raise ValueError('EAP-MD5 requires an absolute private password-file path per user.')
         if not isinstance(user.get('password_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', user['password_sha256']):
             raise ValueError('RADIUS users require a lowercase SHA-256 password digest.')
     policy['clients'] = sorted(clients, key=lambda value: value['address'])
@@ -80,6 +85,25 @@ def validate_lab(spec):
                 raise ValueError('Each RADIUS client must identify exactly one other managed OCI host.')
 
 
+def eap_password(user):
+    """Load only a private, owned, hash-pinned offline EAP secret; never report it."""
+    import hashlib, os, stat
+    fd = os.open(user['password_file'], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+            raise ValueError('EAP password assets require private owned regular files.')
+        raw = stream.read(130)
+    if raw.endswith(b'\n'): raw = raw[:-1]
+    if not 1 <= len(raw) <= 128 or any(c in raw for c in (0, 10, 13)) or hashlib.sha256(raw).hexdigest() != user['password_sha256']:
+        raise ValueError('EAP password asset is unavailable or differs from its pin.')
+    return raw.decode('utf-8')
+
+
+def preflight_eap(node):
+    for user in node['radius_server']['users'].values(): eap_password(user)
+
+
 def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accounting_port=1813, accounting_writer=SCRIPT):
     policy = node['radius_server']; address = str(ipaddress.IPv4Interface(node['interfaces'][policy['interface']]).ip)
     clients = '\n'.join('''client lab_%d {
@@ -89,9 +113,23 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accou
 }''' % (index, client['address'], client['secret']) for index, client in enumerate(policy['clients']))
     users = '\n'.join('''        if (&User-Name == "%s") {
             update control {
-                SHA2-Password := 0x%s
+                %s := 0x%s
             }
-        }''' % (name, user['password_sha256']) for name, user in policy['users'].items())
+        }''' % (name, 'Cleartext-Password' if policy.get('eap_md5') else 'SHA2-Password',
+                  eap_password(user).encode('utf-8').hex() if policy.get('eap_md5') else user['password_sha256'])
+                      for name, user in policy['users'].items())
+    eap_module = eap_authorize = eap_authenticate = ''
+    if policy.get('eap_md5'):
+        eap_module = '''
+    eap {
+        default_eap_type = md5
+        timer_expire = 5
+        ignore_unknown_eap_types = no
+        max_sessions = 32
+        md5 { }
+    }'''
+        eap_authorize = '        eap\n'
+        eap_authenticate = '        Auth-Type EAP {\n            eap\n        }\n'
     accounting_module = accounting_server = ''
     if policy.get('accounting'):
         accounting_module = '''
@@ -134,7 +172,7 @@ security {
 modules {
     pap {
         normalise = no
-    }%(accounting_module)s
+    }%(accounting_module)s%(eap_module)s
 }
 server lab {
     listen {
@@ -147,10 +185,10 @@ server lab {
             Message-Authenticator := 0x00000000000000000000000000000000
         }
 %(users)s
-        pap
+%(eap_authorize)s        pap
     }
     authenticate {
-        Auth-Type PAP {
+%(eap_authenticate)s        Auth-Type PAP {
             pap
         }
     }
@@ -163,7 +201,8 @@ server lab {
     }%(accounting_server)s
 }
 ''' % dict(run=run_directory, modules=modules, address=address, port=port, clients=clients, users=users,
-           accounting_module=accounting_module, accounting_server=accounting_server)
+           accounting_module=accounting_module, accounting_server=accounting_server,
+           eap_module=eap_module, eap_authorize=eap_authorize, eap_authenticate=eap_authenticate)
 
 
 def prepare_files(bundle, node):

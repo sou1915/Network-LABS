@@ -607,7 +607,7 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False, eap_password_file=None):
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
     if type(telnet_shell) is not bool or (telnet_shell and not telnet): raise ValueError('Telnet shell requires explicit Telnet RADIUS.')
@@ -648,6 +648,12 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
             access['roles']['session'] = ['shell']; access['user_roles'][username].append('session')
     if telnet:
         spec['nodes'][0]['management'] = {'interface': 'eth0', 'telnet_radius': True, 'telnet_actions': ['identity', 'hostname', 'security-context'] + (['shell'] if telnet_shell else [])}
+    if eap_password_file is not None:
+        from pathlib import Path
+        if allow_shell or accounting or ssh_key is not None or telnet:
+            raise ValueError('EAP-MD5 reference requires a standalone diagnostic profile.')
+        spec['nodes'][2]['radius_server']['eap_md5'] = True
+        spec['nodes'][2]['radius_server']['users'][username]['password_file'] = str(Path(eap_password_file).absolute())
     return validate(spec)
 
 

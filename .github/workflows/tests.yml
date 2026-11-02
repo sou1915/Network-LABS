@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  radius-eap-md5-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated EAP-MD5 prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius
+      - name: Verify real FreeRADIUS EAP-MD5 challenge, State, proof, assets and saved restart
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_eap_md5_integration.py -v
   telnet-radius-journal-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

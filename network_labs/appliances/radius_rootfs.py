@@ -9,13 +9,17 @@ from .dns_rootfs import assets, shared_library_assets
 from .radius_server import BINARY, MODULES, DICTIONARY
 
 
-def rootfs_assets(binary, modules, dictionaries):
+def rootfs_assets(binary, modules, dictionaries, *, eap_md5=False):
     modules = Path(modules).resolve(); dictionaries = Path(dictionaries).resolve()
     if not (modules / 'rlm_pap.so').is_file() or not (dictionaries / 'dictionary').is_file():
         raise ValueError('FreeRADIUS requires a trusted PAP module and complete dictionary directory.')
     planned = assets(binary, destination=BINARY, identity='FreeRADIUS 3', version_args=('-v',),
                      version_check=lambda r: r.returncode == 0 and re.search(r'FreeRADIUS Version 3\.', r.stdout + r.stderr))
     planned += shared_library_assets(modules / 'rlm_pap.so', MODULES + '/rlm_pap.so')
+    if eap_md5:
+        for name in ('rlm_eap.so', 'rlm_eap_md5.so'):
+            if not (modules / name).is_file(): raise ValueError('EAP-MD5 requires matching EAP and MD5 modules.')
+            planned += shared_library_assets(modules / name, MODULES + '/' + name)
     # Optional when building auth-only roots; accounting startup requires it.
     if (modules / 'rlm_exec.so').is_file():
         planned += shared_library_assets(modules / 'rlm_exec.so', MODULES + '/rlm_exec.so')

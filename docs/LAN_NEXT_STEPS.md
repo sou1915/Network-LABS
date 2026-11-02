@@ -802,3 +802,20 @@ Telnet shell/accounting lifecycle native job also passed; broader native and
 switching jobs were still queued or running at this checkpoint. Broader AAA and
 service/security compositions remain before GUI; static VXLAN and later
 EVPN/BGP stay separately tracked.
+
+
+## EAP-MD5/RADIUS protocol foundation
+
+An explicit `radius-eap-md5` diagnostic adds bounded Identity/MD5 challenge/State
+continuation, both RADIUS authenticators and matching final EAP outcomes. It
+sends at most two requests inside one deadline, with no method/server fallback.
+The optional managed backend uses matching EAP/MD5 assets and a private owned
+password file pinned by the existing SHA-256 digest; password bytes do not enter
+manifest/startup/rootfs images. Existing PAP behavior stays the default. See
+[RADIUS_EAP_MD5.md](RADIUS_EAP_MD5.md). Local tests passed 890 cases with 137
+environment-dependent skips; independent signed peers cover proof, State,
+malformed methods/lengths, replay, early accepts and private assets. Native
+FreeRADIUS packet, failure, asset and saved-restore results follow after CI.
+This does not grant access or implement EAPOL/802.1X controlled ports. That wired
+port milestone, stronger EAP methods and broader AAA/service/security work remain
+before GUI; static VXLAN and later EVPN/BGP stay separately tracked.

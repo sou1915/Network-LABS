@@ -40,7 +40,8 @@ def load_credential(path):
     return data.decode('utf-8')
 
 
-def probe(manager, source, address, *, username, password, secret, timeout=3):
+def probe(manager, source, address, *, username, password, secret, timeout=3, protocol='pap'):
+    if protocol not in ('pap', 'eap-md5'): raise ValueError('RADIUS protocol: pap or eap-md5.')
     validate_credentials(username, password, secret)
     integer(timeout, 1, 5, 'RADIUS deadline seconds')
     if not isinstance(address, str):
@@ -58,6 +59,9 @@ def probe(manager, source, address, *, username, password, secret, timeout=3):
               'started_at': datetime.now(timezone.utc).isoformat(), 'endpoint': endpoint,
               'status': endpoint['status'], 'authentication': None, 'configuration_changed': False,
               'scope': 'One RADIUS PAP Access-Request from host Python in the source network namespace. Response and Message-Authenticator are both required. Credentials pass through stdin, not argv or reports. Accept observes a server decision; it does not grant access or configure node AAA. No TLS, EAP/802.1X, accounting, retries or challenge continuation.'}
+    if protocol == 'eap-md5':
+        report['protocol'] = protocol
+        report['scope'] = 'Bounded two-request EAP-MD5/RADIUS observation with verified challenge and State continuation. No EAPOL, controlled port, node access change, TLS or replay.'
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         return report
@@ -71,6 +75,8 @@ def probe(manager, source, address, *, username, password, secret, timeout=3):
     request = dict(source=endpoint['address'], address=address, port=1812, username=username,
                    password=password, secret=secret, timeout=timeout)
     worker = Path(__file__).with_name('radius_worker.py').read_text()
+    if protocol == 'eap-md5':
+        worker = 'import sys;sys.path.insert(0,' + repr(str(Path(__file__).resolve().parents[2])) + ');from network_labs.appliances.radius_eap_worker import main;main()'
     try:
         process = manager.ns(index, sys.executable, '-I', '-c', worker, input_text=json.dumps(request),
                              check=False, timeout=timeout + 2)
@@ -78,22 +84,27 @@ def probe(manager, source, address, *, username, password, secret, timeout=3):
         if process.returncode or not isinstance(result, dict):
             raise ValueError
         # Do not echo arbitrary worker text, attributes or stderr into reports.
-        allowed = ('status', 'decision', 'response_verified', 'requests_sent', 'discarded_responses', 'response_code', 'error')
+        allowed = ('challenge_verified',) if protocol == 'eap-md5' else ()
+        allowed += ('status', 'decision', 'response_verified', 'requests_sent', 'discarded_responses', 'response_code', 'error')
         result = {key: result[key] for key in allowed if key in result}
         code = result.get('response_code')
         if result.get('status') not in ('passed', 'failed', 'blocked', 'unknown'):
             raise ValueError
-        if (type(result.get('requests_sent')) is not int or result['requests_sent'] not in (0, 1) or
+        if (type(result.get('requests_sent')) is not int or result['requests_sent'] not in ((0, 1, 2) if protocol == 'eap-md5' else (0, 1)) or
                 type(result.get('discarded_responses')) is not int or not 0 <= result['discarded_responses'] <= 64 or
                 type(result.get('response_verified')) is not bool or
-                result.get('error') not in (None, 'TIMEOUT', 'PACKET_LIMIT', 'TRANSPORT_ERROR')):
+                result.get('error') not in ((None, 'TIMEOUT', 'PACKET_LIMIT', 'TRANSPORT_ERROR', 'PROTOCOL_ERROR') if protocol == 'eap-md5' else (None, 'TIMEOUT', 'PACKET_LIMIT', 'TRANSPORT_ERROR'))):
             raise ValueError
         if result['status'] == 'unknown' and (result['response_verified'] or code is not None or result.get('decision') is not None):
             raise ValueError
         if result['status'] != 'unknown' and (result.get('response_verified') is not True or
-                result['requests_sent'] != 1 or result.get('error') is not None or type(code) is not int or
+                result['requests_sent'] not in ((1, 2) if protocol == 'eap-md5' else (1,)) or result.get('error') is not None or type(code) is not int or
                 (result['status'], code, result.get('decision')) not in
                 (('passed', 2, 'accepted'), ('failed', 3, 'rejected'), ('blocked', 11, 'challenge'))):
+            raise ValueError
+        if protocol == 'eap-md5' and (type(result.get('challenge_verified')) is not bool or
+                (result['status'] == 'passed' and (result['requests_sent'] != 2 or not result['challenge_verified'])) or
+                result['status'] == 'blocked'):
             raise ValueError
     except (OSError, RuntimeFailure, ValueError, subprocess.TimeoutExpired):
         report['error'] = 'WORKER_UNAVAILABLE'
@@ -104,6 +115,7 @@ def probe(manager, source, address, *, username, password, secret, timeout=3):
 
 def render(report):
     result = report.get('authentication') or {}
-    return '\n'.join(['RADIUS PAP : ' + report['status'].upper() + ' | ' + report['node'] + ' → ' + report['server'],
+    label = 'EAP-MD5/RADIUS' if report.get('protocol') == 'eap-md5' else 'RADIUS PAP'
+    return '\n'.join([label + ' : ' + report['status'].upper() + ' | ' + report['node'] + ' → ' + report['server'],
                       'Décision vérifiée : ' + str(result.get('decision') or 'indisponible'),
-                      'Un Accept ne configure pas les accès du node. Aucun suivi de challenge ni accounting.'])
+                      'Un Accept ne configure pas les accès du node. Aucun EAPOL ni contrôle de port.' if report.get('protocol') == 'eap-md5' else 'Un Accept ne configure pas les accès du node. Aucun suivi de challenge ni accounting.'])

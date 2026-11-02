@@ -141,7 +141,7 @@ def plan(data):
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 
-def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, telnet_login=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, nginx=None, https_ca=None, https_certificate=None, https_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, kea_dhcp6=None, dhcpv6_pd_hook=None):
+def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=None, openvswitch=False, bird=None, birdc=None, dropbear=None, ssh_relay=None, telnet_login=None, rsyslog=None, rsyslog_modules=None, rsyslog_tcp=False, rsyslog_forward=False, rsyslog_tls=False, syslog_ca=None, syslog_certificate=None, syslog_private_key=None, nginx=None, https_ca=None, https_certificate=None, https_private_key=None, snmpd=None, snmptrapd=None, chronyd=None, chronyc=None, freeradius=None, freeradius_modules=None, freeradius_dictionaries=None, freeradius_eap_md5=False, kea_dhcp6=None, dhcpv6_pd_hook=None):
     """Build from static BusyBox, optionally adding trusted dnsmasq and its ELF libraries."""
     binary, target = Path(binary), Path(target).resolve()
     raw = binary.read_bytes()
@@ -220,11 +220,13 @@ def static_busybox_rootfs(binary, target, *, dnsmasq=None, lldpd=None, lldpcli=N
         from .ntp_server import client_rootfs_assets
         ntp_additions += client_rootfs_assets(chronyc)
     radius_additions = []
+    if type(freeradius_eap_md5) is not bool or (freeradius_eap_md5 and freeradius is None):
+        raise ValueError('EAP-MD5 assets require an explicit managed FreeRADIUS build.')
     if any(value is not None for value in (freeradius, freeradius_modules, freeradius_dictionaries)):
         if not all(value is not None for value in (freeradius, freeradius_modules, freeradius_dictionaries)):
             raise ValueError('--freeradius requires matching --freeradius-modules and --freeradius-dictionaries.')
         from .radius_rootfs import rootfs_assets as radius_assets
-        radius_additions = radius_assets(freeradius, freeradius_modules, freeradius_dictionaries)
+        radius_additions = radius_assets(freeradius, freeradius_modules, freeradius_dictionaries, **({'eap_md5': True} if freeradius_eap_md5 else {}))
     from .dhcpv6_pd import rootfs_assets as pd_assets
     pd_additions = pd_assets(kea_dhcp6, dhcpv6_pd_hook)
     target.mkdir(parents=True)
@@ -358,6 +360,11 @@ class Manager:
                     ('usr/lib/network-labs/freeradius/server', 'usr/lib/network-labs/freeradius/modules/rlm_pap.so',
                      'usr/lib/network-labs/freeradius/dictionary/dictionary', 'etc/network-labs-radius-assets.json')):
                 raise RuntimeFailure(node['name'] + ': RADIUS requires a rootfs built with --freeradius and matching modules/dictionaries.')
+            if (node.get('radius_server') or {}).get('eap_md5'):
+                from .radius_server import preflight_eap
+                preflight_eap(node)
+                if any(not (Path(node['rootfs']) / ('usr/lib/network-labs/freeradius/modules/' + name)).is_file() for name in ('rlm_eap.so', 'rlm_eap_md5.so')):
+                    raise RuntimeFailure(node['name'] + ': EAP-MD5 requires explicit matching rootfs modules.')
             if (node.get('radius_server') or {}).get('accounting') and not (Path(node['rootfs']) / 'usr/lib/network-labs/freeradius/modules/rlm_exec.so').is_file():
                 raise RuntimeFailure(node['name'] + ': RADIUS accounting requires rebuilding the rootfs with the trusted rlm_exec module.')
             if (node.get('radius_server') or {}).get('accounting') and not (Path(node['rootfs']) / 'usr/lib/network-labs/freeradius/flock').is_file():
