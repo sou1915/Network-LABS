@@ -100,4 +100,5 @@ in LAN_NEXT_STEPS.md.
 An explicit standalone [RADIUS Telnet diagnostic profile](TELNET_RADIUS.md)
 now applies the same local role/direct grants and a separate node action
 ceiling before authentication. It admits one fixed diagnostic per connection;
-interactive Telnet shells and accounting remain separate work.
+an explicit bounded Telnet shell extends it with optional accounting and
+identity-pinned worker-death recovery.

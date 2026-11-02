@@ -141,8 +141,8 @@ empty population and only then records/sends Stop. If Start cannot be verified,
 no shell is launched. Possible unconfirmed accounting sends remain conservative;
 with an enabled outbox, failed Stop receipt keeps a durable intent for explicit
 flush. The journal's empty checkpoint and Stop handoff use the existing private
-store lock. Telnet worker SIGKILL recovery is not claimed by this normal-lifecycle
-scenario and remains a separately tracked native crash case.
+store lock. The dedicated worker-death scenario below separately verifies
+Telnet SIGKILL reconciliation; normal exit alone would not establish it.
 
 Unlike SSH, the Telnet protocol carries no remote process exit-status channel.
 The helper consumes the host's framed final status internally and closes the
@@ -180,5 +180,6 @@ A dedicated native scenario starts a real Telnet PTY with a HUP-ignoring sleep,
 kills only its host supervisor with SIGKILL, exercises live-owner/populated-orphan
 refusals, verifies silent guarded cleanup and one compensating Stop packet on
 explicit flush, then tests stale runtime refusal and a healthy restored session.
-Results follow in LAN_NEXT_STEPS.md after CI. This does not introduce automatic
+The successful dedicated native job and its exact scope are recorded in
+LAN_NEXT_STEPS.md. This does not introduce automatic
 recovery, power-loss recovery, Start replay or exactly-once backend accounting.

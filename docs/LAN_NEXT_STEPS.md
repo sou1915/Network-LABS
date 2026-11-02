@@ -788,6 +788,17 @@ handoff, a separate Stop-only flush, refusal after unclosed runtime recreation,
 and healthy new sessions while stale evidence remains. No recovery algorithm
 or default session policy is changed by this validation increment. See
 [TELNET_RADIUS.md](TELNET_RADIUS.md#explicit-recovery-after-telnet-worker-death).
-Native packet/cleanup/recreation results follow after CI. Broader AAA and
+The [dedicated native Telnet journal job](https://github.com/sou1915/Network-LABS/actions/runs/41440923131/job/125262282997)
+passed in 9.361 seconds on Ubuntu 24.04 at validation commit
+`93ae48ddc993d7f0e834f22f68ddc146175436ba`. Real PTY shell launch, killed original
+worker with an occupied HUP-resistant payload, live-owner and no-termination
+refusal, original-cgroup identity checks and confirmed cleanup, silent local
+handoff, exactly one compensating Stop request on explicit flush (same SID,
+zero unmeasured seconds, cause 9), fresh worker token, stale unclosed runtime
+refusal, healthy new shell with old evidence preserved, and host namespace,
+link, route, rule and low-port sysctl invariants all passed. Local tests passed
+882 cases with 136 environment-dependent skips. General CI and the existing
+Telnet shell/accounting lifecycle native job also passed; broader native and
+switching jobs were still queued or running at this checkpoint. Broader AAA and
 service/security compositions remain before GUI; static VXLAN and later
 EVPN/BGP stay separately tracked.

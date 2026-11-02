@@ -16,10 +16,9 @@ sudo python3 -m network_labs.appliances start journal.json
 
 The new `radius_access.accounting_journal:true` requires the managed accounting
 Stop outbox and all its existing policy constraints. It covers local
-`radius-login` and explicitly enabled RADIUS SSH shells; normal Telnet shells
-now share its checkpoints and Stop handoff. Dedicated Telnet worker-crash
-validation, dynamic/dual-stack shell compositions and whole-host crash
-reconciliation remain separate work. Default non-journal profiles are unchanged.
+`radius-login` and explicitly enabled RADIUS SSH/Telnet shells, including
+dedicated worker-death recovery scenarios for both transports. Dynamic/dual-stack
+shell compositions and whole-host crash reconciliation remain separate work. Default non-journal profiles are unchanged.
 Drain/review previously pinned Stop records before changing accounting policy;
 enabling this option changes that policy's binding.
 
@@ -142,6 +141,7 @@ results and the successful dedicated job are recorded in LAN_NEXT_STEPS.md.
 The explicit [bounded Telnet shell](TELNET_RADIUS.md#explicit-bounded-telnet-shell)
 now shares the CLI/SSH session supervisor, optional accounting Start gate and
 Stop-after-cleanup behavior. The normal Telnet shell path supports the Stop
-outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL recovery
-remains separately unvalidated; it is not implied by normal exit/disconnect
-coverage. Diagnostic-only Telnet stays the default.
+outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL validation
+now also confirms guarded original-cgroup cleanup and explicit compensating Stop
+flush, including a HUP-ignoring payload and stale-runtime refusal. This is not
+automatic or whole-host recovery. Diagnostic-only Telnet stays the default.

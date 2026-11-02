@@ -239,12 +239,14 @@ retains the existing unprivileged process limits.
 An explicit standalone [RADIUS Telnet diagnostic profile](TELNET_RADIUS.md)
 now applies the same local role/direct grants and a separate node action
 ceiling before authentication. It admits one fixed diagnostic per connection;
-interactive Telnet shells and accounting remain separate work.
+an explicit bounded Telnet shell extends it with optional accounting and
+identity-pinned worker-death recovery.
 
 
 The explicit [bounded Telnet shell](TELNET_RADIUS.md#explicit-bounded-telnet-shell)
 now shares the CLI/SSH session supervisor, optional accounting Start gate and
 Stop-after-cleanup behavior. The normal Telnet shell path supports the Stop
-outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL recovery
-remains separately unvalidated; it is not implied by normal exit/disconnect
-coverage. Diagnostic-only Telnet stays the default.
+outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL validation
+now also confirms guarded original-cgroup cleanup and explicit compensating Stop
+flush, including a HUP-ignoring payload and stale-runtime refusal. This is not
+automatic or whole-host recovery. Diagnostic-only Telnet stays the default.

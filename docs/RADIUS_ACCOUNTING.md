@@ -126,7 +126,7 @@ retry policy, cold restore and host invariants. Results are recorded in
 LAN_NEXT_STEPS.md.
 
 
-An optional [CLI/SSH session journal](RADIUS_SESSION_JOURNAL.md) now commits
+An optional [CLI/SSH/Telnet session journal](RADIUS_SESSION_JOURNAL.md) now commits
 pre-Start intent and empty-cgroup checkpoints for explicit orphan reconciliation.
 It does not replay Start or infer closure from a missing runtime.
 
@@ -134,6 +134,7 @@ It does not replay Start or infer closure from a missing runtime.
 The explicit [bounded Telnet shell](TELNET_RADIUS.md#explicit-bounded-telnet-shell)
 now shares the CLI/SSH session supervisor, optional accounting Start gate and
 Stop-after-cleanup behavior. The normal Telnet shell path supports the Stop
-outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL recovery
-remains separately unvalidated; it is not implied by normal exit/disconnect
-coverage. Diagnostic-only Telnet stays the default.
+outbox and pre-Start journal handoff. Dedicated Telnet worker SIGKILL validation
+now also confirms guarded original-cgroup cleanup and explicit compensating Stop
+flush, including a HUP-ignoring payload and stale-runtime refusal. This is not
+automatic or whole-host recovery. Diagnostic-only Telnet stays the default.
