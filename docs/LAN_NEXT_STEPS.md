@@ -667,6 +667,16 @@ Short private accounting-store transactions serialize writes across workers and
 CLI without holding a lock over shell execution or network I/O. Capacity and
 unsafe-lock refusal have local concurrency tests. See
 [RADIUS_SESSION_JOURNAL.md](RADIUS_SESSION_JOURNAL.md).
-The dedicated real SSH SIGKILL, guarded cleanup, packet, stale-runtime and cold
-restore scenario awaits CI results. Broader AAA/service/security combinations
+The [dedicated native SSH job](https://github.com/sou1915/Network-LABS/actions/runs/41428880147/job/125222128683)
+passed in 9.999 seconds on Ubuntu 24.04 at implementation commit
+`4c64817a5c16bdd4238aa5ca69574f9cda44ca80`. Real key-authenticated SSH and
+RADIUS acceptance, host-worker-only SIGKILL with a populated guest session,
+live-owner and no-termination refusal, verified orphan cleanup, silent local
+reconciliation, one explicit compensating Stop packet, new worker token after
+saved recreation, stale-runtime refusal, healthy subsequent SSH journal handoff
+and host namespace/link/route/rule invariants all passed. Local tests passed
+860 cases with 132 environment-dependent skips. General CI, existing managed
+RADIUS/SSH/accounting and durable Stop-outbox jobs also passed. The local-CLI
+journal native job was still queued and broader switching/native suites were
+still running at this checkpoint. Broader AAA/service/security combinations
 remain before GUI; static VXLAN and later EVPN/BGP stay separately planned.

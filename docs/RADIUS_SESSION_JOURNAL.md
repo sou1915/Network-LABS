@@ -135,4 +135,4 @@ refuses the live owner and then the occupied orphan without `--terminate`, and
 checks silent local reconciliation followed by one compensating Stop on
 explicit flush. It also exercises worker-token renewal, stale runtime refusal,
 healthy SSH after saved recreation, journal handoff and host cleanup. Native
-results are recorded in LAN_NEXT_STEPS.md after CI.
+results and the successful dedicated job are recorded in LAN_NEXT_STEPS.md.
