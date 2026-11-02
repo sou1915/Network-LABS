@@ -641,5 +641,15 @@ with zero unmeasured time and cause 9; no packet is sent until explicit flush.
 Private bounded records survive runtime teardown, but no Start replay, exact
 launch/receipt ledger, SSH crash profile or whole-host automatic recovery is
 claimed. See [RADIUS_SESSION_JOURNAL.md](RADIUS_SESSION_JOURNAL.md).
-Native SIGKILL, guarded cleanup, packet and stale-runtime results follow after CI.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41426122167/job/125213037988)
+passed in 7.743 seconds on Ubuntu 24.04 at implementation commit
+`b1ca18b60288c34f654b5962a0f6bb6b3da9cec5`. Actual supervisor SIGKILL,
+nonblocking inventory, live-owner refusal, populated-orphan refusal without
+explicit termination, verified cgroup cleanup, a silent reconciliation capture,
+Stop-only explicit flush with zero duration/cause 9, stale runtime refusal after
+lab recreation, and a healthy subsequent journaled login all passed. Local tests
+passed 856 cases with 131 environment-dependent skips. General CI, existing
+RADIUS/accounting retry/outbox, dual-stack AAA/services and IPv6 service-probe
+jobs also passed; broader native/switching suites were still running at this
+checkpoint.
 Broader AAA/service/security combinations remain before GUI; VXLAN stays planned.
