@@ -101,6 +101,7 @@ def serve(config):
     if os.geteuid() != 0: raise ValueError('Host supervisor requires root')
     listener = namespace_socket(config)
     runtime.STATE_ROOT = Path(config['state_root'])
+    runtime.CONFIG_ROOT = Path(config['config_root'])
     with listener:
         output = Path(config['output'])
         output.write_text(json.dumps({'status': 'ready', 'token': config['token']})); output.chmod(0o600)

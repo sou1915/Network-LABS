@@ -90,7 +90,7 @@ def stop_worker(manager, name):
 
 
 def start_worker(manager, index, node):
-    from .runtime import RuntimeFailure, process_identity
+    from .runtime import CONFIG_ROOT, RuntimeFailure, process_identity
     from .spec import namespace
     if not (node.get('management') or {}).get('ssh_radius'): return
     token = uuid.uuid4().hex
@@ -99,7 +99,7 @@ def start_worker(manager, index, node):
     config = manager.directory / (node['name'] + '.ssh-radius-config.json')
     config.write_text(json.dumps({'name': manager.name, 'node': node['name'], 'token': token,
                                  'namespace': str(ns), 'namespace_inode': ns.stat().st_ino,
-                                 'state_root': str(manager.directory.parent), 'output': str(output)}))
+                                 'state_root': str(manager.directory.parent), 'config_root': str(CONFIG_ROOT), 'output': str(output)}))
     config.chmod(0o600)
     # -I ignores user Python environment; only this trusted checkout is added.
     code = 'import sys; sys.path.insert(0, ' + repr(str(Path(__file__).resolve().parents[2])) + '); from network_labs.appliances.ssh_radius_worker import main; main()'

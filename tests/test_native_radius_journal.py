@@ -114,4 +114,6 @@ class JournalTests(unittest.TestCase):
             self.assertTrue(json.loads(output.getvalue())['nodes'][0]['radius_access']['accounting_journal'])
         with redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):self.assertEqual(main(['example','--rootfs','/rootfs','--radius-accounting-journal']),1)
         with self.assertRaises(ValueError):radius_lab('/rootfs',SECRET,'a'*64,allow_shell=True,accounting=True,accounting_journal=True)
-        with self.assertRaises(ValueError):radius_lab('/rootfs',SECRET,'a'*64,accounting=True,accounting_outbox=True,accounting_journal=True,ssh_key=KEY,ssh_shell=True)
+        spec=radius_lab('/rootfs',SECRET,'a'*64,accounting=True,accounting_outbox=True,accounting_journal=True,ssh_key=KEY,ssh_shell=True)
+        self.assertTrue(spec['nodes'][0]['radius_access']['accounting_journal'])
+        self.assertTrue(spec['nodes'][0]['management']['ssh_radius'])

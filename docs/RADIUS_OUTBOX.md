@@ -101,6 +101,6 @@ Packet evidence, fresh processes, saved policy and host cleanup are checked;
 results are recorded in LAN_NEXT_STEPS.md.
 
 
-The optional [local session journal](RADIUS_SESSION_JOURNAL.md) adds pre-Start
+The optional [CLI/SSH session journal](RADIUS_SESSION_JOURNAL.md) adds pre-Start
 intents and explicit dead-supervisor reconciliation. It does not broaden the
 outbox into automatic whole-host/session recovery.

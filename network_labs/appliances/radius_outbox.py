@@ -1,7 +1,12 @@
 """Private, bounded, Stop-only outbox after confirmed session cleanup.
 
-Callers hold the lab lifecycle lock. No secret/password or live session is saved.
+CLI callers hold the lifecycle lock; SSH workers also use the private store lock.
+No secret/password or live session is saved.
 """
+from contextlib import contextmanager
+from functools import wraps
+import fcntl
+import threading
 import hashlib
 import ipaddress
 import json
@@ -38,6 +43,54 @@ def folder(manager,create=False,*,kind='accounting-outbox'):
             raise runtime.RuntimeFailure('Accounting outbox directories require private ownership and mode 0700.')
         if create:sync(path.parent)
     return path
+
+
+_STORE_OWNERS = threading.local()
+
+
+@contextmanager
+def store_lock(manager):
+    """Serialize bounded mutations across CLI and independent SSH workers.
+
+    Reentrant within one thread, never held across shell execution or network I/O.
+    The lock is a private sibling of the record stores and survives runtime teardown.
+    """
+    root = folder(manager, True).parent
+    key = str(root)
+    owners = getattr(_STORE_OWNERS, 'paths', set())
+    if key in owners:
+        yield
+        return
+    path = root / 'accounting.lock'
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+            raise runtime.RuntimeFailure('Accounting store lock requires a private regular file.')
+        deadline = time.monotonic() + 3
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise runtime.RuntimeFailure('Accounting store is busy; evidence retained.')
+                time.sleep(.01)
+        _STORE_OWNERS.paths = owners | {key}
+        try:
+            yield
+        finally:
+            _STORE_OWNERS.paths = owners
+    finally:
+        os.close(fd)
+
+
+def serialized(function):
+    @wraps(function)
+    def mutation(manager, *args, **kwargs):
+        with store_lock(manager):
+            return function(manager, *args, **kwargs)
+    return mutation
 
 
 def paths(directory):
@@ -100,12 +153,14 @@ def binding(manager,source,username):
     return address,secret,pin
 
 
+@serialized
 def prepare(manager):
     directory=folder(manager,True);existing=paths(directory)
     if len(existing)>=MAX_ENTRIES:raise runtime.RuntimeFailure('Accounting outbox is full; new accounted session refused.')
     for path in existing:read(path,manager)
 
 
+@serialized
 def enqueue(manager,source,server,username,secret,session_id,session_seconds,terminate_cause,event_time,*,cleanup_complete):
     if cleanup_complete is not True:raise ValueError('Stop outbox requires confirmed session cleanup.')
     address,expected,pin=binding(manager,source,username)
@@ -129,6 +184,7 @@ def enqueue(manager,source,server,username,secret,session_id,session_seconds,ter
     return record
 
 
+@serialized
 def acknowledge(manager,record):
     directory=folder(manager)
     if directory is None:raise runtime.RuntimeFailure('Accounting outbox disappeared before local acknowledgement.')

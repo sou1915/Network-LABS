@@ -653,3 +653,20 @@ RADIUS/accounting retry/outbox, dual-stack AAA/services and IPv6 service-probe
 jobs also passed; broader native/switching suites were still running at this
 checkpoint.
 Broader AAA/service/security combinations remain before GUI; VXLAN stays planned.
+
+
+## SSH supervisor journal extension
+
+The explicit accounting journal now also covers the existing bounded SSH shell
+transport. The host worker receives the same configuration root as the CLI,
+commits the pre-Start intent and empty cleanup checkpoint through the shared
+session supervisor, and hands closed Stop events to the durable outbox. A dead
+worker can be reconciled only with the original boot/runtime/cgroup identities;
+no worker restart, new shell, Start replay or packet is part of reconciliation.
+Short private accounting-store transactions serialize writes across workers and
+CLI without holding a lock over shell execution or network I/O. Capacity and
+unsafe-lock refusal have local concurrency tests. See
+[RADIUS_SESSION_JOURNAL.md](RADIUS_SESSION_JOURNAL.md).
+The dedicated real SSH SIGKILL, guarded cleanup, packet, stale-runtime and cold
+restore scenario awaits CI results. Broader AAA/service/security combinations
+remain before GUI; static VXLAN and later EVPN/BGP stay separately planned.

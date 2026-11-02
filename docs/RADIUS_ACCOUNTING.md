@@ -126,6 +126,6 @@ retry policy, cold restore and host invariants. Results are recorded in
 LAN_NEXT_STEPS.md.
 
 
-An optional [local CLI session journal](RADIUS_SESSION_JOURNAL.md) now commits
+An optional [CLI/SSH session journal](RADIUS_SESSION_JOURNAL.md) now commits
 pre-Start intent and empty-cgroup checkpoints for explicit orphan reconciliation.
 It does not replay Start or infer closure from a missing runtime.

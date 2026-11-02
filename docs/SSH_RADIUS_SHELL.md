@@ -86,3 +86,13 @@ isolation, PAM/password authentication in SSH's handshake, crash recovery,
 durable accounting or Telnet AAA. Native CI exercises actual non-PTY/PTY
 shells, privilege/cgroup evidence, normal/background cleanup, expiry,
 disconnection, accounting causes and saved restart.
+
+
+Optional [session journaling](RADIUS_SESSION_JOURNAL.md) with the managed Stop
+outbox now supports explicit recovery after the host SSH worker dies. Enable
+`--radius-accounting-outbox --radius-accounting-journal` with accounting. An
+unclosed intent is not cleanup evidence: only original runtime/cgroup checks
+and explicit `--terminate` can close a populated orphan. A Stop is queued
+locally and sent only by explicit flush; the worker/listener is not restarted
+by reconciliation. Save/recreate starts a new worker, while old unclosed runtime
+identities remain conservatively refused.

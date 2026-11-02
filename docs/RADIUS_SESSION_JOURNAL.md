@@ -1,8 +1,8 @@
-# Explicit local accounting session reconciliation
+# Explicit accounting session reconciliation
 
-An optional private journal commits a session intent before the local CLI
-supervisor sends accounting Start. It supports explicit recovery after that
-supervisor process dies. It never replays Start, opens a replacement shell,
+An optional private journal commits a session intent before the local CLI or
+persistent SSH supervisor sends accounting Start. It supports explicit recovery
+after that supervisor process dies. It never replays Start, opens a replacement shell,
 or assumes a vanished runtime/cgroup proves cleanup.
 
 ```bash
@@ -15,10 +15,10 @@ sudo python3 -m network_labs.appliances start journal.json
 ```
 
 The new `radius_access.accounting_journal:true` requires the managed accounting
-Stop outbox and all its existing policy constraints. It currently covers local
-`radius-login`, not the persistent RADIUS SSH supervisor. SSH journal/crash
-coverage, Telnet, dynamic/dual-stack shell compositions and whole-host crash
-reconciliation remain separate work. Default non-journal profiles are unchanged.
+Stop outbox and all its existing policy constraints. It covers local
+`radius-login` and explicitly enabled RADIUS SSH shells. Telnet,
+dynamic/dual-stack shell compositions and whole-host crash reconciliation
+remain separate work. Default non-journal profiles are unchanged.
 Drain/review previously pinned Stop records before changing accounting policy;
 enabling this option changes that policy's binding.
 
@@ -100,3 +100,39 @@ no packet before explicit flush and the compensating Stop packet. It also
 leaves an unclosed intent through recreation and refuses stale-runtime cleanup,
 then verifies a healthy new journaled session and host invariants. Results are
 recorded in LAN_NEXT_STEPS.md.
+
+
+## SSH worker recovery
+
+To opt an SSH shell profile in, generate the example with `--radius --radius-ssh --radius-ssh-shell`
+and `--ssh-authorized-key /absolute/key.pub` alongside `--radius-accounting`,
+`--radius-accounting-outbox` and `--radius-accounting-journal` (the SSH shell
+flag supplies shell permission). The image needs Dropbear and the existing
+compiled SSH relay. SSH key authentication and the second RADIUS credential
+check remain required. See [SSH_RADIUS_SHELL.md](SSH_RADIUS_SHELL.md).
+
+The journal pins the host SSH worker PID/start time as the supervisor. An alive
+worker refuses reconciliation even if a particular transport has disconnected;
+normal worker cleanup remains responsible. After worker death, inventory and
+explicit reconciliation use the same original-runtime/cgroup checks as local
+CLI recovery. Killing the host worker alone does not prove that its guest
+payload ended. Reconciliation never restarts the SSH worker or opens a new
+shell. After explicit cleanup/flush, lab stop/start from saved configuration
+restores the listener with a new worker token. Recreating the runtime before
+committing empty proof leaves the old unclosed intent unverifiable.
+
+SSH workers receive the lab's configuration root in their private host config,
+so journals and the Stop queue use the same storage as fresh CLI processes.
+Short, private `accounting.lock` transactions serialize journal/outbox writes
+across CLI and workers, enforce capacity and reject unsafe lock files. The lock
+is not held across a shell or network exchange; contention times out after three
+seconds and retains evidence. An inventory taken during an atomic writer's
+transient temporary file may conservatively report unknown; retry the read.
+
+A dedicated SSH native scenario verifies actual key-authenticated SSH plus
+RADIUS, kills only the host worker with SIGKILL while a guest sleep remains,
+refuses the live owner and then the occupied orphan without `--terminate`, and
+checks silent local reconciliation followed by one compensating Stop on
+explicit flush. It also exercises worker-token renewal, stale runtime refusal,
+healthy SSH after saved recreation, journal handoff and host cleanup. Native
+results are recorded in LAN_NEXT_STEPS.md after CI.

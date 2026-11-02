@@ -41,6 +41,7 @@ def directory(manager,create=False):return outbox.folder(manager,create,kind=KIN
 def read(path,manager):return outbox.read(path,manager,validator=validate)
 
 
+@outbox.serialized
 def write(manager,record,previous=None):
     validate(record,manager);root=directory(manager,True);target=root/(record['session_id']+'.json')
     entries=outbox.paths(root)
@@ -63,6 +64,7 @@ def write(manager,record,previous=None):
     return record
 
 
+@outbox.serialized
 def prepare(manager):
     root=directory(manager,True);entries=outbox.paths(root)
     if len(entries)>=outbox.MAX_ENTRIES:raise runtime.RuntimeFailure('Accounting session journal is full.')
@@ -122,6 +124,7 @@ def mark_empty(manager,record):
     return write(manager,updated,previous=record)
 
 
+@outbox.serialized
 def handoff(manager,record):
     root=directory(manager)
     if root is None:raise runtime.RuntimeFailure('Accounting session journal disappeared.')
