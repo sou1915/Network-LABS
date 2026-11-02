@@ -155,3 +155,30 @@ background cleanup after exit, expiry and disconnect, denied credentials/roles,
 real accounting-response loss with no shell launch, retained Stop flush,
 journal handoff and saved recreation. The successful 12.180-second dedicated job and local test counts are recorded
 in LAN_NEXT_STEPS.md.
+
+
+## Explicit recovery after Telnet worker death
+
+The shared journal records the Telnet host worker PID/start time, boot,
+namespace, container and owned session-cgroup identity before Start. If that
+worker dies, use the existing `radius-accounting-sessions` and explicit
+`radius-accounting-reconcile LAB SID [--terminate]` commands described in
+[RADIUS_SESSION_JOURNAL.md](RADIUS_SESSION_JOURNAL.md). A dropped Telnet connection
+or vanished PTY does not establish empty population: processes may ignore HUP.
+Live owners are refused. A populated original orphan is refused without the
+termination flag; only the pinned original cgroup may be killed and checked
+empty. No worker restart or new shell is part of reconciliation.
+
+Confirmed cleanup hands off a compensating Stop locally, preserving the SID
+with zero unmeasured seconds and NAS-Error cause 9. Reconciliation sends no
+RADIUS packet. Only a separate explicit Stop flush delivers the queued event.
+Stop/recreate before the empty checkpoint does not retrospectively prove
+closure: stale runtime identities remain refused and their evidence retained.
+Saved recreation gives new sessions a fresh worker generation.
+
+A dedicated native scenario starts a real Telnet PTY with a HUP-ignoring sleep,
+kills only its host supervisor with SIGKILL, exercises live-owner/populated-orphan
+refusals, verifies silent guarded cleanup and one compensating Stop packet on
+explicit flush, then tests stale runtime refusal and a healthy restored session.
+Results follow in LAN_NEXT_STEPS.md after CI. This does not introduce automatic
+recovery, power-loss recovery, Start replay or exactly-once backend accounting.

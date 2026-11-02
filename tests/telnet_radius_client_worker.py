@@ -69,6 +69,10 @@ try:
                     if request.get('shell_script') is not None and wait_for(b'$ '):
                         script = request['shell_script'].replace('\n', '\r\n').encode().replace(b'\xff', b'\xff\xff')
                         sock.sendall(script)
+                        if request.get('shell_ready'):
+                            if not wait_for(request['shell_marker'].encode()):
+                                raise RuntimeError('Shell readiness marker unavailable')
+                            Path(request['shell_ready']).write_text('ready')
                         if request.get('disconnect_marker'):
                             if not wait_for(request['disconnect_marker'].encode()):
                                 raise RuntimeError('Shell disconnect marker unavailable')

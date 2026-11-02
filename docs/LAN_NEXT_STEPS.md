@@ -775,3 +775,19 @@ and the existing role/SSH/accounting native scenario also passed on that
 implementation; broader native/switching jobs were still queued or running.
 Telnet worker crash coverage and broader AAA/service/security work remain before
 GUI; static VXLAN and later EVPN/BGP stay separately tracked.
+
+
+## Telnet supervisor crash-recovery validation
+
+The existing pre-Start journal and identity-pinned reconciliation now have a
+dedicated real Telnet SIGKILL scenario. A live Telnet PTY runs a HUP-ignoring
+sleep so lost terminal connectivity cannot be mistaken for empty population.
+The scenario checks live-owner refusal, occupied-orphan refusal without the
+flag, explicit original-cgroup cleanup, no accounting traffic during local Stop
+handoff, a separate Stop-only flush, refusal after unclosed runtime recreation,
+and healthy new sessions while stale evidence remains. No recovery algorithm
+or default session policy is changed by this validation increment. See
+[TELNET_RADIUS.md](TELNET_RADIUS.md#explicit-recovery-after-telnet-worker-death).
+Native packet/cleanup/recreation results follow after CI. Broader AAA and
+service/security compositions remain before GUI; static VXLAN and later
+EVPN/BGP stay separately tracked.
