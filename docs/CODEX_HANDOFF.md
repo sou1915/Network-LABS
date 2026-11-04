@@ -1,16 +1,21 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
-## Current follow-up: maximum-budget/crash proof pending
+## Latest boundary result: maximum budget and renewed-lease crash validated
 
-The runtime remains the validated implementation below. Test-only commit
-`d5fdba582c5c45e8972c8daee4d57758256a4beb` adds real maximum-four-cycle packet
-checks and SIGKILL during the second renewed lease with unused budget.
-Targeted run: https://github.com/sou1915/Network-LABS/actions/runs/41878259282 .
-At 17:39 UTC its selected native/general jobs were queued without runners;
-Actions public status was operational, so no specific cause is asserted.
-Syntax/diff checks and 15 local dot1x tests passed. Follow that run and record
-exact native evidence before calling these extra boundary checks validated.
-See the final LAN_NEXT_STEPS section. No runtime behavior changed.
+At test-only commit `d5fdba582c5c45e8972c8daee4d57758256a4beb`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41878259282/job/126743630911)
+passed in **128.898 seconds**; general CI also passed on that commit. Four
+real authentications, exactly eight RADIUS requests with fresh authenticators
+and State, final-lease traffic, finite completion, and SIGKILL during the second
+renewed lease with no subsequent admission/worker passed. Runtime code remains
+the validated implementation below; this increment adds native boundary proof.
+
+Earlier API reads returned queued snapshots. Final job timestamps/logs show
+completion at 17:34 UTC, so those later queued observations were stale and must
+not be interpreted as the actual queue duration. The pending sections below
+are historical. See the final LAN_NEXT_STEPS section for exact evidence/limits.
+Continue remaining LAN work before GUI, retaining static VXLAN and separate
+EVPN/BGP in the roadmap.
 
 ## Latest result: finite reauthentication validated
 

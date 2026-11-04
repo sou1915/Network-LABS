@@ -1028,14 +1028,45 @@ directions beyond expiry/another exchange interval, no live original worker
 and no replacement worker record.
 
 The [targeted native/general run](https://github.com/sou1915/Network-LABS/actions/runs/41878259282)
-was still queued without assigned runners at 17:39 UTC on 2026-11-04. Public
-GitHub Status reported Actions operational; no account-specific queue cause is
-established. Native boundary proof is pending. Syntax and diff checks and all
+returned queued snapshots during earlier polling. Final logs/timestamps below
+supersede those stale status reads; they do not establish actual queue duration.
+Public GitHub Status reported Actions operational; no account-specific queue
+cause was established. Syntax and diff checks and all
 15 focused local dot1x tests passed. The earlier superseded test-only run
 `41878221476` was requested to cancel after correcting the capture helper's
 list-valued State comparison to use tuples.
 
 Runtime behavior is unchanged from the successful `b350281` evidence above;
-that two-cycle native proof remains valid. Do not claim this maximum-budget or
-later-lease crash extension passed until the selected native job completes.
+that two-cycle native proof remains valid. The completed boundary evidence
+below now validates this test extension.
 LAN remains ahead of GUI, with static VXLAN and separate EVPN/BGP tracked.
+
+
+### Maximum-budget and renewed-lease SIGKILL: completed evidence
+
+At `d5fdba582c5c45e8972c8daee4d57758256a4beb`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41878259282/job/126743630911)
+passed in **128.898 seconds** on Ubuntu 24.04, finishing at 17:34 UTC on
+2026-11-04. The general `tests` job also passed on that commit. The selected
+manual dispatch intentionally skipped the other 35 jobs; no broader native
+matrix result is claimed. Syntax/diff checks and 15 focused local tests passed.
+
+The real maximum-budget scenario completed four verified authentications,
+exactly eight captured requests with distinct Request Authenticators and four
+fresh State values echoed only in their matching continuations, actual final-
+lease delivery and finite closure with no fifth grant. Killing the original
+worker during the second lease with budget remaining returned unknown, left no
+live original worker or replacement record, and allowed only the remaining
+three-second kernel lease before bidirectional traffic stayed blocked across
+another exchange interval. All preceding native lifecycle, outage, restore,
+drift and host-isolation checks in the same scenario also passed.
+
+Earlier polling returned queued snapshots even after the actual completion
+time. Those observations were stale; they are not evidence of an ongoing queue
+or an account-specific runner problem. Use the final job/log timestamps above.
+The superseded capture-comparison fixture run is not counted as validation.
+
+This adds boundary/crash proof for the existing finite profile and changes no
+runtime policy. It is not persistent reauthentication, broader EAP, dynamic
+VLANs, multi-client admission or accounting. Remaining AAA/IPv6/switching/service
+compositions continue before GUI; static VXLAN and separate EVPN/BGP stay tracked.
