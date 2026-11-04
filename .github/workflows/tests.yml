@@ -1,7 +1,19 @@
 name: Network LABS checks
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Validation scope (push and PR always run all jobs)
+        type: choice
+        default: all
+        options:
+          - all
+          - dot1x
 jobs:
   dot1x-wired-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -11,6 +23,7 @@ jobs:
       - name: Verify real wpa_supplicant, EAPOL/RADIUS, controlled data path and finite kernel revocation
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dot1x_integration.py -v
   radius-eap-md5-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -20,6 +33,7 @@ jobs:
       - name: Verify real FreeRADIUS EAP-MD5 challenge, State, proof, assets and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_eap_md5_integration.py -v
   telnet-radius-journal-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -29,6 +43,7 @@ jobs:
       - name: Verify actual Telnet worker SIGKILL, guarded cleanup, silent Stop handoff and stale runtime refusal
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_journal.py -v
   telnet-radius-shell-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -38,6 +53,7 @@ jobs:
       - name: Verify real Telnet PTY, Start receipt gate, cleanup, Stop journal and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_shell.py -v
   telnet-radius-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -47,6 +63,7 @@ jobs:
       - name: Verify actual Telnet diagnostics, pre-auth privilege drop, role denials and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_integration.py -v
   radius-roles-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -56,6 +73,7 @@ jobs:
       - name: Verify CLI and SSH role grants, silent denials, accounting and cold policy changes
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_roles_integration.py -v
   ssh-radius-journal-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -65,6 +83,7 @@ jobs:
       - name: Verify real SSH worker SIGKILL, guarded Stop recovery and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_journal.py -v
   radius-journal-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -74,6 +93,7 @@ jobs:
       - name: Verify actual killed supervisor, guarded cleanup, Stop handoff and stale runtime refusal
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_journal_integration.py -v
   radius-outbox-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -83,6 +103,7 @@ jobs:
       - name: Verify real Stop persistence, policy pinning, failed replay and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_outbox_integration.py -v
   radius-accounting-retry-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -92,6 +113,7 @@ jobs:
       - name: Verify real accounting response loss, start gate, stop uncertainty and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_accounting_retry_integration.py -v
   ipv6-service-probe-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -101,6 +123,7 @@ jobs:
       - name: Verify real IPv6 DNS probes, TCP, HTTP, TLS, SNTP and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_service_probe_ipv6_integration.py -v
   dual-stack-services-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -110,6 +133,7 @@ jobs:
       - name: Verify real DNS and AAA, independent outages, route isolation and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_services_integration.py -v
   dual-stack-radius-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -119,6 +143,7 @@ jobs:
       - name: Verify real SSH over both families, RADIUS fail-closed policy and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_radius_integration.py -v
   dual-stack-dns-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -128,6 +153,7 @@ jobs:
       - name: Verify routed A/AAAA over IPv4/IPv6 UDP/TCP, independent faults and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_dns_integration.py -v
   tftp-blksize-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -137,6 +163,7 @@ jobs:
       - name: Verify real negotiated binary reads, hash mismatch, errors and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_tftp_blksize_integration.py -v
   dns-transport-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -146,6 +173,7 @@ jobs:
       - name: Verify real DNS TCP/UDP, matched truncation controls, framing failures and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dns_transport_integration.py -v
   https-server-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -155,6 +183,7 @@ jobs:
       - name: Verify persistent HTTPS trust and identity, methods, drift, outage and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_https_server_integration.py -v
   syslog-tls-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -164,6 +193,7 @@ jobs:
       - name: Verify mutual names and trust, encrypted storage, rejection, retry, drift and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_integration.py -v
   syslog-tcp-forward-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -173,6 +203,7 @@ jobs:
       - name: Verify guest logger forwarding, suspended retry, volatile queues, drift and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_forward_integration.py -v
   syslog-tcp-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -182,6 +213,7 @@ jobs:
       - name: Verify real framing, stored delivery, rejected sender, rotation, outage and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tcp_integration.py -v
   lacp-strict-capability:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -205,6 +237,7 @@ jobs:
           /tmp/network-labs-strict-bin/ip -Version
           sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_REQUIRE_STRICT=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
   stp-lacp-reverse-control-loss-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -219,6 +252,7 @@ jobs:
       - name: Verify active-to-passive min-links 2 failover with physical carrier retained
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_control_loss_reverse_integration.py -v
   stp-lacp-control-loss-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -233,6 +267,7 @@ jobs:
       - name: Verify min-links 2 one-way LACP failover and min-links 1 fallback boundary
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_control_loss_integration.py -v
   stp-lacp-carrier-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -247,6 +282,7 @@ jobs:
       - name: Verify peer carrier loss and automatic dynamic FDB recovery without test-helper repair
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_stp_lacp_carrier_integration.py -v
   ra-guard-dhcpv6-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -255,6 +291,7 @@ jobs:
       - name: Verify local IA_NA and RA Guard wire evidence, renewal, outage, trust control and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_dhcpv6_integration.py -v
   ra-guard-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -263,6 +300,7 @@ jobs:
       - name: Verify trusted SLAAC, untrusted RA variants, drift, saved restart and trust control
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_integration.py -v
   ipv6-firewall-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -271,6 +309,7 @@ jobs:
       - name: Verify actual IPv6 allow/deny, conntrack, stateless controls, drift and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_firewall_integration.py -v
   ipv6-subinterfaces-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -279,6 +318,7 @@ jobs:
       - name: Verify actual dot1Q routing, static next hops, failure isolation and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_subinterfaces_integration.py -v
   dhcpv6-pd-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -291,6 +331,7 @@ jobs:
       - name: Verify actual Kea PD, downstream SLAAC, renewal, expiry and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_PD_BUSYBOX=/tmp/network-labs-pd-busybox /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_pd_integration.py -v
   dhcpv6-relay-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -299,6 +340,7 @@ jobs:
       - name: Verify remote DHCPv6 allocation, relay/RA wire evidence, outages and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_relay_integration.py -v
   ipv6-svi-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -307,6 +349,7 @@ jobs:
       - name: Verify actual IPv6 SVI routing, trunk tags, drift refusal and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_svi_integration.py -v
   ospfv3-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -315,6 +358,7 @@ jobs:
       - name: Verify real physical/SVI OSPFv3, tagged transit pruning, kernel delivery and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
   switching-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -330,6 +374,7 @@ jobs:
       - name: Verify common STP and LACP restore packet path
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
   ssh-access:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -338,6 +383,7 @@ jobs:
       - name: Verify server-enforced SSH actions, bypass denials and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
   radius-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -354,6 +400,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -374,6 +421,7 @@ jobs:
       - name: Python syntax
         run: /usr/bin/python3 -m compileall -q network_labs
   native-containers:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
