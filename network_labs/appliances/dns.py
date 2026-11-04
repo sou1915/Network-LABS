@@ -55,12 +55,16 @@ def validate_dns(node):
     if node['runtime'] != 'oci' or node['role'] == 'switch' or node.get('startup'):
         raise ValueError('DNS requires an OCI numbered endpoint without untracked startup commands.')
     interface = policy.get('interface')
-    if not isinstance(interface, str) or not addresses(node).get(interface):
+    ipv6_only = (policy.get('listen_ipv6') is True and node['role']=='host' and
+                 set(node['interfaces'])=={'eth0'} and interface=='eth0' and
+                 node.get('ipv6',{}).get(interface) and not addresses(node).get(interface))
+    if not isinstance(interface, str) or (not addresses(node).get(interface) and not ipv6_only):
         raise ValueError('DNS server requires a declared static numbered interface.')
-    local = ipaddress.IPv4Interface(addresses(node)[interface])
-    ipv4(str(local.ip))
-    if local.network.prefixlen < 31 and local.ip in (local.network.network_address, local.network.broadcast_address):
-        raise ValueError('DNS listen address cannot be a subnet network/broadcast address.')
+    if not ipv6_only:
+        local = ipaddress.IPv4Interface(addresses(node)[interface])
+        ipv4(str(local.ip))
+        if local.network.prefixlen < 31 and local.ip in (local.network.network_address, local.network.broadcast_address):
+            raise ValueError('DNS listen address cannot be a subnet network/broadcast address.')
     policy['zone'] = zone = name(policy.get('zone'))
     integer(policy.setdefault('ttl', 60), 0, 86400, 'DNS record TTL')
     records = policy.get('records')
@@ -97,18 +101,19 @@ def validate_dns(node):
     if 'records_ipv6' in policy: policy['records_ipv6'] = dict(sorted(normalized6.items()))
     listen6 = policy.get('listen_ipv6', False)
     if type(listen6) is not bool or (listen6 and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or interface != 'eth0' or not node.get('ipv6', {}).get(interface))):
-        raise ValueError('DNS listen_ipv6 requires a static dual-stack single-interface OCI host.')
+        raise ValueError('DNS listen_ipv6 requires a statically numbered single-interface OCI IPv6 host.')
     if len(server_config(node).encode('utf-8')) > 65536:
         raise ValueError('DNS configuration exceeds the 64 KiB observable file budget.')
 
 
 def server_config(node):
     policy = node['dns_server']
-    local = str(ipaddress.IPv4Interface(addresses(node)[policy['interface']]).ip)
-    lines = ['port=53', 'bind-interfaces', 'listen-address=' + local,
+    local = addresses(node).get(policy['interface'])
+    lines = ['port=53', 'bind-interfaces',
              'no-resolv', 'no-hosts', 'no-poll', 'cache-size=0',
              'local=/' + policy['zone'] + '/', 'local-ttl=' + str(policy['ttl']),
              'pid-file=/run/dnsmasq.pid', 'user=root', 'group=root', 'log-facility=-']
+    if local: lines.insert(2,'listen-address=' + str(ipaddress.IPv4Interface(local).ip))
     if policy.get('listen_ipv6'):
         lines.append('listen-address=' + str(ipaddress.IPv6Interface(node['ipv6'][policy['interface']]).ip))
     records6 = policy.get('records_ipv6', {})

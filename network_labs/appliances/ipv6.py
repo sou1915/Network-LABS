@@ -83,6 +83,10 @@ def validate_lab(spec):
     validate_firewall_lab(spec)
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
+    from .lan import addresses
+    ipv6_only_dns = dns_coexistence and not aaa_coexistence and all(
+        not any(addresses(n).values()) and not n['forwarding'] and not n.get('gateway') and not n['routes']
+        for n in spec['nodes'])
     if aaa_coexistence:
         if not any(n.get('radius_server') for n in spec['nodes']):
             raise ValueError('Dual-stack AAA requires a separate managed RADIUS server.')
@@ -103,9 +107,9 @@ def validate_lab(spec):
         for node in spec['nodes']:
             if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                         'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
-                                        'ospfv3', 'svis', 'subinterfaces', 'firewall_ipv6', 'ra_guard')):
+                                        'ospfv3', 'svis', 'firewall_ipv6', 'ra_guard')) or (node['subinterfaces'] and not ipv6_only_dns):
                 raise ValueError('Dual-stack service coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
-            if node['role'] in ('host', 'router') and (set(node['ipv6']) != set(node['interfaces']) or not all(node['interfaces'].values())):
+            if node['role'] in ('host', 'router') and not (ipv6_only_dns and node['subinterfaces']) and (set(node['ipv6']) != set(node['interfaces']) or (not ipv6_only_dns and not all(node['interfaces'].values()))):
                 raise ValueError('Dual-stack services require IPv4 and static IPv6 on every physical host/router port.')
             if (node.get('dns_server') or node.get('resolvers')) and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'}):
                 raise ValueError('Dual-stack DNS service/resolvers require single-interface OCI hosts.')

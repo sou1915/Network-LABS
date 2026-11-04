@@ -875,6 +875,17 @@ def ipv6_subinterfaces_lab(rootfs):
                   [['R2', 'eth0'], ['SW1', 'eth4']], [['R2', 'eth1'], ['PC4', 'eth0']]]})
 
 
+def ipv6_dns_subinterfaces_lab(rootfs):
+    """Static IPv6-only DNS across ROAS VLANs and a tagged router transit."""
+    spec=ipv6_subinterfaces_lab(rootfs)
+    spec['name']='ipv6-dns-subinterfaces-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:30::10']
+    spec['nodes'][3]['dns_server']={'interface':'eth0','zone':'lab.test',
+        'listen_ipv6':True,'records':{'server.lab.test':'192.0.2.10'},
+        'records_ipv6':{'server.lab.test':'2001:db8:30::10'}}
+    return validate(spec)
+
+
 def ipv6_firewall_lab(rootfs):
     """Two internal IPv6 LANs, stateful forwarding and a default-deny firewall."""
     spec = {'version': 2, 'name': 'ipv6-firewall-lan', 'nodes': [],
