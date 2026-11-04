@@ -1,5 +1,23 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: AAAA-only DNS zones validated
+
+Commit `9306d24d57f90949947a76aa9cd9c81e5ae92c47` accepts an explicit empty
+DNS A map when valid AAAA data exists. Empty zones, missing A maps and existing
+invalid data remain refused; listener families and other composition limits
+are unchanged. `example --ipv6-dns-aaaa` provides the IPv6-only tagged-routing
+reference without manufactured IPv4 answers. See DNS_AAAA_ONLY.md.
+
+Extended [dual-stack native DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053927)
+passed in 43.186 seconds; [IPv6-only subinterface DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053243)
+passed in 23.898 seconds. General CI passed on the same commit. Real AAAA and
+A/NODATA across transports, NXDOMAIN, managed probe family separation, retained
+empty A maps and cold restore passed, alongside the original scenarios. Local
+tests passed 920 cases with 140 environment-dependent skips. Exact evidence is
+in the final LAN_NEXT_STEPS section. No CNAME/DNSSEC/DNS64/recursion/dynamic
+widening is claimed. Continue remaining LAN before GUI, retaining static VXLAN
+and separate EVPN/BGP in the roadmap. Older pending sections are historical.
+
 ## Latest LAN increment: optional IPv6 local-input policy validated
 
 Commit `bb4d071538ca6e9a43d8b81b38a2aa41921a41b1` adds

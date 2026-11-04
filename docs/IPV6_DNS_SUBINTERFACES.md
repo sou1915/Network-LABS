@@ -21,8 +21,9 @@ sudo python3 -m network_labs.appliances probe ipv6-dns-subinterfaces-lan PC1 \
 The DNS policy opts into `listen_ipv6:true` on a statically numbered
 single-interface host. Without an IPv4 interface address it renders only the
 explicit IPv6 listener, with no wildcard/IPv4 listener or upstream resolver.
-The existing local-zone A-record policy remains required; optional AAAA records
-retain their own validation. The example A value `192.0.2.10` is DNS answer
+An explicit A-record map remains required; it may be empty if valid AAAA
+records exist (see [DNS_AAAA_ONLY.md](DNS_AAAA_ONLY.md)). Both empty remain
+refused. The example A value `192.0.2.10` is DNS answer
 data, not an IPv4 route or a connectivity claim. Both record types can be
 queried through IPv6 UDP/TCP; `server.lab.test` has AAAA `2001:db8:30::10`.
 There is no DNS64, DNSSEC, recursion, dynamic registration or cache persistence.

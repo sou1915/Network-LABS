@@ -1212,3 +1212,44 @@ AAA/IPv6/switching/services continue before GUI. Static VXLAN VTEP/VNI/VLAN
 mapping remains required, with EVPN/BGP a separate later increment.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-input-firewall`.
+
+
+## Explicit AAAA-only DNS zone increment
+
+An explicit empty `dns_server.records:{}` is now accepted when valid
+`records_ipv6` supplies at least one AAAA record. Omitted/null/non-map A data
+and a zone with neither A nor AAAA remain refused. Existing 256-record-per-
+family, 64 KiB config, name/zone/address/uniqueness bounds remain. Listener
+selection is unchanged and independent of record family. The new
+`example --ipv6-dns-aaaa` reference removes dummy A data from the static
+IPv6 ROAS/tagged-transit DNS composition. See
+[DNS_AAAA_ONLY.md](DNS_AAAA_ONLY.md) for usage and exact scope. This supersedes
+the earlier requirement for a nonempty A map, not the other DNS bounds.
+
+At implementation/validation commit
+`9306d24d57f90949947a76aa9cd9c81e5ae92c47`, both extended native scenarios passed:
+
+- [Physical dual-stack DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053927),
+  **43.186 seconds**: actual AAAA answers and A/NODATA over IPv4/IPv6 UDP/TCP,
+  NXDOMAIN for missing names, captures on both transport families, explicit
+  IPv6-family managed probe success through the selected IPv4 resolver, and
+  IPv4-family probe failure rather than record-family fallback. Saved empty A
+  maps and successful AAAA-only behavior after cold restore were verified.
+- [IPv6-only subinterface DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053243),
+  **23.898 seconds**: AAAA-only UDP/TCP answers, A/NODATA, managed IPv6 TCP
+  DNS probe, retained empty A map and cold restore across static tagged routing.
+
+The previous A/AAAA service, fault, drift and host-isolation scenarios within
+both native jobs remained passing. General CI also passed on the same commit;
+the other 37 jobs were skipped by manual suite selection and are not claimed
+as passing native coverage. Local tests passed 920 cases in 26.763 seconds,
+with 140 environment-dependent skips. Compilation and diff checks passed.
+
+No listener family, upstream resolver, cache persistence, CNAME traversal,
+DNSSEC, DNS64 or dynamic registration is inferred from this record-data change.
+IPv4-only and mixed-record defaults remain intact; routing/security combination
+limits remain as documented for each profile. Remaining LAN services and
+AAA/IPv6/switching work precede GUI. Static VXLAN with VTEP/VNI/VLAN mapping
+and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dns-aaaa`.
