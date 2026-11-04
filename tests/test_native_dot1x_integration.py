@@ -8,6 +8,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -124,6 +125,19 @@ class NativeDot1xTests(unittest.TestCase):
                 with manager.locked():manager.stop();manager.start(saved)
                 close_check();start_peer();future=session();admitted(future);self.assertEqual(ping(),0)
                 self.assertEqual(future.result(timeout=10)['status'],'passed');stop_peer();close_check()
+                # A separate CLI owns teardown while the original command is
+                # waiting outside the lab lock. Namespace removal must wait
+                # for the pinned worker to die, and neither command may
+                # resurrect runtime state after removal.
+                start_peer();future=session();admitted(future)
+                owner=Manager(spec['name']).read()['dot1x_workers']['SW1']
+                stop_peer()
+                run([sys.executable,'-m','network_labs.appliances','stop',spec['name']],timeout=15)
+                from network_labs.appliances.snooping import alive
+                self.assertFalse(alive(owner));self.assertFalse(manager.directory.exists())
+                self.assertIn(future.result(timeout=5)['status'],('passed','unknown'))
+                with manager.locked():manager.start(saved)
+                close_check()
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')

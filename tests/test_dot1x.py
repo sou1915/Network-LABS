@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.dot1x import TABLE, gate_snapshot, render, stop
-from network_labs.appliances.dot1x_worker import envelope
+from network_labs.appliances.dot1x_worker import current, envelope
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
@@ -27,6 +27,20 @@ class Dot1xTests(unittest.TestCase):
             with patch('network_labs.appliances.persistence.drift',return_value=[]),patch('network_labs.appliances.persistence.save_startup'):
                 manager.write_startup()
             self.assertEqual(json.loads((manager.directory/'state.json').read_text())['dot1x_workers'],latest['dot1x_workers'])
+
+    def test_worker_refuses_recreated_namespace_interface_or_runtime_generation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'state.json';info=Path('/proc/self/ns/net').stat()
+            state={'phase':'running','dot1x_workers':{'SW1':{'token':'original'}}}
+            path.write_text(json.dumps(state))
+            config=dict(namespace_dev=info.st_dev,namespace_ino=info.st_ino,port='eth0',ifindex=4,state_file=str(path),node='SW1',token='original')
+            with patch('socket.if_nametoindex',return_value=4):
+                current(config)
+                for fault in ({'namespace_ino':info.st_ino+1},{'ifindex':5},{'token':'recreated'}):
+                    with self.subTest(fault=fault),self.assertRaises(ValueError):current({**config,**fault})
+                state['pending_spec']={};path.write_text(json.dumps(state))
+                with self.assertRaises(ValueError):current(config)
+                current(config,False)  # Original owner may still close during teardown.
 
     def test_bounded_explicit_topology_and_canonical_policy(self):
         spec=self.spec();self.assertEqual(spec,validate(spec))

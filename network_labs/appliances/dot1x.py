@@ -186,7 +186,8 @@ def authenticate(manager,name,*,timeout=5):
         PROCESSES.pop(process.pid,None)
         if manager.directory.exists():
             with manager.locked():
-                manager.state=None;state=manager.read();record=state.get('dot1x_workers',{}).get(name,{})
-                if record.get('token')==token:
-                    state['dot1x_workers'].pop(name);manager.save()
+                if manager.directory.exists():
+                    manager.state=None;state=manager.read();record=state.get('dot1x_workers',{}).get(name,{})
+                    if record.get('token')==token:
+                        state['dot1x_workers'].pop(name);manager.save()
         output.unlink(missing_ok=True)
