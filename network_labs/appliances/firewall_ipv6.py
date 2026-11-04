@@ -1,4 +1,4 @@
-"""Bounded IPv6 forward filtering in an owned node namespace; no NAT or input ACL."""
+"""Bounded IPv6 forwarding with separately opted-in local input filtering."""
 import ipaddress
 import json
 
@@ -17,7 +17,7 @@ def validate_node(node):
             node['forwarding'] or any(node['interfaces'].values()) or node.get('gateway') or node['routes'] or
             node.get('firewall') is not None or node.get('startup') or node['shutdown']):
         raise ValueError('IPv6 firewall requires an UP IPv6-only OCI firewall with 2..16 numbered physical ports, IPv6 forwarding and no IPv4 policy/startup.')
-    keys(policy, ('default', 'stateful', 'rules'), 'firewall_ipv6')
+    keys(policy, ('default', 'stateful', 'rules', 'input'), 'firewall_ipv6')
     if policy.setdefault('default', 'drop') not in ('accept', 'drop'):
         raise ValueError('firewall_ipv6.default: accept or drop required.')
     if type(policy.setdefault('stateful', True)) is not bool:
@@ -48,6 +48,12 @@ def validate_node(node):
             if protocol not in ('tcp', 'udp'): raise ValueError('IPv6 dport requires tcp or udp.')
         if 'icmp_type' in rule and (protocol != 'icmpv6' or rule['icmp_type'] not in ICMP_TYPES):
             raise ValueError('icmp_type requires icmpv6 and a supported echo/error type.')
+    if 'input' in policy:
+        local=policy['input']
+        keys(local,('default','stateful','rules'),'IPv6 input policy')
+        validate_node({**node,'firewall_ipv6':local})
+        if any('out' in rule for rule in local['rules']):
+            raise ValueError('IPv6 input rules have no outgoing interface.')
 
 
 def validate_lab(spec):
@@ -61,11 +67,8 @@ def validate_lab(spec):
         raise ValueError('Initial IPv6 firewall lab requires static physical IPv6 without IPv4, SVIs/subinterfaces or dynamic services.')
 
 
-def render(policy, replace=False):
-    lines = [f'delete table ip6 {TABLE}'] if replace else []
-    lines += [f'table ip6 {TABLE} {{', 'chain forward {',
-              f'type filter hook forward priority filter; policy {policy["default"]};',
-              'ct state invalid counter drop comment "invalid";']
+def rule_lines(policy):
+    lines = ['ct state invalid counter drop comment "invalid";']
     if policy['stateful']: lines.append('ct state established,related counter accept comment "state";')
     for rule in policy['rules']:
         parts = []
@@ -78,7 +81,28 @@ def render(policy, replace=False):
         if 'icmp_type' in rule: parts.append('icmpv6 type ' + rule['icmp_type'])
         parts.append(f'counter {rule["action"]} comment "rule:{rule["name"]}";')
         lines.append(' '.join(parts))
-    lines += [f'counter {policy["default"]} comment "default";', '}', '}']
+    lines += [f'counter {policy["default"]} comment "default";']
+    return lines
+
+
+def render(policy, replace=False, ports=()):
+    lines = [f'delete table ip6 {TABLE}'] if replace else []
+    lines += [f'table ip6 {TABLE} {{', 'chain forward {',
+              f'type filter hook forward priority filter; policy {policy["default"]};']
+    lines += rule_lines(policy) + ['}']
+    if 'input' in policy:
+        if not ports:raise ValueError('IPv6 input rendering requires declared physical ports.')
+        local=policy['input']
+        # Reuse the same bounded rule renderer; only the hook and mandatory
+        # local control traffic differ. Output is deliberately unfiltered.
+        body=rule_lines(local)
+        interfaces=', '.join(json.dumps(port) for port in sorted(ports))
+        lines += ['chain input {',f'type filter hook input priority filter; policy {local["default"]};',
+                  'iifname "lo" counter accept comment "input-loopback";',
+                  f'iifname {{ {interfaces} }} ip6 nexthdr ipv6-icmp ip6 hoplimit 255 icmpv6 type {{ 135, 136 }} counter accept comment "input-ndp";']
+        lines += body
+        lines += ['}']
+    lines += ['}']
     return '\n'.join(lines) + '\n'
 
 
@@ -86,7 +110,7 @@ def apply(manager, index, node):
     tables = json.loads(manager.ns(index, 'nft', '-j', 'list', 'tables').stdout)
     exists = any(item.get('table', {}).get('family') == 'ip6' and item['table'].get('name') == TABLE for item in tables['nftables'])
     target = manager.directory / (node['name'] + '-ipv6.nft')
-    target.write_text(render(node['firewall_ipv6'], replace=exists), encoding='utf-8'); target.chmod(0o600)
+    target.write_text(render(node['firewall_ipv6'], replace=exists,ports=node['interfaces']), encoding='utf-8'); target.chmod(0o600)
     manager.ns(index, 'nft', '-c', '-f', str(target))
     manager.ns(index, 'nft', '-f', str(target))
     return fingerprint(observe(manager, index))

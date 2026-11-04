@@ -920,6 +920,17 @@ def ipv6_dns_firewall_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_input_firewall_lab(rootfs):
+    """Opt-in FW1 local input protection alongside existing forwarded DNS."""
+    spec=ipv6_dns_firewall_lab(rootfs);spec['name']='ipv6-input-firewall-lan'
+    spec['nodes'][1]['firewall_ipv6']['input']={'default':'drop','stateful':True,'rules':[
+        {'name':'local-http','action':'accept','in':'eth0','source':'2001:db8:10::10/128',
+         'destination':'2001:db8:10::1/128','protocol':'tcp','dport':8080},
+        {'name':'local-echo','action':'accept','in':'eth0','source':'2001:db8:10::10/128',
+         'destination':'2001:db8:10::1/128','protocol':'icmpv6','icmp_type':'echo-request'}]}
+    return validate(spec)
+
+
 def ra_guard_lab(rootfs):
     """SLAAC across a guarded access switch, with one untrusted injection host."""
     spec = slaac_lab(rootfs); spec['name'] = 'ra-guard-lan'

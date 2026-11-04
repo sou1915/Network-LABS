@@ -13,9 +13,20 @@ on:
           - dot1x
           - ipv6-dns
           - ipv6-dns-firewall
+          - ipv6-input-firewall
 jobs:
+  ipv6-input-firewall-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-input-firewall'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 local input prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump dnsmasq
+      - name: Verify local input allowance, denial, state, NDP, forwarding isolation and restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_input_firewall_integration.py -v
   ipv6-dns-firewall-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-firewall'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -322,7 +333,7 @@ jobs:
       - name: Verify trusted SLAAC, untrusted RA variants, drift, saved restart and trust control
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_integration.py -v
   ipv6-firewall-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-firewall'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -422,7 +433,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
