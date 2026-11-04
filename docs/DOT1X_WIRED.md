@@ -69,7 +69,9 @@ username is refused too. There is an intentional closed interval during each
 exchange, so uninterrupted application sessions are not promised. No grace
 lease or last-success fallback is installed when the backend is unavailable.
 Logoff, peer Start during admission, drift or worker death ends the command;
-there is no automatic worker restart or unbounded daemon.
+there is no automatic worker restart or unbounded daemon. Logoff or peer Start
+can end the command early; the completion count reports how many exchanges
+actually admitted the peer.
 
 Reports include `completed_authentications` and the total `radius_requests`.
 `authenticated` records whether any verified admission happened earlier; it
@@ -143,7 +145,10 @@ FreeRADIUS. It checks a working uncontrolled uplink while peer data is blocked,
 EAPOL Identity/MD5/Success and RADIUS State captures, bidirectional data during
 admission, expiry, wrong credentials/identity, Logoff, SIGKILL kernel expiry,
 backend outage, saved recreation starting closed, separate-CLI teardown during
-active admission, gate-drift refusal and host isolation. Local tests additionally
+active admission, gate-drift refusal and host isolation. The finite-reauthentication
+extension also captures two actual EAPOL/RADIUS cycles, fresh State/request
+authenticators, second-lease bidirectional traffic, backend loss between cycles
+and recovery after saved recreation. Local tests additionally
 cover bounded reauthentication, fresh State, identity pinning, replayed
 identities, queued Logoff before backend Success, runtime and
 namespace/interface generation refusal, and unconfirmed SIGKILL cleanup. Exact

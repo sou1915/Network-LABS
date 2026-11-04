@@ -896,3 +896,37 @@ dynamic VLANs, multiple clients, accounting and broader service/security
 compositions remain separate LAN work. Continue the AAA/IPv6/switching/service
 sequence above before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings
 remains required on the roadmap; EVPN/BGP is a later separate increment.
+
+
+## Opt-in finite closed-port reauthentication
+
+`dot1x.reauthentications:0..3` adds an explicit finite sequence of at most four
+complete authentications to the existing one-peer wired profile. Omission or 0
+retains one lease. At every boundary the worker confirms gate closure before
+sending a fresh Identity, clears the previous RADIUS transaction and State,
+and requires another verified MD5/Success before reopening. The first accepted
+username and physical peer remain pinned; even another allowlisted identity
+cannot replace that username within the command. Each exchange has its own
+1..5-second deadline, each kernel lease remains 1..30 seconds, and the whole
+command retains the shared 64-discard budget. No previous success authorizes
+traffic through an outage or rejection in a later exchange.
+
+Local tests passed 905 cases in 26.837 seconds with 137 environment-dependent
+skips. Unit coverage includes the 0/1/3 finite budgets, fresh State boundaries,
+closure before each new grant, timeout and verified rejection after earlier
+success, and identity-change refusal. Syntax and diff checks passed.
+Native validation of implementation `a6e20f9fdf164a0c832acb6d4998418ca23936b3`
+is pending in the
+[dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/41862014304/job/126686065609).
+The extended scenario requires two actual EAPOL/MD5/Success cycles and four
+RADIUS requests, separate request authenticators/State, second-lease
+bidirectional traffic, backend loss between cycles with closed timeout, and
+cold restore/recovery of the declared budget. A queued or skipped job is not
+native proof; the earlier single-lease evidence does not validate this extension.
+
+This remains a finite foreground command with intentional closed intervals,
+not a persistent supplicant/authenticator daemon or uninterrupted admission.
+Managed supplicants, unbounded reauthentication, stronger EAP methods, dynamic
+VLANs, multiple clients, accounting and broader LAN combinations remain separate.
+Continue LAN before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings and
+later separate EVPN/BGP remain required roadmap work.

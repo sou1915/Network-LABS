@@ -87,7 +87,7 @@ class Dot1xTests(unittest.TestCase):
                     if index%2==0:self.assertEqual(len(call.args),2,'Fresh exchange must not reuse old State')
                     else:self.assertEqual(call.args[2],b'state-'+bytes([index//2]))
 
-    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False):
+    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False,rejected=False):
         raw=Mock();udp=Mock()
         for sock in (raw,udp):
             sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
@@ -101,8 +101,9 @@ class Dot1xTests(unittest.TestCase):
             user=b'other' if changed_identity and cycle else b'learner'
             events.append((when,raw,frame(eap(2,identifier,b'\x01'+user))))
             if outage and cycle:break
-            events.extend([(when,udp,b'challenge'),(when,raw,frame(eap(2,identifier+1,b'\x04\x10'+bytes(16)))),(when,udp,b'success')])
-            responses.extend([(eap(1,identifier+1,b'\x04\x10'+bytes(16)),b'state-'+bytes([cycle])),(eap(3,identifier+1),None)])
+            reject=rejected and cycle>0
+            events.extend([(when,udp,b'challenge'),(when,raw,frame(eap(2,identifier+1,b'\x04\x10'+bytes(16)))),(when,udp,b'reject' if reject else b'success')])
+            responses.extend([(eap(1,identifier+1,b'\x04\x10'+bytes(16)),b'state-'+bytes([cycle])),(eap(4 if reject else 3,identifier+1),None)])
         def select_ready(read,write,error,timeout):
             if len(read)==1:return [],[],[]  # No queued EAPOL before these signed replies.
             if events and events[0][0]<=clock[0]+timeout:
@@ -114,7 +115,18 @@ class Dot1xTests(unittest.TestCase):
             return [],[],[]
         config=dict(port='eth0',peer_mac='02:00:00:00:01:10',source='192.0.2.1',address='192.0.2.20',users=['learner','other'],timeout=1,seconds=1,secret='test',reauthentications=renewals)
         transitions=[]
-        with patch('network_labs.appliances.dot1x_worker.current'),patch('network_labs.appliances.dot1x_worker.publish'),patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False:transitions.append(admit)),patch('socket.socket',side_effect=[raw,udp]),patch('secrets.randbelow',return_value=7),patch('time.monotonic',side_effect=lambda:clock[0]),patch('select.select',side_effect=select_ready),patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09') as requests,patch('network_labs.appliances.dot1x_worker.response_code',side_effect=lambda packet,*_:11 if packet==b'challenge' else 2),patch('network_labs.appliances.dot1x_worker.inner',side_effect=responses):
+        with (
+            patch('network_labs.appliances.dot1x_worker.current'),
+            patch('network_labs.appliances.dot1x_worker.publish'),
+            patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False:transitions.append(admit)),
+            patch('socket.socket',side_effect=[raw,udp]),
+            patch('secrets.randbelow',return_value=7),
+            patch('time.monotonic',side_effect=lambda:clock[0]),
+            patch('select.select',side_effect=select_ready),
+            patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09') as requests,
+            patch('network_labs.appliances.dot1x_worker.response_code',side_effect=lambda packet,*_:{b'challenge':11,b'success':2,b'reject':3}[packet]),
+            patch('network_labs.appliances.dot1x_worker.inner',side_effect=responses),
+        ):
             result=serve(config)
         return result,transitions,requests.call_args_list
 
@@ -123,6 +135,12 @@ class Dot1xTests(unittest.TestCase):
         self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'AUTH_TIMEOUT')
         self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
         self.assertEqual(transitions,[False,True,False,False])
+
+    def test_verified_reauthentication_reject_never_reopens_the_port(self):
+        result,transitions,_=self.simulated_cycles(1,rejected=True)
+        self.assertEqual(result['status'],'failed');self.assertEqual(result['reason'],'REJECTED')
+        self.assertEqual(result['completed_authentications'],1);self.assertEqual(result['radius_requests'],4)
+        self.assertTrue(result['port_closed']);self.assertEqual(transitions,[False,True,False,False])
 
     def test_reauthentication_cannot_switch_to_another_allowed_identity(self):
         result,transitions,_=self.simulated_cycles(1,changed_identity=True)

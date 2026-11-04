@@ -54,6 +54,31 @@ superseded by the evidence above. The bounded finite profile is complete;
 broader LAN work still precedes GUI, with static VXLAN and later EVPN/BGP
 separately tracked.
 
+## Next LAN increment: finite reauthentication — native validation pending
+
+Implementation `a6e20f9fdf164a0c832acb6d4998418ca23936b3` adds optional
+`dot1x.reauthentications:0..3`. It closes the port before each new complete
+EAP/RADIUS exchange, clears old transaction/State, pins the original accepted
+identity and never reuses earlier success after outage/rejection. The omitted
+policy keeps the validated single-lease behavior. This is finite foreground
+reauthentication with closed intervals, not a persistent service.
+
+Local checks passed 905 tests in 26.837 seconds with 137 environment-dependent
+skips; compilation and diff checks passed. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41862014304/job/126686065609)
+and its general CI job were still queued without runner allocation at the last
+check. Do not treat this new extension as native validated or merge it on the
+strength of the older single-lease proof. The added native scenario covers two
+real supplicant cycles, fresh RADIUS transactions/State, second-lease traffic,
+backend loss between leases and cold restore/recovery.
+
+Next action: follow that job, fix any failure without weakening authentication
+or gate checks, then record its exact successful commit/job/duration in the
+final LAN_NEXT_STEPS section. Continue LAN before GUI and retain the static
+VXLAN and separate EVPN/BGP roadmap. Earlier known-failed and redundant
+documentation-only workflow runs were asked to cancel to release runner
+capacity; the original successful runtime validation run was retained.
+
 ## Work in progress on this handoff branch
 
 This is an unvalidated native feature checkpoint, not a completed 802.1X claim.
