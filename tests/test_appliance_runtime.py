@@ -161,7 +161,11 @@ class LifecycleTests(unittest.TestCase):
             manager = Manager('test'); manager.directory = Path(folder) / 'test'; manager.directory.mkdir()
             manager.state = {'spec': {}, 'vms': [{'name': 'VM1', 'pid': 123, 'starttime': 'old'}],
                              'containers': [], 'namespaces': [], 'host_links': [], 'mounts': []}
-            with patch.object(manager, 'read', return_value=manager.state), patch('network_labs.appliances.runtime.process_identity', return_value='new'), patch('os.kill') as kill:
+            state = manager.state
+            def read_state():
+                manager.state = state
+                return state
+            with patch.object(manager, 'read', side_effect=read_state), patch('network_labs.appliances.runtime.process_identity', return_value='new'), patch('os.kill') as kill:
                 manager.stop()
                 kill.assert_not_called()
 
