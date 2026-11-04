@@ -80,6 +80,7 @@ class NativeDot1xTests(unittest.TestCase):
             def session():return pool.submit(authenticate,Manager(spec['name']),'SW1',timeout=5)
             def close_check():
                 self.assertTrue(gate()['configuration_verified']);self.assertFalse(gate()['admitted']);self.assertNotEqual(ping(),0)
+                self.assertNotEqual(ping('PC2','192.0.2.10'),0,'Closed port must block backend-to-peer data too')
             try:
                 with manager.locked():manager.start(spec)
                 self.assertEqual(ping('SW1'),0,'Uncontrolled NAS/backend path must work before authentication')

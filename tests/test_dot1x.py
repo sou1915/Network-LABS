@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.dot1x import TABLE, gate_snapshot, render, stop
-from network_labs.appliances.dot1x_worker import current, envelope
+from network_labs.appliances.dot1x_worker import current, envelope, serve
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
@@ -41,6 +41,29 @@ class Dot1xTests(unittest.TestCase):
                 state['pending_spec']={};path.write_text(json.dumps(state))
                 with self.assertRaises(ValueError):current(config)
                 current(config,False)  # Original owner may still close during teardown.
+
+    def test_queued_logoff_precedes_backend_success_and_replayed_identity_is_discarded(self):
+        raw=Mock();udp=Mock()
+        for sock in (raw,udp):
+            sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
+        own=bytes.fromhex('020000000101');peer=bytes.fromhex('020000000110')
+        raw.getsockname.return_value=('eth0',0,0,0,own)
+        def frame(payload):return own+peer+b'\x88\x8e'+struct.pack('!BBH',2,0,len(payload))+payload
+        identity=struct.pack('!BBH',2,7,12)+b'\x01learner'
+        replay=struct.pack('!BBH',2,6,12)+b'\x01learner'
+        proof=struct.pack('!BBH',2,8,22)+b'\x04\x10'+bytes(16)
+        raw.recv.side_effect=[frame(replay),frame(identity),frame(proof),own+peer+b'\x88\x8e\x02\x02\x00\x00']
+        udp.recvfrom.return_value=(b'verified-challenge',('192.0.2.20',1812))
+        challenge=struct.pack('!BBH',1,8,22)+b'\x04\x10'+bytes(16)
+        ready=lambda *s:(list(s),[],[])
+        config=dict(port='eth0',peer_mac='02:00:00:00:01:10',source='192.0.2.1',address='192.0.2.20',users=['learner'],timeout=5,seconds=5,secret='test')
+        with patch('network_labs.appliances.dot1x_worker.current'),patch('network_labs.appliances.dot1x_worker.publish'),patch('network_labs.appliances.dot1x_worker.gate') as gate,patch('socket.socket',side_effect=[raw,udp]),patch('secrets.randbelow',return_value=7),patch('select.select',side_effect=[ready(raw),ready(raw),ready(udp),ready(),ready(raw),ready(udp),ready(raw),ready(raw,udp)]),patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09'),patch('network_labs.appliances.dot1x_worker.response_code',return_value=11),patch('network_labs.appliances.dot1x_worker.inner',return_value=(challenge,b'opaque-state')):
+            result=serve(config)
+        self.assertEqual(result['reason'],'LOGOFF');self.assertEqual(result['status'],'blocked')
+        self.assertFalse(result['authenticated']);self.assertTrue(result['port_closed'])
+        self.assertEqual(result['radius_requests'],2);self.assertEqual(result['discarded'],1)
+        self.assertEqual(gate.call_count,2);self.assertTrue(all(len(call.args)==1 for call in gate.call_args_list))
+        self.assertEqual(udp.recvfrom.call_count,1,'Queued Success must remain unread after Logoff')
 
     def test_bounded_explicit_topology_and_canonical_policy(self):
         spec=self.spec();self.assertEqual(spec,validate(spec))
