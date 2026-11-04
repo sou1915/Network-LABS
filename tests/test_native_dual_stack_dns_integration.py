@@ -137,6 +137,32 @@ class NativeDualStackDNSTests(unittest.TestCase):
                     manager.stop();manager.start(saved)
                 ready();echo();good(4,True,1);good(6,True,28)
                 with manager.locked():manager.write_startup()
+                aaaa_only=copy.deepcopy(saved);aaaa_only['nodes'][3]['dns_server']['records']={}
+                with manager.locked():manager.stop();manager.start(aaaa_only)
+                def only_aaaa():
+                    ready();echo()
+                    for family in (4,6):
+                        for tcp in (False,True):
+                            good(family,tcp,28)
+                            empty=query(family,tcp,1)
+                            self.assertEqual(empty['status'],'passed',empty)
+                            self.assertEqual(empty['rcode'],0);self.assertEqual(empty['addresses'],[])
+                            missing=query(family,tcp,28,'missing.lab.test')
+                            self.assertEqual(missing['rcode'],3);self.assertEqual(missing['addresses'],[])
+                    with manager.locked():
+                        self.assertEqual(probe(manager,'PC1','server.lab.test',protocol='dns',family='ipv6',dns_transport='tcp')['status'],'passed')
+                        self.assertEqual(probe(manager,'PC1','server.lab.test',protocol='dns',family='ipv4',dns_transport='tcp')['status'],'failed')
+                event=threading.Event();only_wire=root/'aaaa-only.pcap'
+                cap=pool.submit(capture,Manager(spec['name']),'PC1','eth0',only_wire,seconds=6,packets=1000,expression='port 53',ready=event.set)
+                self.assertTrue(event.wait(5));only_aaaa();cap.result(timeout=10)
+                for family in ('ip','ip6'):
+                    for transport in ('udp','tcp'):
+                        self.assertTrue(run(['tcpdump','-nn','-r',only_wire,family,'and',transport,'and','port','53']).stdout)
+                with manager.locked():
+                    manager.write_startup();saved_only=load_startup(spec['name'])
+                    self.assertEqual(saved_only['nodes'][3]['dns_server']['records'],{})
+                    manager.stop();manager.start(saved_only)
+                only_aaaa()
             finally:
                 if manager.directory.exists():
                     with manager.locked():manager.stop()

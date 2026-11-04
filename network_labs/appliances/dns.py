@@ -68,8 +68,8 @@ def validate_dns(node):
     policy['zone'] = zone = name(policy.get('zone'))
     integer(policy.setdefault('ttl', 60), 0, 86400, 'DNS record TTL')
     records = policy.get('records')
-    if not isinstance(records, dict) or not 1 <= len(records) <= 256:
-        raise ValueError('DNS requires 1..256 explicit hostname/IPv4 records.')
+    if not isinstance(records, dict) or len(records) > 256:
+        raise ValueError('DNS records requires an explicit map of at most 256 hostname/IPv4 records.')
     normalized = {}
     for host, address in records.items():
         host = name(host)
@@ -98,6 +98,8 @@ def validate_dns(node):
         normalized6[host] = str(address)
     if len(set(normalized6.values())) != len(normalized6):
         raise ValueError('DNS AAAA requires unique IPv6 addresses for deterministic PTRs.')
+    if not normalized and not normalized6:
+        raise ValueError('DNS requires at least one explicit A or AAAA record.')
     if 'records_ipv6' in policy: policy['records_ipv6'] = dict(sorted(normalized6.items()))
     listen6 = policy.get('listen_ipv6', False)
     if type(listen6) is not bool or (listen6 and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or interface != 'eth0' or not node.get('ipv6', {}).get(interface))):

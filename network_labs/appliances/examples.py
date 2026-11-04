@@ -886,6 +886,13 @@ def ipv6_dns_subinterfaces_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_dns_aaaa_lab(rootfs):
+    """IPv6-only DNS service with an AAAA-only local zone and no dummy A data."""
+    spec=ipv6_dns_subinterfaces_lab(rootfs);spec['name']='ipv6-dns-aaaa-lan'
+    spec['nodes'][3]['dns_server']['records']={}
+    return validate(spec)
+
+
 def ipv6_firewall_lab(rootfs):
     """Two internal IPv6 LANs, stateful forwarding and a default-deny firewall."""
     spec = {'version': 2, 'name': 'ipv6-firewall-lan', 'nodes': [],

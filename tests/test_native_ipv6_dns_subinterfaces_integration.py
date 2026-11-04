@@ -87,6 +87,23 @@ class NativeIPv6DNSSubinterfaceTests(unittest.TestCase):
                     manager.stop();manager.start(saved)
                 healthy()
                 with manager.locked():manager.write_startup()
+                # A genuine AAAA-only zone requires no manufactured IPv4 data.
+                only=json.loads(json.dumps(saved));only['nodes'][3]['dns_server']['records']={}
+                with manager.locked():manager.stop();manager.start(only)
+                def only_aaaa():
+                    wait(lambda:query()['status']=='passed','AAAA-only IPv6 DNS unavailable')
+                    for tcp in (False,True):
+                        answer=query(tcp,28);self.assertEqual(answer['addresses'],['2001:db8:30::10'])
+                        empty=query(tcp,1);self.assertEqual(empty['status'],'passed',empty)
+                        self.assertEqual(empty['rcode'],0);self.assertEqual(empty['addresses'],[])
+                    with manager.locked():
+                        self.assertEqual(probe(manager,'PC1','server.lab.test',protocol='dns',family='ipv6',dns_transport='tcp')['status'],'passed')
+                only_aaaa()
+                with manager.locked():
+                    manager.write_startup();saved_only=load_startup(spec['name'])
+                    self.assertEqual(saved_only['nodes'][3]['dns_server']['records'],{})
+                    manager.stop();manager.start(saved_only)
+                only_aaaa()
             finally:
                 if manager.directory.exists():
                     with manager.locked():manager.stop()

@@ -14,6 +14,7 @@ on:
           - ipv6-dns
           - ipv6-dns-firewall
           - ipv6-input-firewall
+          - dns-aaaa
 jobs:
   ipv6-input-firewall-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-input-firewall'
@@ -36,7 +37,7 @@ jobs:
       - name: Verify DNS wire, stateful returns, default denial, stateless control and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_firewall_integration.py -v
   ipv6-dns-subinterfaces-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'dns-aaaa'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -176,7 +177,7 @@ jobs:
       - name: Verify real SSH over both families, RADIUS fail-closed policy and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_radius_integration.py -v
   dual-stack-dns-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns' || inputs.suite == 'dns-aaaa'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -433,7 +434,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
