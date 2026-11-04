@@ -1013,3 +1013,29 @@ never authorizes traffic through later timeout/rejection. Persistent services,
 managed supplicants, stronger EAP, dynamic VLANs, multi-client ports, accounting
 and broader LAN compositions remain separate work. LAN remains ahead of GUI;
 static VXLAN VTEP/VNI/VLAN mapping and later EVPN/BGP remain on the roadmap.
+
+
+## Maximum-budget and later-lease crash validation extension
+
+Test-only commit `d5fdba582c5c45e8972c8daee4d57758256a4beb` extends the wired
+scenario to the maximum `reauthentications:3` with three-second leases. It
+requires four real successful authentications, exactly eight captured RADIUS
+requests, eight distinct Request Authenticators, four fresh State values with
+matching continuation echoes, actual final-lease delivery and bounded completion
+with no fifth grant. It then kills the original worker during its second lease
+with renewal budget remaining and requires kernel expiry, blocked data in both
+directions beyond expiry/another exchange interval, no live original worker
+and no replacement worker record.
+
+The [targeted native/general run](https://github.com/sou1915/Network-LABS/actions/runs/41878259282)
+was still queued without assigned runners at 17:39 UTC on 2026-11-04. Public
+GitHub Status reported Actions operational; no account-specific queue cause is
+established. Native boundary proof is pending. Syntax and diff checks and all
+15 focused local dot1x tests passed. The earlier superseded test-only run
+`41878221476` was requested to cancel after correcting the capture helper's
+list-valued State comparison to use tuples.
+
+Runtime behavior is unchanged from the successful `b350281` evidence above;
+that two-cycle native proof remains valid. Do not claim this maximum-budget or
+later-lease crash extension passed until the selected native job completes.
+LAN remains ahead of GUI, with static VXLAN and separate EVPN/BGP tracked.

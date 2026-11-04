@@ -150,7 +150,10 @@ backend outage, saved recreation starting closed, separate-CLI teardown during
 active admission, gate-drift refusal and host isolation. The finite-reauthentication
 extension also captures two actual EAPOL/RADIUS cycles, fresh State/request
 authenticators, second-lease bidirectional traffic, backend loss between cycles
-and recovery after saved recreation. Local tests additionally
+and recovery after saved recreation. The boundary scenario also requires four
+complete authentications at the maximum configured budget, exactly eight
+captured RADIUS requests with fresh authenticators/State, and no further grant
+after SIGKILL during the second lease. Local tests additionally
 cover bounded reauthentication, fresh State, identity pinning, replayed
 identities, queued Logoff before backend Success, runtime and
 namespace/interface generation refusal, and unconfirmed SIGKILL cleanup. Exact

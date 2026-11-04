@@ -1,5 +1,17 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Current follow-up: maximum-budget/crash proof pending
+
+The runtime remains the validated implementation below. Test-only commit
+`d5fdba582c5c45e8972c8daee4d57758256a4beb` adds real maximum-four-cycle packet
+checks and SIGKILL during the second renewed lease with unused budget.
+Targeted run: https://github.com/sou1915/Network-LABS/actions/runs/41878259282 .
+At 17:39 UTC its selected native/general jobs were queued without runners;
+Actions public status was operational, so no specific cause is asserted.
+Syntax/diff checks and 15 local dot1x tests passed. Follow that run and record
+exact native evidence before calling these extra boundary checks validated.
+See the final LAN_NEXT_STEPS section. No runtime behavior changed.
+
 ## Latest result: finite reauthentication validated
 
 At `b350281e625da65745725c726de57047cf88a02d`, the
