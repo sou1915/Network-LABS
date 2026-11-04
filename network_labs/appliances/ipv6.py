@@ -105,6 +105,8 @@ def validate_lab(spec):
                 raise ValueError('Dual-stack AAA shell/accounting combinations require separate validation.')
     if dns_coexistence or aaa_coexistence:
         for node in spec['nodes']:
+            if ipv6_only_dns and node.get('radius_access'):
+                raise ValueError('IPv6-only DNS composition excludes RADIUS access policy.')
             if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                         'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
                                         'ospfv3', 'svis', 'firewall_ipv6', 'ra_guard')) or (node['subinterfaces'] and not ipv6_only_dns):

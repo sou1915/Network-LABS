@@ -23,13 +23,14 @@ class IPv6DNSSubinterfaceTests(unittest.TestCase):
 
     def test_listener_is_opt_in_and_mixed_or_dynamic_profiles_stay_refused(self):
         original=ipv6_dns_subinterfaces_lab('/rootfs')
-        for fault in ('listener','mixed','slaac','svi','router-service'):
+        for fault in ('listener','mixed','slaac','svi','router-service','radius-access'):
             spec=copy.deepcopy(original)
             if fault=='listener':spec['nodes'][3]['dns_server']['listen_ipv6']=False
             if fault=='mixed':spec['nodes'][0]['interfaces']['eth0']='192.0.2.10/24'
             if fault=='slaac':spec['nodes'][0]['slaac']=['eth0']
             if fault=='svi':spec['nodes'][4]['svis']={'vlan10':{'address':''}}
             if fault=='router-service':spec['nodes'][5]['dns_server']=spec['nodes'][3].pop('dns_server')
+            if fault=='radius-access':spec['nodes'][0]['radius_access']={'server':'192.0.2.20','users':{'learner':['identity']}}
             with self.subTest(fault=fault),self.assertRaises(ValueError):validate(spec)
 
     def test_partially_numbered_dual_stack_dns_remains_refused(self):

@@ -15,6 +15,7 @@ from network_labs.appliances.dns import start_servers
 from network_labs.appliances.examples import ipv6_dns_subinterfaces_lab
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
+from network_labs.appliances.service_probe import probe
 from test_native_dual_stack_dns_integration import QUERY
 from test_native_integration import unexpected_host_link_changes
 
@@ -54,6 +55,9 @@ class NativeIPv6DNSSubinterfaceTests(unittest.TestCase):
             try:
                 with manager.locked():manager.start(spec)
                 healthy()
+                with manager.locked():
+                    report=probe(manager,'PC1','server.lab.test',protocol='dns',family='ipv6',dns_transport='tcp')
+                    self.assertEqual(report['status'],'passed',report)
                 for index in (0,3,5,6):
                     rows=json.loads(manager.ns(index,'ip','-j','-4','addr','show').stdout)
                     self.assertFalse([a for r in rows if r['ifname']!='lo' for a in r['addr_info'] if a['family']=='inet'])
