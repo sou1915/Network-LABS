@@ -201,6 +201,46 @@ class NativeDot1xTests(unittest.TestCase):
                 close_check();start_peer();future=session();wait_cycle(future,2)
                 result=future.result(timeout=15);self.assertEqual(result['status'],'passed',result)
                 self.assertEqual(result['completed_authentications'],2);stop_peer();close_check()
+                # Exercise the actual maximum budget, not just a simulated
+                # controller loop: four grants and exactly eight requests.
+                maximum=json.loads(json.dumps(renew_saved))
+                maximum['nodes'][1]['dot1x'].update(seconds=3,reauthentications=3)
+                with manager.locked():manager.stop();manager.start(maximum)
+                close_check();start_peer()
+                event=threading.Event();maximum_wire=root/'maximum-radius.pcap'
+                cap=pool.submit(capture,Manager(spec['name']),'SW1','eth1',maximum_wire,seconds=14,packets=100,expression='udp port 1812',ready=event.set)
+                self.assertTrue(event.wait(5));future=session();wait_cycle(future,4)
+                self.assertTrue(gate()['admitted']);delivered()
+                result=future.result(timeout=15)
+                self.assertEqual(result['status'],'passed',result)
+                self.assertEqual(result['reason'],'LEASE_EXPIRED')
+                self.assertEqual(result['completed_authentications'],4)
+                self.assertEqual(result['radius_requests'],8);self.assertTrue(result['port_closed'])
+                cap.result(timeout=16);close_check();stop_peer()
+                packets=radius_packets(maximum_wire.read_bytes())
+                requests=[p for _,dst,p in packets if dst==1812]
+                replies=[p for src,_,p in packets if src==1812]
+                self.assertEqual(len(requests),8);self.assertEqual([p[0] for p in replies],[11,2]*4)
+                self.assertEqual(len({p[4:20] for p in requests}),8)
+                states=[]
+                for cycle in range(4):
+                    self.assertNotIn(24,attrs(requests[cycle*2]))
+                    state=attrs(replies[cycle*2])[24];states.append(state)
+                    self.assertEqual(attrs(requests[cycle*2+1])[24],state)
+                self.assertEqual(len(set(states)),4)
+                # A dead worker in a later lease must not spend its remaining
+                # renewal budget or resurrect a new admission after expiry.
+                start_peer();future=session();wait_cycle(future,2)
+                owner=Manager(spec['name']).read()['dot1x_workers']['SW1']
+                killed=time.monotonic();os.kill(owner['pid'],signal.SIGKILL)
+                self.assertEqual(future.result(timeout=5)['status'],'unknown')
+                self.assertFalse(alive(owner))
+                while time.monotonic()<killed+4:
+                    time.sleep(.05)
+                close_check()
+                self.assertFalse(Manager(spec['name']).read().get('dot1x_workers'))
+                # Observe beyond a further exchange deadline as well.
+                close_check();stop_peer()
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')
