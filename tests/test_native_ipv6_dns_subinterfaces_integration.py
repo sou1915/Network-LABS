@@ -72,7 +72,7 @@ class NativeIPv6DNSSubinterfaceTests(unittest.TestCase):
                 start_servers(manager);healthy()
                 manager.ns(5,'ip','-6','route','del','2001:db8:30::/64')
                 self.assertEqual(query()['status'],'failed');local_delivery();refuse()
-                manager.ns(5,'ip','-6','route','add','2001:db8:30::/64','via','2001:db8:100::2','dev','eth0.100');healthy()
+                manager.ns(5,'ip','-6','route','add','2001:db8:30::/64','via','2001:db8:100::2','dev','eth0.100','proto','static');healthy()
                 manager.ns(4,'bridge','vlan','del','dev','eth3','vid','100')
                 self.assertEqual(query(True)['status'],'failed');local_delivery();refuse()
                 manager.ns(4,'bridge','vlan','add','dev','eth3','vid','100');healthy()
