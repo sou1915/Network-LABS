@@ -1,5 +1,24 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 DNS/firewall coexistence validated
+
+Commit `9df4670e82f600005136741a58e0705f92a0691a` adds
+`example --ipv6-dns-firewall`, an explicit static physical IPv6-only DNS service
+behind the existing stateful forwarding firewall. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41893486552/job/126796720048)
+passed in 21.408 seconds. Existing IPv6 firewall, DNS/subinterface and general
+CI jobs all passed on that commit. Local tests passed 914 cases with 139
+environment-dependent skips. Wire/counter/conntrack evidence, a proven blocked
+HTTP listener, stateless DNS-return negative controls, outage isolation, drift,
+cold restore and host nftables/network invariants passed.
+
+See IPV6_DNS_FIREWALL.md and the final LAN_NEXT_STEPS section for usage, exact
+scope and remaining work. This does not implement local-input filtering or
+broader dynamic/dual-stack/subinterface security combinations. Continue LAN
+before GUI and retain static VXLAN and later separate EVPN/BGP in the roadmap.
+Older pending notes below are historical; preceding bounded profiles remain
+validated within their documented scope.
+
 ## Latest LAN increment: IPv6-only DNS over subinterfaces validated
 
 Commit `bb17f52207a33fc73887db4342775761214c747f` adds

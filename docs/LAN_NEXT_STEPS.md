@@ -1114,3 +1114,46 @@ AAA/IPv6/switching/service sequence before GUI. Static VXLAN with explicit
 VTEP/VNI/VLAN mappings and later separate EVPN/BGP remain required roadmap work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns`.
+
+
+## IPv6-only DNS with stateful forwarding firewall
+
+`example --ipv6-dns-firewall` adds an explicit physical IPv6-only service/security
+composition: PC1 queries a separate dnsmasq endpoint through FW1. The reference
+allows UDP/TCP destination port 53 only between the declared /128 endpoints and
+ports, plus client-originated echo; conntrack admits returns and default drop
+covers other forwarded traffic. IPv6-only DNS can now coexist with the existing
+static physical `firewall_ipv6` profile. Mixed dual-stack, subinterfaces, SVIs,
+dynamic IPv6, AAA and other security combinations retain their exclusions.
+See [IPV6_DNS_FIREWALL.md](IPV6_DNS_FIREWALL.md) for setup and precise scope.
+
+At implementation/validation commit
+`9df4670e82f600005136741a58e0705f92a0691a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41893486552/job/126796720048)
+passed in **21.408 seconds** on Ubuntu 24.04. Real dnsmasq UDP/TCP A/AAAA
+responses and the managed IPv6 TCP DNS probe passed, with actual DNS packets
+on both firewall interfaces, positive DNS/state/default-drop counters and
+matching UDP/TCP conntrack observations. A proven local HTTP listener was
+unreachable across forwarding, with ingress SYNs and no egress SYNs. DNS outage
+left allowed echo working; disabling forwarding left local DNS working and
+refused save. Extra-table drift refusal and declarative cold restore passed.
+
+A separately recreated stateless policy with an explicit echo-return rule kept
+routed echo working, but both DNS transports failed across forwarding while
+both succeeded locally on the live server. Restoring the saved stateful policy
+restored DNS. Host namespace/link/IPv4+IPv6 route/rule/forwarding/nftables
+invariants passed. Existing IPv6 firewall and IPv6 DNS/subinterface native jobs,
+plus general CI, all passed on the same commit. The other 35 jobs were skipped
+by the explicit manual selection and are not claimed as validated here.
+Local tests passed 914 cases in 26.738 seconds with 139 environment-dependent
+skips; compilation and diff checks passed. No native failure preceded this
+successful implementation checkpoint.
+
+This is forwarding policy and service coexistence, not local-input filtering,
+DNS server authentication, encrypted DNS, DNSSEC, NAT66 or dynamic/dual-stack/
+subinterface firewall support. The A answer remains DNS data, not an IPv4
+route or delivery claim. Remaining AAA/IPv6/switching/service compositions
+continue before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings remains
+required; EVPN/BGP remains a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-firewall`.
