@@ -139,6 +139,64 @@ class NativeDot1xTests(unittest.TestCase):
                 self.assertIn(future.result(timeout=5)['status'],('passed','unknown'))
                 with manager.locked():manager.start(saved)
                 close_check()
+                # Explicit finite reauthentication closes before a fresh EAP
+                # exchange. The same unmodified supplicant handles both cycles.
+                renewed=json.loads(json.dumps(saved))
+                renewed['nodes'][1]['dot1x'].update(seconds=4,reauthentications=1)
+                with manager.locked():manager.stop();manager.start(renewed)
+                close_check();start_peer()
+                event=threading.Event();wire_event=threading.Event();renew_wire=root/'renew-radius.pcap';renew_eapol=root/'renew-eapol.pcap'
+                cap=pool.submit(capture,Manager(spec['name']),'SW1','eth1',renew_wire,seconds=10,packets=100,expression='udp port 1812',ready=event.set)
+                wire_cap=pool.submit(capture,Manager(spec['name']),'SW1','eth0',renew_eapol,seconds=10,packets=100,expression='ether proto 0x888e',ready=wire_event.set)
+                self.assertTrue(event.wait(5));self.assertTrue(wire_event.wait(5));future=session();admitted(future)
+                with manager.locked():manager.write_startup();renew_saved=load_startup(spec['name'])
+                self.assertEqual(renew_saved['nodes'][1]['dot1x']['reauthentications'],1)
+                def wait_cycle(future,count):
+                    until=time.monotonic()+12
+                    while time.monotonic()<until:
+                        fresh=Manager(spec['name']);owner=fresh.read().get('dot1x_workers',{}).get('SW1')
+                        if owner:
+                            output=fresh.directory/('SW1.dot1x-'+owner['token']+'.json')
+                            if output.exists():
+                                report=json.loads(output.read_text())
+                                if report.get('phase')=='authorized' and report.get('completed_authentications')==count:return
+                        if future.done():self.fail('Requested reauthentication cycle unavailable: '+json.dumps(future.result()))
+                        time.sleep(.03)
+                    self.fail('Reauthentication cycle did not complete')
+                wait_cycle(future,2);self.assertTrue(gate()['admitted'])
+                self.assertEqual(ping(),0);self.assertEqual(ping('PC2','192.0.2.10'),0)
+                result=future.result(timeout=15);self.assertEqual(result['status'],'passed',result)
+                self.assertEqual(result['completed_authentications'],2);self.assertEqual(result['radius_requests'],4)
+                cap.result(timeout=12);wire_cap.result(timeout=12);close_check();stop_peer()
+                frames=eapol_packets(renew_eapol.read_bytes())
+                self.assertEqual(sum(p[0]==3 for p in frames),2)
+                self.assertEqual(sum(p[0]==1 and p[4:5]==b'\x04' for p in frames),2)
+                packets=radius_packets(renew_wire.read_bytes())
+                requests=[p for _,dst,p in packets if dst==1812];replies=[p for src,_,p in packets if src==1812]
+                self.assertEqual(len(requests),4);self.assertEqual([p[0] for p in replies],[11,2,11,2])
+                self.assertNotIn(24,attrs(requests[0]));self.assertNotIn(24,attrs(requests[2]))
+                self.assertEqual(attrs(requests[1])[24],attrs(replies[0])[24])
+                self.assertEqual(attrs(requests[3])[24],attrs(replies[2])[24])
+                self.assertNotEqual(requests[0][4:20],requests[2][4:20])
+                self.assertNotEqual(attrs(replies[0])[24],attrs(replies[2])[24])
+                # Lose the backend during the first admitted lease: the next
+                # cycle must time out closed, despite earlier authentication.
+                start_peer();future=session();admitted(future)
+                observed=manager.inspect('PC2')['radius_server']
+                manager.crun('exec','PC2','/bin/busybox','kill','-TERM',str(observed['process']['pid']))
+                until=time.monotonic()+3
+                while manager.inspect('PC2')['radius_server']['udp_socket']['status']!='absent':
+                    if time.monotonic()>=until:self.fail('Reauthentication outage fixture did not stop backend')
+                    time.sleep(.03)
+                result=future.result(timeout=15)
+                self.assertEqual(result['status'],'unknown',result);self.assertEqual(result['reason'],'AUTH_TIMEOUT')
+                self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
+                self.assertEqual(result['radius_requests'],3)
+                close_check();stop_peer()
+                with manager.locked():manager.stop();manager.start(renew_saved)
+                close_check();start_peer();future=session();wait_cycle(future,2)
+                result=future.result(timeout=15);self.assertEqual(result['status'],'passed',result)
+                self.assertEqual(result['completed_authentications'],2);stop_peer();close_check()
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')

@@ -20,7 +20,7 @@ PROCESSES = {}
 def validate_node(node):
     policy = node.get('dot1x')
     if policy is None: return
-    keys(policy, ('port','peer','server','svi','users','seconds'), '802.1X')
+    keys(policy, ('port','peer','server','svi','users','seconds','reauthentications'), '802.1X')
     if (node['runtime'] != 'oci' or node['role'] != 'switch' or node.get('switch_backend','linux') != 'linux'
             or len(node['interfaces']) != 2 or node['vlans'] != [1] or node.get('startup') or node['shutdown']
             or node['port_channels'] or node['subinterfaces'] or node.get('ipv6') or node.get('forwarding')
@@ -41,6 +41,7 @@ def validate_node(node):
     if not isinstance(users,list) or not 1<=len(users)<=16 or any(not isinstance(u,str) or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}',u) for u in users) or len(set(users))!=len(users):
         raise ValueError('802.1X needs 1..16 distinct explicitly allowed identities.')
     policy['users']=sorted(users);integer(policy.setdefault('seconds',5),1,30,'802.1X authorization seconds')
+    if 'reauthentications' in policy:integer(policy['reauthentications'],0,3,'802.1X finite reauthentications')
 
 
 def backend(spec,node):
@@ -127,7 +128,8 @@ def observe(manager,index,node):
         result.update(configuration_verified=pin==manager.read().get('dot1x_fingerprints',{}).get(node['name']),admitted=admitted)
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired):pass
     return {**result,'port':node['dot1x']['port'],'maximum_seconds':node['dot1x']['seconds'],
-            'scope':'Finite explicit EAP-MD5 wired admission; no automatic reauthentication, TLS, dynamic VLAN or multi-client support.'}
+            'reauthentications':node['dot1x'].get('reauthentications',0),
+            'scope':'Finite explicit EAP-MD5 wired admission with optional bounded closed-port reauthentication; no persistent service, TLS, dynamic VLAN or multi-client support.'}
 
 
 def stop(manager):
@@ -164,6 +166,7 @@ def authenticate(manager,name,*,timeout=5):
         port=node['dot1x']['port'];link=json.loads(manager.ns(index,'ip','-j','link','show','dev',port).stdout)[0]
         output=manager.directory/(name+'.dot1x-'+token+'.json')
         config=dict(port=port,peer_mac=peer['interface_macs']['eth0'],users=node['dot1x']['users'],seconds=node['dot1x']['seconds'],
+                    reauthentications=node['dot1x'].get('reauthentications',0),
                     source=nas,address=server,secret=secret,timeout=timeout,namespace_dev=info.st_dev,namespace_ino=info.st_ino,
                     ifindex=link['ifindex'],fingerprint=state['dot1x_fingerprints'][name],output=str(output),
                     state_file=str(manager.directory/'state.json'),node=name,token=token)
@@ -176,7 +179,7 @@ def authenticate(manager,name,*,timeout=5):
         manager.save()
         process.stdin.write(json.dumps(config));process.stdin.close()
     try:
-        process.wait(timeout=timeout+node['dot1x']['seconds']+8)
+        process.wait(timeout=(1+config['reauthentications'])*(timeout+node['dot1x']['seconds'])+8)
         result=json.loads(output.read_text())
         if process.returncode or result.get('phase')!='finished' or result.get('status') not in ('passed','failed','blocked','unknown') or (result.get('status')=='passed' and (not result.get('authenticated') or not result.get('port_closed'))):raise ValueError
         return result

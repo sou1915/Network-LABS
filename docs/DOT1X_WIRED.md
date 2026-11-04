@@ -31,8 +31,9 @@ the managed backend. Both RADIUS authenticators, opaque State, method and EAP
 identifiers must verify through the MD5/Success sequence before admission. The
 NAS never needs the peer's password. Disallowed identities, malformed EAPOL,
 unverified backend responses, backend outage and unsupported methods do not
-open the port. The exchange has one 1..5-second deadline, at most two RADIUS
-requests and a 64-discard budget; it performs no fallback or automatic retry.
+open the port. Each exchange has one 1..5-second deadline and at most two RADIUS requests.
+The entire command has a shared 64-discard budget and performs no method/server
+fallback or packet retransmission.
 
 Successful authentication installs a kernel admission element with an explicit
 1..30-second timeout (`dot1x.seconds`, default 5). The worker sends EAP Success,
@@ -42,13 +43,42 @@ session; it does not create an unlimited reauthentication loop. Normal expiry
 removes admission automatically. Even SIGKILL cannot extend the kernel lease:
 data may remain admitted for the remaining lease, at most the configured
 seconds, and then is blocked without worker cleanup. Immediate SIGKILL
-revocation is not claimed. A new explicit command is required for a new window.
+revocation is not claimed. By default a new explicit command is required for
+a new window. Optional finite reauthentication is described below.
 
 A passed result means a verified admission occurred and final closure was
 confirmed; it does not certify application traffic or a zero-loss interval.
 `inspect` exposes gate conformity and actual kernel admission separately.
 Privileged rule deletion/edit invalidates the managed guarantee and is refused
 by save/new authentication rather than silently adopted or repaired.
+
+## Optional finite reauthentication
+
+Set `nodes[1].dot1x.reauthentications` to an integer from 0 to 3 before starting
+the reference manifest. Omission or 0 preserves one admission. A value of 1
+requests two complete authentications, 3 requests four; the command always ends
+after its finite budget. The existing `dot1x.seconds` bounds each individual
+kernel lease and `--timeout` bounds each authentication exchange. The controller
+wait budget covers all requested exchanges and leases, plus cleanup overhead.
+
+At the end of each lease the worker confirms gate closure **before** sending a
+new Request/Identity. It clears the old RADIUS request, State and per-exchange
+identity, and requires a fresh verified MD5/Success sequence to reopen. The same
+peer MAC and first authenticated username remain pinned; a different allowed
+username is refused too. There is an intentional closed interval during each
+exchange, so uninterrupted application sessions are not promised. No grace
+lease or last-success fallback is installed when the backend is unavailable.
+Logoff, peer Start during admission, drift or worker death ends the command;
+there is no automatic worker restart or unbounded daemon.
+
+Reports include `completed_authentications` and the total `radius_requests`.
+`authenticated` records whether any verified admission happened earlier; it
+alone is not a successful final outcome. A later authentication timeout reports
+`status:unknown`, `reason:AUTH_TIMEOUT` and confirmed `port_closed:true` when
+cleanup succeeds, even if the first exchange succeeded. Verified rejection
+reports failed; identity changes report blocked. `inspect` includes the declared
+reauthentication budget separately from the actual kernel admission.
+Save/restore preserves the budget only, never a worker, completed cycle or lease.
 
 ## Reference setup
 
@@ -100,9 +130,10 @@ policy and starts closed, never from a saved authorization or worker token.
 
 ## Current limits and validation
 
-This is one finite untagged wired EAP-MD5 session, not a persistent managed
-supplicant/authenticator service. Automatic reauthentication, multi-client
-ports, trunks/LAGs, other security compositions, dynamic VLANs, MACsec,
+This is a finite untagged wired EAP-MD5 command with optional bounded
+reauthentication, not a persistent managed supplicant/authenticator service.
+Unbounded reauthentication, multi-client ports, trunks/LAGs, other security
+compositions, dynamic VLANs, MACsec,
 EAP-TLS/PEAP/TTLS and accounting remain separate work. EAP-MD5 does not supply
 mutual EAP authentication, confidentiality or link keys. The backend's
 explicit private asset requirements remain in force.
@@ -113,7 +144,8 @@ EAPOL Identity/MD5/Success and RADIUS State captures, bidirectional data during
 admission, expiry, wrong credentials/identity, Logoff, SIGKILL kernel expiry,
 backend outage, saved recreation starting closed, separate-CLI teardown during
 active admission, gate-drift refusal and host isolation. Local tests additionally
-cover replayed identities, queued Logoff before backend Success, runtime and
+cover bounded reauthentication, fresh State, identity pinning, replayed
+identities, queued Logoff before backend Success, runtime and
 namespace/interface generation refusal, and unconfirmed SIGKILL cleanup. Exact
 validation evidence and limits are recorded in LAN_NEXT_STEPS.md.
 

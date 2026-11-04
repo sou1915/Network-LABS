@@ -69,11 +69,65 @@ class Dot1xTests(unittest.TestCase):
         spec=self.spec();self.assertEqual(spec,validate(spec))
         node=spec['nodes'][1];self.assertEqual(node['svis']['vlan1']['address'],'192.0.2.1/24')
         self.assertEqual(spec['nodes'][2]['radius_server']['clients'][0]['address'],'192.0.2.1')
-        for fault in ({'seconds':0},{'seconds':31},{'seconds':True},{'port':'eth9'},{'port':[]},{'users':[]},{'users':['learner','learner']},{'peer':'PC2'},{'server':'127.0.0.1'},{'svi':'vlan9'}):
+        for fault in ({'seconds':0},{'seconds':31},{'seconds':True},{'reauthentications':-1},{'reauthentications':4},{'reauthentications':True},{'reauthentications':'1'},{'port':'eth9'},{'port':[]},{'users':[]},{'users':['learner','learner']},{'peer':'PC2'},{'server':'127.0.0.1'},{'svi':'vlan9'}):
             with self.subTest(fault=fault),self.assertRaises((ValueError,TypeError)):
                 bad=copy.deepcopy(spec);bad['nodes'][1]['dot1x'].update(fault);validate(bad)
         bad=copy.deepcopy(spec);bad['nodes'][0]['interface_macs']={}
         with self.assertRaises(ValueError):validate(bad)
+
+    def test_finite_reauthentication_resets_state_and_closes_before_each_fresh_exchange(self):
+        for renewals in (0,1,3):
+            with self.subTest(renewals=renewals):
+                result,transitions,requests=self.simulated_cycles(renewals)
+                self.assertEqual(result['status'],'passed',result)
+                self.assertEqual(result['completed_authentications'],renewals+1)
+                self.assertEqual(result['radius_requests'],2*(renewals+1))
+                self.assertEqual(transitions,[False]+[v for _ in range(renewals+1) for v in (True,False)])
+                for index,call in enumerate(requests):
+                    if index%2==0:self.assertEqual(len(call.args),2,'Fresh exchange must not reuse old State')
+                    else:self.assertEqual(call.args[2],b'state-'+bytes([index//2]))
+
+    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False):
+        raw=Mock();udp=Mock()
+        for sock in (raw,udp):
+            sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
+        own=bytes.fromhex('020000000101');peer=bytes.fromhex('020000000110')
+        raw.getsockname.return_value=('eth0',0,0,0,own)
+        def eap(code,identifier,payload=b''):return struct.pack('!BBH',code,identifier,4+len(payload))+payload
+        def frame(packet):return own+peer+b'\x88\x8e'+struct.pack('!BBH',2,0,len(packet))+packet
+        events=[];responses=[];clock=[0.0]
+        for cycle in range(renewals+1):
+            identifier=7+2*cycle;when=cycle*1.1
+            user=b'other' if changed_identity and cycle else b'learner'
+            events.append((when,raw,frame(eap(2,identifier,b'\x01'+user))))
+            if outage and cycle:break
+            events.extend([(when,udp,b'challenge'),(when,raw,frame(eap(2,identifier+1,b'\x04\x10'+bytes(16)))),(when,udp,b'success')])
+            responses.extend([(eap(1,identifier+1,b'\x04\x10'+bytes(16)),b'state-'+bytes([cycle])),(eap(3,identifier+1),None)])
+        def select_ready(read,write,error,timeout):
+            if len(read)==1:return [],[],[]  # No queued EAPOL before these signed replies.
+            if events and events[0][0]<=clock[0]+timeout:
+                when,sock,payload=events.pop(0);clock[0]=max(clock[0],when)
+                if sock is raw:raw.recv.return_value=payload
+                else:udp.recvfrom.return_value=(payload,('192.0.2.20',1812))
+                return [sock],[],[]
+            clock[0]+=timeout
+            return [],[],[]
+        config=dict(port='eth0',peer_mac='02:00:00:00:01:10',source='192.0.2.1',address='192.0.2.20',users=['learner','other'],timeout=1,seconds=1,secret='test',reauthentications=renewals)
+        transitions=[]
+        with patch('network_labs.appliances.dot1x_worker.current'),patch('network_labs.appliances.dot1x_worker.publish'),patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False:transitions.append(admit)),patch('socket.socket',side_effect=[raw,udp]),patch('secrets.randbelow',return_value=7),patch('time.monotonic',side_effect=lambda:clock[0]),patch('select.select',side_effect=select_ready),patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09') as requests,patch('network_labs.appliances.dot1x_worker.response_code',side_effect=lambda packet,*_:11 if packet==b'challenge' else 2),patch('network_labs.appliances.dot1x_worker.inner',side_effect=responses):
+            result=serve(config)
+        return result,transitions,requests.call_args_list
+
+    def test_reauthentication_timeout_never_passes_on_earlier_success(self):
+        result,transitions,_=self.simulated_cycles(1,outage=True)
+        self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'AUTH_TIMEOUT')
+        self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
+        self.assertEqual(transitions,[False,True,False,False])
+
+    def test_reauthentication_cannot_switch_to_another_allowed_identity(self):
+        result,transitions,_=self.simulated_cycles(1,changed_identity=True)
+        self.assertEqual(result['status'],'blocked');self.assertEqual(result['reason'],'IDENTITY_CHANGED')
+        self.assertEqual(result['radius_requests'],2);self.assertEqual(transitions,[False,True,False,False])
 
     def test_default_closed_gate_covers_both_directions_before_forwarding(self):
         node=self.spec()['nodes'][1];text=render(node,'02:00:00:00:01:10')

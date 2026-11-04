@@ -192,7 +192,7 @@ def main(arguments=None):
     tftp.add_argument('--sha256', help='Optional expected SHA-256 of the complete transfer.')
     tftp.add_argument('--block-size', type=int, help='Request blksize negotiation, 512..1428 bytes; omitted keeps classic 512.')
     tftp.add_argument('--json', action='store_true')
-    authport = commands.add_parser('dot1x-auth', help='Authenticate one pinned wired peer and hold a finite controlled-port lease; no automatic reauthentication.')
+    authport = commands.add_parser('dot1x-auth', help='Authenticate one pinned wired peer and hold finite controlled-port leases with optional bounded reauthentication.')
     authport.add_argument('name'); authport.add_argument('node'); authport.add_argument('--timeout',type=int,default=5); authport.add_argument('--json',action='store_true')
     radius = commands.add_parser('radius-auth', help='One explicit PAP authentication request to an existing RADIUS server; no node access changes.')
     radius.add_argument('name'); radius.add_argument('source'); radius.add_argument('server')

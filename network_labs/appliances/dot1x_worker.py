@@ -63,7 +63,7 @@ def envelope(frame,peer,own):
 
 
 def serve(config):
-    result={'status':'unknown','authenticated':False,'port_closed':False,'reason':'UNCONFIRMED','radius_requests':0,'discarded':0}
+    result={'status':'unknown','authenticated':False,'port_closed':False,'reason':'UNCONFIRMED','radius_requests':0,'discarded':0,'completed_authentications':0}
     phase='initial'
     try:
         current(config);gate(config)
@@ -73,9 +73,23 @@ def serve(config):
             def emit(eap):raw.send(peer+own+b'\x88\x8e'+struct.pack('!BBH',2,0,len(eap))+eap)
             identity=secrets.randbelow(256);emit(eap_packet(1,identity,b'\x01'))
             phase='identity';deadline=time.monotonic()+config['timeout'];packet=None;state=None;username=None
+            bound_username=None
             publish(config,{**result,'phase':phase})
-            while time.monotonic()<deadline:
+            while True:
                 current(config)
+                if time.monotonic()>=deadline:
+                    if phase=='authorized' and result['completed_authentications']<=config.get('reauthentications',0):
+                        # Reauthentication never extends an old authorization.
+                        # Close first, discard the old RADIUS transaction/State,
+                        # and require another complete verified exchange.
+                        gate(config)
+                        packet=None;state=None;username=None;identity=(identity+1)%256
+                        phase='identity';deadline=time.monotonic()+config['timeout']
+                        emit(eap_packet(1,identity,b'\x01'));publish(config,{**result,'phase':phase})
+                        continue
+                    result.update(status='passed' if phase=='authorized' else 'unknown',
+                                  reason='LEASE_EXPIRED' if phase=='authorized' else 'AUTH_TIMEOUT')
+                    break
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
                 readable,_,_=select.select([raw,udp],[],[],min(.1,max(0,deadline-time.monotonic())))
                 # Process EAPOL first so queued Logoff cannot be ignored at authorization.
@@ -97,6 +111,8 @@ def serve(config):
                                 username=eap[5:].decode('ascii')
                                 if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}',username) or username not in config['users']:
                                     emit(eap_packet(4,identity));result.update(status='blocked',reason='IDENTITY_NOT_ALLOWED');break
+                                if bound_username is not None and username!=bound_username:
+                                    emit(eap_packet(4,identity));result.update(status='blocked',reason='IDENTITY_CHANGED');break
                                 request={**config,'username':username}
                                 packet=access_request(request,eap);udp.sendto(packet,server);result['radius_requests']+=1;phase='radius_identity'
                             else:
@@ -117,10 +133,10 @@ def serve(config):
                             state=new_state;identity=eap[1];emit(eap);phase='md5'
                         elif code==2 and eap==eap_packet(3,identity) and new_state is None:
                             current(config);gate(config,True);emit(eap);phase='authorized';result['authenticated']=True
+                            bound_username=username;result['completed_authentications']+=1
                             deadline=time.monotonic()+config['seconds'];publish(config,{**result,'phase':phase})
                         else:raise ValueError('Verified EAP success required')
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
-            else:result.update(status='passed' if result['authenticated'] else 'unknown',reason='LEASE_EXPIRED' if result['authenticated'] else 'AUTH_TIMEOUT')
     except (OSError,ValueError,KeyError,UnicodeError,subprocess.SubprocessError) as error:result.update(status='unknown',reason='PROTOCOL_OR_GATE_UNCONFIRMED',last_stage=phase,error_type=type(error).__name__)
     except (KeyboardInterrupt,SystemExit):result.update(status='unknown',reason='INTERRUPTED')
     finally:
