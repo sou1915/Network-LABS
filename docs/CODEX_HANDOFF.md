@@ -1,5 +1,21 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6-only DNS over subinterfaces validated
+
+Commit `bb17f52207a33fc73887db4342775761214c747f` adds
+`example --ipv6-dns-subinterfaces`: an explicit IPv6-only DNS endpoint across
+static ROAS VLANs and tagged transit, with no mixed dual-stack, AAA or dynamic/
+security widening. The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41890023350/job/126784651019)
+passed in 17.131 seconds; existing dual-stack DNS, static IPv6 subinterface and
+general CI jobs all passed on that commit. Local tests passed 910 cases with
+138 environment-dependent skips. See the final LAN_NEXT_STEPS section and
+IPV6_DNS_SUBINTERFACES.md for exact proof, failed fixture run, setup and limits.
+
+This completes one IPv6 subinterface service composition. Continue remaining
+LAN AAA/IPv6/switching/services before GUI; static VXLAN and separate EVPN/BGP
+remain required on the roadmap. Wired finite reauthentication proof below
+remains valid. Older pending sections are historical, not current blockers.
+
 ## Latest boundary result: maximum budget and renewed-lease crash validated
 
 At test-only commit `d5fdba582c5c45e8972c8daee4d57758256a4beb`, the

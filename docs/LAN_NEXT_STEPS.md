@@ -1070,3 +1070,47 @@ This adds boundary/crash proof for the existing finite profile and changes no
 runtime policy. It is not persistent reauthentication, broader EAP, dynamic
 VLANs, multi-client admission or accounting. Remaining AAA/IPv6/switching/service
 compositions continue before GUI; static VXLAN and separate EVPN/BGP stay tracked.
+
+
+## IPv6-only DNS across static router subinterfaces
+
+An explicit `example --ipv6-dns-subinterfaces` adds a separate IPv6-only DNS
+host to the existing static ROAS/tagged-transit reference. `listen_ipv6:true`
+on an IPv6-only single-interface host renders only its explicit IPv6 listener;
+PC1's explicit IPv6 resolver reaches PC4 across VLAN 10, R1's VLAN 100 transit
+and R2. Existing A-record policy remains required and AAAA records remain
+optional: an A answer is DNS data, not an IPv4 connectivity claim. No non-loopback
+IPv4 addresses or forwarding/routes are added. See
+[IPV6_DNS_SUBINTERFACES.md](IPV6_DNS_SUBINTERFACES.md) for setup and limits.
+
+At implementation/validation commit
+`bb17f52207a33fc73887db4342775761214c747f`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41890023350/job/126784651019)
+passed in **17.131 seconds** on Ubuntu 24.04. Real dnsmasq served A/AAAA over
+IPv6 UDP/TCP, with only IPv6 DNS listener sockets and non-loopback addresses,
+actual VLAN 10/100 DNS captures, NXDOMAIN, and a successful managed IPv6 TCP
+DNS probe. DNS outage/recovery, independent same-VLAN delivery during service,
+static-route and VLAN faults, route/VLAN/config drift refusal, declarative cold
+restore and host namespace/link/route/rule/forwarding invariants passed.
+The existing dual-stack DNS and static IPv6 subinterface native jobs, plus
+general CI, also passed on the same commit. The other 34 jobs were intentionally
+skipped in this targeted manual dispatch; no broader native coverage is claimed.
+Local tests passed 910 cases in 26.539 seconds with 138 environment-dependent
+skips; syntax and diff checks passed.
+
+The first native run `41889505356`, job `126782818112`, passed its service/wire/
+fault checks but failed save because the test restored a deleted route with the
+kernel's default protocol instead of the engine's declared `proto static`.
+Fixture repair `9fedba9` restores that exact protocol. Drift checks were retained;
+the initial run remains failed evidence. The final implementation also explicitly
+refuses RADIUS access in the IPv6-only DNS composition and tests that exclusion.
+
+The broader mixed dual-stack profile retains full physical numbering and rejects
+partially numbered networks. IPv6-only DNS permits static physical and existing
+router dot1Q routing only; AAA, dynamic IPv6, SVIs and security/firewall
+compositions remain separate work. This completes one tracked IPv6 subinterface
+service composition, not all IPv6/LAN services. Continue the remaining
+AAA/IPv6/switching/service sequence before GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mappings and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns`.
