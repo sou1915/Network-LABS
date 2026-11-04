@@ -2,6 +2,8 @@
 import copy
 import json
 import struct
+import tempfile
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
@@ -10,11 +12,21 @@ from network_labs.appliances.dot1x_worker import envelope
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
-from network_labs.appliances.runtime import RuntimeFailure
+from network_labs.appliances.runtime import Manager, RuntimeFailure
 
 
 class Dot1xTests(unittest.TestCase):
     def spec(self):return dot1x_lab('/rootfs','private-dot1x-secret','a'*64,'/private/password')
+
+    def test_save_refreshes_cached_state_and_preserves_other_cli_worker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager=Manager('dot1x-lan');manager.directory=Path(folder)
+            manager.state={'phase':'running','spec':self.spec()}
+            latest={**manager.state,'dot1x_workers':{'SW1':{'pid':99,'starttime':'123','token':'original'}}}
+            (manager.directory/'state.json').write_text(json.dumps(latest))
+            with patch('network_labs.appliances.persistence.drift',return_value=[]),patch('network_labs.appliances.persistence.save_startup'):
+                manager.write_startup()
+            self.assertEqual(json.loads((manager.directory/'state.json').read_text())['dot1x_workers'],latest['dot1x_workers'])
 
     def test_bounded_explicit_topology_and_canonical_policy(self):
         spec=self.spec();self.assertEqual(spec,validate(spec))
