@@ -79,6 +79,12 @@ intentionally skipped for this manual run. Push/PR scope is unchanged. Use
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dot1x`
 for a later targeted rerun. See LAN_NEXT_STEPS.md for scheduling evidence.
 
+GitHub Status now reports an official Actions/Pages incident (investigating,
+2026-11-04 16:05 UTC): https://stspg.io/pjgptg3cfc6n . Actions was observed
+`degraded_performance`; selected checks have no failure annotations. Keep the
+targeted run pending rather than dispatching duplicate retries during the
+incident. Local native execution lacks sudo/effective capabilities.
+
 Next action: follow that job, fix any failure without weakening authentication
 or gate checks, then record its exact successful commit/job/duration in the
 final LAN_NEXT_STEPS section. Continue LAN before GUI and retain the static

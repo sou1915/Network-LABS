@@ -950,3 +950,21 @@ pending. Superseded queued/full duplicate matrices were requested to cancel;
 this does not supply native proof or indicate that the selected tests passed.
 The runtime code remains the implementation at `a6e20f9`; validation is still
 pending until the real selected native job executes successfully.
+
+
+### Official Actions service incident observed
+
+On 2026-11-04 the public GitHub Status API reported Actions as
+`degraded_performance`. The unresolved
+[Incident with Actions and Pages](https://stspg.io/pjgptg3cfc6n)
+was investigating from 16:05:31 UTC; its 16:12:55 UTC update also included
+Webhooks. This is consistent with the selected jobs remaining queued without
+runners, but is not proof of an account-specific queue cause. Neither selected
+check had annotations, and no deployment approval was pending. Reading repository
+Actions settings through the configured integration returned HTTP 403; local
+execution has no sudo or effective capabilities for native namespace tests.
+
+Keep targeted run `41864390885` pending and follow its result when service
+recovers; do not repeatedly dispatch duplicate matrices. Native validation is
+still unconfirmed. No authentication/gate checks or native prerequisites were
+relaxed to work around the incident.
