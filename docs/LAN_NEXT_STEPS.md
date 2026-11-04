@@ -968,3 +968,48 @@ Keep targeted run `41864390885` pending and follow its result when service
 recovers; do not repeatedly dispatch duplicate matrices. Native validation is
 still unconfirmed. No authentication/gate checks or native prerequisites were
 relaxed to work around the incident.
+
+
+## Finite reauthentication: successful native validation
+
+This supersedes the pending/queue observations above. Validation commit
+`b350281e625da65745725c726de57047cf88a02d` passed the
+[dedicated native wired job](https://github.com/sou1915/Network-LABS/actions/runs/41873926458/job/126728123068)
+in **97.788 seconds** on Ubuntu 24.04. The general `tests` job passed on the
+same commit. Local tests passed 906 cases in 26.697 seconds, with 137
+environment-dependent skips; compilation and diff checks passed. The 35 other
+jobs were intentionally skipped in this targeted manual dispatch and are not
+claimed as passing native coverage.
+
+Real wpa_supplicant/FreeRADIUS completed two Identity/MD5/Success cycles with
+four captured RADIUS requests, fresh request authenticators/State and two
+captured EAPOL Success packets. Actual second-lease bidirectional traffic,
+finite completion/closure, backend loss after the first lease with no fallback,
+closed timeout and saved-budget cold restore/recovery passed. The original
+single-lease wrong-credential/identity, Logoff, SIGKILL expiry, separate-CLI
+teardown, drift refusal and host isolation scenarios also remained passing.
+
+Failure history is retained:
+
+- Run `41864390885`, job `126694713007`, failed with a gate
+  `CalledProcessError` during the second verified RADIUS exchange. The original
+  report did not contain a kernel errno, so the precise cause is unconfirmed.
+  Diagnostic-only commit `c116c19` passed natively in 97.046 seconds; that retry
+  alone was not treated as a repair of an intermittent failure.
+- Commit `6bfdf12` now atomically replaces the verified gate with the identical
+  policy and exactly one finite admission for every verified grant. This removes
+  reliance on reclaiming previous timeout-set elements without increasing set
+  capacity, extending a lease or accepting policy drift. Unit coverage checks
+  the single transaction, retained size-one policy and pre-mutation drift refusal.
+- Its native run `41873562663`, job `126726862756`, failed the first immediate
+  positive ping after cold restore, before the added reauthentication scenario.
+  The final test consistently uses the original bounded positive delivery
+  criterion: actual traffic must succeed inside a verified admitted lease.
+  Default-closed and bidirectional negative checks were not relaxed.
+
+This completes the optional finite reauthentication increment only. Every
+renewal deliberately closes before a new complete exchange; historical success
+never authorizes traffic through later timeout/rejection. Persistent services,
+managed supplicants, stronger EAP, dynamic VLANs, multi-client ports, accounting
+and broader LAN compositions remain separate work. LAN remains ahead of GUI;
+static VXLAN VTEP/VNI/VLAN mapping and later EVPN/BGP remain on the roadmap.

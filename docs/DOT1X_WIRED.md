@@ -63,8 +63,10 @@ wait budget covers all requested exchanges and leases, plus cleanup overhead.
 
 At the end of each lease the worker confirms gate closure **before** sending a
 new Request/Identity. It clears the old RADIUS request, State and per-exchange
-identity, and requires a fresh verified MD5/Success sequence to reopen. The same
-peer MAC and first authenticated username remain pinned; a different allowed
+identity, and requires a fresh verified MD5/Success sequence to reopen. Each verified grant atomically replaces the verified gate with the same
+closed-default policy plus exactly one size-one timeout admission. This avoids
+relying on reclamation of an earlier timeout-set element. Policy drift refuses
+before replacement. The same peer MAC and first authenticated username remain pinned; a different allowed
 username is refused too. There is an intentional closed interval during each
 exchange, so uninterrupted application sessions are not promised. No grace
 lease or last-success fallback is installed when the backend is unavailable.

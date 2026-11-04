@@ -1,5 +1,18 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest result: finite reauthentication validated
+
+At `b350281e625da65745725c726de57047cf88a02d`, the
+[dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/41873926458/job/126728123068)
+passed in **97.788 seconds**, and the general `tests` job passed on the same
+commit. Local tests passed 906 cases with 137 environment-dependent skips.
+The queued/pending sections below are historical and superseded by this result.
+See the final LAN_NEXT_STEPS section for failed runs, atomic gate replacement,
+bounded positive delivery checks and the exact scope. This is optional finite
+closed-port reauthentication (0..3 extra exchanges), not a persistent service.
+Continue remaining LAN work before GUI; static VXLAN and separate EVPN/BGP
+remain tracked. No merge or full-LAN completion is claimed.
+
 Repository: `sou1915/Network-LABS`.
 Handoff branch: `handoff/codex-dot1x-2026-11-04`.
 Last validated feature baseline: `feature/hybrid-appliance-runtime`, commit
