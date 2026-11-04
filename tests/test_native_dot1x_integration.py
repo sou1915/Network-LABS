@@ -227,7 +227,7 @@ class NativeDot1xTests(unittest.TestCase):
                     self.assertNotIn(24,attrs(requests[cycle*2]))
                     state=attrs(replies[cycle*2])[24];states.append(state)
                     self.assertEqual(attrs(requests[cycle*2+1])[24],state)
-                self.assertEqual(len(set(states)),4)
+                self.assertEqual(len({tuple(state) for state in states}),4)
                 # A dead worker in a later lease must not spend its remaining
                 # renewal budget or resurrect a new admission after expiry.
                 start_peer();future=session();wait_cycle(future,2)
