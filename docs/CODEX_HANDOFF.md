@@ -65,12 +65,19 @@ reauthentication with closed intervals, not a persistent service.
 
 Local checks passed 905 tests in 26.837 seconds with 137 environment-dependent
 skips; compilation and diff checks passed. The
-[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41862014304/job/126686065609)
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41864390885/job/126694713007)
 and its general CI job were still queued without runner allocation at the last
 check. Do not treat this new extension as native validated or merge it on the
 strength of the older single-lease proof. The added native scenario covers two
 real supplicant cycles, fresh RADIUS transactions/State, second-lease traffic,
 backend loss between leases and cold restore/recovery.
+
+The active replacement is targeted dispatch run `41864390885` at CI commit
+`952d15442c731170efa5ffcb4ca5c055b5a0230a`. Both selected jobs (native wired and
+general tests) are queued without assigned runners; 35 unrelated jobs are
+intentionally skipped for this manual run. Push/PR scope is unchanged. Use
+`gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dot1x`
+for a later targeted rerun. See LAN_NEXT_STEPS.md for scheduling evidence.
 
 Next action: follow that job, fix any failure without weakening authentication
 or gate checks, then record its exact successful commit/job/duration in the

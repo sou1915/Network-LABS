@@ -917,7 +917,7 @@ closure before each new grant, timeout and verified rejection after earlier
 success, and identity-change refusal. Syntax and diff checks passed.
 Native validation of implementation `a6e20f9fdf164a0c832acb6d4998418ca23936b3`
 is pending in the
-[dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/41862014304/job/126686065609).
+[dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/41864390885/job/126694713007).
 The extended scenario requires two actual EAPOL/MD5/Success cycles and four
 RADIUS requests, separate request authenticators/State, second-lease
 bidirectional traffic, backend loss between cycles with closed timeout, and
@@ -930,3 +930,23 @@ Managed supplicants, unbounded reauthentication, stronger EAP methods, dynamic
 VLANs, multiple clients, accounting and broader LAN combinations remain separate.
 Continue LAN before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings and
 later separate EVPN/BGP remain required roadmap work.
+
+
+### Targeted native validation dispatch
+
+CI commit `952d15442c731170efa5ffcb4ca5c055b5a0230a` adds manual scope
+selection to the existing workflow. Push/PR still select every job. To validate
+wired admission without launching the other 35 native/service jobs:
+
+```bash
+gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dot1x
+```
+
+The replacement [targeted run](https://github.com/sou1915/Network-LABS/actions/runs/41864390885)
+selects `dot1x-wired-interop` and `tests`; the other 35 jobs were observed skipped
+by the explicit manual selection. Both selected jobs remained queued with empty
+steps and no runner assigned at the last check. No deployment approval was
+pending. Superseded queued/full duplicate matrices were requested to cancel;
+this does not supply native proof or indicate that the selected tests passed.
+The runtime code remains the implementation at `a6e20f9`; validation is still
+pending until the real selected native job executes successfully.
