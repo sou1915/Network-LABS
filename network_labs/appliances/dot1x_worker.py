@@ -137,7 +137,14 @@ def serve(config):
                             deadline=time.monotonic()+config['seconds'];publish(config,{**result,'phase':phase})
                         else:raise ValueError('Verified EAP success required')
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
-    except (OSError,ValueError,KeyError,UnicodeError,subprocess.SubprocessError) as error:result.update(status='unknown',reason='PROTOCOL_OR_GATE_UNCONFIRMED',last_stage=phase,error_type=type(error).__name__)
+    except (OSError,ValueError,KeyError,UnicodeError,subprocess.SubprocessError) as error:
+        result.update(status='unknown',reason='PROTOCOL_OR_GATE_UNCONFIRMED',last_stage=phase,error_type=type(error).__name__)
+        if isinstance(error,subprocess.CalledProcessError):
+            # Report constant kernel-error classes, never raw stderr or assets.
+            detail=error.stderr or ''
+            result['gate_error']=next((code for text,code in (
+                ('No space left','ENOSPC'),('File exists','EEXIST'),
+                ('No such file','ENOENT'),('Operation not permitted','EPERM')) if text in detail),'UNCLASSIFIED')
     except (KeyboardInterrupt,SystemExit):result.update(status='unknown',reason='INTERRUPTED')
     finally:
         try:current(config,False);gate(config);result['port_closed']=True
