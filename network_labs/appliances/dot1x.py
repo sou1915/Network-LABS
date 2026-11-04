@@ -138,7 +138,12 @@ def stop(manager):
             os.killpg(record['pid'],signal.SIGTERM)
             until=time.monotonic()+3
             while alive(record) and time.monotonic()<until:time.sleep(.02)
-            if alive(record):os.killpg(record['pid'],signal.SIGKILL)
+            if alive(record):
+                if os.getpgid(record['pid'])!=record['pid']:raise RuntimeFailure('802.1X worker group differs; cleanup retained.')
+                os.killpg(record['pid'],signal.SIGKILL)
+                until=time.monotonic()+2
+                while alive(record) and time.monotonic()<until:time.sleep(.02)
+                if alive(record):raise RuntimeFailure('802.1X worker death unconfirmed; cleanup retained.')
         child=PROCESSES.pop(record['pid'],None)
         if child:child.wait(timeout=2)
         manager.state['dot1x_workers'].pop(name,None);manager.save()
@@ -148,6 +153,7 @@ def authenticate(manager,name,*,timeout=5):
     integer(timeout,1,5,'802.1X exchange deadline')
     process=None;token=uuid.uuid4().hex
     with manager.locked():
+        manager.state=None
         state=manager.read()
         if state['phase']!='running' or 'pending_spec' in state or 'pending_node' in state or state.get('dot1x_workers'):raise RuntimeFailure('802.1X requires a stable running lab without an existing session.')
         index,node=next(((i,n) for i,n in enumerate(state['spec']['nodes']) if n['name']==name),(None,None))

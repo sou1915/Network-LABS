@@ -63,3 +63,16 @@ class Dot1xTests(unittest.TestCase):
         with patch('network_labs.appliances.snooping.alive',return_value=True),patch('os.getpgid',return_value=98),patch('os.killpg') as kill:
             with self.assertRaises(RuntimeFailure):stop(manager)
             kill.assert_not_called()
+
+    def test_stop_confirms_death_after_sigkill_in_another_cli(self):
+        manager=Mock();manager.state={'dot1x_workers':{'SW1':{'pid':99,'starttime':'123'}}}
+        with patch('network_labs.appliances.snooping.alive',side_effect=[True,True,True,True,False,False]),patch('os.getpgid',return_value=99),patch('os.killpg') as kill,patch('time.monotonic',side_effect=[0,4,4,4]),patch('time.sleep'):
+            stop(manager)
+        self.assertEqual([c.args[1] for c in kill.call_args_list],[15,9])
+        self.assertFalse(manager.state['dot1x_workers'])
+
+    def test_stop_retains_record_when_sigkill_death_is_unconfirmed(self):
+        manager=Mock();manager.state={'dot1x_workers':{'SW1':{'pid':99,'starttime':'123'}}}
+        with patch('network_labs.appliances.snooping.alive',return_value=True),patch('os.getpgid',return_value=99),patch('os.killpg'),patch('time.monotonic',side_effect=[0,4,4,7]),patch('time.sleep'):
+            with self.assertRaises(RuntimeFailure):stop(manager)
+        self.assertIn('SW1',manager.state['dot1x_workers']);manager.save.assert_not_called()

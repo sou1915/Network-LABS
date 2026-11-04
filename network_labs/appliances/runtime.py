@@ -808,6 +808,9 @@ class Manager:
         state.pop('pending_spec'); state.pop('pending_node', None); state['phase'] = 'running'; self.save()
 
     def write_startup(self):
+        # Other CLI processes may have registered a finite authenticator while
+        # this Manager was idle. Never overwrite its generation from a cache.
+        self.state = None
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Save requires a running lab without pending configuration.')
@@ -822,6 +825,7 @@ class Manager:
                 'note': 'Declarative network configuration only; no runtime filesystem snapshot, DHCP lease persistence or learned OSPF route snapshot.'}
 
     def stop(self):
+        self.state = None
         state = self.read(); errors = []
         from .dot1x import stop as stop_dot1x
         stop_dot1x(self)
