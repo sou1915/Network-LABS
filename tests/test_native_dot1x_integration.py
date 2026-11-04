@@ -70,6 +70,13 @@ class NativeDot1xTests(unittest.TestCase):
                 fresh=Manager(spec['name']);node=fresh.read()['spec']['nodes'][1];return observe(fresh,1,node)
             def ping(source='PC1',target='192.0.2.20'):
                 return manager.crun('exec',source,'/bin/busybox','ping','-c','1','-W','1','-w','2',target,check=False,timeout=4).returncode
+            def delivered(source='PC1',target='192.0.2.20'):
+                until=time.monotonic()+2
+                while ping(source,target)!=0:
+                    self.assertTrue(gate()['configuration_verified'])
+                    self.assertTrue(gate()['admitted'],'Delivery retry must stay within a verified admitted lease')
+                    if time.monotonic()>=until:self.fail('Admitted peer data did not cross the controlled port')
+                    time.sleep(.03)
             def admitted(future):
                 until=time.monotonic()+7
                 while time.monotonic()<until:
@@ -90,10 +97,7 @@ class NativeDot1xTests(unittest.TestCase):
                 cap2=pool.submit(capture,Manager(spec['name']),'SW1','eth1',radius,seconds=4,packets=100,expression='udp port 1812',ready=event2.set)
                 self.assertTrue(event1.wait(5));self.assertTrue(event2.wait(5))
                 future=session();admitted(future)
-                until=time.monotonic()+2
-                while ping()!=0:
-                    if time.monotonic()>=until:self.fail('Admitted peer data did not cross the controlled port')
-                self.assertEqual(ping('PC2','192.0.2.10'),0)
+                delivered();delivered('PC2','192.0.2.10')
                 with manager.locked():manager.write_startup();saved=load_startup(spec['name'])
                 self.assertNotIn('admitted',json.dumps(saved));self.assertNotIn('dot1x_workers',json.dumps(saved))
                 result=future.result(timeout=10);self.assertEqual(result['status'],'passed',result)
@@ -124,7 +128,7 @@ class NativeDot1xTests(unittest.TestCase):
                     time.sleep(.05)
                 start_peer();failed=session().result(timeout=10);self.assertFalse(failed['authenticated']);close_check();stop_peer()
                 with manager.locked():manager.stop();manager.start(saved)
-                close_check();start_peer();future=session();admitted(future);self.assertEqual(ping(),0)
+                close_check();start_peer();future=session();admitted(future);delivered()
                 self.assertEqual(future.result(timeout=10)['status'],'passed');stop_peer();close_check()
                 # A separate CLI owns teardown while the original command is
                 # waiting outside the lab lock. Namespace removal must wait
@@ -164,7 +168,7 @@ class NativeDot1xTests(unittest.TestCase):
                         time.sleep(.03)
                     self.fail('Reauthentication cycle did not complete')
                 wait_cycle(future,2);self.assertTrue(gate()['admitted'])
-                self.assertEqual(ping(),0);self.assertEqual(ping('PC2','192.0.2.10'),0)
+                delivered();delivered('PC2','192.0.2.10')
                 result=future.result(timeout=15);self.assertEqual(result['status'],'passed',result)
                 self.assertEqual(result['completed_authentications'],2);self.assertEqual(result['radius_requests'],4)
                 cap.result(timeout=12);wire_cap.result(timeout=12);close_check();stop_peer()
