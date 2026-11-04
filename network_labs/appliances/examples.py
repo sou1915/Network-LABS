@@ -1014,3 +1014,17 @@ def dual_stack_services_lab(rootfs, secret, password_sha256, username='learner',
                        'records': {'nas.lab.test': '192.0.2.10'}, 'records_ipv6': {'nas.lab.test': '2001:db8:10::10'}}})
     spec['links'].append([['R2', 'eth2'], ['DNS1', 'eth0']])
     return validate(spec)
+
+
+def dot1x_lab(rootfs, secret, password_sha256, password_file, username='learner'):
+    """One pinned wired peer, NAS SVI and separate EAP-MD5 server."""
+    from .spec import example, validate
+    from pathlib import Path
+    spec=example(rootfs);spec['name']='dot1x-lan'
+    peer,switch,server=spec['nodes']
+    peer['interface_macs']={'eth0':'02:00:00:00:01:10'}
+    switch['svis']={'vlan1':{'vlan':1,'address':'192.0.2.1/24'}}
+    switch['dot1x']={'port':'eth0','peer':'PC1','server':'192.0.2.20','svi':'vlan1','users':[username],'seconds':5}
+    server['radius_server']={'interface':'eth0','eap_md5':True,'clients':[{'address':'192.0.2.1','secret':secret}],
+        'users':{username:{'password_sha256':password_sha256,'password_file':str(Path(password_file).absolute())}}}
+    return validate(spec)

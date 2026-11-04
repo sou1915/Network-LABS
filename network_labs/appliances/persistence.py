@@ -22,6 +22,10 @@ def drift(manager):
     for index, node in enumerate(manager.read()['spec']['nodes']):
         if node['runtime'] != 'oci':
             continue
+        if node.get('dot1x'):
+            from .dot1x import observe as observe_dot1x
+            if not observe_dot1x(manager,index,node)['configuration_verified']:
+                errors.append(node['name'] + ': controlled-port gate differs or is unavailable')
         from .https_server import drift as https_drift
         errors.extend(https_drift(manager, node))
         from .ipv6 import drift as ipv6_drift

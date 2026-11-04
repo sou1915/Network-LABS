@@ -78,10 +78,12 @@ def validate_lab(spec):
     for node in spec['nodes']:
         if not node.get('radius_server'): continue
         for client in node['radius_server']['clients']:
+            from .lan import addresses
             matches = [other for other in spec['nodes'] if any(value and str(ipaddress.IPv4Interface(value).ip) == client['address']
-                       for value in other['interfaces'].values())]
+                       for value in addresses(other).values())]
             if (len(matches) != 1 or matches[0]['name'] == node['name'] or matches[0]['runtime'] != 'oci' or
-                    matches[0]['role'] != 'host' or set(matches[0]['interfaces']) != {'eth0'}):
+                    not ((matches[0]['role'] == 'host' and set(matches[0]['interfaces']) == {'eth0'}) or
+                         (matches[0].get('dot1x') and node['radius_server'].get('eap_md5')))):
                 raise ValueError('Each RADIUS client must identify exactly one other managed OCI host.')
 
 

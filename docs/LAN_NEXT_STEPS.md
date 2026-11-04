@@ -833,3 +833,22 @@ The initial rejected run is retained as evidence rather than reported as passing
 This does not grant access or implement EAPOL/802.1X controlled ports. That wired
 port milestone, stronger EAP methods and broader AAA/service/security work remain
 before GUI; static VXLAN and later EVPN/BGP stay separately tracked.
+
+
+## Finite wired EAPOL / controlled-port increment
+
+An explicit three-node `--dot1x` reference adds one pinned wired peer, one Linux
+bridge NAS/SVI and the separate EAP-MD5 backend. A default-closed nftables gate
+is applied before ports join the bridge or become UP. One finite `dot1x-auth`
+worker passes actual EAPOL to verified RADIUS challenge/State/Success, then
+installs a kernel timeout admission element. The command releases the lab lock
+so traffic can be observed concurrently; teardown owns its process group.
+Logoff/normal completion close the gate, and kernel expiry bounds even SIGKILL
+admission to at most the configured 1..30 seconds. Saved configuration never
+restores an admission. See [DOT1X_WIRED.md](DOT1X_WIRED.md).
+Local tests passed 896 cases with 138 environment-dependent skips. Dedicated
+native supplicant, wire, data-path, expiry/crash and cold-restore results follow
+after CI. This finite single-port MD5 profile does not implement persistent
+reauthentication, TLS, dynamic VLANs, multi-client ports or broader compositions.
+Broader AAA/service/security work remains before GUI; static VXLAN and later
+EVPN/BGP remain separately planned.

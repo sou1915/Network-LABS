@@ -95,3 +95,8 @@ only the method proof, not the password.
 Protocol references: [RFC 3579](https://www.rfc-editor.org/rfc/rfc3579.html),
 [RFC 3748 section 5.4](https://www.rfc-editor.org/rfc/rfc3748.html#section-5.4),
 and the [FreeRADIUS EAP-MD5 module](https://networkradius.com/doc/current/raddb/mods-available/eap/md5.html).
+
+
+A separately explicit [finite wired controlled-port profile](DOT1X_WIRED.md)
+now builds on this backend using real EAPOL pass-through and a kernel timeout
+gate. The raw `radius-eap-md5` diagnostic itself still changes no access policy.

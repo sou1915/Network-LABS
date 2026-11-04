@@ -1,6 +1,15 @@
 name: Network LABS checks
 on: [push, pull_request]
 jobs:
+  dot1x-wired-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated wired admission prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump freeradius wpasupplicant
+      - name: Verify real wpa_supplicant, EAPOL/RADIUS, controlled data path and finite kernel revocation
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dot1x_integration.py -v
   radius-eap-md5-interop:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
