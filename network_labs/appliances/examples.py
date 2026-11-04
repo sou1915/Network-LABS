@@ -907,6 +907,19 @@ def ipv6_firewall_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_dns_firewall_lab(rootfs):
+    """IPv6-only DNS with explicit physical stateful forwarding rules."""
+    spec=ipv6_firewall_lab(rootfs);spec['name']='ipv6-dns-firewall-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:20::20']
+    spec['nodes'][2]['dns_server']={'interface':'eth0','zone':'lab.test','listen_ipv6':True,
+        'records':{'server.lab.test':'192.0.2.20'},'records_ipv6':{'server.lab.test':'2001:db8:20::20'}}
+    rules=spec['nodes'][1]['firewall_ipv6']['rules'];rules.pop()
+    for protocol in ('udp','tcp'):
+        rules.append({'name':'dns-'+protocol,'action':'accept','in':'eth0','out':'eth1',
+            'source':'2001:db8:10::10/128','destination':'2001:db8:20::20/128','protocol':protocol,'dport':53})
+    return validate(spec)
+
+
 def ra_guard_lab(rootfs):
     """SLAAC across a guarded access switch, with one untrusted injection host."""
     spec = slaac_lab(rootfs); spec['name'] = 'ra-guard-lan'
