@@ -846,9 +846,53 @@ so traffic can be observed concurrently; teardown owns its process group.
 Logoff/normal completion close the gate, and kernel expiry bounds even SIGKILL
 admission to at most the configured 1..30 seconds. Saved configuration never
 restores an admission. See [DOT1X_WIRED.md](DOT1X_WIRED.md).
-Local tests passed 896 cases with 138 environment-dependent skips. Dedicated
-native supplicant, wire, data-path, expiry/crash and cold-restore results follow
-after CI. This finite single-port MD5 profile does not implement persistent
+The original handoff passed 896 local cases with 138 environment-dependent
+skips; it had no native admission proof. The validation and repair evidence
+below supersedes that pending checkpoint. This finite single-port MD5 profile does not implement persistent
 reauthentication, TLS, dynamic VLANs, multi-client ports or broader compositions.
 Broader AAA/service/security work remains before GUI; static VXLAN and later
 EVPN/BGP remain separately planned.
+
+
+## Wired admission native validation and teardown repair
+
+The finite wired profile now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/41860209419/job/126679612230)
+at validation commit `4fafe9a02d69bc07fa8595a55bd6152ede252d05`:
+one real native scenario passed in **43.829 seconds** on Ubuntu 24.04.
+Unmodified wired wpa_supplicant and FreeRADIUS completed Identity/MD5/Success
+with captured opaque RADIUS State. The scenario verified the uncontrolled
+uplink, blocked data in both directions before authentication and after closure,
+bidirectional admitted delivery, wrong password/identity, Logoff, worker SIGKILL
+with kernel lease expiry, backend outage, cold restore starting closed,
+separate-CLI stop during active admission with confirmed worker death and no
+runtime resurrection, gate-drift refusal and host namespace/link/route/rule
+isolation.
+
+The original handoff commit `d1e6bfcaa135186d04b13464342c6549c4410de1`
+[failed its native job](https://github.com/sou1915/Network-LABS/actions/runs/41857169910/job/126668804525)
+after admission/data delivery: startup save through a cached Manager overwrote
+the worker record registered by another CLI, invalidating the generation.
+Repair `d4d725fb2507b97f8050e9b94ba1b68d9f96a6f8` reloads current state for
+save/stop/authentication and confirms death after final SIGKILL before allowing
+namespace teardown. Its first native scenario passed in 32.116 seconds;
+the later validation above adds separate-process teardown and bidirectional
+closed-port checks. Authenticator finalization also rechecks directory existence
+inside the lock so concurrent stop cannot cause stale state resurrection.
+The original failed run remains failed evidence.
+
+Local tests passed **901 cases in 26.609 seconds**, with 137 environment-dependent
+skips; these skips are not native proof. Syntax compilation and diff checks
+passed. Added local regressions cover cached save preserving worker ownership,
+unowned group refusal, confirmed/unconfirmed SIGKILL death, namespace/interface
+and runtime generation changes, replayed Identity and queued Logoff taking
+precedence over a backend Success. The general `tests` job also passed on
+`4fafe9a`; broader native/switching jobs were still running at this checkpoint.
+
+This completes this finite single-port wired EAP-MD5 increment only. Admission
+is a 1..30-second kernel lease; SIGKILL permits the remaining lease, not instant
+revocation. Persistent reauthentication, managed supplicants, stronger EAP,
+dynamic VLANs, multiple clients, accounting and broader service/security
+compositions remain separate LAN work. Continue the AAA/IPv6/switching/service
+sequence above before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings
+remains required on the roadmap; EVPN/BGP is a later separate increment.

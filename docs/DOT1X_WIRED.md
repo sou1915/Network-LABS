@@ -19,7 +19,10 @@ a synthetic topology path.
 `dot1x-auth LAB NAS` starts one owned host authenticator in the NAS namespace,
 without retaining the lab lock during the exchange or authorization window.
 The root worker has a pinned namespace/interface and runtime generation token;
-lab teardown terminates its owned process group before deleting containers.
+lab teardown terminates its owned process group and confirms death after any
+final SIGKILL before deleting containers. Unconfirmed death retains the worker
+record and refuses namespace teardown. Save, stop and authentication reload
+current runtime state under the lab lock, preserving other CLI workers.
 Requests and backend secrets enter the worker on stdin, not argv or logs.
 Only constant outcome/stage codes and gate metadata are reported.
 
@@ -108,8 +111,11 @@ The dedicated native test uses unmodified wired wpa_supplicant and actual
 FreeRADIUS. It checks a working uncontrolled uplink while peer data is blocked,
 EAPOL Identity/MD5/Success and RADIUS State captures, bidirectional data during
 admission, expiry, wrong credentials/identity, Logoff, SIGKILL kernel expiry,
-backend outage, saved recreation starting closed, gate-drift refusal and host
-isolation. Results are recorded in LAN_NEXT_STEPS.md after CI.
+backend outage, saved recreation starting closed, separate-CLI teardown during
+active admission, gate-drift refusal and host isolation. Local tests additionally
+cover replayed identities, queued Logoff before backend Success, runtime and
+namespace/interface generation refusal, and unconfirmed SIGKILL cleanup. Exact
+validation evidence and limits are recorded in LAN_NEXT_STEPS.md.
 
 References: [wpa_supplicant](https://w1.fi/wpa_supplicant/),
 [nftables timeout elements](https://wiki.nftables.org/wiki-nftables/index.php/Element_timeouts),

@@ -36,6 +36,24 @@ Managed EAP assets are printable ASCII, owned private 0600 files. Quoted literal
 must disable expansion and preserve quotes/backslashes. Read
 `docs/RADIUS_EAP_MD5.md` before modifying credential or protocol handling.
 
+## Continuation result — 2026-11-04
+
+The finite wired increment is now validated at
+`4fafe9a02d69bc07fa8595a55bd6152ede252d05`. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41860209419/job/126679612230)
+passed in 43.829 seconds; general CI also passed on that commit. Local tests
+passed 901 cases with 137 environment-dependent skips. See the final wired
+validation section in `LAN_NEXT_STEPS.md` for exact scope, failure history and
+remaining LAN work. Save/stop/authentication now refresh state under the lock;
+teardown confirms worker death after SIGKILL, and finalization handles a
+concurrent separate-CLI stop without recreating runtime state.
+
+The WIP and immediate-task sections below describe the original handoff
+checkpoint and are retained as history. Their pending native result is
+superseded by the evidence above. The bounded finite profile is complete;
+broader LAN work still precedes GUI, with static VXLAN and later EVPN/BGP
+separately tracked.
+
 ## Work in progress on this handoff branch
 
 This is an unvalidated native feature checkpoint, not a completed 802.1X claim.
