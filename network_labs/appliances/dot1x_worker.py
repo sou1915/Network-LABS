@@ -11,7 +11,7 @@ import struct
 import subprocess
 import sys
 import time
-from .dot1x import TABLE, gate_snapshot
+from .dot1x import TABLE, gate_snapshot, render
 from .radius_eap_worker import access_request, eap_packet, inner
 from .radius_worker import response_code
 
@@ -27,7 +27,14 @@ def gate(config,admit=False):
     pin,_=gate_snapshot(data,config['port'],config['seconds'])
     if pin!=config['fingerprint']:raise ValueError('Gate differs')
     command=f'flush set bridge {TABLE} admitted\n'
-    if admit:command+=f'add element bridge {TABLE} admitted {{ {json.dumps(config["port"])} timeout {config["seconds"]}s }}\n'
+    if admit:
+        # A size-one timeout set may still account for an expired element
+        # awaiting kernel GC. Atomically replace the verified closed policy
+        # with an identical fresh table plus exactly one finite grant. Packets
+        # see the old closed gate or the new authorized gate, never no gate.
+        node={'dot1x':{'port':config['port'],'seconds':config['seconds']}}
+        command=f'delete table bridge {TABLE}\n'+render(node,config['peer_mac'])
+        command+=f'add element bridge {TABLE} admitted {{ {json.dumps(config["port"])} timeout {config["seconds"]}s }}\n'
     nft('-f','-',input_text=command)
     data=json.loads(nft('-j','list','table','bridge',TABLE))
     pin,opened=gate_snapshot(data,config['port'],config['seconds'])

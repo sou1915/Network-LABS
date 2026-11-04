@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.dot1x import TABLE, gate_snapshot, render, stop
-from network_labs.appliances.dot1x_worker import current, envelope, serve
+from network_labs.appliances.dot1x_worker import current, envelope, serve, gate
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
@@ -17,6 +17,17 @@ from network_labs.appliances.runtime import Manager, RuntimeFailure
 
 class Dot1xTests(unittest.TestCase):
     def spec(self):return dot1x_lab('/rootfs','private-dot1x-secret','a'*64,'/private/password')
+
+    def test_grant_atomically_replaces_verified_gate_without_increasing_capacity(self):
+        config=dict(port='eth0',seconds=5,peer_mac='02:00:00:00:01:10',fingerprint='original')
+        with patch('network_labs.appliances.dot1x_worker.nft',return_value='{}') as nft,patch('network_labs.appliances.dot1x_worker.gate_snapshot',side_effect=[('original',False),('original',True)]):
+            gate(config,True)
+        script=nft.call_args_list[1].kwargs['input_text']
+        self.assertEqual(script,'delete table bridge '+TABLE+'\n'+render({'dot1x':config},config['peer_mac'])+'add element bridge '+TABLE+' admitted { "eth0" timeout 5s }\n')
+        self.assertIn('size 1;',script);self.assertEqual(nft.call_count,3)
+        with patch('network_labs.appliances.dot1x_worker.nft',return_value='{}') as nft,patch('network_labs.appliances.dot1x_worker.gate_snapshot',return_value=('foreign',False)):
+            with self.assertRaises(ValueError):gate(config,True)
+            self.assertEqual(nft.call_count,1,'Drift must refuse before replacement')
 
     def test_save_refreshes_cached_state_and_preserves_other_cli_worker(self):
         with tempfile.TemporaryDirectory() as folder:
