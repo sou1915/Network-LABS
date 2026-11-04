@@ -1157,3 +1157,58 @@ continue before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings remains
 required; EVPN/BGP remains a separate later increment.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-firewall`.
+
+
+## Separately opted-in IPv6 local-input firewall
+
+`example --ipv6-input-firewall` adds `firewall_ipv6.input` on the existing
+static physical IPv6-only firewall. It has its own default/stateful/rules,
+accepts the bounded forwarding rule fields except `out`, and refuses nested
+input policies. Omission renders no input chain and retains forward-only
+behavior. The forward chain and local output remain independent. The reference
+permits PC1 to reach FW1's client-side address with echo and TCP/8080; it does
+not create a persistent local HTTP service. DNS remains on the separate PC2.
+See [IPV6_INPUT_FIREWALL.md](IPV6_INPUT_FIREWALL.md) for setup and scope.
+
+Input always permits loopback and ICMPv6 Neighbor Solicitation/Advertisement
+with immediate ICMPv6 next-header and hop limit 255 on declared physical ports,
+before configurable filtering. These exceptions keep static DAD/NDP working;
+they are not neighbor authentication, comprehensive fragment/extension handling,
+RA Guard or dynamic/multicast service support. The combined table is installed
+before physical links/services, fingerprinted as a whole, and restored from
+declared startup policy without conntrack/fixture snapshots.
+
+At implementation/validation commit
+`bb4d071538ca6e9a43d8b81b38a2aa41921a41b1`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41902272895/job/126827572558)
+passed in **33.861 seconds** on Ubuntu 24.04. Proven local listeners, allowed
+client/port versus denied port/opposite-side client, actual ingress packets
+without denied-port response packets, and positive loopback/NDP/state/allow/drop
+input counters passed. Neighbor cache flush forced fresh NDP under the policy.
+DNS forwarded through FW1 and DNS initiated by FW1 both worked; separately
+recreated stateless input blocked FW1's DNS replies while forwarded DNS and
+local HTTP allowance remained working with a proven live server.
+
+External input-rule drift opened a proven denied listener and refused save;
+cold restore restored denial. Omitting input restored the old forward-only
+local-access behavior, followed by restoration of the protected policy. Host
+namespace/link/IPv4+IPv6 route/rule/forwarding/nftables invariants passed.
+Existing IPv6 forward-firewall and DNS/firewall native regressions plus general
+CI all passed on the same commit. The other 36 jobs were skipped by this manual
+selection and are not claimed as passing native coverage. Local tests passed
+917 cases in 26.864 seconds with 140 environment-dependent skips; compilation
+and diff checks passed.
+
+The first run `41901966354`, job `126826500117`, passed input/state/drift checks
+but failed the immediate DNS probe in its final legacy-policy recreation
+control. Test repair `bb4d071` uses the same bounded actual-DNS readiness check
+as the other recreated modes. No packet success is fabricated and no denial or
+policy check was relaxed. That first run remains failed evidence.
+
+This completes a bounded local-input increment on static physical firewalls,
+not generic host ACLs, local-output policy, NAT66, dual-stack/subinterface/SVI/
+dynamic/AAA security combinations or application authentication. Remaining LAN
+AAA/IPv6/switching/services continue before GUI. Static VXLAN VTEP/VNI/VLAN
+mapping remains required, with EVPN/BGP a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-input-firewall`.

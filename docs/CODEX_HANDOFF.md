@@ -1,5 +1,24 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: optional IPv6 local-input policy validated
+
+Commit `bb4d071538ca6e9a43d8b81b38a2aa41921a41b1` adds
+`example --ipv6-input-firewall` with separate opt-in `firewall_ipv6.input`.
+Omission preserves forward-only behavior; loopback and bounded static NDP are
+mandatory exceptions, and output is unfiltered. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41902272895/job/126827572558)
+passed in 33.861 seconds. Existing forward-firewall and DNS/firewall native
+jobs plus general CI also passed on that commit. Local tests passed 917 cases
+with 140 environment-dependent skips. Local listener allow/deny, fresh NDP,
+stateful versus stateless local replies with preserved forwarding, legacy
+omission, drift refusal, cold restore and host invariants passed.
+
+See IPV6_INPUT_FIREWALL.md and the final LAN_NEXT_STEPS section for exact
+scope, the retained first failed fixture run and remaining work. This is a
+static physical firewall profile, not generic host/output/dual-stack/dynamic/
+subinterface/SVI security coverage. Continue LAN before GUI; static VXLAN and
+separate EVPN/BGP remain required. Earlier pending sections are historical.
+
 ## Latest LAN increment: IPv6 DNS/firewall coexistence validated
 
 Commit `9df4670e82f600005136741a58e0705f92a0691a` adds
