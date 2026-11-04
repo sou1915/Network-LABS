@@ -95,7 +95,7 @@ class NativeIPv6InputFirewallTests(unittest.TestCase):
                 legacy=copy.deepcopy(saved);legacy['nodes'][1]['firewall_ipv6'].pop('input')
                 with manager.locked():manager.stop();manager.start(legacy)
                 listeners();wait(lambda:http(8081).returncode==0,'Omitted input policy unexpectedly filters local input')
-                self.assertEqual(query()['status'],'passed')
+                wait(lambda:query()['status']=='passed','Legacy forwarded DNS unavailable after recreation')
                 with manager.locked():manager.stop();manager.start(saved)
                 listeners();healthy()
                 with manager.locked():manager.write_startup()
