@@ -1,5 +1,33 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: node-overlay Syslog disk queue validated — 2026-11-05
+
+At implementation/validation commit
+`5068997708973ea70b752982918ba92e127115ae`, optional
+`--syslog-disk-queue` / `management.syslog_disk_queue:true` adds a private pure
+disk action queue for TCP/TLS on the owned node overlay. Defaults remain
+volatile; imported base-image spools are refused. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42045057015/job/127305646601)
+passed in 21.711 seconds. Both transports verified real guest delivery,
+fresh suspension, three on-disk markers, actual root-owned 0700 directory/
+0600 files, exact PID/argv, sender SIGKILL/death, replay inside the same surviving
+container without marker resubmission/local-log replay, actual TCP/TLS packets,
+continued delivery, drift refusal and cold-restore non-retention. Default TCP
+forwarding, default Syslog TLS and general CI also passed on that commit; 45
+other jobs were intentionally skipped by manual selection.
+
+Local tests passed 949 cases in 30.025 seconds with 148 environment-dependent
+skips; compilation/diff checks passed. First native run 42044564699 / job
+127303904974 failed because queue.fileCreateMode is unsupported in rsyslog
+8.2312.0. The repair uses supported private umask 0077 and adds actual queue
+file-mode checks; failed evidence is retained and recovery assertions remain.
+See SYSLOG_DISK_QUEUE.md and the final LAN_NEXT_STEPS section for exact scope.
+Only sender-process recovery is validated: lab stop/recreation removes the
+spool, and host power-loss durability, broader durable retry/RELP, supervisors
+and exactly-once delivery remain separate. Main/input/in-flight buffers stay
+volatile and TLS spool data is plaintext at rest. Remaining LAN work precedes
+GUI; static VXLAN mapping and separate later EVPN/BGP remain required.
+
 ## Latest LAN increment: Syslog TLS peer lifecycle validated — 2026-11-05
 
 At implementation/validation commit

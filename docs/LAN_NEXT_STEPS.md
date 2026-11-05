@@ -1618,3 +1618,70 @@ separate. Remaining LAN work precedes GUI. Static VXLAN with explicit
 VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-tls-lifecycle`.
+
+
+## Opt-in node-overlay Syslog disk action queue — 2026-11-05
+
+`--syslog-disk-queue` / `management.syslog_disk_queue:true` adds a pure disk
+action queue for existing TCP/TLS forwarding. Defaults remain volatile; UDP
+refuses the field. The fixed spool lives at `/var/spool/network-labs-syslog`
+on the owned node overlay, outside `/run` tmpfs. Startup refuses imported
+base-image spool paths, including symlinks. Directory ownership/mode is
+root:root/0700; private umask 0077 yields native-checked root-owned 0600 queue
+files. The queue requests max disk space 1 MiB, max segment size 64 KiB,
+checkpoint interval one, synchronous queue files, one worker/batch one,
+zero enqueue timeout and save-on-shutdown. These are rsyslog settings with
+record/metadata/segment overshoot, not a filesystem quota. Full queues and
+resource failures can discard messages. See [SYSLOG_DISK_QUEUE.md](SYSLOG_DISK_QUEUE.md).
+
+At implementation/validation commit
+`5068997708973ea70b752982918ba92e127115ae`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42045057015/job/127305646601)
+passed in **21.711 seconds** on Ubuntu 24.04 / rsyslog 8.2312.0. Both TCP and
+mutually authenticated TLS profiles completed real guest logger delivery,
+fresh collector suspension, three fixture markers observed in queue records,
+actual directory/file permissions, exact sender PID/argv observation, SIGKILL
+and observed process death. Queue records remained in place. The fixture
+removed only the verified dead PID file and volatile local output, invoked
+the existing sender start function, and verified the same container init PID
+survived with a new sender PID. Without re-emitting markers or copying queue
+bytes, collector recovery stored all three markers. Actual replay packets
+contained the TCP marker while TLS captures contained packets but no plaintext
+markers. New automatic delivery continued and declared runtime state remained
+unchanged.
+
+Spool permission and generated-config drift refused save. A second confirmed
+spooled marker was absent from exported declarations, queue files and logs
+after lab stop/cold restore; new delivery then worked. Host namespaces, links,
+IPv4/IPv6 routes and rules remained unchanged. Inspection stayed conformant
+while the sender was dead, explicitly demonstrating that file conformity is
+not daemon liveness or delivery evidence.
+
+Default plain-TCP forwarding, default mutual-TLS forwarding and general CI
+also passed on that commit. The other 45 jobs were intentionally skipped by
+manual selection and are not claimed as passing native coverage.
+
+The first native run `42044564699`, job `127303904974`, failed actual daemon
+config validation because rsyslog 8.2312.0 has no `queue.fileCreateMode`
+parameter. Repair `5068997` uses supported private `$umask 0077` and adds an
+actual mode-0600 check on all observed queue files. No SIGKILL, replay,
+permission or restore control was removed. The original run remains failed
+evidence; no fallback daemon or memory queue was substituted.
+
+Local tests passed 949 cases in 30.025 seconds with 148 environment-dependent
+skips; compilation and diff checks passed. Local coverage also refuses imported
+base-image queue records/symlinks and invalid policy/UDP combinations, preserves
+default queue rendering and checks conservative spool observations.
+
+Only the action spool has this sender-process recovery boundary. Main queue,
+Unix socket buffering, local logs and in-flight network data remain volatile;
+logger success is not a durable-enqueue or collector acknowledgement. TCP/TLS
+still permits duplicates/loss around in-flight/dequeue/disconnect boundaries.
+Spool records are plaintext at rest. No automatic supervisor/restart command,
+lab-stop queue retention, host power-loss/filesystem durability proof, corrupt
+queue repair or certificate-migration guarantee is added. Broader durable
+retry/RELP remains separate work. Remaining LAN work precedes GUI; static
+VXLAN with explicit VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain
+required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-disk-queue`.
