@@ -54,7 +54,10 @@ are root-owned mode 755 in the restricted profile so another uid-65532 process
 cannot replace an ancestor of authorized_keys. Inspection/save checks the
 managed files and these permissions; it does not prove daemon liveness or
 an authentication decision. Edit the manifest and recreate the lab to change
-the policy. Declarative save/restore preserves it; host keys remain ephemeral.
+the policy. Declarative save/restore preserves it; host keys remain ephemeral
+by default. A separate [explicit offline host identity](SSH_HOST_IDENTITY.md)
+option preserves the same declared public identity through cold restore for
+the bounded standalone IPv4 restricted-SSH profile.
 
 The dedicated SSH CI scenario uses real Dropbear/OpenSSH connections to test
 allowed diagnostics, wrong-key denial, shell/SCP/SFTP/injection denials, PTY

@@ -33,7 +33,7 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'telnet_radius', 'telnet_actions', 'syslog_remote', 'syslog_transport', 'syslog_tls','syslog_disk_queue'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_host_key', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'telnet_radius', 'telnet_actions', 'syslog_remote', 'syslog_transport', 'syslog_tls','syslog_disk_queue'), 'Management')
     transport = config.get('syslog_transport', 'udp')
     if transport not in ('udp', 'tcp', 'tls'):
         raise ValueError('Syslog forwarding transport: udp, tcp or tls.')
@@ -113,6 +113,8 @@ def validate_node(node):
         raise ValueError('TCP syslog forwarding requires syslog_remote.')
     if not (config['ssh_keys'] or password or remote or telnet_radius):
         raise ValueError('Enable at least one management service.')
+    from .ssh_host_key import validate as validate_host_key
+    validate_host_key(node)
 
 
 def validate_lab(spec):
@@ -155,7 +157,9 @@ def commands(node):
         result['syslog'] = command() if enabled(node) else ['/bin/busybox', 'syslogd', '-n', '-O', '/run/messages', '-s', '64', '-b', '1',
                             '-R', config['syslog_remote'] + ':514', '-L']
     if config['ssh_keys']:
-        result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
+        from .ssh_host_key import KEY,selected
+        identity=['-r',KEY] if selected(node) is not None else ['-R']
+        result['ssh'] = [DROPBEAR, '-F', '-E', *identity, '-s', '-w', '-j', '-k',
                          '-p', listen_address(node) + ':22', '-P', '/run/dropbear.pid']
     if config.get('ssh_ipv6'):
         address6 = str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip)
@@ -305,6 +309,8 @@ def observe(manager, node):
     tls = observe_tls(manager, node)
     from .syslog_forward import observe_spool
     spool=observe_spool(manager,node)
+    from .ssh_host_key import observe as observe_host_key
+    host_key=observe_host_key(manager,node)
     bridge_available = None
     if config.get('ssh_radius'):
         from .ssh_radius import alive
@@ -313,7 +319,8 @@ def observe(manager, node):
     if config.get('telnet_radius'):
         from .ssh_radius import alive
         telnet_bridge = alive(manager.read().get('telnet_radius_workers', {}).get(node['name']))
-    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']) and (spool is None or spool['configuration_verified']), 'tls': tls,
+    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']) and (spool is None or spool['configuration_verified']) and (host_key is None or host_key['configuration_verified']), 'tls': tls,
+            'ssh_host_key':host_key,
             'syslog_spool':spool,
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash'] or config.get('telnet_radius')), 'telnet_radius': config.get('telnet_radius', False),

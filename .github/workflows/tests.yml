@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - ssh-host-key
           - ipv6-dns-https
           - ipv6-https-firewall
           - ipv6-https
@@ -31,6 +32,16 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  ssh-host-key-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated pinned SSH prerequisites
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh dropbear-bin openssh-client crun iproute2 busybox-static util-linux
+      - name: Verify strict SSH identity, private-file drift, cold restore and explicit replacement
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_host_key_integration.py -v
   ipv6-dns-https-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-https'
     runs-on: ubuntu-24.04
@@ -573,7 +584,7 @@ jobs:
       - name: Verify common STP and LACP restore packet path
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
   ssh-access:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -582,7 +593,7 @@ jobs:
       - name: Verify server-enforced SSH actions, bypass denials and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
   radius-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -599,7 +610,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

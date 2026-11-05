@@ -375,6 +375,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
             from .https_server import preflight as https_preflight
             https_preflight(node)
+            from .ssh_host_key import preflight as host_key_preflight
+            host_key_preflight(node)
             from .syslog_forward import preflight as spool_preflight
             spool_preflight(node)
             from .syslog_tls import config as tls_config, preflight as tls_preflight, MODULES as TLS_MODULES
@@ -536,6 +538,8 @@ class Manager:
             raise
 
     def start_oci(self, spec, node, index):
+        from .ssh_host_key import preflight as host_key_preflight
+        host_key_bytes=host_key_preflight(node)
         from .https_server import preflight as https_preflight
         https_key_hash = https_preflight(node)
         if https_key_hash is not None:
@@ -594,6 +598,9 @@ class Manager:
         # Record before run: crun can create state before reporting a startup error.
         self.state['containers'].append(node['name']); self.save()
         self.crun('run', '--detach', '--bundle', bundle, node['name'], log=bundle / 'console.log')
+        if host_key_bytes is not None:
+            from .ssh_host_key import install as install_host_key
+            install_host_key(self,node,host_key_bytes)
         if node.get('https_server'):
             from .https_server import BASE, CA, CERT, KEY
             self.crun('exec', node['name'], '/bin/busybox', 'chown', '0:0', BASE, CA, CERT, KEY)
