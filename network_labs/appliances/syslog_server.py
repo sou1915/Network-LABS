@@ -49,6 +49,8 @@ def validate_node(node):
 
 
 def validate_lab(spec):
+    from .syslog_tls import paired_nodes
+    paired_nodes(spec)
     from .lan import addresses
     for node in spec['nodes']:
         config = node.get('syslog_server')

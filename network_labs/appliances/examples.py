@@ -1040,13 +1040,16 @@ def syslog_tcp_lab(rootfs, forward=False):
     return validate(spec)
 
 
-def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name):
+def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, verify_peer_on_start=False):
     """Mutual TLS with explicit certificate names and pinned offline public assets."""
     from .syslog_tls import policy
     spec = syslog_tcp_lab(server_rootfs, forward=True); spec['name'] = 'syslog-tls-lan'
     spec['nodes'][0]['syslog_server'].update(transport='tls', tls=policy(server_rootfs, client_name))
     spec['nodes'][2]['rootfs'] = str(Path(client_rootfs).resolve())
     spec['nodes'][2]['management'].update(syslog_transport='tls', syslog_tls=policy(client_rootfs, server_name))
+    if verify_peer_on_start:
+        spec['nodes'][0]['syslog_server']['tls']['verify_peer_on_start']=True
+        spec['nodes'][2]['management']['syslog_tls']['verify_peer_on_start']=True
     return validate(spec)
 
 

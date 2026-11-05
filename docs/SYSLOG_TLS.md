@@ -60,6 +60,15 @@ Changing certificates/CA/peer policy requires explicit new pins and lab
 recreation. Inspection reports asset/config conformity, not handshake success
 or delivery. Saving a conforming policy does not promise an available service.
 
+Optional `example --syslog-tls --syslog-tls-preflight` also opts both declared
+peers into `verify_peer_on_start:true`. It checks their actual mutual trust,
+current validity, server/client purpose and exact DNS SANs offline before lab
+allocation. Each CA bundle trusts the other identity; it need not issue the
+local certificate. Omission preserves the existing runtime-handshake-only
+profile, including deliberate wrong-name/trust labs. See
+[SYSLOG_TLS_LIFECYCLE.md](SYSLOG_TLS_LIFECYCLE.md) for the additional bounds,
+explicit leaf/key and CA replacement, cold restore and rollback.
+
 Cold restore needs the supplied offline identities to remain available and
 conform to the saved public pins. Keys are not bundled into exported startup
 JSON. Logs, queues, runtime digests and TLS sessions are rebuilt. TLS does not
