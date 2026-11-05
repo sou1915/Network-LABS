@@ -137,7 +137,7 @@ def plan(data):
             'links': spec['links'],
             'limits': ['Native lab is separate from the model/Wasm canvas.',
                        'No automatic vendor firmware or complete vendor GUI/CLI replication.',
-                       'VLAN access/trunk, dot1Q, LACP and classic kernel STP are native; RSTP/PVST/MSTP are not implemented.',
+                       'Linux bridge VLAN/dot1Q/LACP/common STP are native; optional OVS access-port RSTP is separate; PVST/MSTP are not implemented.',
                        'Wasm, libkrun, Unikraft, Hyperlight and netkit do not join this native fabric yet.']}
 
 

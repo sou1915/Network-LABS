@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - lan-readiness-retry
           - ipv6-dns-ospfv3-failover
           - ipv6-dns-ospfv3
           - syslog-recover
@@ -98,13 +99,13 @@ jobs:
       - name: Verify separate DNS and TFTP, tagged paths, independent outages and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_tftp_integration.py -v
   ipv6-tftp-subinterfaces-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-dns-tftp'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated tagged IPv6 TFTP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq
       - name: Verify binary transfers over VLANs, route and pruning faults, drift and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_tftp_subinterfaces_integration.py -v
   ipv6-ntp-relay-interop:
@@ -402,13 +403,13 @@ jobs:
           /tmp/network-labs-strict-bin/ip -Version
           sudo env PATH=/tmp/network-labs-strict-bin:/usr/sbin:/usr/bin:/sbin:/bin NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_REQUIRE_STRICT=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_lacp_strict_integration.py -v
   stp-lacp-reverse-control-loss-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated control-loss/STP/LACP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Prepare bonding without host bonds and record kernel
         run: |
           sudo modprobe bonding max_bonds=0
@@ -565,7 +566,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
