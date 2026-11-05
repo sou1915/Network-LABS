@@ -1,5 +1,26 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 TFTP over static dot1Q validated — 2026-11-05
+
+At implementation/validation commit
+`c8ad4031512625b9b6471f11aa202e028816a725`, the new
+`example --ipv6-tftp-subinterfaces` supports one separate IPv6-only read-only
+TFTP endpoint across static ROAS VLANs 10/20 and tagged transit 100.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42035723814/job/127273252102)
+passed in 33.705 seconds. Actual tagged request/reply traffic, binary/hash
+checks, clients on both routed VLANs, independent fault controls, recovery,
+drift-save refusal, cold restore and host invariants passed. Physical IPv6
+TFTP, IPv4 TFTP, static IPv6 subinterface and general CI jobs all passed on
+that commit. Local tests passed 935 cases in 28.127 seconds with 144
+environment-dependent skips. Compilation/diff checks passed; no failed native
+run preceded this checkpoint.
+
+See IPV6_TFTP_SUBINTERFACES.md and the final LAN_NEXT_STEPS section for exact
+scope. Dynamic IPv6, SVIs, mixed/dual-stack, other services/security, writes,
+authenticated/encrypted transfers and generic path MTU remain outside this
+increment. Continue LAN before GUI; static VXLAN VTEP/VNI/VLAN mapping and
+separate later EVPN/BGP remain required roadmap work.
+
 ## Latest LAN increment: managed IPv6 NTP relay validated — 2026-11-05
 
 Commit `6db2e15853b357ab224012a47500cf17d1ea4888` adds

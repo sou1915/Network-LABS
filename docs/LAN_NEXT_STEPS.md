@@ -1395,3 +1395,49 @@ compositions. Remaining LAN work precedes GUI; static VXLAN VTEP/VNI/VLAN
 mapping remains required, with EVPN/BGP separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp-relay`.
+
+
+## IPv6 read-only TFTP over static dot1Q routing — 2026-11-05
+
+`example --ipv6-tftp-subinterfaces` adds a separate PC4 IPv6 TFTP service
+at `2001:db8:30::10` behind the existing ROAS VLANs 10/20 and tagged VLAN-100
+static transit. The validation now permits Linux VLAN switches and static
+router dot1Q children in the IPv6 TFTP profile. All routed host/router ports
+must remain explicitly IPv6-numbered; dot1Q parents remain unnumbered.
+Partial numbering, IPv4 physical/child addressing, dynamic services, SVIs,
+other services/security and multiple TFTP servers remain refused. Existing
+physical IPv6 and default IPv4 references retain their behavior. Public binary
+imports, bounded octet reads, hashes, family/source/peer selection and transfer
+limits are unchanged. See [IPV6_TFTP_SUBINTERFACES.md](IPV6_TFTP_SUBINTERFACES.md).
+
+At implementation/validation commit
+`c8ad4031512625b9b6471f11aa202e028816a725`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42035723814/job/127273252102)
+passed in **33.705 seconds** on Ubuntu 24.04. Actual IPv6 UDP request and reply
+packets were captured on the R1 parent with VLANs 10 and 100, alongside real
+blksize bytes and successful hash-checked transfer. Clients on VLANs 10 and 20
+both read successfully. Empty/exact-block/binary-tail/64-KiB transfers, classic
+and negotiated block sizes, wrong-hash and missing-file failures, unchanged
+runtime declarations, service outage/recovery, forwarding loss with an
+independent successful local server wire control, deleted static route and
+pruned transit VLAN with continued same-VLAN delivery all passed. Restored
+routes retain the declared static protocol. Forwarding/route/VLAN/file drift
+refused save; declarative cold restore retained service/family/topology and
+passed a 64-KiB transfer. Host namespaces, links, IPv4/IPv6 routes/rules and
+IPv6 forwarding invariants remained unchanged.
+
+Physical IPv6 TFTP, IPv4 TFTP/blksize, static IPv6 subinterface and general CI
+jobs also passed on the same commit. The other 40 jobs were skipped by the
+explicit manual selection and are not claimed as passing native coverage.
+Local tests passed 935 cases in 28.127 seconds with 144 environment-dependent
+skips; compilation and diff checks passed. No failed native run preceded this
+checkpoint.
+
+This is static tagged routing with read-only unauthenticated TFTP, not dynamic
+IPv6, SVIs, mixed/dual-stack service routing, STP/bundles, firewall/security,
+other service coexistence, writes, encryption or generic path-MTU coverage.
+Remaining LAN AAA/IPv6/switching/service work continues before GUI. Static
+VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains
+separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp-subinterfaces`.
