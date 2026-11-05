@@ -33,7 +33,33 @@ def identity_assets(ca,certificate,key):
     values={CA:read_asset(ca),CERT:read_asset(certificate),KEY:read_asset(key,True)}
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_verify_locations(cafile=str(ca))
     context.load_cert_chain(str(certificate),str(key),password='')
+    verify_identity(context,values[CA])
     return values
+
+
+def verify_identity(server_context,ca_pem):
+    """Validate offline server trust/time/purpose with no sockets or host roots.
+
+    The manifest's address/name remains a separate real-client check. This
+    self-check validates supplied local identity assets, not a live daemon.
+    """
+    client_context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    client_context.check_hostname=False
+    client_context.load_verify_locations(cadata=ca_pem.decode('ascii'))
+    client_context.minimum_version=ssl.TLSVersion.TLSv1_2
+    incoming=[ssl.MemoryBIO(),ssl.MemoryBIO()];outgoing=[ssl.MemoryBIO(),ssl.MemoryBIO()]
+    peers=[client_context.wrap_bio(incoming[0],outgoing[0],server_side=False),
+           server_context.wrap_bio(incoming[1],outgoing[1],server_side=True)]
+    finished=set()
+    for _ in range(16):
+        for index,peer in enumerate(peers):
+            if index not in finished:
+                try:peer.do_handshake();finished.add(index)
+                except ssl.SSLWantReadError:pass
+            if outgoing[index].pending:
+                incoming[1-index].write(outgoing[index].read())
+        if len(finished)==2:return
+    raise ValueError('Offline HTTPS identity validation did not complete within its handshake budget.')
 
 
 def install(rootfs, values):

@@ -51,9 +51,15 @@ host; management/Syslog/other managed server co-location and IPv6 are refused.
 Clients must choose an explicit CA and verify the target IP/DNS identity.
 For the example probe, provision IP SAN `192.0.2.10`; for DNS probing, provision
 the matching DNS SAN and configure the existing guest resolver profile.
-NGINX presents the supplied leaf/chain. Its local CA asset is an explicit
-provisioning/trust reference, not a client-authentication directive or proof
-that a client accepts the certificate. There is no mutual TLS in this increment.
+NGINX presents the supplied leaf/chain. Building an HTTPS image and starting a
+lab now also perform a bounded offline TLS self-check: the leaf/chain must
+validate against only the supplied CA bundle, be currently valid according to
+the host clock, and have a server-compatible purpose. Expired, not-yet-valid,
+untrusted and client-only identities are refused. The check uses memory BIOs,
+no sockets, no host trust roots and no external CA fetching. It does not check
+the manifest address/name; real clients must still verify those. The local CA
+asset is not a client-authentication directive or proof that an arbitrary client
+accepts the certificate. There is no mutual TLS in this increment.
 
 Inspection verifies config files, pinned public assets, a runtime-only key
 digest and root ownership/mode 0600; it does not claim daemon liveness, successful certificate
@@ -63,7 +69,8 @@ Saving exports only policy/rootfs references. Cold restore requires the
 conforming offline assets and starts fresh daemons, with no keys in startup
 JSON and no TLS/process/session snapshot. Automatic renewal/revocation,
 user content, HTTP authentication, live reload and broader service coexistence
-remain separate work.
+remain separate work. Explicit offline leaf/key and CA replacement, cold
+restore and rollback are covered in [HTTPS_IDENTITY_LIFECYCLE.md](HTTPS_IDENTITY_LIFECYCLE.md).
 
 `https-server-interop` checks repeated certificate-verified probes, an actual
 GET body over TLS, 404/405 behavior, wrong CA and wrong-IP certificate controls
