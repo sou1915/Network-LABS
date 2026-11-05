@@ -1552,3 +1552,69 @@ is added. Remaining LAN work precedes GUI. Static VXLAN with explicit
 VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=https-identity-lifecycle`.
+
+
+## Opted-in Syslog TLS peer validation and explicit replacement — 2026-11-05
+
+`example --syslog-tls --syslog-tls-preflight` adds
+`verify_peer_on_start:true` to both the sender and collector TLS policies.
+Validation requires exactly one declared reciprocal TLS pair, both opted in.
+Startup performs a bounded offline mutual TLS exchange with only the supplied
+peer CA bundles. It checks current host-clock validity, collector serverAuth,
+sender clientAuth and both exact DNS SANs before allocating lab resources.
+There are no sockets, host trust roots, external CA fetches, wildcard or
+legacy CN-only authorization in this opted-in profile. The default remains
+runtime-handshake validation, including deliberate TLS name/trust failure labs.
+Each CA bundle trusts the peer; it need not issue the local identity. Existing
+pins, key checks and recreate-only edits remain. HTTPS now shares the same
+bounded memory-BIO exchange helper without changing its identity-check scope.
+See [SYSLOG_TLS_LIFECYCLE.md](SYSLOG_TLS_LIFECYCLE.md).
+
+The explicit lifecycle builds fresh sender/collector images and public pins,
+then stops/recreates the lab. Same-CA leaf/key replacement can retain trust;
+CA replacement updates the corresponding reciprocal trust. Cold restore needs
+the saved replacement assets; rollback requires retained old assets and the
+old declaration. This adds downtime, not live reload or unattended renewal.
+
+At implementation/validation commit
+`9831449340f3f57571f8cf12cb946f22e12f9ed8`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42041335915/job/127292631585)
+passed in **10.022 seconds** on Ubuntu 24.04. Correctly pinned expired/future
+certificates on either role, swapped client/server purposes, wrong trust and
+wrong peer names were refused before lab state/namespace allocation. Stale
+pins on a valid replacement were also refused. Actual guest logger storage
+and independent mutually verified octet-framed syslog messages passed with
+original identities, new leaf/keys under the same CA, a new CA, cold restore,
+distinct reciprocal issuing CAs and explicit rollback. Served collector leaf
+DER SHA-256 matched the selected certificate at each stage; both renewed
+private keys differed from the originals. Old-only client trust and old client
+credentials were rejected by the healthy new-CA profile, with their markers
+absent from stored logs. Rollback rejected the newer client credentials.
+
+Service configuration/identity conformity, non-TLS switch key isolation,
+unchanged retained image CA/certificate/key hashes and host namespace/link/
+IPv4+IPv6 route/rule invariants passed. Cold restore did not restore earlier
+volatile logs. This does not prove continuous observation of the sender's
+live peer certificate or delivery acknowledgement; the independent wire
+client presents the chosen fixture credentials and the guest sender's asset/
+configuration conformity is checked separately.
+
+Original Syslog TLS (including its default wrong-name/wrong-trust labs),
+HTTPS lifecycle, persistent HTTPS and general CI all passed on that commit.
+The other 43 jobs were intentionally skipped by manual selection and are not
+claimed as passing native coverage.
+
+Local tests passed 944 cases in 31.685 seconds with 147 environment-dependent
+skips; compilation and diff checks passed. Local real-crypto controls include
+both roles' validity/purpose/trust/name failures and distinct reciprocal CAs.
+Socket creation is trapped during offline validation. No failed native run
+preceded this checkpoint.
+
+OpenSSL offline verification remains an extra local preflight; real rsyslog/
+GnuTLS remains authoritative for live protocol behavior. Generic cross-library
+PKI compatibility, runtime expiry monitoring, ACME, CRL/OCSP, live reload,
+unattended renewal, durable sender retry and delivery acknowledgements remain
+separate. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-tls-lifecycle`.

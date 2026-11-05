@@ -1,5 +1,30 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: Syslog TLS peer lifecycle validated — 2026-11-05
+
+At implementation/validation commit
+`9831449340f3f57571f8cf12cb946f22e12f9ed8`, opt-in
+`--syslog-tls-preflight` / `verify_peer_on_start:true` on both declared peers
+adds bounded offline mutual trust/time/role/exact-DNS-SAN checks before resource
+allocation. Default live-failure labs remain available; distinct reciprocal
+issuing CAs are supported. HTTPS shares the memory-BIO exchange helper.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42041335915/job/127292631585)
+passed in 10.022 seconds. Pre-allocation role/time/trust/name refusal, stale
+pins, actual guest logger and independent mutual-TLS storage, served collector
+leaf fingerprints, both leaf/key replacements, CA replacement with old-trust/
+old-client rejection, distinct issuers, cold restore, rollback, key isolation,
+immutable base assets and host invariants passed. Original Syslog TLS, HTTPS
+lifecycle, persistent HTTPS and general CI also passed on that commit; 43
+unrelated jobs were intentionally skipped by manual suite selection.
+
+Local tests passed 944 cases in 31.685 seconds with 147 environment-dependent
+skips; compilation/diff checks passed. No failed native run preceded this
+checkpoint. See SYSLOG_TLS_LIFECYCLE.md and the final LAN_NEXT_STEPS section
+for scope and evidence. This is explicit offline replacement with downtime;
+volatile logs/queues are not restored, and durable retry, automatic renewal,
+live reload and revocation remain separate. Remaining LAN work precedes GUI;
+static VXLAN VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain required.
+
 ## Latest LAN increment: offline HTTPS identity lifecycle validated — 2026-11-05
 
 At implementation/validation commit
