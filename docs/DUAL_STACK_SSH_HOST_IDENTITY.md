@@ -52,7 +52,16 @@ explicit recovery, drift refusal and cold restore with unchanged trust and
 a fresh bridge token are checked, along with host namespace/link/route/rule/
 forwarding/unprivileged-port invariants.
 
-Native validation is pending for this implementation checkpoint. Run with:
+At implementation commit `8c776020e21b88d57a6cb3d7e4c2730216f36949`,
+the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42126484317/job/127591903712)
+passed in 37.598 seconds. All four selected jobs passed: this scenario,
+pinned IPv4 RADIUS SSH, the unpinned dual-stack RADIUS reference and general
+CI. The other 54 jobs were intentionally skipped, not new native evidence.
+Local full tests under umask 022 passed 980 cases in 30.981 seconds with
+157 environment-dependent skips; compilation/diff/link checks passed.
+No failed native run preceded this checkpoint.
+
+Run with:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dual-stack-ssh-host-key`.
 The selector also runs pinned IPv4 RADIUS SSH, the unpinned dual-stack RADIUS
 reference and general CI; skipped jobs are not new proof.

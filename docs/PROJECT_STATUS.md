@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [pinned dual-stack SSH with IPv4 RADIUS](DUAL_STACK_SSH_HOST_IDENTITY.md)
+at `8c776020e21b88d57a6cb3d7e4c2730216f36949`. Its dedicated native
+scenario passed in 37.598 seconds in
+[run 42126484317](https://github.com/sou1915/Network-LABS/actions/runs/42126484317),
+including both-family trust checks, independent route loss and unchanged
+known_hosts through cold restore. All four selected jobs passed; 54 other
+jobs were intentionally skipped. Local full tests under umask 022 passed
+980 cases in 30.981 seconds with 157 environment skips. Wider AAA/LAN
+acceptance scope remains open; planning estimates are unchanged.
+
 The latest bounded increment combines [pinned SSH identity and IPv4 RADIUS diagnostics](SSH_RADIUS_HOST_IDENTITY.md)
 at `19c853f6c504d6f137d756aa64624aeb5c717aaf`. Its dedicated native
 scenario passed in 5.793 seconds in

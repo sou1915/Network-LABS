@@ -1,5 +1,34 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: pinned dual-stack SSH with IPv4 RADIUS — 2026-11-05
+
+Implementation `8c776020e21b88d57a6cb3d7e4c2730216f36949` permits the
+explicit host identity in `--radius --radius-ssh --radius-dual-stack`
+diagnostics. One Dropbear daemon uses the same key for both literal IPv4/IPv6
+listeners. Pre-provisioned strict known_hosts keeps both entries unchanged
+through cold restore. RADIUS stays IPv4 and still gates each diagnostic;
+host trust does not bypass client-key authentication or RADIUS action policy.
+Standalone IPv6 pinned SSH, shell/accounting, DNS coexistence, dynamic
+addressing/routing and other NAS service co-location remain refused.
+See [DUAL_STACK_SSH_HOST_IDENTITY.md](DUAL_STACK_SSH_HOST_IDENTITY.md).
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42126484317/job/127591903712)
+passed in 37.598 seconds. Both SSH families verified the declared identity,
+rejected wrong host trust/client keys and enforced RADIUS credential/action
+denials. Real IPv4/IPv6 SSH and IPv4 RADIUS packets were captured without
+plaintext credentials on TCP/22. IPv4 forwarding loss denied diagnostics on
+still-reachable IPv6 SSH; IPv6 forwarding loss broke IPv6 SSH while IPv4
+diagnostics continued. Backend loss/recovery, drift refusal, unchanged trust
+after cold restore, a fresh bridge token and host invariants passed.
+
+All four selected jobs in run 42126484317 passed: new scenario, pinned IPv4
+RADIUS SSH, old unpinned dual-stack RADIUS and general CI. The other 54 jobs
+were intentionally skipped. Local full tests under umask 022 passed 980 cases
+in 30.981 seconds with 157 environment skips; compilation/diff/link checks
+passed. No native failure preceded this checkpoint. Continue remaining LAN
+before native GUI. Static VXLAN and separate EVPN/BGP/WAN remain tracked;
+planning estimates stay LAN about 80%, whole product about 45–50%.
+
 ## Latest LAN increment: pinned SSH identity with RADIUS diagnostics — 2026-11-05
 
 Implementation `19c853f6c504d6f137d756aa64624aeb5c717aaf` permits

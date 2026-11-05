@@ -2099,3 +2099,40 @@ EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
 product about 45–50%, not measured coverage or an ETA.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
+
+## Pinned dual-stack SSH with IPv4 RADIUS — 2026-11-05
+
+At implementation commit `8c776020e21b88d57a6cb3d7e4c2730216f36949`,
+`--radius --radius-ssh --radius-dual-stack --ssh-host-key-file PATH` uses
+the declared offline ed25519 host identity on both IPv4 and IPv6 SSH listeners.
+RADIUS remains a separate IPv4 backend. Strict known_hosts can be provisioned
+for both literal addresses before the first connection and reused unchanged
+after cold restore. Standalone IPv6 pinned SSH, shell grants/accounting,
+DNS coexistence, dynamic protocols and broader service combinations remain
+refused. The IPv6 validator explicitly refuses combined DNS with pinned SSH;
+existing unpinned DNS/AAA coexistence remains separate.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42126484317/job/127591903712)
+passed in 37.598 seconds. It reuses the native routed dual-stack RADIUS suite
+with pinned host identity: both SSH families verify the same declared key,
+wrong host trust/client keys fail, and RADIUS credentials/actions stay enforced.
+Captures showed actual IPv4/IPv6 SSH and IPv4 RADIUS, with no plaintext
+credentials on TCP/22. Disabling IPv4 forwarding broke RADIUS authorization
+over reachable IPv6 SSH while IPv6 echo remained healthy. Disabling IPv6
+forwarding broke IPv6 SSH while verified IPv4 diagnostics continued. Backend
+loss/recovery, management/backend/forwarding drift refusal, exact declarative
+cold restore with unchanged known_hosts and a fresh bridge token passed.
+Host namespaces/links/IPv4/IPv6 routes/rules, forwarding and unprivileged-port
+invariants remained unchanged.
+
+Pinned IPv4 RADIUS SSH, old unpinned dual-stack RADIUS and general CI also
+passed in run 42126484317: all four selected jobs succeeded; 54 other jobs
+were intentionally skipped, not new native proof. Local full tests under
+umask 022 passed 980 cases in 30.981 seconds with 157 environment skips;
+compilation/diff/link checks passed. No failed native run preceded this
+checkpoint. See [DUAL_STACK_SSH_HOST_IDENTITY.md](DUAL_STACK_SSH_HOST_IDENTITY.md).
+Remaining LAN precedes full native GUI; static VXLAN mapping and separate
+EVPN/BGP/WAN stay tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%, not measured test coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dual-stack-ssh-host-key`.
