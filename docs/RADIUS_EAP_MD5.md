@@ -5,8 +5,9 @@ IPv4 RADIUS backend from a managed NAS network namespace. It verifies the
 RADIUS Response Authenticator and Message-Authenticator before using any EAP
 challenge or State, then requires the matching final EAP Success or Failure.
 It never opens a shell, changes a port, installs authorization or sends EAPOL.
-This is an EAP protocol foundation; a working IEEE 802.1X controlled port is a
-separate milestone.
+This diagnostic is an EAP protocol foundation. The separately implemented
+[finite wired 802.1X profile](DOT1X_WIRED.md) builds a controlled port on that
+foundation; the diagnostic command itself still installs no admission.
 
 The sequence is EAP Response/Identity inside Access-Request, verified
 Access-Challenge carrying a 16-byte MD5 challenge and one nonempty opaque State,

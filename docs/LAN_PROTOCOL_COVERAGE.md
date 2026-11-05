@@ -1,39 +1,42 @@
-# LAN protocol coverage and remaining work
+# Native LAN coverage and remaining work — 2026-11-05
 
-LAN remains the priority before WAN. A protocol name means only the documented
-profile below; it does not imply every vendor implementation, option, GUI or
-coexistence combination. The native workflow provides real packet/service tests;
-the educational canvas/Wasm engine remains separate.
+This table describes implemented, bounded native profiles. It does not mean
+every option, vendor behavior or combination works together. The educational
+canvas, Wasm backend and native OCI fabric are distinct engines. Existing
+desktop/vendor-style forms do not automatically configure the native fabric.
+See [project status](PROJECT_STATUS.md) for the requested planning estimates,
+validation checkpoint and priorities; estimates are not test coverage.
 
-Both complete native CI runs for commit `0e761a0` passed all 51 tests on
-2026-10-28, covering the documented STP/LACP recovery and chronyd control
-socket corrections alongside the other native scenarios:
-[push](https://github.com/sou1915/Network-LABS/actions/runs/40716003990/job/122913748047),
-[pull request](https://github.com/sou1915/Network-LABS/actions/runs/40716014900/job/122913781926).
-This records those bounded profiles, not completion of the remaining columns.
+Exact per-increment native commits/jobs and failed-run history remain in
+[LAN_NEXT_STEPS.md](LAN_NEXT_STEPS.md) and the linked guides. The full current
+regression audit is tracked there separately from historical targeted suites.
 
-The [STP/LACP validation matrix](STP_LACP_VALIDATION.md) describes the additional
-partial-flush rollback, min-links, logical shutdown and saved restart scenarios.
+| Family | Working native profile | Still outside that profile / remaining work |
+| --- | --- | --- |
+| Lifecycle/fabric | Persistent OCI/crun nodes, network/PID/mount namespaces, veth/bridges, per-node limits, explicit start/exec/stop, declarative save/cold restore, drift refusal and cleanup. Optional experimental Firecracker adapter requires supplied assets. | Complete native canvas integration, wider runtime/kernel compatibility, full-application performance acceptance; Firecracker liveness alone is not guest readiness. |
+| VLAN/switching | Linux access/trunk VLANs, router dot1Q and switch SVIs; LACP, common STP, optional carrier-recovery worker, min-links/fault scenarios and explicit strict-LACP policy; scoped optional OVS RSTP. [Validation matrix](STP_LACP_VALIDATION.md). | Native MSTP/PVST, larger topology/security interactions and broader physical/one-way/kernel coverage. Linux common STP is not per-VLAN vendor STP. |
+| Routing | Static IPv4/IPv6, BIRD OSPFv2 area-zero subsets, OSPFv3 on physical routers and Linux SVIs; [physical IPv6 DNS over OSPFv3](IPV6_DNS_OSPFV3.md) and [two costed parallel paths](IPV6_DNS_OSPFV3_FAILOVER.md) with real failover/failback. | VRRP/gateway redundancy, larger dynamic graphs, redistribution/authentication, broader dual-stack/dynamic logical-interface compositions; no zero-loss/convergence SLA. |
+| DHCP/IPv6 addressing | IPv4 leases/reservations/relay/multiple pools; static IPv6, NDP/DAD, RA/SLAAC, IA_NA, physical DHCPv6 relay/remote pool, bounded single-/64 Kea PD/downstream SLAAC and selected RA-Guard coexistence. | Broader PD pools/subdivision/renumbering, stateless DHCPv6, DHCPv6/RDNSS DNS provisioning and additional service/security combinations. |
+| DNS | Real dnsmasq A/AAAA over UDP/TCP, explicit IPv4/IPv6 resolvers, AAAA-only zones, NXDOMAIN/NODATA, tagged IPv6/static dual-stack/security/service compositions and bounded OSPFv3 paths. [AAAA-only](DNS_AAAA_ONLY.md), [DNS/TFTP](IPV6_DNS_TFTP.md), [IPv6 DNS/firewall](IPV6_DNS_FIREWALL.md). | DNSSEC, DNS64, recursion/dynamic registration, probe CNAME traversal and broader authenticated/encrypted DNS profiles. |
+| HTTP/HTTPS | BusyBox HTTP sample endpoint; explicit DNS/TCP/HTTP(S) HEAD probes including IPv6; persistent managed IPv4 NGINX fixed endpoint, explicit CA/name verification, [offline validity checks and explicit leaf/key/CA replacement](HTTPS_IDENTITY_LIFECYCLE.md). | Managed IPv6 HTTPS server, application/login/content profiles, mutual TLS, automatic renewal/revocation/live reload and broader service co-location. An IPv6 probe is not an IPv6 managed-server profile. |
+| Syslog | Local/UDP forwarding, real TCP collector/forwarder, mutual TLS with explicit peer names, [optional offline pair checks and identity replacement](SYSLOG_TLS_LIFECYCLE.md), [node-overlay disk action queues](SYSLOG_DISK_QUEUE.md) and [guarded dead-sender recovery](SYSLOG_FORWARD_RECOVERY.md). | Queue retention across lab stop/recreation, broader durable delivery/RELP, automatic supervision, central retention/search and structured device events. TCP/TLS does not provide exactly-once receipts; spool records are plaintext at rest. |
+| SNMP | Separate read-only IPv4 v2c and v3 USM SHA-256/AES authPriv agents; real IF-MIB counters; bounded v2c/v3 trap/inform profiles and selected physical link events. | IPv6, broader algorithms/users/MIBs, vendor-specific events and additional operational/coexistence profiles. |
+| NTP/SNTP | Read-only IPv4/IPv6 probes; managed clockless chronyd IPv4 reference/relay and [IPv6 local reference](IPV6_NTP.md)/[managed source+relay](IPV6_NTP_RELAY.md), explicit client ACLs and no clock writes. | Authenticated/NTS time, arbitrary external/multi-hop IPv6 hierarchies, independent node clock representation, measured external accuracy and bounded live-relay holdover. |
+| AAA/access | Managed FreeRADIUS PAP/EAP-MD5, mandatory integrity checks, per-node grants/[roles](RADIUS_ROLES.md), bounded local/SSH/[Telnet](TELNET_RADIUS.md) diagnostic/shell profiles; accounting retry, [durable Stop outbox](RADIUS_OUTBOX.md), [session journal/reconciliation](RADIUS_SESSION_JOURNAL.md) and selected dual-stack diagnostic coexistence. | TACACS+/RadSec, RADIUS-over-IPv6, SSH-handshake password/RADIUS integration, richer externally selected policy, host-key persistence and broader dynamic/dual-stack shell/accounting combinations. SSH's key transport gate and later RADIUS authorization are distinct. |
+| Wired 802.1X | [Finite single-peer wired EAP-MD5 admission](DOT1X_WIRED.md), real supplicant/RADIUS/EAPOL, default-closed nftables gate, bounded kernel leases and optional 0..3 finite reauthentications, crash/expiry/Logoff controls. | Persistent authenticator/supplicant service, stronger EAP/TLS methods, multi-client ports, dynamic VLAN, wired accounting and broader security compositions. A finite admission is not a complete enterprise NAC service. |
+| File services | Read-only TFTP for IPv4/IPv6, bounded binary/imported files, blksize, SHA-256, retries/TID handling; static IPv6 tagged routing and separate DNS coexistence. [IPv6 TFTP](IPV6_TFTP.md). | Writes, broader sizes/options, FTP/SFTP/PXE and authenticated/encrypted file transfer. |
+| Security | Scoped IPv4 nftables/NAT; static IPv6 forward filtering and [optional local input](IPV6_INPUT_FIREWALL.md); conservative access-port RA Guard, port security, DHCP snooping and ARP/IP source admission. | IPv6 output policy, NAT66, broader dynamic/dual-stack/SVI/subinterface/service combinations, less conservative RA-Guard extension handling and fuller vendor policy behavior. |
+| Discovery/multicast | Received LLDP and scoped Linux IGMPv2 snooping/querier with real observations. | CDP, MLD and broader multicast/discovery profiles. |
+| Native GUI/product integration | Existing runtime diagnostic/JSON manifest panel and terminal-based native lifecycle launch; educational desktop/web forms and limited project-integrated Wasm already exist separately. | Native topology/config/forms/observations integration with the desktop, complete privilege workflow and end-user acceptance. Full manufacturer firmware/GUI replication is not provided. |
 
-| Family | Current bounded profile | Remaining work |
-|---|---|---|
-| SSH | Dropbear, ed25519 public-key auth, non-root Linux command/PTY, TCP/22; optional [server-enforced fixed diagnostic actions](SSH_ACCESS_POLICY.md) and [RADIUS credential gating](SSH_RADIUS.md), plus an explicit [bounded SSH shell](SSH_RADIUS_SHELL.md) | Vendor shells, richer account/AAA policy, managed host-key persistence, IPv6/coexistence profiles |
-| Telnet | BusyBox telnetd + login, SHA-512 password hash, non-root Linux terminal, TCP/23 | Vendor CLI adapters and richer account/AAA policy |
-| Syslog | Real local logging + UDP/514 forwarding; node-local rsyslog collector with sender allowlist, rotation and real fault/packet tests | TCP/TLS, richer RFC5424 policy, durable central retention/search and structured device events |
-| SNMP | Separate read-only IPv4 v2c and v3 USM SHA-256/AES authPriv agents; manager policy, sysName/agent uptime, real IF-MIB counters; v2c trap/inform and separate v3 authPriv inform/sender-engine trap profiles with log-only receivers and packet/loss/restore tests; selected physical IF-MIB up/down observations via native DisMan | Vendor-specific events, broader operational states/event sources, richer user/algorithm policy, vendor MIBs, IPv6 and broader coexistence |
-| NTP/SNTP | One unauthenticated IPv4 SNTP query; temporary educational responder; experimental managed chronyd relay and explicitly isolated local-reference lab with allowlisted clients, without clock writes; complete native end-to-end test passed in CI | Independent node clock representation, broader upstream policy, authentication and IPv6 |
-| AAA/access | [Bounded RADIUS PAP authentication observation and experimental managed FreeRADIUS 3 server](NATIVE_RADIUS.md) with explicit clients/users and mandatory integrity checks; FreeRADIUS 3.2.5 interoperability and managed OCI policy/save/restart passed in dedicated CI; per-node user/action authorization and [optional local CLI shell](RADIUS_LOGIN.md) gated by verified Accept; optional [bounded session accounting](RADIUS_ACCOUNTING.md) | Telnet AAA, SSH-handshake password authentication, richer roles/session lifecycle, durable accounting/retry, TACACS+, 802.1X/EAP and broader interoperability |
-| File services | Bounded TFTP octet read with optional SHA-256, timeout retries and bounded final ACK dally; experimental managed read-only dnsmasq server with declared text or Base64 binary files, exercised in native CI; [direct local file imports](TFTP_IMPORTS.md) | Write, larger files/options, FTP, SFTP and PXE |
-| IPv4/IPv6 | Real addressing, ARP/NDP/DAD, ICMP, static routing; static routed dual-stack; static IPv6 Linux switch SVIs; static dot1Q IPv6 router subinterfaces with tagged next hops | Dynamic dual-stack combinations, dynamic IPv6 routing/services over subinterfaces, IPv6 policy/security |
-| DHCP/DNS | IPv4 leases/reservations/relay/multi-pool, local DNS A; IPv6 IA_NA and RA/SLAAC subsets; experimental physical DHCPv6 relay/remote-pool profile with independent managed RA; bounded single-/64 Kea PD and downstream SLAAC | Broader PD pools/subdivision/renumbering and stateless DHCPv6, IPv6 DNS provisioning, advanced DNS/DNSSEC |
-| HTTP/HTTPS | BusyBox HTTP sample service; bounded DNS/TCP/HTTP(S) HEAD with explicit CA/name validation; temporary two-node HTTPS demo with generated trust, exercised in native CI | Persistent managed HTTPS server, revocation/mutual TLS, redirects/application profiles, IPv6 service probes |
-| VLAN/switching | Access/trunk dot1Q, Linux bridges, LACP, common STP; managed STP/LACP administrative recovery reconciles dynamic FDB after settled control state, with repeated bidirectional VLAN tests in dedicated CI; scoped OVS RSTP | Broader kernel/carrier-failure validation, MSTP/PVST, broader switching interactions and vendor details |
-| Discovery/multicast | Received LLDP and scoped Linux IGMPv2 snooping/querier | CDP, MLD, broader multicast and discovery profiles |
-| Internal routing | Static IPv4/IPv6, BIRD OSPFv2 area 0 subsets; BIRD OSPFv3 on physical routers and Linux switch SVIs, with tagged-transit failure/recovery tests | Broader IGP features, VRRP/gateway redundancy and failover |
-| Security | Scoped IPv4 nftables/NAT; separate static-IPv6 stateful forward ACL; conservative single-VLAN access-port RA Guard, including a bounded local IA_NA/RA pairing; port security, DHCP snooping, ARP/IP admission | Broader RA Guard extension-header interoperability/trunks, IPv6 input/output policy, broader IPv6/security/service coexistence |
-| Local Windows/Linux services | Basic node connectivity and shell services | SMB/AD-oriented scenarios, mDNS/LLMNR/NetBIOS and device-specific connectivity GUIs |
+Static VXLAN VTEP/VNI/VLAN mapping stays on the roadmap after the LAN/GUI
+milestones. EVPN/BGP is separate; WAN/VPN remains later. SMB/AD, mDNS/LLMNR/
+NetBIOS, complete vendor shells and full OS/device services are not supplied
+by connectivity or a service-port label.
 
-WAN/BGP/VPN and full vendor firmware/GUI fidelity remain separate later stages.
-No completion percentage or whole-application 2 GiB guarantee is derived from
-this list. See [Native LAN core](NATIVE_LAN_CORE.md#ssh-telnet-and-remote-udp-syslog)
-for exact commands and scope.
+The historical 2026-10-28 native runs at `0e761a0` passed their then-current
+51 native test cases: [push](https://github.com/sou1915/Network-LABS/actions/runs/40716003990/job/122913748047)
+and [PR](https://github.com/sou1915/Network-LABS/actions/runs/40716014900/job/122913781926).
+Those were test cases, not the current workflow's job count. Neither that
+history nor a green full workflow proves every combination or a whole-app
+2 GiB memory bound.

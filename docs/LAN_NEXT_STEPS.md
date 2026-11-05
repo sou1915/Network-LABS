@@ -5,6 +5,9 @@ the other LAN services, then integrate the native engine into the GUI.
 WAN work remains later. Each feature needs packet/service evidence and
 failure/recovery coverage appropriate to its scope.
 
+For the current feature inventory and explicitly approximate planning percentages,
+see [PROJECT_STATUS.md](PROJECT_STATUS.md) and [LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md).
+
 1. AAA: RADIUS-gated execution and declared per-node action policy, then
    Interactive SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
    and protected transports require their own implementations and validation.
@@ -1844,3 +1847,41 @@ remain separate. Remaining LAN work precedes GUI; static VXLAN with explicit
 VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain required roadmap work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3-failover`.
+
+## LAN readiness regression and current inventory — 2026-11-05
+
+The full audit at `f3146a0912fb77f59cd12bd3f20c87dc929d5f14`
+([run 42056055804](https://github.com/sou1915/Network-LABS/actions/runs/42056055804))
+completed with 50 successful jobs and two setup cancellations. The native
+container suite passed 51 test cases in 1600.113 seconds; dedicated wired
+802.1X passed in 112.327 seconds. Strict LACP exercised the positive
+STRICT_VERIFIED path on kernel 7.0.0-1017-azure with pinned iproute2 7.1.0
+and passed its scenario in 701.725 seconds.
+
+Tagged IPv6 TFTP and reverse STP/LACP control loss never reached tests in
+that attempt: Ubuntu Azure mirror package indexes stalled until setup/job
+timeouts. Repair `c145a9e0962178ab7ede0093f32b08d086d329aa` adds a CI-only
+official HTTPS Ubuntu archive helper with bounded APT retries/timeouts to
+those two jobs. It also corrects stale runtime-plan wording about optional
+OVS RSTP; no protocol implementation or test assertions were relaxed.
+
+The [targeted repaired replay](https://github.com/sou1915/Network-LABS/actions/runs/42059320195)
+passed all three selected jobs at that repair commit: tagged IPv6 TFTP
+(one native scenario, 33.669 seconds), reverse STP/LACP control loss
+(one native scenario, 165.158 seconds), and general CI. Its other 49 jobs
+were intentionally skipped. All 52 workflow job profiles therefore have
+passing evidence across the baseline and replay, not in one green attempt.
+
+Local full tests passed 959 cases in 31.021 seconds with 151 environment
+skips. After the wording correction, runtime-plan tests passed 13 cases with
+one environment skip. Compilation, shell syntax, documentation link and
+diff checks passed. Skipped local cases are not native evidence.
+
+[PROJECT_STATUS.md](PROJECT_STATUS.md) records the current working inventory,
+remaining scope and explicitly approximate estimates: native LAN about 80%
+(75–85 range), whole product about 45–50%. Its checklist and assumed phase
+weights are planning aids, not measured coverage, elapsed effort or an ETA.
+[LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) now distinguishes recent
+implemented profiles from the old unimplemented entries. Complete remaining
+LAN scope/acceptance before full native GUI integration. Static VXLAN mapping,
+then separate EVPN/BGP and later WAN remain tracked.

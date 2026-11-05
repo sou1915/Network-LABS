@@ -31,13 +31,17 @@ JSON includes `address_family`, the main endpoint, `dns_endpoint` when used,
 `record_type`, and the actual source/server/transport in each stage request.
 
 Static `resolvers` declarations now accept canonical unscoped IPv6 literals on
-numbered single-interface IPv6 hosts. Existing lab composition validation still
-requires supported static dual-stack physical profiles for managed DNS/resolvers.
+numbered single-interface IPv6 hosts. Composition validation requires one of
+the separately supported managed DNS/resolver profiles. The original reference
+here uses static dual-stack physical routing; later profiles also cover
+[IPv6-only tagged DNS](IPV6_DNS_SUBINTERFACES.md),
+[DNS/firewall](IPV6_DNS_FIREWALL.md), [DNS/TFTP](IPV6_DNS_TFTP.md) and
+[physical OSPFv3 DNS](IPV6_DNS_OSPFV3.md).
 `example --dual-stack-dns --dns-resolver-family ipv6`, or the same option with
 `--radius-dns`, chooses an IPv6 resolver explicitly. Omitting it retains IPv4.
 The existing maximum-three resolver policy remains, but this diagnostic refuses
 multiple nameservers rather than silently choosing one or failing over.
-No DHCPv6 DNS discovery or IPv6-only service composition is added here.
+No DHCPv6 DNS discovery is added by this diagnostic.
 
 UDP, TCP and matched-TC-only `auto` share the existing DNS rules for A and AAAA:
 matching ID/question/type/class, one stage deadline, at most 4096 response bytes,
@@ -58,8 +62,10 @@ Observed failures do not identify a routing/filter/service root cause.
 The native job uses real routed dnsmasq and the managed probe command API for
 DNS A/AAAA over IPv6, AAAA over an IPv4 resolver, TCP, HTTP, TLS and SNTP.
 HTTP/TLS/SNTP listeners are explicitly test-owned stdlib processes in the remote
-namespace, reaped before teardown. They prove client behavior and do not add a
-persistent managed IPv6 HTTPS/NTP server profile. Wrong CA/name, 404/302, NXDOMAIN,
+namespace, reaped before teardown. They prove client behavior; this original
+probe increment did not add persistent managed IPv6 servers. A separate
+[IPv6 NTP reference](IPV6_NTP.md) and [relay](IPV6_NTP_RELAY.md) now exist;
+managed IPv6 HTTPS remains outside that profile. Wrong CA/name, 404/302, NXDOMAIN,
 NODATA without A fallback, malformed SNTP, DNS outage with working literal HTTP,
 IPv6 route loss with working IPv4, drift refusal, cold restore and packet evidence
 are checked. Results are recorded in LAN_NEXT_STEPS.md.

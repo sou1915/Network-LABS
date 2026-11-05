@@ -1,5 +1,37 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Current LAN readiness audit — completed 2026-11-05
+
+The user requested continued work followed by a concrete progress percentage,
+working-feature inventory and remaining work. Full suite run 42056055804 is
+pinned to `f3146a0912fb77f59cd12bd3f20c87dc929d5f14`. It completed with
+50 successful jobs and two setup-cancelled jobs. The comprehensive native
+suite passed 51 test cases in 1600.113 seconds. The dedicated wired 802.1X
+scenario passed in 112.327 seconds. Both cancellations were Ubuntu Azure mirror index-download
+stalls before tests, not protocol assertions. Strict LACP completed positive
+STRICT_VERIFIED on kernel 7.0.0-1017-azure/iproute2 7.1.0 in 701.725 seconds.
+
+Repair `c145a9e0962178ab7ede0093f32b08d086d329aa` adds a CI-only bounded APT
+helper using the official HTTPS Ubuntu archive for the two affected jobs,
+a `lan-readiness-retry` selector and a correction to stale OVS RSTP scope text.
+Targeted run 42059320195 retried those two native jobs plus general CI. Do not
+claim one 52/52 green attempt: final evidence must distinguish the full baseline
+and repaired retries. Protocol assertions were not changed.
+
+The repaired replay completed successfully: all three selected jobs passed,
+49 intentionally skipped. Tagged IPv6 TFTP passed its native scenario in
+33.669 seconds; reverse STP/LACP control loss passed in 165.158 seconds.
+Across the baseline and repaired replay, all 52 workflow job profiles now
+have passing evidence; this is not one fully green original attempt.
+
+PROJECT_STATUS.md records user-requested planning estimates: LAN about 80%
+(75–85 range), overall about 45–50%, with explicit checklist/weight assumptions.
+These are not measured test coverage, engineering effort or an ETA. The coverage
+table and outdated guide cross-references have been refreshed. Local full tests
+passed 959 cases in 31.021 seconds with 151 skips; read-only runtime-plan tests
+passed 13 cases with one environment skip after the wording-only correction.
+Keep LAN before GUI, with static VXLAN and separate EVPN/BGP/WAN still tracked.
+
 ## Latest LAN increment: costed OSPFv3 DNS failover validated — 2026-11-05
 
 At implementation/validation commit

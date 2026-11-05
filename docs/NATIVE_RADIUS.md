@@ -108,8 +108,10 @@ This localhost test proves the bounded PAP client's interoperability with that
 server/version. It does not establish native namespace/OCI daemon lifecycle,
 other versions/backends, challenge continuation or actual access enforcement.
 The managed server profile below adds native lifecycle; its container test is
-separate from this localhost interoperability check. Actual login/802.1X
-enforcement remains subsequent AAA work.
+separate from this localhost interoperability check. Access enforcement now
+has separate [local login](RADIUS_LOGIN.md), [SSH](SSH_RADIUS.md),
+[Telnet](TELNET_RADIUS.md) and [finite wired admission](DOT1X_WIRED.md)
+profiles; none is proved by this localhost PAP check alone.
 
 ## Experimental managed server
 
@@ -195,8 +197,11 @@ described in [Native LAN core](NATIVE_LAN_CORE.md#configuration-live-partielle).
 
 `radius-auth` remains a PAP diagnostic. Separate [local CLI login](RADIUS_LOGIN.md)
 and [optional session accounting](RADIUS_ACCOUNTING.md) add declared authorization
-and session events. SSH/Telnet AAA adapters, port admission, EAP/802.1X, challenge
-continuation, TACACS+ and RadSec remain unimplemented.
+and session events. Separate [SSH](SSH_RADIUS.md), [Telnet](TELNET_RADIUS.md),
+[EAP-MD5](RADIUS_EAP_MD5.md) and [finite wired admission](DOT1X_WIRED.md)
+profiles are now implemented, alongside [roles](RADIUS_ROLES.md),
+[Stop outbox](RADIUS_OUTBOX.md) and [session reconciliation](RADIUS_SESSION_JOURNAL.md).
+These are bounded profiles; TACACS+, RadSec and general EAP methods remain open.
 
 
 ## Passive daemon and listener evidence
@@ -255,4 +260,6 @@ automatic or whole-host recovery. Diagnostic-only Telnet stays the default.
 An explicit [EAP-MD5/RADIUS diagnostic](RADIUS_EAP_MD5.md) now supports one
 verified challenge/State continuation with a separate opt-in backend asset
 profile. PAP defaults and all existing access gates retain their method.
-This foundation does not implement EAPOL or an IEEE 802.1X controlled port.
+The diagnostic alone implements no EAPOL or controlled port. The separately
+implemented [finite wired profile](DOT1X_WIRED.md) adds those within its own
+strict topology, method and lease bounds.

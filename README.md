@@ -33,6 +33,10 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 
 ## Micro-nodes Linux natifs et microVMs (expérimental)
 
+[État actuel du projet, estimation et travail restant](docs/PROJECT_STATUS.md)
+et [couverture exacte des profils LAN natifs](docs/LAN_PROTOCOL_COVERAGE.md).
+Les estimations de progression ne sont pas des pourcentages de couverture des tests.
+
 **Fichier → Micro-nodes natifs · runtimes / manifest**, ou
 `python3 -m network_labs --native-lab`, ouvre le diagnostic des runtimes et un
 éditeur de lab JSON avec validation et budget mémoire cible. Le laboratoire

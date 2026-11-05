@@ -3,8 +3,12 @@
 Objectif de ce jalon : une configuration de base qui agit correctement sur de
 vrais paquets, avec erreurs explicites et sauvegarde/restauration. Le scénario
 de référence contient **8 containers** : 4 PC, 2 switches, un routeur et un serveur
-DHCP. La validation à 20 nodes et le budget global de 2 Gio restent des étapes
-ultérieures ; les allocations du manifest ne constituent pas un benchmark.
+DHCP. Un scénario à 20 nodes et un court benchmark headless ont été ajoutés
+depuis ce premier jalon ; ils ne valident pas le budget global de 2 Gio.
+Les allocations du manifest ne constituent pas un benchmark. Voir
+[la couverture actuelle](LAN_PROTOCOL_COVERAGE.md) et
+[le point d'avancement](PROJECT_STATUS.md) pour distinguer ce jalon historique
+des profils plus récents et des étapes restantes.
 
 ## Architecture et périmètre
 
