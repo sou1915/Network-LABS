@@ -16,6 +16,7 @@ from network_labs.appliances.capture import capture
 from network_labs.appliances.examples import ipv6_https_firewall_lab
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.https_server import BODY,PID,start_server
+from network_labs.appliances.ipv6 import drift as ipv6_drift
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager,RuntimeFailure,run,static_busybox_rootfs
 from network_labs.appliances.service_probe import probe
@@ -54,9 +55,12 @@ class NativeIPv6HTTPSFirewallTests(unittest.TestCase):
                 wait(echo,'Allowed independent echo blocked')
             def echo():
                 return manager.crun('exec','PC1','/bin/busybox','ping6','-c','1','-W','1','-w','2','2001:db8:20::20',check=False,timeout=4).returncode==0
+            def raw_request(local=False,source=None):
+                return manager.ns(1 if local else 0,sys.executable,'-I','-c',REQUEST,input_text=json.dumps(
+                    {'ca':str(certs['ca']),'source':source or ('2001:db8:20::1' if local else '2001:db8:10::10'),
+                     'method':'GET','name':'https.lab'}),timeout=6,check=False)
             def request(local=False):
-                result=manager.ns(1 if local else 0,sys.executable,'-I','-c',REQUEST,input_text=json.dumps(
-                    {'ca':str(certs['ca']),'source':'2001:db8:20::1' if local else '2001:db8:10::10','method':'GET','name':'https.lab'}),timeout=6,check=False)
+                result=raw_request(local)
                 self.assertEqual(result.returncode,0,result.stderr)
                 self.assertIn(BODY.replace('\\n','\n'),json.loads(result.stdout)['response'])
             def http(local=False):
@@ -64,6 +68,46 @@ class NativeIPv6HTTPSFirewallTests(unittest.TestCase):
             def refuse():
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
             def pid():return manager.crun('exec','PC2','/bin/busybox','cat',PID).stdout
+            def counters():
+                return {r['rule']['comment']:sum(e['counter']['packets'] for e in r['rule']['expr'] if 'counter' in e)
+                    for r in manager.inspect('FW1')['firewall_ipv6']['nftables'] if 'rule' in r}
+            def source_isolation(label):
+                # Same interface, destination and port: only the source differs.
+                # The extra address is an external test fault, never saved policy.
+                alternate='2001:db8:10::99'
+                manager.ns(0,'ip','-6','addr','add',alternate+'/64','dev','eth0')
+                try:
+                    def usable():
+                        rows=json.loads(manager.ns(0,'ip','-j','-6','addr','show','dev','eth0').stdout)
+                        return any(a.get('local')==alternate and not any(a.get(f) or f in a.get('flags',[]) for f in ('tentative','dadfailed'))
+                            for row in rows for a in row.get('addr_info',[]))
+                    wait(usable,'Alternate source did not complete DAD')
+                    control=manager.crun('exec','PC1','/bin/busybox','ping6','-I',alternate,'-c','1','-W','1','-w','2',
+                        '2001:db8:10::1',check=False,timeout=4)
+                    self.assertEqual(control.returncode,0,control.stderr)
+                    route=json.loads(manager.ns(0,'ip','-j','-6','route','get','2001:db8:20::20','from',alternate).stdout)
+                    self.assertEqual(route[0]['gateway'],'2001:db8:10::1');self.assertEqual(route[0]['dev'],'eth0')
+                    before_drop=counters()['default'];server_pid=pid()
+                    events=[threading.Event(),threading.Event()];paths=[root/(label+'-source-in.pcap'),root/(label+'-source-out.pcap')]
+                    futures=[pool.submit(capture,Manager(spec['name']),'FW1',port,path,seconds=5,packets=1000,
+                        expression='ip6 and src host '+alternate+' and tcp dst port 443',ready=event.set)
+                        for port,path,event in zip(('eth0','eth1'),paths,events)]
+                    for event in events:self.assertTrue(event.wait(5))
+                    denied=raw_request(source=alternate)
+                    self.assertNotEqual(denied.returncode,0);self.assertIn('TimeoutError',denied.stderr)
+                    self.assertNotIn('CERTIFICATE_VERIFY_FAILED',denied.stderr)
+                    request();request(local=True);self.assertEqual(pid(),server_pid)
+                    for future in futures:future.result(timeout=9)
+                    ingress=run(['tcpdump','-nn','-r',paths[0]]).stdout
+                    self.assertIn(alternate,ingress);self.assertIn('2001:db8:20::20.443',ingress)
+                    self.assertFalse(run(['tcpdump','-nn','-r',paths[1]]).stdout)
+                    self.assertGreater(counters()['default'],before_drop)
+                    self.assertTrue(any('IPv6 addresses differ' in error for error in ipv6_drift(manager,0,spec['nodes'][0])),
+                        'Extra source must remain observable drift')
+                    refuse()
+                finally:
+                    manager.ns(0,'ip','-6','addr','del',alternate+'/64','dev','eth0')
+                healthy();request()
             try:
                 with manager.locked():manager.start(spec)
                 healthy();initial_pid=pid();state=copy.deepcopy(manager.read())
@@ -83,11 +127,11 @@ class NativeIPv6HTTPSFirewallTests(unittest.TestCase):
                     self.assertNotIn(b'Network LABS HTTPS ready',path.read_bytes())
                 self.assertTrue(run(['tcpdump','-nn','-r',paths[0],'tcp','port','8080']).stdout)
                 self.assertFalse(run(['tcpdump','-nn','-r',paths[1],'tcp','port','8080']).stdout)
-                counters={r['rule']['comment']:sum(e['counter']['packets'] for e in r['rule']['expr'] if 'counter' in e)
-                    for r in manager.inspect('FW1')['firewall_ipv6']['nftables'] if 'rule' in r}
-                for label in ('state','rule:https-out','default'):self.assertGreater(counters[label],0,counters)
+                observed=counters()
+                for label in ('state','rule:https-out','default'):self.assertGreater(observed[label],0,observed)
                 entries=manager.ns(1,'conntrack','-L','-f','ipv6','-p','tcp').stdout
                 self.assertIn('dport=443',entries);self.assertIn('src=2001:db8:10::10',entries)
+                source_isolation('initial')
                 denied=query(certs['wrong_ca']);self.assertEqual(denied['status'],'failed',denied)
                 self.assertEqual(denied['stages'][-1]['error'],'CERTIFICATE_VERIFY_FAILED',denied)
                 manager.ns(1,'sysctl','-w','net/ipv6/conf/all/forwarding=0')
@@ -103,7 +147,7 @@ class NativeIPv6HTTPSFirewallTests(unittest.TestCase):
                 with manager.locked():
                     manager.write_startup();saved=load_startup(spec['name']);self.assertEqual(saved,spec)
                     manager.stop();manager.start(saved)
-                healthy();request()
+                healthy();request();source_isolation('restored')
                 # With identical outbound permission but no stateful TCP return,
                 # direct server TLS and explicitly returned echo still work.
                 stateless=copy.deepcopy(saved);policy=stateless['nodes'][1]['firewall_ipv6'];policy['stateful']=False

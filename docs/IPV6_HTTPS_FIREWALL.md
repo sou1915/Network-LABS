@@ -51,6 +51,18 @@ return but omits TCP return permission; remote HTTPS must fail while direct
 TLS and echo work. Restoring the stateful saved profile must recover service.
 Host namespace/link/route/rule/forwarding/nftables invariants are checked.
 
+An additional source-isolation control now tests a temporary
+`2001:db8:10::99` address on the same PC1 interface, destination and TCP/443.
+It requires completed DAD, source-bound gateway reachability and the expected
+route before testing denial. Positive ingress SYN traffic, absent egress,
+increasing default-drop counters and a connect timeout must accompany working
+authorized/direct TLS controls and an unchanged server PID. Extra addressing
+must refuse save, then be removed before a successful save. The control runs
+again after cold restore. This is a bounded source-address rule test, not
+client identity authentication or prevention of allowlisted-address spoofing.
+Native proof of this additional control is pending at this checkpoint; the
+historical result below predates it.
+
 At implementation commit `8ce6321df0e06cee37bc5413478d7e20253288c3`, the
 [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
 passed its scenario in 22.128 seconds. Baseline IPv6 HTTPS, standalone IPv6
