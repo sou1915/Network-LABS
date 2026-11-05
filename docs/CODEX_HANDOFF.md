@@ -1,5 +1,36 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 HTTPS forwarding firewall — validated 2026-11-05
+
+Implementation `8ce6321df0e06cee37bc5413478d7e20253288c3` adds
+`example --ipv6-https-firewall --https-client-rootfs PATH`: PC1, a separate
+default-deny FW1, and the existing managed IPv6 HTTPS PC2. Explicit rules
+allow client-to-server TCP/443 and echo requests, with stateful returns.
+HTTPS composition now permits one managed forwarding-only IPv6 firewall;
+local-input, other service/security, dynamic, dual-stack and VLAN/SVI/logical
+interface compositions remain refused. See [IPV6_HTTPS_FIREWALL.md](IPV6_HTTPS_FIREWALL.md).
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
+passed in 22.128 seconds. Trusted TLS/GET, wrong CA rejection, positive
+allow/state/default-drop counters, IPv6 conntrack and real two-interface
+captures passed. A live TCP/8080 control was reachable on the server but
+blocked across the firewall: ingress packets appeared without egress packets.
+Routing/service outages had independent direct-TLS/echo controls; save
+refused forwarding/ruleset drift. Exact declarations cold-restored with
+working HTTPS. A stateless variant kept outbound TCP/443 and explicit echo
+return but blocked remote TLS while direct TLS/echo worked; restoring the
+stateful profile recovered service. Host invariants, including nftables,
+passed. This is port-based forwarding, not TLS inspection or a production
+PMTU/error-policy guarantee.
+
+All five selected jobs in run 42079365366 passed: new scenario, baseline
+IPv6 HTTPS, standalone IPv6 firewall, DNS/firewall and general CI. The other
+49 jobs were intentionally skipped. Local tests passed 965 cases in 32.219
+seconds with 153 environment-dependent skips; compilation/diff/link checks
+passed. No native failure preceded this checkpoint. Planning estimates remain
+approximately LAN 80% and whole product 45–50%. Continue LAN before full
+native GUI integration; static VXLAN and separate EVPN/BGP/WAN stay tracked.
+
 ## Latest LAN increment: static IPv6 HTTPS — validated 2026-11-05
 
 Implementation `81ba8ba63e1b844142e670f75a27a55645ba4895` adds

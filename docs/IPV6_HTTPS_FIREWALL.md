@@ -51,7 +51,14 @@ return but omits TCP return permission; remote HTTPS must fail while direct
 TLS and echo work. Restoring the stateful saved profile must recover service.
 Host namespace/link/route/rule/forwarding/nftables invariants are checked.
 
-Native validation is pending for this implementation checkpoint. The selector
-also runs baseline IPv6 HTTPS, standalone IPv6 firewall, DNS/firewall and
-general CI regressions:
+At implementation commit `8ce6321df0e06cee37bc5413478d7e20253288c3`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
+passed its scenario in 22.128 seconds. Baseline IPv6 HTTPS, standalone IPv6
+firewall, DNS/firewall and general CI regressions also passed: five selected
+jobs succeeded; the other 49 jobs were intentionally skipped, not validated
+by this selection. Local tests passed 965 cases in 32.219 seconds with 153
+environment-dependent skips; compilation and diff checks passed. No failed
+native run preceded this checkpoint.
+
+The selector runs these five regression jobs:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https-firewall`.

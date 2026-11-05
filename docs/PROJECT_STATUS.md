@@ -12,7 +12,17 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
-The latest bounded increment adds [managed static IPv6 HTTPS](IPV6_HTTPS.md)
+The latest bounded increment adds [IPv6 HTTPS behind a forwarding firewall](IPV6_HTTPS_FIREWALL.md)
+at `8ce6321df0e06cee37bc5413478d7e20253288c3`. Its dedicated native
+scenario passed in 22.128 seconds in
+[run 42079365366](https://github.com/sou1915/Network-LABS/actions/runs/42079365366).
+All five selected jobs passed, including baseline IPv6 HTTPS, standalone
+IPv6 firewall, DNS/firewall and general CI; 49 other jobs were intentionally
+skipped. Local tests passed 965 cases in 32.219 seconds with 153 environment
+skips. This closes a bounded service/security combination, not the wider LAN
+acceptance gate. Planning estimates remain unchanged.
+
+The preceding increment adds [managed static IPv6 HTTPS](IPV6_HTTPS.md)
 at `81ba8ba63e1b844142e670f75a27a55645ba4895`. Its dedicated native
 scenario passed in 13.213 seconds in
 [run 42073646773](https://github.com/sou1915/Network-LABS/actions/runs/42073646773),

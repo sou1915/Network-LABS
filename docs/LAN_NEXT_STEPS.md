@@ -1922,3 +1922,42 @@ supervision remain separate work. Remaining LAN work precedes native GUI;
 static VXLAN mapping, then separate EVPN/BGP and WAN remain tracked.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https`.
+
+## Managed IPv6 HTTPS with forwarding firewall — 2026-11-05
+
+Implementation `8ce6321df0e06cee37bc5413478d7e20253288c3` adds
+`example --ipv6-https-firewall`. A distinct default-deny FW1 routes PC1 to
+the managed IPv6 HTTPS PC2. Its explicit source/destination/interface rules
+allow TCP/443 and echo requests, with invalid-state rejection and
+established/related return acceptance. Local-input and broader service,
+dynamic, dual-stack and VLAN/SVI/subinterface compositions remain refused.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
+passed in 22.128 seconds. It verified trusted TLS and GET body, wrong CA
+rejection, real IPv6 TLS on both firewall ports without plaintext body,
+positive HTTPS/state/default-drop counters and IPv6 TCP conntrack. A separate
+live TCP/8080 listener was reachable on PC2 but blocked remotely, with actual
+ingress packets and no egress packets. Forwarding loss broke remote HTTPS
+while direct FW1-to-PC2 TLS worked and server PID stayed unchanged; restoring
+forwarding recovered service. NGINX outage left independent allowed echo
+working, and explicit restart restored TLS. Forwarding/extra nftables table
+drift refused save. Exact saved policy/identity cold-restored with verified
+TLS. A stateless variant kept outbound HTTPS permission and explicit echo
+return but broke remote HTTPS while direct TLS/echo worked. Restoring the
+stateful saved profile recovered service. Host namespaces, links, IPv4/IPv6
+routes/rules, forwarding and nftables invariants remained unchanged.
+
+Baseline IPv6 HTTPS (12.919 seconds), standalone IPv6 firewall (20.469
+seconds), DNS/firewall (22.223 seconds) and general CI also passed in
+run 42079365366. Five selected jobs passed; 49 other jobs were intentionally
+skipped, not new native evidence. Local tests passed 965 cases in 32.219
+seconds with 153 environment-dependent skips; compilation/diff/link checks
+passed. No failed native run preceded this result.
+
+See [IPV6_HTTPS_FIREWALL.md](IPV6_HTTPS_FIREWALL.md) for commands and scope.
+The firewall allows ports, not trusted TLS identities; certificate checking
+remains a separate client action. This reference does not claim a complete
+production PMTU/error-traffic policy. Remaining LAN work precedes native GUI;
+static VXLAN mapping and separate EVPN/BGP/WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https-firewall`.
