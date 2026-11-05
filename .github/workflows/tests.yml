@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - benchmark-kernel-peak
           - dual-stack-ssh-host-key
           - ssh-radius-host-key
           - ssh-host-key
@@ -34,6 +35,24 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  benchmark-kernel-peak:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'benchmark-kernel-peak'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated native benchmark prerequisites
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables conntrack tcpdump
+      - name: Verify transient kernel peak and 20-node idle and traffic measurement
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 NETWORK_LABS_BENCHMARK_ARTIFACT_DIR="$RUNNER_TEMP/network-labs-benchmark-peak" /usr/bin/python3 -m unittest discover -s tests -p test_native_benchmark_peak_integration.py -v
+      - name: Verify existing enterprise benchmark and actual return routes
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 PYTHONPATH=tests /usr/bin/python3 -m unittest test_native_integration.RealContainerTests.test_enterprise_twenty_nodes_benchmark_and_real_return_routes -v
+      - name: Retain native measurement reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-benchmark-kernel-peak
+          path: ${{ runner.temp }}/network-labs-benchmark-peak/*.json
+          if-no-files-found: error
   dual-stack-ssh-host-key-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dual-stack-ssh-host-key'
     runs-on: ubuntu-24.04
@@ -632,7 +651,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'dual-stack-ssh-host-key'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'dual-stack-ssh-host-key' || inputs.suite == 'benchmark-kernel-peak'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

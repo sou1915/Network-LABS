@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from network_labs.appliances.benchmark import benchmark, group_snapshot, sample, summarize
+from network_labs.appliances.benchmark import benchmark, cgroup_context, group_snapshot, kernel_memory_peak, sample, summarize
 from network_labs.appliances.examples import enterprise
 from network_labs.appliances.runtime import Manager, RuntimeFailure
 from network_labs.appliances.spec import MIB, validate
@@ -61,6 +61,49 @@ class BenchmarkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(FileNotFoundError):
                 group_snapshot(Path(folder))
+
+    def test_kernel_peak_missing_is_unknown_but_corrupt_or_inaccessible_is_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);self.assertIsNone(kernel_memory_peak(root))
+            (root/'memory.peak').write_text('12582912\n');self.assertEqual(kernel_memory_peak(root),12*MIB)
+            for invalid in ('','max','-1','3.5'):
+                (root/'memory.peak').write_text(invalid)
+                with self.subTest(value=invalid),self.assertRaises(ValueError):kernel_memory_peak(root)
+            with patch.object(Path,'read_text',side_effect=PermissionError('denied')),self.assertRaises(PermissionError):kernel_memory_peak(root)
+
+    def test_existing_populated_parent_is_refused_and_empty_parent_keeps_history_scope(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            self.assertFalse(cgroup_context(root/'new')['existed_before_start'])
+            (root/'cgroup.events').write_text('populated 1\nfrozen 0\n')
+            with self.assertRaisesRegex(RuntimeFailure,'populated'):cgroup_context(root)
+            (root/'cgroup.events').write_text('populated 0\nfrozen 0\n')
+            (root/'memory.peak').write_text('12345\n')
+            context=cgroup_context(root);self.assertTrue(context['existed_before_start'])
+            self.assertEqual(context['memory_peak_before_start_bytes'],12345)
+            self.assertEqual(context['memory_peak_scope'],'cgroup-lifetime-including-prior-runs')
+
+    def test_kernel_peak_assessment_stays_unknown_without_support_or_with_prior_history(self):
+        for existed,peak,expected in ((False,None,None),(False,12*MIB,True),(True,12*MIB,None),(False,3*1024*MIB,False)):
+            manager=MagicMock();manager.locked.return_value.__enter__.return_value=manager
+            manager.directory.exists.side_effect=[False,True,False]
+            manager.status.return_value={'nodes':[{'state':{'status':'running'}}]}
+            metrics={'lab_cgroup_memory_sampled_peak_bytes':100,'host_available_min_bytes':1000}
+            snapshot={'memory_peak_bytes':peak,'memory_events':{'oom_kill':0}}
+            with self.subTest(existed=existed,peak=peak), \
+                 patch('network_labs.appliances.benchmark.Manager',return_value=manager), \
+                 patch('network_labs.appliances.benchmark.cgroup_context',return_value={'existed_before_start':existed}), \
+                 patch('network_labs.appliances.benchmark.host_snapshot',return_value={'memory_available_bytes':1000}), \
+                 patch('network_labs.appliances.benchmark.wait_ready'), \
+                 patch('network_labs.appliances.benchmark.measure',return_value=metrics), \
+                 patch('network_labs.appliances.benchmark.workload',return_value={'metrics':metrics,'all_packets_received':True}), \
+                 patch('network_labs.appliances.benchmark.group_snapshot',return_value=snapshot):
+                report=benchmark(enterprise('/rootfs'),target='198.51.100.10')
+            self.assertEqual(report['assessment']['lab_cgroup_current_run_kernel_peak_under_target'],expected)
+            if peak is None:self.assertIsNone(report['assessment']['lab_cgroup_lifetime_peak_under_target'])
+            elif peak==3*1024*MIB:self.assertFalse(report['assessment']['lab_cgroup_lifetime_peak_under_target'])
+            else:self.assertTrue(report['assessment']['lab_cgroup_lifetime_peak_under_target'])
+            self.assertEqual(report['assessment']['total_application_under_target'],'unverified')
 
     def test_bad_workload_rejected_before_starting_lab(self):
         for kwargs in ({'target': '8.8.8.8'}, {'target': '198.51.100.10', 'seconds': 0},
