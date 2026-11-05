@@ -1,5 +1,36 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: explicit SSH host identity — 2026-11-05
+
+Implementation `1ac714da5e0e6dceef004e4fda98d3d9a9777340` adds optional
+`management.ssh_host_key` with absolute offline file reference and canonical
+public ed25519 identity. The standalone restricted IPv4 SSH generator accepts
+`--ssh-host-key-file`; it omits the usual syslog sender in this profile.
+Host `dropbearkey` validates a mode-0600 bounded snapshot before allocation;
+only the selected node receives the private snapshot in fresh `/run`, root
+owned mode 0600. Dropbear uses explicit `-r`, with no `-R` fallback. Raw key
+bytes never enter declarations/startup JSON, command arguments or persistent
+command logs. Runtime conformity checks file type/mode/owner/hash. Source
+assets must still conform at cold restore; they are referenced, not backed up.
+RADIUS, Telnet, syslog, IPv6 and other server co-location remain refused for
+this opt-in profile; existing ephemeral defaults remain unchanged.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42089486906/job/127463481874)
+passed in 2.703 seconds. Pre-provisioned strict known_hosts worked on the
+first connection and unchanged after cold restore, without keyscan. Real SSH
+verified restricted actions, uid-65532 key unreadability, no copies on other
+nodes, runtime content/mode/symlink drift refusal and pre-allocation rejection
+of missing/malformed/mismatched/symlink/mode-invalid assets. Explicit identity
+replacement rejected old trust, worked after an explicit trust update and
+cold-restored again. Host namespace/link/IPv4/IPv6 route/rule invariants passed.
+Existing SSH access, RADIUS/SSH and general CI jobs also passed: all four
+selected jobs succeeded; 52 other jobs were intentionally skipped.
+Local tests passed 972 cases in 30.003 seconds with 155 environment skips;
+compilation/diff checks passed. No native failure preceded this result.
+See [SSH_HOST_IDENTITY.md](SSH_HOST_IDENTITY.md). Continue remaining LAN before
+full native GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
 ## Latest LAN increment: separate IPv6 DNS and named HTTPS — 2026-11-05
 
 Implementation `05953899d1187f73a177e8e632704d5ab0cb6f90` adds

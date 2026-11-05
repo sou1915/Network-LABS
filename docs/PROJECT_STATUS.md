@@ -12,6 +12,17 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [explicit offline SSH host identity](SSH_HOST_IDENTITY.md)
+at `1ac714da5e0e6dceef004e4fda98d3d9a9777340`. Its dedicated native
+scenario passed in 2.703 seconds in
+[run 42089486906](https://github.com/sou1915/Network-LABS/actions/runs/42089486906),
+with unchanged strict client trust through cold restore and explicit identity
+replacement controls. SSH access, RADIUS/SSH and general CI also passed:
+four selected jobs succeeded; 52 other jobs were intentionally skipped.
+Local tests passed 972 cases in 30.003 seconds with
+155 environment skips. The estimates remain unchanged: wider AAA/lifecycle
+and LAN acceptance scope is still open.
+
 The latest bounded increment adds [separate IPv6 DNS and named HTTPS](IPV6_DNS_HTTPS.md)
 at `05953899d1187f73a177e8e632704d5ab0cb6f90`. Its dedicated native
 scenario passed in 15.027 seconds in

@@ -69,6 +69,13 @@ offline assets before allocation. Explicit new identity must fail old trust,
 succeed after an explicit trust update, and survive another cold restore.
 Host namespaces/links/IPv4/IPv6 routes/rules are checked.
 
-Native validation is pending at this implementation checkpoint. The selector
-also runs existing SSH access, RADIUS/SSH and general CI regressions:
+At implementation commit `1ac714da5e0e6dceef004e4fda98d3d9a9777340`, the
+[dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42089486906/job/127463481874)
+passed in 2.703 seconds. Existing SSH access and RADIUS/SSH regressions also
+passed, together with general CI. All four selected jobs succeeded; the other
+52 jobs were intentionally skipped. Local tests passed
+972 cases in 30.003 seconds with 155 environment-dependent skips; compilation
+and diff checks passed. No failed native run preceded this result.
+
+The selector runs these native scenarios and general CI:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-host-key`.

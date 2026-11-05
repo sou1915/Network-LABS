@@ -4115,11 +4115,15 @@ sudo python3 -m network_labs.appliances exec --tty management-lan PC1 -- \
 
 SSH binds the selected node IPv4 address on TCP/22. Password/root logins and
 local/remote TCP forwarding are disabled. This first profile accepts up to 16
-OpenSSH ed25519 public keys, without authorized_keys options. Host keys are
+OpenSSH ed25519 public keys, without authorized_keys options. By default, host keys are
 created inside the writable node overlay. They are not part of declarative
 save/restore; recreated nodes have fresh host keys. Verify a recreated node's
 new key before updating the dedicated known-hosts file; host checking is not
 silently disabled by the application.
+An optional [explicit offline SSH host identity](SSH_HOST_IDENTITY.md) instead
+keeps the declared public identity through cold restore for standalone
+restricted IPv4 SSH. It references a separately retained mode-0600 private
+asset; the startup JSON does not contain or back up that key.
 
 Telnet binds the same node address on TCP/23 and invokes real `/bin/login`.
 The manifest contains a SHA-512 crypt hash, never a plaintext password. Login

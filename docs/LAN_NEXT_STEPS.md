@@ -2020,3 +2020,40 @@ Remaining LAN work precedes full native GUI; static VXLAN and separate
 EVPN/BGP/WAN remain tracked.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-https`.
+
+## Explicit SSH host identity and cold restore — 2026-11-05
+
+At implementation commit `1ac714da5e0e6dceef004e4fda98d3d9a9777340`,
+optional `management.ssh_host_key` references an offline Dropbear ed25519
+private key and declares its public identity. The generator option
+`example --management --ssh-host-key-file PATH --ssh-authorized-key PUB
+--ssh-action identity` creates a standalone restricted IPv4 SSH profile
+without its usual syslog sender. Missing/invalid assets fail pre-allocation.
+A bounded mode-0600 snapshot is parsed by host `dropbearkey`, compared to
+the public declaration and installed only in the selected node's fresh
+`/run` as root/mode 0600. Explicit `-r` replaces default `-R` generation only
+when selected. Save exports public identity/path references, not raw private
+bytes; source assets remain a restore prerequisite. Runtime file type, mode,
+ownership and digest drift refuse save. Wider AAA/IPv6/co-location and
+automatic key lifecycle remain separate work.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42089486906/job/127463481874)
+passed in 2.703 seconds. Strict known_hosts provisioned from the declared
+public identity worked without keyscan and stayed identical across cold
+restore. Restricted command and uid-65532 unreadability checks passed.
+Runtime content/mode/symlink drift refused save; missing/malformed/changed/
+symlink/mode-invalid offline assets refused startup before allocation.
+Explicit new identity refused old trust, worked after explicit client trust
+update, then cold-restored. Other nodes had no key copy; host namespaces,
+links and IPv4/IPv6 routes/rules remained unchanged.
+
+SSH access, RADIUS/SSH and general CI regressions also passed in run
+42089486906: all four selected jobs succeeded; 52 other jobs were intentionally
+skipped, not new native proof. Local tests passed 972 cases in 30.003 seconds
+with 155 environment skips; compilation/diff checks passed. No failed native
+run preceded this result. See [SSH_HOST_IDENTITY.md](SSH_HOST_IDENTITY.md).
+Remaining LAN precedes native GUI; static VXLAN mapping and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%,
+whole product about 45–50%, not measured test coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-host-key`.
