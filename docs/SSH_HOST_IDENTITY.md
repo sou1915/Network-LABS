@@ -55,9 +55,11 @@ Changing identity requires explicit manifest replacement and lab recreation.
 An old known_hosts entry must reject the replacement. Updating client trust
 is a separate explicit action. No automatic key rotation, key recovery,
 encrypted/hardware keys, SSH host certificates or SSH CA service is added.
-This bounded option requires restricted IPv4 SSH without RADIUS, Telnet,
-syslog or other managed server co-location. Wider AAA/IPv6 combinations
-remain separate work. Existing ephemeral SSH/RADIUS profiles are unchanged.
+This bounded option requires restricted IPv4 SSH without Telnet, syslog or
+other managed server co-location. A separate [pinned RADIUS diagnostic
+profile](SSH_RADIUS_HOST_IDENTITY.md) also exists; shell/accounting and wider
+AAA/IPv6 combinations remain separate work. Existing ephemeral SSH/RADIUS
+defaults are unchanged.
 
 ## Validation
 

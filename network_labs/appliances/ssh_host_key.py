@@ -55,9 +55,18 @@ def validate(node):
     value['public_key']=public_key(value.get('public_key'))
     config=node['management']
     if (not config['ssh_keys'] or config.get('ssh_actions') is None or node.get('ipv6') or
-            config.get('ssh_radius') or config.get('telnet_password_hash') or config.get('telnet_radius') or config.get('syslog_remote') or
-            any(node.get(k) for k in ('radius_access','radius_server','syslog_server','snmp_agent','snmp_receiver','ntp_server','tftp_server','dns_server'))):
-        raise ValueError('Pinned SSH host identity requires standalone IPv4 restricted SSH without RADIUS, Telnet or syslog.')
+            config.get('telnet_password_hash') or config.get('telnet_radius') or config.get('syslog_remote') or
+            any(node.get(k) for k in ('radius_server','syslog_server','snmp_agent','snmp_receiver','ntp_server','tftp_server','dns_server'))):
+        raise ValueError('Pinned SSH host identity requires restricted IPv4 SSH without Telnet, syslog or other server co-location.')
+    access=node.get('radius_access')
+    if config.get('ssh_radius'):
+        from .radius_access import allowed_actions
+        users=access.get('user_roles',access.get('users')) if isinstance(access,dict) else None
+        if (not isinstance(access,dict) or not isinstance(users,dict) or not users or access.get('accounting') or 'shell' in config['ssh_actions'] or
+                any('shell' in allowed_actions(access,user) for user in users)):
+            raise ValueError('Pinned SSH RADIUS identity permits diagnostics only, without shell grants or accounting.')
+    elif access:
+        raise ValueError('Pinned SSH with RADIUS access requires explicit ssh_radius diagnostics.')
 
 
 def preflight(node):

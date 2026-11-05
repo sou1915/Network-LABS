@@ -607,10 +607,12 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False, eap_password_file=None):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False, eap_password_file=None, ssh_host_key_file=None):
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
     if type(telnet_shell) is not bool or (telnet_shell and not telnet): raise ValueError('Telnet shell requires explicit Telnet RADIUS.')
+    if ssh_host_key_file is not None and (ssh_key is None or ssh_shell or allow_shell or accounting or telnet):
+        raise ValueError('Pinned SSH RADIUS requires SSH diagnostics without shell, accounting or Telnet.')
     if type(telnet) is not bool or (telnet and (ssh_key is not None or ssh_shell or ((allow_shell or accounting) and not telnet_shell))):
         raise ValueError('Telnet RADIUS requires a boolean and a standalone diagnostic profile.')
     if telnet_shell: allow_shell = True
@@ -640,6 +642,9 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
             'ssh_radius': True, 'ssh_actions': list(ssh_actions) if ssh_actions is not None else ['identity', 'hostname', 'security-context']}
         if ssh_shell and 'shell' not in spec['nodes'][0]['management']['ssh_actions']:
             spec['nodes'][0]['management']['ssh_actions'].append('shell')
+        if ssh_host_key_file is not None:
+            from .ssh_host_key import policy
+            spec['nodes'][0]['management']['ssh_host_key']=policy(ssh_host_key_file)
     if role_policy:
         access = spec['nodes'][0]['radius_access']; access.pop('users')
         access['roles'] = {'observer': ['identity', 'hostname'], 'auditor': ['security-context']}
