@@ -1496,3 +1496,59 @@ combinations. Remaining LAN work precedes GUI. Static VXLAN with explicit
 VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-tftp`.
+
+
+## Offline HTTPS identity validation and explicit replacement — 2026-11-05
+
+HTTPS image build and startup now perform a bounded memory-BIO TLS self-check
+against only the supplied CA bundle. OpenSSL validates local leaf/chain trust,
+current host-clock validity and server purpose. Expired, future, untrusted and
+client-only identities fail before lab allocation, even with matching public
+file pins. No sockets, host roots or external CA fetching are used. Existing
+private-key checks, public pins and recreate-only policy remain; live clients
+still verify the actual peer and IP/DNS identity. Inspection does not become
+continuous certificate monitoring or a live-handshake verdict. See
+[HTTPS_IDENTITY_LIFECYCLE.md](HTTPS_IDENTITY_LIFECYCLE.md).
+
+The explicit replacement workflow builds a new immutable image and generates
+new manifest pins before stop/start. Leaf/key replacement under one CA retains
+client CA choice; CA replacement requires an explicit new client trust bundle.
+Stale pins refuse changed assets. Cold restore uses retained replacement
+assets. Rollback is explicit recreation from the old manifest/image with its
+corresponding client CA, without modifying retained base-image identities.
+There is downtime; no live reload or automatic renewal is added.
+
+At implementation/validation commit
+`a0cac5c5a20cbe68647b0891a0ee7b077522ab8b`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42039875899/job/127287578185)
+passed in **5.581 seconds** on Ubuntu 24.04. Correctly pinned expired/future/
+client-only/untrusted offline identities refused startup before any lab state
+or namespace allocation. Real verified TLS/HTTP and served-leaf DER SHA-256
+matched the original certificate, a new leaf and private key under the same CA,
+and a replacement CA/leaf/key. Repointing the old manifest at valid new assets
+with stale pins refused startup. The replacement CA served successfully to a
+client explicitly trusting it, while the old-only CA was rejected. Cold
+restore retained the new image/pins and trust behavior. Explicit rollback to
+the retained old manifest/image restored the old exact served-leaf fingerprint
+and old CA acceptance, with the newer CA rejected. Client key isolation,
+unchanged retained base-image CA/cert/key hashes and host namespace/link/
+IPv4+IPv6 route/rule invariants passed.
+
+The original persistent HTTPS native scenario and general CI also passed on
+that commit. The other 44 jobs were intentionally skipped by manual selection
+and are not claimed as passing coverage. No failed native run preceded this
+checkpoint.
+
+Local tests passed 941 cases in 29.014 seconds with 146 environment-dependent
+skips; compilation and diff checks passed. Real local crypto fixtures verify
+expired/future/client-only/untrusted refusals, leaf rekey and refusal of an
+explicitly pinned expired rootfs identity. Socket creation is trapped during
+the offline self-check to verify that it remains network-free.
+
+Syslog TLS certificate lifecycle/durable retry and broader service work remain
+separate. No ACME, revocation, CA/intermediate fetching, unattended rotation,
+generic PKI interoperability, user website/application authentication or GUI
+is added. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=https-identity-lifecycle`.

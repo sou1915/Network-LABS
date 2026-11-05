@@ -1,5 +1,29 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: offline HTTPS identity lifecycle validated — 2026-11-05
+
+At implementation/validation commit
+`a0cac5c5a20cbe68647b0891a0ee7b077522ab8b`, HTTPS image build/startup adds
+bounded memory-BIO validation of supplied local identity trust, current
+host-clock validity and server purpose. No sockets, host trust roots or CA
+fetching; name/IP verification remains the real client's task. Existing key
+checks, pins and recreation policy remain intact. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42039875899/job/127287578185)
+passed in 5.581 seconds. Expired/future/client-only/untrusted pre-allocation
+refusal, live served-leaf DER fingerprints, leaf/key replacement under the
+same CA, stale-pin refusal, CA replacement with old-trust rejection, cold
+restore, explicit rollback, key isolation, immutable base identities and host
+invariants passed. Original HTTPS and general CI also passed on that commit;
+44 other jobs were intentionally skipped by manual suite selection.
+
+Local tests passed 941 cases in 29.014 seconds with 146 environment-dependent
+skips; compilation/diff checks passed. No failed native run preceded this
+checkpoint. See HTTPS_IDENTITY_LIFECYCLE.md and the final LAN_NEXT_STEPS
+section for usage/evidence/limits. This is explicit offline replacement with
+downtime, not automatic renewal, revocation, live reload or Syslog lifecycle.
+Remaining LAN work precedes GUI; static VXLAN VTEP/VNI/VLAN mapping and later
+separate EVPN/BGP remain required roadmap work.
+
 ## Latest LAN increment: separate IPv6 DNS/TFTP validated — 2026-11-05
 
 At implementation/validation commit
