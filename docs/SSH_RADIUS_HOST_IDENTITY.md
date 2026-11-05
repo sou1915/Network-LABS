@@ -54,7 +54,26 @@ Cold restore must preserve the exact trust file, create a fresh bridge token
 and restore authorized diagnostics. Host namespace/link/IPv4/IPv6 route/rule
 invariants and private host-key unreadability are checked.
 
-Native validation is pending for this implementation checkpoint. Run with:
+At implementation commit `19c853f6c504d6f137d756aa64624aeb5c717aaf`,
+the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42091389971/job/127470040092)
+passed in 5.793 seconds. All three selected native jobs passed, but general
+CI failed the new CLI fixture: its password/secret files inherited mode 0644
+under the runner's umask 022, and the CLI correctly refused them. Repair
+`72ae65a79fb4c8eb8576997344c80201d000e2f1` creates those test files with
+mode 0600 from creation, independent of umask. Protocol behavior, runtime
+permission checks and assertions were not relaxed.
+
+The [repaired replay](https://github.com/sou1915/Network-LABS/actions/runs/42125394285)
+passed all four selected jobs at that repair commit; 53 other jobs were
+intentionally skipped. The expanded native scenario passed again in
+6.174 seconds ([job 127588151990](https://github.com/sou1915/Network-LABS/actions/runs/42125394285/job/127588151990)).
+Standalone pinned SSH, existing RADIUS/SSH and general CI also passed.
+Local tests under explicit umask 022 passed 976 cases in 30.301 seconds with
+156 environment-dependent skips; compilation/diff/link checks passed.
+No native scenario failed; the first general-CI fixture failure remains
+part of the validation history.
+
+Run with:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
 The selector also runs standalone pinned SSH, existing RADIUS/SSH and general
 CI regressions; intentionally skipped jobs are not new proof.

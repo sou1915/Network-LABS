@@ -12,6 +12,22 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment combines [pinned SSH identity and IPv4 RADIUS diagnostics](SSH_RADIUS_HOST_IDENTITY.md)
+at `19c853f6c504d6f137d756aa64624aeb5c717aaf`. Its dedicated native
+scenario passed in 5.793 seconds in
+[run 42091389971](https://github.com/sou1915/Network-LABS/actions/runs/42091389971),
+with strict host trust, independent client-key/RADIUS denials, outages and
+unchanged trust through cold restore. All three native jobs passed in that
+attempt, but general CI failed the new CLI fixture's inherited mode-0644
+credentials under umask 022. The CLI correctly enforced its private-file rule.
+Fixture-only repair `72ae65a79fb4c8eb8576997344c80201d000e2f1` creates
+test credentials mode 0600 from creation, without relaxing checks/assertions.
+[Replay 42125394285](https://github.com/sou1915/Network-LABS/actions/runs/42125394285)
+passed all four selected jobs (new native scenario: 6.174 seconds); 53 other
+jobs were intentionally skipped. Local tests under explicit umask 022 passed
+976 cases in 30.301 seconds with 156 environment skips. Wider AAA/LAN
+acceptance scope remains open; planning estimates are unchanged.
+
 The latest bounded increment adds [explicit offline SSH host identity](SSH_HOST_IDENTITY.md)
 at `1ac714da5e0e6dceef004e4fda98d3d9a9777340`. Its dedicated native
 scenario passed in 2.703 seconds in

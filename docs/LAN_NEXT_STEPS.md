@@ -2057,3 +2057,45 @@ EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%,
 whole product about 45–50%, not measured test coverage or an ETA.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-host-key`.
+
+## Pinned SSH host identity with RADIUS diagnostics — 2026-11-05
+
+At implementation commit `19c853f6c504d6f137d756aa64624aeb5c717aaf`,
+the IPv4 `--radius --radius-ssh` generator accepts `--ssh-host-key-file`
+for fixed diagnostics. Host public identity, client SSH key and fresh
+verified RADIUS authorization remain separate checks. Direct-user and
+reusable-role declarations are allowed, but shell grants anywhere in the
+access policy, accounting, Telnet, syslog, IPv6 and NAS server co-location
+remain refused. Existing standalone pinned and ephemeral AAA defaults remain.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42091389971/job/127470040092)
+passed in 5.793 seconds. It reuses the SSH/FreeRADIUS reference suite with
+pre-provisioned pinned known_hosts and no keyscan. Wrong host trust and
+wrong client key denied access; valid client transport still required correct
+RADIUS credentials and per-user action permission. Unknown/malformed/
+incomplete credentials, shell/SCP/SFTP/injection, backend outage, dead bridge
+and unprivileged bridge impersonation controls passed. Private host-key
+unreadability/conformity passed. Cold restore preserved the exact trust file,
+created a fresh bridge token and recovered authorized diagnostics. Host
+namespace/link/IPv4/IPv6 route/rule invariants passed. The native grants are
+direct-user; local role checks do not prove every native role combination.
+
+All three selected native jobs passed in run 42091389971, but general CI
+failed the new CLI fixture: password/secret files inherited mode 0644 with
+runner umask 022, so the CLI correctly refused them. Fixture-only repair
+`72ae65a79fb4c8eb8576997344c80201d000e2f1` creates those files with
+mode 0600 from creation. Protocol/runtime checks and assertions are unchanged.
+The [repaired replay](https://github.com/sou1915/Network-LABS/actions/runs/42125394285)
+passed all four selected jobs: pinned RADIUS SSH, standalone pinned SSH,
+existing RADIUS/SSH and general CI. The other 53 jobs were intentionally
+skipped, not new native proof. The new native scenario passed again in
+6.174 seconds ([job](https://github.com/sou1915/Network-LABS/actions/runs/42125394285/job/127588151990)).
+Local full tests under explicit umask 022 passed 976 cases in 30.301 seconds
+with 156 environment skips; compilation/diff/link checks passed. No native
+scenario failed; the first general-CI fixture failure remains recorded.
+See [SSH_RADIUS_HOST_IDENTITY.md](SSH_RADIUS_HOST_IDENTITY.md).
+Remaining LAN work precedes native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%, not measured coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.

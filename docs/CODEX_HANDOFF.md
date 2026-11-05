@@ -1,5 +1,44 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: pinned SSH identity with RADIUS diagnostics — 2026-11-05
+
+Implementation `19c853f6c504d6f137d756aa64624aeb5c717aaf` permits
+`management.ssh_host_key` with explicit IPv4 `ssh_radius` diagnostics and
+adds `--ssh-host-key-file` to the corresponding generator. Fixed diagnostics
+remain behind client-key authentication and fresh RADIUS user/action checks.
+Standalone pinned identity remains supported. Shell grants (including grants
+not selected through SSH), accounting, Telnet, syslog, IPv6 and other server
+co-location on the NAS remain refused. This is not RADIUS authentication
+inside the SSH handshake. See [SSH_RADIUS_HOST_IDENTITY.md](SSH_RADIUS_HOST_IDENTITY.md).
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42091389971/job/127470040092)
+passed in 5.793 seconds. It reuses the real SSH/FreeRADIUS reference with
+pinned host identity enabled, pre-provisioned strict known_hosts and no
+keyscan. Wrong host trust/client key, wrong/unknown RADIUS credentials,
+per-user action denial, malformed credentials, shell/SCP/SFTP/injection,
+backend outage, dead bridge and bridge impersonation controls passed.
+Host-key unreadability and conformity passed; cold restore preserved the
+exact trust file, used a fresh bridge token and restored authorized actions.
+Host namespace/link/IPv4/IPv6 route/rule invariants passed. Native grants are
+direct-user; reusable-role validation has local evidence, not every native
+role/AAA combination. All three native jobs passed in that first attempt;
+general CI failed a new CLI fixture because its credential files inherited
+mode 0644 under umask 022 and the CLI correctly rejected them.
+
+Fixture-only repair `72ae65a79fb4c8eb8576997344c80201d000e2f1` creates
+those files mode 0600 from creation; protocol/runtime checks and assertions
+are unchanged. [Replay 42125394285](https://github.com/sou1915/Network-LABS/actions/runs/42125394285)
+passed all four selected jobs: pinned RADIUS SSH, standalone pinned SSH,
+existing RADIUS/SSH and general CI; 53 other jobs intentionally skipped.
+The new native scenario passed again in 6.174 seconds (job 127588151990).
+Local full tests under explicit umask 022 passed 976 cases in 30.301 seconds
+with 156 environment skips; compilation/diff/link checks passed. No native
+scenario failed; retain the first general-CI fixture failure in the history.
+
+Continue remaining LAN before native GUI. Static VXLAN and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%; this bounded combination does not close the LAN gate.
+
 ## Latest LAN increment: explicit SSH host identity — 2026-11-05
 
 Implementation `1ac714da5e0e6dceef004e4fda98d3d9a9777340` adds optional
