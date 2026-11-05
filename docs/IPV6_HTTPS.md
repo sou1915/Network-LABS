@@ -30,8 +30,10 @@ identity checks, exact public pins and runtime private-key conformity apply.
 Inspection reports conformity, not process liveness or delivered traffic.
 
 The supported composition has exactly one HTTPS server and static IPv6-only
-physical hosts/routers. Dual-stack, DNS/other managed services, dynamic
-addressing/routing, SVI/subinterfaces, firewall/security compositions and
+physical hosts/routers, with an optional separately managed
+[forwarding-only IPv6 firewall](IPV6_HTTPS_FIREWALL.md). Dual-stack,
+DNS/other managed services, dynamic addressing/routing, SVI/subinterfaces,
+local-input/other security compositions and
 multiple HTTPS servers are refused. Mutual TLS, automatic renewal/revocation,
 live reload, application content and automatic service supervision remain
 outside this profile. Save/cold restore stores declarations and requires the

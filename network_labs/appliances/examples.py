@@ -1075,6 +1075,18 @@ def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, ve
     return validate(spec)
 
 
+def ipv6_https_firewall_lab(server_rootfs, client_rootfs):
+    """One IPv6 HTTPS endpoint behind an explicit default-deny forward policy."""
+    from .https_server import policy
+    spec=ipv6_firewall_lab(client_rootfs);spec['name']='ipv6-https-firewall-lan'
+    server=spec['nodes'][2];server['rootfs']=str(Path(server_rootfs).resolve())
+    server['https_server']=policy(server_rootfs,family='ipv6')
+    server['memory_mib']=max(server['memory_mib'],32)
+    rules=spec['nodes'][1]['firewall_ipv6']['rules']
+    rules[-1].update(name='https-out',dport=443)
+    return validate(spec)
+
+
 def ipv6_https_lab(server_rootfs, client_rootfs):
     """One persistent HTTPS server beyond two static IPv6 physical routers."""
     from .https_server import policy
