@@ -64,8 +64,9 @@ DNS A/AAAA over IPv6, AAAA over an IPv4 resolver, TCP, HTTP, TLS and SNTP.
 HTTP/TLS/SNTP listeners are explicitly test-owned stdlib processes in the remote
 namespace, reaped before teardown. They prove client behavior; this original
 probe increment did not add persistent managed IPv6 servers. A separate
-[IPv6 NTP reference](IPV6_NTP.md) and [relay](IPV6_NTP_RELAY.md) now exist;
-managed IPv6 HTTPS remains outside that profile. Wrong CA/name, 404/302, NXDOMAIN,
+[IPv6 NTP reference](IPV6_NTP.md), [relay](IPV6_NTP_RELAY.md) and
+[static IPv6 HTTPS server](IPV6_HTTPS.md) now exist separately; those
+managed servers are not supplied by this probe fixture. Wrong CA/name, 404/302, NXDOMAIN,
 NODATA without A fallback, malformed SNTP, DNS outage with working literal HTTP,
 IPv6 route loss with working IPv4, drift refusal, cold restore and packet evidence
 are checked. Results are recorded in LAN_NEXT_STEPS.md.

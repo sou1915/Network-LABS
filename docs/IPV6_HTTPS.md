@@ -47,5 +47,16 @@ It checks host namespaces, links, IPv4/IPv6 routes/rules and forwarding state.
 The `ipv6-https` workflow selector also runs existing IPv4 HTTPS server,
 identity-lifecycle and general CI regression jobs.
 
-Native validation is pending for this implementation checkpoint. Run with:
+At implementation commit `81ba8ba63e1b844142e670f75a27a55645ba4895`,
+the [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42073646773/job/127407962710)
+passed its scenario in 13.213 seconds. Existing IPv4 HTTPS server and
+identity-lifecycle scenarios passed in 7.943 and 5.090 seconds, respectively.
+General CI also passed. All four selected jobs succeeded; the other 49
+workflow jobs were intentionally skipped and are not new native proof. Local tests passed 962 cases in
+30.469 seconds with 152 environment-dependent skips; skips are not native
+proof. Compilation and diff checks passed. The initial sandboxed local run
+could not open existing loopback test sockets; rerunning with socket access
+passed without changing assertions. No failed native run preceded this result.
+
+Run with:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https`.

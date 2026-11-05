@@ -1,5 +1,30 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: static IPv6 HTTPS — validated 2026-11-05
+
+Implementation `81ba8ba63e1b844142e670f75a27a55645ba4895` adds
+`example --ipv6-https --https-client-rootfs PATH`, one managed NGINX server
+behind two static physical IPv6 routers. Explicit server `family: ipv6`
+selects its numbered IPv6 eth0 address and `ipv6only=on`; existing IPv4
+defaults remain unchanged. Other services/security, dual-stack, dynamic
+addressing/routing, SVI/subinterfaces and multiple-server combinations remain
+refused. See [IPV6_HTTPS.md](IPV6_HTTPS.md) for commands and boundaries.
+
+Native run 42073646773/job 127407962710 passed in 13.213 seconds. It verified
+real trusted TLS/GET/HEAD, wrong CA/name refusal, HTTP 404/405, IPv6-only
+listener/wire, independent routing and service outages with local controls,
+unchanged server PID through routing loss, drift refusal, explicit restart,
+declarative cold restore and host invariants. Existing IPv4 HTTPS server and
+identity-lifecycle jobs and general CI also passed. All four selected jobs
+succeeded; 49 other jobs were intentionally skipped, not newly validated.
+
+Local tests passed 962 cases in 30.469 seconds with 152 environment-dependent
+skips after allowing the suite's existing loopback sockets. Compilation/diff
+checks passed; no native failure preceded this checkpoint. LAN remains before
+native GUI integration. Planning estimates remain approximately LAN 80% and
+whole product 45–50%; one bounded profile does not justify a measured increase.
+Static VXLAN, then separate EVPN/BGP and later WAN remain roadmap work.
+
 ## Current LAN readiness audit — completed 2026-11-05
 
 The user requested continued work followed by a concrete progress percentage,

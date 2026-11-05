@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [managed static IPv6 HTTPS](IPV6_HTTPS.md)
+at `81ba8ba63e1b844142e670f75a27a55645ba4895`. Its dedicated native
+scenario passed in 13.213 seconds in
+[run 42073646773](https://github.com/sou1915/Network-LABS/actions/runs/42073646773),
+alongside the existing IPv4 HTTPS, identity-lifecycle and general CI jobs.
+All four selected jobs passed; 49 other jobs were intentionally skipped.
+Local tests passed 962 cases in 30.469
+seconds with 152 environment-dependent skips. The estimates below are
+unchanged: this closes one bounded service gap rather than a whole phase.
+
 The full workflow audit completed at code/documentation baseline
 `f3146a0912fb77f59cd12bd3f20c87dc929d5f14`:
 [run 42056055804](https://github.com/sou1915/Network-LABS/actions/runs/42056055804).
@@ -90,7 +100,7 @@ These weights are assumptions for this report, not an earlier delivery contract.
   static IPv4/IPv6, OSPFv2/v3 and the two-link IPv6 DNS failover reference.
 - DHCPv4 and selected DHCPv6/RA/relay/PD, real DNS A/AAAA, read-only TFTP,
   clockless NTP reference/relay, SNMP and scoped firewall/security profiles.
-- Persistent fixed HTTPS and Syslog TCP/TLS, explicit certificate/key/CA
+- Persistent fixed IPv4/separate static IPv6 HTTPS and Syslog TCP/TLS, explicit certificate/key/CA
   replacement, node-overlay sender queues and guarded dead-sender recovery.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
   journal/reconciliation, finite wired EAP-MD5 admission/reauthentication.

@@ -1885,3 +1885,40 @@ weights are planning aids, not measured coverage, elapsed effort or an ETA.
 implemented profiles from the old unimplemented entries. Complete remaining
 LAN scope/acceptance before full native GUI integration. Static VXLAN mapping,
 then separate EVPN/BGP and later WAN remain tracked.
+
+## Managed static IPv6 HTTPS — 2026-11-05
+
+At implementation commit `81ba8ba63e1b844142e670f75a27a55645ba4895`,
+`example --ipv6-https` adds one persistent NGINX server behind two numbered
+static IPv6 physical routers. Distinct client/server rootfs images keep the
+identity on its server; explicit `https_server.family: ipv6` renders only
+the declared IPv6 eth0 listener with `ipv6only=on`. Omitted family retains
+the IPv4 policy. No wildcard/plaintext listener or IPv4 fallback is added.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42073646773/job/127407962710)
+passed in 13.213 seconds. It verified trusted IPv6 IP SAN/CA and DNS-name
+connections, wrong CA/name rejection, fixed GET body and HEAD, 404/405,
+IPv6-only addressing/listener and actual encrypted wire traffic. Disabling
+R1 forwarding broke the remote client while a direct R2 TLS control worked
+and the server PID stayed unchanged. Restoring forwarding recovered service.
+Stopping NGINX broke HTTPS while routed ICMPv6 still worked; inspection stayed
+explicitly config-only and an explicit restart recovered service. Forwarding/
+config drift refused save. Exact declarations and public pins survived saved
+cold restore, fresh TLS passed, and host namespaces/links/routes/rules/IPv6
+forwarding invariants remained unchanged.
+
+Existing IPv4 HTTPS server and identity-lifecycle jobs passed in 7.943 and
+5.090 seconds. General CI also passed in run 42073646773: four selected jobs
+succeeded, 49 other jobs intentionally skipped. Local tests passed
+962 cases in 30.469 seconds with 152 environment-dependent skips after
+allowing existing loopback test sockets; compilation/diff checks passed.
+No failed native run preceded this result.
+
+The [guide](IPV6_HTTPS.md) documents the bounded one-server IPv6-only profile.
+Dual-stack, dynamic routing/addressing, DNS/other services, firewall/security,
+SVI/subinterfaces and multiple-server compositions remain refused. Mutual
+TLS, automatic identity lifecycle, application content and automatic process
+supervision remain separate work. Remaining LAN work precedes native GUI;
+static VXLAN mapping, then separate EVPN/BGP and WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https`.
