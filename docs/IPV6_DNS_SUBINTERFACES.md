@@ -34,6 +34,10 @@ mixed/partially numbered dual-stack subinterfaces, AAA, DHCP/RA/SLAAC, OSPFv3,
 SVIs or forwarding firewall/security combinations. Existing physical dual-stack
 DNS behavior stays in place, including refusal of partially numbered profiles.
 
+A separately scoped [DNS/TFTP composition](IPV6_DNS_TFTP.md) now permits a
+read-only IPv6 TFTP server on another host, with explicit managed-resolver
+constraints and independent service/path fault proof.
+
 The dedicated native scenario requires real dnsmasq A/AAAA answers over IPv6
 UDP/TCP, IPv6-only sockets/address observations, VLAN 10/100 DNS captures,
 NXDOMAIN, service outage/recovery, static-route and VLAN failure isolation,

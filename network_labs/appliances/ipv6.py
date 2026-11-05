@@ -96,7 +96,15 @@ def validate_lab(spec):
         servers=[n for n in spec['nodes'] if n.get('tftp_server')]
         excluded=('svis','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
                   'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
-                  'dhcpv6_pd_server','dns_server','resolvers','management','radius_server','radius_access')
+                  'dhcpv6_pd_server','management','radius_server','radius_access')
+        dns_servers=[n for n in spec['nodes'] if n.get('dns_server')]
+        if any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes']):
+            if len(dns_servers)!=1 or not dns_servers[0]['dns_server'].get('listen_ipv6'):
+                raise ValueError('IPv6 TFTP/DNS coexistence requires one separate managed IPv6 DNS server.')
+            dns=dns_servers[0]
+            resolver=str(ipaddress.IPv6Interface(dns['ipv6'][dns['dns_server']['interface']]).ip)
+            if dns in servers or any(n.get('resolvers') and (n in servers or n['resolvers']!=[resolver]) for n in spec['nodes']):
+                raise ValueError('IPv6 TFTP/DNS requires separate service nodes and clients using only the managed IPv6 resolver.')
         def tftp_numbering(node):
             # Static dot1Q parents are unnumbered; every routed child and
             # other physical host/router port still needs explicit IPv6.
@@ -107,7 +115,7 @@ def validate_lab(spec):
                 n['role'] not in ('host','router','switch') or any(n.get(k) for k in excluded) or
                 any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
                 (n['role']!='switch' and not tftp_numbering(n)) for n in spec['nodes']):
-            raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only hosts, dot1Q routers or Linux VLAN switches, without other service/security compositions.')
+            raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only hosts, dot1Q routers or Linux VLAN switches, with only separately managed DNS coexistence.')
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
     from .lan import addresses

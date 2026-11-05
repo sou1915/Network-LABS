@@ -673,6 +673,15 @@ def ipv6_tftp_subinterfaces_lab(rootfs, files=None):
     return validate(spec)
 
 
+def ipv6_dns_tftp_lab(rootfs, files=None):
+    """Separate DNS and TFTP servers on static IPv6 ROAS and transit paths."""
+    spec=ipv6_dns_subinterfaces_lab(rootfs);spec['name']='ipv6-dns-tftp-lan'
+    spec['nodes'][3]['dns_server'].update(records={},records_ipv6={'files.lab.test':'2001:db8:20::10'})
+    spec['nodes'][2]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 DNS and TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
 def tftp_lab(rootfs, files=None):
     """Two hosts and a switch serving declared public files."""
     from .spec import example

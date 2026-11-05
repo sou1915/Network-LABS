@@ -32,7 +32,9 @@ read-only protocol limits, source/peer binding, hash checks and bounded retries
 remain unchanged: eight files, 64 KiB per binary file, no writes, authentication,
 encryption, DNS/family fallback or received-file persistence. This composition
 excludes SVIs, STP, bundles, dynamic IPv6, IPv4 addressing/routing and other
-services/security policies. It does not establish generic MTU interoperability.
+services/security policies except the separately scoped
+[managed DNS/TFTP composition](IPV6_DNS_TFTP.md). It does not establish generic
+MTU interoperability.
 
 The dedicated native scenario requires actual request/reply traffic on tagged
 VLANs 10 and 100, successful clients on VLANs 10 and 20, binary/empty/exact/
