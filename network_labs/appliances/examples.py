@@ -674,6 +674,17 @@ def tftp_lab(rootfs, files=None):
     return validate(spec)
 
 
+def ipv6_ntp_lab(rootfs):
+    """Isolated IPv6 local reference, one allowed and one denied SNTP client."""
+    spec=ipv6_routed_lab(rootfs);spec['name']='ipv6-ntp-lan'
+    spec['nodes'][3]['ntp_server']={'interface':'eth0','family':'ipv6','local_stratum':10,'clients':['2001:db8:10::10']}
+    spec['nodes'][2]['interfaces']['eth2']='';spec['nodes'][2]['ipv6']['eth2']='2001:db8:30::1/64'
+    spec['nodes'].append({'name':'PC3','runtime':'oci','rootfs':str(rootfs),'interfaces':{'eth0':''},'ipv6':{'eth0':'2001:db8:30::30/64'},
+        'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:30::1','interface':'eth0'}]})
+    spec['links'].append([['R2','eth2'],['PC3','eth0']])
+    return validate(spec)
+
+
 def ntp_lab(rootfs):
     """Isolated client, relay and deliberately unsynchronised local reference."""
     from .spec import example

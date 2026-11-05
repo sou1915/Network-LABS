@@ -22,16 +22,28 @@ def validate_node(node):
     config = node.setdefault('ntp_server', None)
     if config is None:
         return
-    keys(config, ('interface', 'upstream', 'local_stratum', 'clients'), 'NTP server')
+    keys(config, ('interface', 'upstream', 'local_stratum', 'clients','family'), 'NTP server')
+    family=config.get('family','ipv4')
+    if family not in ('ipv4','ipv6'):raise ValueError('NTP family must be ipv4 or ipv6.')
     port = config.get('interface'); addresses_by_port = addresses(node)
-    if (node['runtime'] != 'oci' or not isinstance(port, str) or not addresses_by_port.get(port) or
+    if (node['runtime'] != 'oci' or not isinstance(port, str) or (not addresses_by_port.get(port) if family=='ipv4' else not node.get('ipv6',{}).get(port)) or
             port in node['shutdown'] or node.get('startup')):
         raise ValueError('NTP requires a numbered UP OCI interface and no unmanaged startup.')
-    interface = ipaddress.IPv4Interface(addresses_by_port[port]); local = interface.ip
-    if (local.is_unspecified or local.is_multicast or local.is_loopback or local.is_reserved or
-            (interface.network.prefixlen < 31 and local in (interface.network.network_address, interface.network.broadcast_address))):
-        raise ValueError('NTP server requires a usable IPv4 address.')
+    if family=='ipv4':
+        interface = ipaddress.IPv4Interface(addresses_by_port[port]); local = interface.ip
+        if (local.is_unspecified or local.is_multicast or local.is_loopback or local.is_reserved or
+                (interface.network.prefixlen < 31 and local in (interface.network.network_address, interface.network.broadcast_address))):
+            raise ValueError('NTP server requires a usable IPv4 address.')
+    else:
+        if node['role']!='host' or set(node['interfaces'])!={'eth0'} or any(addresses_by_port.values()) or 'upstream' in config:
+            raise ValueError('IPv6 NTP requires a single-interface IPv6-only host with isolated local_stratum, without upstream.')
+        local=ipaddress.IPv6Interface(node['ipv6'][port]).ip
     def remote(value):
+        if family=='ipv6':
+            from .service_probe import remote_address
+            address=remote_address(value,family)
+            if address==str(local):raise ValueError('NTP peer must be remote.')
+            return address
         address = ipaddress.IPv4Address(value)
         if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_reserved or address == local:
             raise ValueError('NTP peers must be remote unicast IPv4 addresses.')
@@ -46,7 +58,7 @@ def validate_node(node):
         integer(config['local_stratum'], 2, 14, 'NTP local reference stratum')
     clients = config.get('clients')
     if not isinstance(clients, list) or not 1 <= len(clients) <= 16 or not all(isinstance(x, str) for x in clients):
-        raise ValueError('NTP requires 1..16 explicit IPv4 clients.')
+        raise ValueError('NTP requires 1..16 explicit clients matching its family.')
     config['clients'] = sorted(set(remote(x) for x in clients))
     if config.get('upstream') in config['clients']:
         raise ValueError('NTP upstream and downstream clients must be distinct.')
@@ -58,8 +70,9 @@ def validate_lab(spec):
         config = node.get('ntp_server')
         if not config:
             continue
+        family=config.get('family','ipv4')
         for address in ([config['upstream']] if 'upstream' in config else []) + config['clients']:
-            peers = [n for n in spec['nodes'] if any(v and str(ipaddress.IPv4Interface(v).ip) == address for v in addresses(n).values())]
+            peers = [n for n in spec['nodes'] if any(v and str((ipaddress.IPv6Interface(v) if family=='ipv6' else ipaddress.IPv4Interface(v)).ip) == address for v in (n.get('ipv6',{}).values() if family=='ipv6' else addresses(n).values()))]
             if len(peers) != 1 or peers[0]['name'] == node['name']:
                 raise ValueError('Each NTP peer must identify exactly one other managed node.')
 
@@ -67,11 +80,12 @@ def validate_lab(spec):
 def config_text(node):
     from .lan import addresses
     config = node['ntp_server']
-    address = str(ipaddress.IPv4Interface(addresses(node)[config['interface']]).ip)
+    family=config.get('family','ipv4')
+    address = str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip) if family=='ipv6' else str(ipaddress.IPv4Interface(addresses(node)[config['interface']]).ip)
     source = 'server ' + config['upstream'] + ' iburst' if 'upstream' in config else 'local stratum ' + str(config['local_stratum'])
     return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress ' + CONTROL_SOCKET, 'pidfile ' + PIDFILE,
                       source,
-                      *['allow ' + client + '/32' for client in config['clients']], ''])
+                      *['allow ' + client + ('/128' if family=='ipv6' else '/32') for client in config['clients']], ''])
 
 
 def prepare_files(bundle, node):
@@ -80,19 +94,22 @@ def prepare_files(bundle, node):
         path.write_text(config_text(node)); path.chmod(0o644)
 
 
-def command():
-    return [BINARY, '-n', '-4', '-x', '-u', 'root', '-f', CONFIG]
+def command(family='ipv4'):
+    return [BINARY, '-n', '-6' if family=='ipv6' else '-4', '-x', '-u', 'root', '-f', CONFIG]
 
 
 def start_servers(manager):
     from .runtime import RuntimeFailure
-    for node in manager.state['spec']['nodes']:
+    for index,node in enumerate(manager.state['spec']['nodes']):
         if not node.get('ntp_server'):
             continue
+        if node['ntp_server'].get('family','ipv4')=='ipv6':
+            from .ipv6 import wait_addresses
+            wait_addresses(manager,index,node)
         checked = manager.crun('exec', node['name'], BINARY, '-p', '-f', CONFIG, check=False, timeout=5)
         if checked.returncode:
             raise RuntimeFailure(node['name'] + ': chronyd configuration rejected: ' + (checked.stdout + checked.stderr)[-2048:])
-        manager.crun('exec', '--detach', node['name'], *command(), log=manager.directory / node['name'] / 'chronyd.log')
+        manager.crun('exec', '--detach', node['name'], *command(node['ntp_server'].get('family','ipv4')), log=manager.directory / node['name'] / 'chronyd.log')
 
 
 def observe_process(manager, node):
@@ -116,7 +133,7 @@ def observe_process(manager, node):
         args = proc.stdout.split('\0')
         if args[-1] == '':
             args.pop()
-        if args != command():
+        if args != command(node['ntp_server'].get('family','ipv4')):
             result.update(status='mismatch', detail='PID command line differs from managed chronyd invocation.')
             return result
         result.update(status='observed', detail='PID and expected invocation observed at read time.')
@@ -130,11 +147,13 @@ def observe(manager, node):
     from .lan import addresses
     from .ntp_socket import observe_socket
     result = observe_config(manager, node['name'], CONFIG, config_text(node))
-    address = str(ipaddress.IPv4Interface(addresses(node)[node['ntp_server']['interface']]).ip)
+    family=node['ntp_server'].get('family','ipv4')
+    address = str(ipaddress.IPv6Interface(node['ipv6'][node['ntp_server']['interface']]).ip) if family=='ipv6' else str(ipaddress.IPv4Interface(addresses(node)[node['ntp_server']['interface']]).ip)
     return {'configuration_verified': result['configuration_verified'], 'file': result, 'process': observe_process(manager, node),
+            'family':family,
             'udp_socket': observe_socket(manager, node, address),
             'upstream': node['ntp_server'].get('upstream'), 'local_stratum': node['ntp_server'].get('local_stratum'), 'clients': node['ntp_server']['clients'],
-            'note': 'File, PID/argv and IPv4 UDP bindings are separate sequential observations. A binding is not attributed to chronyd and does not prove synchronization or delivery. PID reuse or state changes may occur. Local reference does not prove accurate time. No clock adjustment; unauthenticated IPv4 NTP.'}
+            'note': 'File, PID/argv and selected-family UDP bindings are separate sequential observations. A binding is not attributed to chronyd and does not prove synchronization or delivery. PID reuse or state changes may occur. Local reference does not prove accurate time. No clock adjustment; unauthenticated NTP.'}
 
 
 def drift(manager, node):

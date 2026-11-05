@@ -16,9 +16,30 @@ on:
           - ipv6-input-firewall
           - dns-aaaa
           - ipv6-tftp
+          - ipv6-ntp
 jobs:
+  ipv6-ntp-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-ntp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 chronyd prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump chrony
+      - name: Verify clockless IPv6 local reference, client ACL, observations, outages and restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_ntp_integration.py -v
+  ntp-ipv4-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-ntp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv4 NTP regression prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux chrony
+      - name: Retain real IPv4 local reference, relay and client behavior
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 PYTHONPATH=tests /usr/bin/python3 -m unittest test_native_integration.RealContainerTests.test_ntp_local_reference_relay_and_client_with_real_chronyd -v
   ipv6-tftp-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-tftp'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-ntp'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -158,7 +179,7 @@ jobs:
       - name: Verify real accounting response loss, start gate, stop uncertainty and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_accounting_retry_integration.py -v
   ipv6-service-probe-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-ntp'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -445,7 +466,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-ntp'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
