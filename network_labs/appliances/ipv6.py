@@ -94,14 +94,20 @@ def validate_lab(spec):
     tftp_ipv6=any(n.get('tftp_server') for n in spec['nodes'])
     if tftp_ipv6:
         servers=[n for n in spec['nodes'] if n.get('tftp_server')]
-        excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
+        excluded=('svis','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
                   'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
                   'dhcpv6_pd_server','dns_server','resolvers','management','radius_server','radius_access')
+        def tftp_numbering(node):
+            # Static dot1Q parents are unnumbered; every routed child and
+            # other physical host/router port still needs explicit IPv6.
+            parents={sub['parent'] for sub in node['subinterfaces'].values()}
+            routed=(set(node['interfaces'])-parents)|set(node['subinterfaces'])
+            return set(node['ipv6'])==routed
         if len(servers)!=1 or servers[0]['tftp_server'].get('family')!='ipv6' or any(
-                n['role'] not in ('host','router') or any(n.get(k) for k in excluded) or
+                n['role'] not in ('host','router','switch') or any(n.get(k) for k in excluded) or
                 any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
-                set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
-            raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only physical hosts/routers, without other service/security compositions.')
+                (n['role']!='switch' and not tftp_numbering(n)) for n in spec['nodes']):
+            raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only hosts, dot1Q routers or Linux VLAN switches, without other service/security compositions.')
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
     from .lan import addresses

@@ -39,8 +39,10 @@ saved, and no write protocol, encryption or authentication is added.
 
 The managed IPv6 server profile is restricted to one separate single-interface
 server, statically numbered physical IPv6-only hosts/routers and static routes.
-DNS/AAA/management, dynamic IPv6, switches, SVIs/subinterfaces, firewall/security
-and mixed/dual-stack service compositions are refused here. Existing read-only
+The separately scoped [tagged-routing profile](IPV6_TFTP_SUBINTERFACES.md)
+also permits static dot1Q routers and Linux VLAN switches. DNS/AAA/management,
+dynamic IPv6, SVIs, firewall/security and mixed/dual-stack compositions remain
+refused. Existing read-only
 IPv4 TFTP defaults remain available. This does not establish generic
 interoperability with every external server or IPv6 path MTU.
 

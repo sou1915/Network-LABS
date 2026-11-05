@@ -665,6 +665,14 @@ def ipv6_tftp_lab(rootfs, files=None):
     return validate(spec)
 
 
+def ipv6_tftp_subinterfaces_lab(rootfs, files=None):
+    """Read-only IPv6 TFTP over ROAS VLANs and a tagged static transit."""
+    spec=ipv6_subinterfaces_lab(rootfs);spec['name']='ipv6-tftp-subinterfaces-lan'
+    spec['nodes'][3]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 tagged TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
 def tftp_lab(rootfs, files=None):
     """Two hosts and a switch serving declared public files."""
     from .spec import example
