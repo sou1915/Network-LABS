@@ -1144,7 +1144,7 @@ def dual_stack_dns_lab(rootfs, *, resolver_family='ipv4'):
     return validate(spec)
 
 
-def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None):
+def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None, ssh_host_key_file=None):
     """IPv4 RADIUS gates fixed SSH diagnostics over static routed IPv4 and IPv6."""
     spec = dual_stack_lab(rootfs); spec['name'] = 'dual-stack-radius-lan'
     client, _, _, server = spec['nodes']
@@ -1154,6 +1154,9 @@ def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *
     client['radius_access'] = {'server': '198.51.100.20', 'users': {username: actions}}
     client['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key], 'ssh_radius': True,
                             'ssh_ipv6': True, 'ssh_actions': actions}
+    if ssh_host_key_file is not None:
+        from .ssh_host_key import policy
+        client['management']['ssh_host_key']=policy(ssh_host_key_file)
     return validate(spec)
 
 

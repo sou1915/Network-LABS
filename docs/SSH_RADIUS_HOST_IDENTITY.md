@@ -33,11 +33,13 @@ starts a fresh bridge while preserving the declared server identity. It does
 not restore live SSH sessions or credential state. Key/action/RADIUS failures
 must deny diagnostics; host-key trust never bypasses RADIUS authorization.
 
-Only fixed IPv4 diagnostics are supported here. Direct-user and reusable-role
+This reference covers fixed IPv4 diagnostics. A separate
+[dual-stack pinned reference](DUAL_STACK_SSH_HOST_IDENTITY.md) adds both SSH
+families with the same IPv4 RADIUS backend. Direct-user and reusable-role
 declarations are allowed, but shell grants (including grants not requested
-through SSH), accounting, Telnet, syslog, IPv6 and other managed-server
-co-location on the NAS remain refused. Existing shell/accounting/dual-stack
-profiles retain their previous ephemeral-host-key scope. The native increment
+through SSH), accounting, Telnet, syslog and other managed-server
+co-location on the NAS remain refused. Wider shell/accounting/IPv6
+compositions retain their separate scope. The native IPv4 increment
 uses direct-user grants; it does not claim every role/AAA combination.
 Protected RADIUS transport, automatic identity lifecycle and SSH host
 certificates remain separate work.

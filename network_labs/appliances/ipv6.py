@@ -140,6 +140,8 @@ def validate_lab(spec):
             raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only hosts, dot1Q routers or Linux VLAN switches, with only separately managed DNS coexistence.')
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
+    if dns_coexistence and any((n.get('management') or {}).get('ssh_host_key') is not None for n in spec['nodes']):
+        raise ValueError('Pinned dual-stack SSH identity excludes DNS coexistence; use the separately scoped RADIUS diagnostic profile.')
     from .lan import addresses
     ipv6_only_dns = dns_coexistence and not aaa_coexistence and all(
         not any(addresses(n).values()) and not n['forwarding'] and not n.get('gateway') and not n['routes']

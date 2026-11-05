@@ -57,8 +57,9 @@ is a separate explicit action. No automatic key rotation, key recovery,
 encrypted/hardware keys, SSH host certificates or SSH CA service is added.
 This bounded option requires restricted IPv4 SSH without Telnet, syslog or
 other managed server co-location. A separate [pinned RADIUS diagnostic
-profile](SSH_RADIUS_HOST_IDENTITY.md) also exists; shell/accounting and wider
-AAA/IPv6 combinations remain separate work. Existing ephemeral SSH/RADIUS
+profile](SSH_RADIUS_HOST_IDENTITY.md) also exists, including a separately
+bounded [dual-stack diagnostic reference](DUAL_STACK_SSH_HOST_IDENTITY.md).
+Shell/accounting and wider AAA/IPv6 combinations remain separate work. Existing ephemeral SSH/RADIUS
 defaults are unchanged.
 
 ## Validation

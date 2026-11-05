@@ -54,10 +54,12 @@ def validate(node):
         raise ValueError('SSH host key requires an absolute offline file path.')
     value['public_key']=public_key(value.get('public_key'))
     config=node['management']
-    if (not config['ssh_keys'] or config.get('ssh_actions') is None or node.get('ipv6') or
+    if (not config['ssh_keys'] or config.get('ssh_actions') is None or
             config.get('telnet_password_hash') or config.get('telnet_radius') or config.get('syslog_remote') or
             any(node.get(k) for k in ('radius_server','syslog_server','snmp_agent','snmp_receiver','ntp_server','tftp_server','dns_server'))):
-        raise ValueError('Pinned SSH host identity requires restricted IPv4 SSH without Telnet, syslog or other server co-location.')
+        raise ValueError('Pinned SSH host identity requires restricted SSH without Telnet, syslog or other server co-location.')
+    if node.get('ipv6') and not (config.get('ssh_radius') and config.get('ssh_ipv6')):
+        raise ValueError('Pinned IPv6 SSH requires the explicit dual-stack RADIUS diagnostic profile.')
     access=node.get('radius_access')
     if config.get('ssh_radius'):
         from .radius_access import allowed_actions
