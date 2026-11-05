@@ -685,6 +685,19 @@ def ipv6_ntp_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_ntp_relay_lab(rootfs):
+    """One local source and one clockless IPv6 relay with explicit client ACLs."""
+    spec=ipv6_ntp_lab(rootfs);spec['name']='ipv6-ntp-relay-lan'
+    relay=spec['nodes'][3]['ntp_server'];relay.pop('local_stratum');relay['upstream']='2001:db8:40::40'
+    spec['nodes'][2]['interfaces']['eth3']='';spec['nodes'][2]['ipv6']['eth3']='2001:db8:40::1/64'
+    spec['nodes'][1]['ipv6_routes'].append({'destination':'2001:db8:40::/64','gateway':'2001:db8:100::2','interface':'eth1'})
+    spec['nodes'].append({'name':'PC4','runtime':'oci','rootfs':str(rootfs),'interfaces':{'eth0':''},'ipv6':{'eth0':'2001:db8:40::40/64'},
+        'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:40::1','interface':'eth0'}],
+        'ntp_server':{'interface':'eth0','family':'ipv6','local_stratum':10,'clients':['2001:db8:20::20']}})
+    spec['links'].append([['R2','eth3'],['PC4','eth0']])
+    return validate(spec)
+
+
 def ntp_lab(rootfs):
     """Isolated client, relay and deliberately unsynchronised local reference."""
     from .spec import example

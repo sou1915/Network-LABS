@@ -86,11 +86,11 @@ def validate_lab(spec):
         excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
                   'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
                   'dhcpv6_pd_server','dns_server','resolvers','tftp_server','management','radius_server','radius_access')
-        if len(servers)!=1 or servers[0]['ntp_server'].get('family')!='ipv6' or any(
+        if not 1<=len(servers)<=2 or any(n['ntp_server'].get('family')!='ipv6' for n in servers) or (len(servers)==2 and sum('upstream' in n['ntp_server'] for n in servers)!=1) or any(
                 n['role'] not in ('host','router') or any(n.get(k) for k in excluded) or
                 any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
                 set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
-            raise ValueError('IPv6 NTP requires one explicit isolated local reference and static IPv6-only physical hosts/routers without other service/security compositions.')
+            raise ValueError('IPv6 NTP requires a managed local reference with at most one relay and static IPv6-only physical hosts/routers without other service/security compositions.')
     tftp_ipv6=any(n.get('tftp_server') for n in spec['nodes'])
     if tftp_ipv6:
         servers=[n for n in spec['nodes'] if n.get('tftp_server')]

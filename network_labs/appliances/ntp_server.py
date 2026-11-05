@@ -35,8 +35,8 @@ def validate_node(node):
                 (interface.network.prefixlen < 31 and local in (interface.network.network_address, interface.network.broadcast_address))):
             raise ValueError('NTP server requires a usable IPv4 address.')
     else:
-        if node['role']!='host' or set(node['interfaces'])!={'eth0'} or any(addresses_by_port.values()) or 'upstream' in config:
-            raise ValueError('IPv6 NTP requires a single-interface IPv6-only host with isolated local_stratum, without upstream.')
+        if node['role']!='host' or set(node['interfaces'])!={'eth0'} or any(addresses_by_port.values()):
+            raise ValueError('IPv6 NTP requires a single-interface IPv6-only host.')
         local=ipaddress.IPv6Interface(node['ipv6'][port]).ip
     def remote(value):
         if family=='ipv6':
@@ -52,7 +52,7 @@ def validate_node(node):
         raise ValueError('Choose exactly one NTP upstream or isolated local reference.')
     if 'upstream' in config:
         if not isinstance(config['upstream'], str):
-            raise ValueError('NTP upstream must be an explicit IPv4 address.')
+            raise ValueError('NTP upstream must be an explicit address matching its family.')
         config['upstream'] = remote(config['upstream'])
     else:
         integer(config['local_stratum'], 2, 14, 'NTP local reference stratum')
@@ -75,6 +75,22 @@ def validate_lab(spec):
             peers = [n for n in spec['nodes'] if any(v and str((ipaddress.IPv6Interface(v) if family=='ipv6' else ipaddress.IPv4Interface(v)).ip) == address for v in (n.get('ipv6',{}).values() if family=='ipv6' else addresses(n).values()))]
             if len(peers) != 1 or peers[0]['name'] == node['name']:
                 raise ValueError('Each NTP peer must identify exactly one other managed node.')
+    servers={str(ipaddress.IPv6Interface(n['ipv6'][n['ntp_server']['interface']]).ip):n
+             for n in spec['nodes'] if (n.get('ntp_server') or {}).get('family')=='ipv6'}
+    for address,node in servers.items():
+        policy=node['ntp_server']
+        if 'upstream' not in policy:continue
+        parent=servers.get(policy['upstream'])
+        if parent is None:raise ValueError('IPv6 NTP upstream must be the bound address of another managed IPv6 NTP server.')
+        if address not in parent['ntp_server']['clients']:raise ValueError('IPv6 NTP upstream must explicitly allow the relay address.')
+        visited={address};current=policy['upstream']
+        while True:
+            if current in visited:raise ValueError('IPv6 NTP upstream cycles are refused.')
+            visited.add(current);up=servers.get(current)
+            if up is None:raise ValueError('IPv6 NTP hierarchy must terminate at a managed local reference.')
+            config=up['ntp_server']
+            if 'local_stratum' in config:break
+            current=config['upstream']
 
 
 def config_text(node):
@@ -85,6 +101,7 @@ def config_text(node):
     source = 'server ' + config['upstream'] + ' iburst' if 'upstream' in config else 'local stratum ' + str(config['local_stratum'])
     return '\n'.join(['bindaddress ' + address, 'cmdport 0', 'bindcmdaddress ' + CONTROL_SOCKET, 'pidfile ' + PIDFILE,
                       source,
+                      *(['bindacqaddress '+address] if family=='ipv6' and 'upstream' in config else []),
                       *['allow ' + client + ('/128' if family=='ipv6' else '/32') for client in config['clients']], ''])
 
 
@@ -98,10 +115,10 @@ def command(family='ipv4'):
     return [BINARY, '-n', '-6' if family=='ipv6' else '-4', '-x', '-u', 'root', '-f', CONFIG]
 
 
-def start_servers(manager):
+def start_servers(manager, names=None):
     from .runtime import RuntimeFailure
     for index,node in enumerate(manager.state['spec']['nodes']):
-        if not node.get('ntp_server'):
+        if not node.get('ntp_server') or (names is not None and node['name'] not in names):
             continue
         if node['ntp_server'].get('family','ipv4')=='ipv6':
             from .ipv6 import wait_addresses
