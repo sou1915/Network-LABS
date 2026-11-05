@@ -15,21 +15,23 @@ from network_labs.appliances.__main__ import main
 from test_native_verify import manager_for, completed
 
 
-def exchange(data, *, error=None, inject_other_tid=False, repeat_final=False):
-    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); listener.bind(('127.0.0.1', 0)); listener.settimeout(3)
+def exchange(data, *, error=None, inject_other_tid=False, repeat_final=False, family='ipv4'):
+    af=socket.AF_INET6 if family=='ipv6' else socket.AF_INET
+    address='::1' if family=='ipv6' else '127.0.0.1'
+    listener = socket.socket(af, socket.SOCK_DGRAM); listener.bind((address, 0)); listener.settimeout(3)
     port = listener.getsockname()[1]; received = []; faults = []
     def server():
         try:
             request, peer = listener.recvfrom(1024); received.append(request)
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transfer:
-                transfer.bind(('127.0.0.1', 0)); transfer.settimeout(3)
+            with socket.socket(af, socket.SOCK_DGRAM) as transfer:
+                transfer.bind((address, 0)); transfer.settimeout(3)
                 if error is not None:
                     transfer.sendto(struct.pack('!HH', 5, error) + b'error\x00', peer); return
                 block = 1
                 while True:
                     chunk = data[(block - 1) * 512:block * 512]
                     if block == 2 and inject_other_tid:
-                        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as rogue:
+                        with socket.socket(af, socket.SOCK_DGRAM) as rogue:
                             rogue.sendto(struct.pack('!HH', 3, block) + b'wrong', peer)
                     transfer.sendto(struct.pack('!HH', 3, block) + chunk, peer)
                     if (block - 1) * 512 + len(chunk) > 65536: return
@@ -51,7 +53,7 @@ def exchange(data, *, error=None, inject_other_tid=False, repeat_final=False):
             faults.append(str(exc))
     thread = threading.Thread(target=server, daemon=True); thread.start()
     try:
-        result = wire_read({'source': '127.0.0.1', 'address': '127.0.0.1', 'port': port, 'filename': 'sample.bin', 'timeout': 3})
+        result = wire_read({'source': address, 'address': address, 'port': port, 'filename': 'sample.bin', 'timeout': 3,'family':family})
         thread.join(4)
         if thread.is_alive(): raise AssertionError('TFTP test server did not finish')
         if faults: raise AssertionError(faults)
@@ -61,6 +63,14 @@ def exchange(data, *, error=None, inject_other_tid=False, repeat_final=False):
 
 
 class NativeTftpTests(unittest.TestCase):
+    def test_ipv6_tuple_pinning_duplicate_final_and_binary_hash(self):
+        payload=b'\x00\xffIPv6'*140
+        result,_=exchange(payload,family='ipv6',inject_other_tid=True,repeat_final=True)
+        self.assertEqual(result['status'],'passed',result)
+        self.assertEqual(result['sha256'],hashlib.sha256(payload).hexdigest())
+        self.assertEqual(result['bytes_received'],len(payload))
+        self.assertEqual(result['final_ack']['duplicate_acks'],1)
+
     def test_final_ack_loss_with_empty_exact_block_and_multiblock_files(self):
         for data in (b'', b'x' * 512, b'bin\x00' * 170):
             with self.subTest(size=len(data)):

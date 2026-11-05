@@ -43,7 +43,9 @@ def read(request):
     result = {'status': 'unknown', 'bytes_received': 0, 'sha256': None, 'retransmissions': 0}
     deadline = time.monotonic() + request['timeout']
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        family=socket.AF_INET6 if request.get('family','ipv4')=='ipv6' else socket.AF_INET
+        with socket.socket(family, socket.SOCK_DGRAM) as sock:
+            if family==socket.AF_INET6:sock.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
             sock.bind((request['source'], 0))
             pending = b'\x00\x01' + request['filename'].encode('ascii') + b'\x00octet\x00'
             destination = (request['address'], request['port'])

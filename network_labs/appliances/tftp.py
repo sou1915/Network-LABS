@@ -8,17 +8,18 @@ import subprocess
 import sys
 
 from .runtime import RuntimeFailure
-from .service_probe import unicast
+from .service_probe import remote_address
 from .spec import integer
 from .verify import _endpoint
 from .route_lookup import _json_read
 
 
-def read(manager, source, address, filename, *, timeout=5, expected_sha256=None, block_size=None):
+def read(manager, source, address, filename, *, timeout=5, expected_sha256=None, block_size=None, family='ipv4'):
     integer(timeout, 1, 10, 'TFTP deadline seconds')
     if block_size is not None: integer(block_size, 512, 1428, 'TFTP requested block size')
-    if not isinstance(address, str): raise ValueError('TFTP requires a literal IPv4 server address.')
-    address = unicast(address)
+    if family not in ('ipv4','ipv6'):raise ValueError('TFTP family must be ipv4 or ipv6.')
+    if not isinstance(address, str): raise ValueError('TFTP requires a literal server address matching its explicit family.')
+    address = remote_address(address,family)
     if not isinstance(filename, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', filename) or filename in ('.', '..'):
         raise ValueError('Use a single ASCII filename without directories, 1..128 characters.')
     if expected_sha256 is not None and (not isinstance(expected_sha256, str) or not re.fullmatch(r'[0-9A-Fa-f]{64}', expected_sha256)):
@@ -29,21 +30,25 @@ def read(manager, source, address, filename, *, timeout=5, expected_sha256=None,
     match = next(((i, n) for i, n in enumerate(state['spec']['nodes']) if n['name'] == source), None)
     if match is None or match[1]['runtime'] != 'oci' or match[1]['role'] != 'host' or set(match[1]['interfaces']) != {'eth0'} or match[1].get('subinterfaces') or match[1].get('port_channels'):
         raise ValueError('TFTP requires a managed single-interface OCI host.')
-    index, node = match; endpoint = _endpoint(manager, index, node)
+    index, node = match; endpoint = _endpoint(manager, index, node) if family=='ipv4' else _endpoint(manager,index,node,family=family)
     report = {'lab': manager.name, 'node': source, 'server': address, 'filename': filename, 'port': 69,
               'requested_block_size': block_size, 'endpoint': endpoint, 'status': endpoint['status'], 'transfer': None, 'hash_matches': None,
+              'address_family':family,
               'started_at': datetime.now(timezone.utc).isoformat(), 'configuration_changed': False,
-              'scope': 'One unauthenticated IPv4 TFTP octet read, at most 65536 bytes and 256 received datagrams including final ACK dally. At most three timeout retransmissions per block with exponential backoff within the overall deadline. Identical final DATA may be acknowledged again for up to one second within the same deadline. Passed means content received locally and initial final ACK sent, not confirmed server receipt. No file is saved, no writes, IPv6 or DNS. Optional blksize-only negotiation accepts 512..1428 bytes; ignored options retain 512. A failed transfer does not establish its cause.'}
+              'scope': 'One unauthenticated TFTP octet read using the explicit IPv4/IPv6 family, at most 65536 bytes and 256 received datagrams including final ACK dally. At most three timeout retransmissions per block with exponential backoff within the overall deadline. Identical final DATA may be acknowledged again for up to one second within the same deadline. Passed means content received locally and initial final ACK sent, not confirmed server receipt. No file is saved, no writes, DNS or family fallback. Optional blksize-only negotiation accepts 512..1428 bytes; ignored options retain 512. A failed transfer does not establish its cause.'}
     def finish(status):
         report.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
         return report
     if endpoint['status'] != 'ready': return finish(endpoint['status'])
-    route = _json_read(manager, index, 'ip', '-j', '-4', 'route', 'get', address)
+    lookup=['ip','-j','-4' if family=='ipv4' else '-6','route','get',address]
+    if family=='ipv6':lookup+=['from',endpoint['address']]
+    route = _json_read(manager,index,*lookup)
     report['route'] = route
     if address == endpoint['address'] or any(row.get('type') in ('local', 'broadcast', 'multicast') or row.get('dev') == 'lo' for row in route['records'] or []):
         report['error'] = 'A remote target is required.'
         return finish('blocked')
     request = {'source': endpoint['address'], 'address': address, 'filename': filename, 'timeout': timeout, 'port': 69}
+    if family=='ipv6':request['family']=family
     if block_size is not None: request['block_size'] = block_size
     worker = Path(__file__).with_name('tftp_worker.py').read_text()
     try:

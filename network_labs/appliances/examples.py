@@ -657,6 +657,14 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
     return validate(spec)
 
 
+def ipv6_tftp_lab(rootfs, files=None):
+    """Read-only TFTP over an explicit static IPv6 two-router path."""
+    spec=ipv6_routed_lab(rootfs);spec['name']='ipv6-tftp-lan'
+    spec['nodes'][3]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
 def tftp_lab(rootfs, files=None):
     """Two hosts and a switch serving declared public files."""
     from .spec import example
