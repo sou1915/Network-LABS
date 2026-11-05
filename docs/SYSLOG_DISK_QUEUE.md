@@ -40,9 +40,11 @@ sender-daemon restart, including the native-tested SIGKILL case. No helper
 deserializes queue records or resubmits local log lines. The native restart
 fixture verifies the exact old PID/argv and process death, removes only its
 stale PID file and volatile local log, then invokes the existing sender start
-function. No automatic daemon supervisor or public restart command is added.
-Operators must verify ownership/death before clearing a stale PID file; this
-does not authorize deleting an active process's PID file or queue data.
+function. A separately scoped public
+[sender recovery command](SYSLOG_FORWARD_RECOVERY.md) now verifies dead-process
+evidence and config/spool conformity before starting that sender. No automatic
+daemon supervisor is added. Active PID files and queue data must not be deleted
+to force a second daemon to start.
 
 The spool contains plaintext log records even when TLS encrypts the transport.
 Protection is directory/file permissions and the lab's host filesystem access;

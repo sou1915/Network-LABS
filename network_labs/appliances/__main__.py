@@ -176,6 +176,8 @@ def main(arguments=None):
     show.add_argument('--json', action='store_true')
     inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
     inspect.add_argument('name'); inspect.add_argument('node')
+    sender_recover=commands.add_parser('syslog-forward-recover',help='Start a confirmed dead disk-queue sender in its retained node; refuses live processes or drift.')
+    sender_recover.add_argument('name');sender_recover.add_argument('node')
     route = commands.add_parser('route', help='Observe the actual Linux IPv4 route decision; sends no test packets.')
     route.add_argument('name'); route.add_argument('node'); route.add_argument('destination')
     route.add_argument('--source', help='Local source, or original remote source with --ingress.')
@@ -483,6 +485,9 @@ def main(arguments=None):
                     return 0 if result['status'] == 'observed' else 1
                 elif args.command == 'inspect':
                     result = manager.inspect(args.node)
+                elif args.command == 'syslog-forward-recover':
+                    from .syslog_recover import recover as recover_sender
+                    result=recover_sender(manager,args.node)
                 elif args.command == 'verify':
                     from .verify import verify, render
                     result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional, family=args.family)

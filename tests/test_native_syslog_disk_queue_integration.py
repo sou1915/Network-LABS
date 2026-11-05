@@ -22,6 +22,13 @@ from test_native_syslog_tls_integration import certificates
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS')=='1','Opt-in privileged native test')
 class NativeSyslogDiskQueueTests(unittest.TestCase):
+    def before_sender_crash(self,manager,node,old_pid,transport):
+        pass
+
+    def restart_sender(self,manager,node,old_pid,transport):
+        manager.crun('exec','PC2','/bin/busybox','rm','-f',PID,'/run/messages')
+        start_sender(manager,node)
+
     def test_tcp_tls_spooled_markers_survive_sender_crash_but_not_lab_restore(self):
         self.assertEqual(os.geteuid(),0)
         for tool in ('openssl','rsyslogd','busybox','crun','ip','tcpdump'):self.assertIsNotNone(shutil.which(tool),tool)
@@ -89,6 +96,7 @@ class NativeSyslogDiskQueueTests(unittest.TestCase):
                         old_pid=sender_pid();self.assertIsNotNone(old_pid)
                         argv=manager.crun('exec','PC2','/bin/busybox','cat','/proc/'+str(old_pid)+'/cmdline').stdout.rstrip('\0').split('\0')
                         self.assertEqual(argv,command());self.assertNotEqual(status(old_pid),'Z')
+                        self.before_sender_crash(manager,node,old_pid,transport)
                         manager.crun('exec','PC2','/bin/busybox','kill','-KILL',str(old_pid))
                         wait(lambda:status(old_pid) in (None,'Z'),'Killed sender is still running')
                         self.assertTrue(manager.inspect('PC2')['management']['configuration_verified'])  # Conformity is not liveness.
@@ -96,8 +104,7 @@ class NativeSyslogDiskQueueTests(unittest.TestCase):
                         # Clear only the verified dead sender's PID file and
                         # volatile local output. The fixture leaves all spool
                         # bytes in place and never resubmits the markers.
-                        manager.crun('exec','PC2','/bin/busybox','rm','-f',PID,'/run/messages')
-                        start_sender(manager,node)
+                        self.restart_sender(manager,node,old_pid,transport)
                         wait(lambda:sender_pid() is not None and sender_pid()!=old_pid and status(sender_pid()) not in (None,'Z'),'Sender did not restart')
                         self.assertEqual(json.loads(manager.crun('state','PC2').stdout)['pid'],container_pid)
                         event=threading.Event();wire=root/(transport+'.pcap')
