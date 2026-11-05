@@ -1790,3 +1790,57 @@ GUI. Static VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP
 remains separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3`.
+
+
+## Costed parallel OSPFv3 transits for IPv6 DNS — 2026-11-05
+
+`example --ipv6-dns-ospfv3-failover` extends the same two-router physical
+DNS profile with primary subnet-100 transit cost 10 and backup subnet-200
+transit cost 100. Validation now permits one or two directly paired active
+transits, every numbered port in OSPF and passive LAN ports. Two-link profiles
+require symmetric per-link costs and a distinct preferred link. Existing
+single-link endpoint costs remain independently configurable. Router IDs/timers,
+managed resolver and other composition bounds remain. No router static fallback
+or ECMP is added. See [IPV6_DNS_OSPFV3_FAILOVER.md](IPV6_DNS_OSPFV3_FAILOVER.md).
+
+At implementation/validation commit
+`8c2978f05f324662665e5e9a3dfa06c6f31555d3`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42055074653/job/127341141821)
+passed in **51.123 seconds** on Ubuntu 24.04. Both Full adjacencies and
+bidirectional lower-cost FIB selection passed. Temporary ingress IPv6 drops
+on both ends of the primary caused automatic backup selection with working
+UDP/TCP DNS and managed probes. Actual simultaneous captures on both R1
+transits required request/reply DNS packets only on the selected path. Removing
+primary drops restored preference for the primary. Dropping both transits
+withdrew both remote LAN prefixes and broke routed DNS while direct R2-to-DNS
+UDP/TCP controls remained successful. Restoring only the backup recovered
+service while the primary remained blocked.
+
+Admin/carrier stayed UP, and positive drop counters were required at both
+ends of each blocked link. Router/DNS PIDs stayed unchanged and alive through
+the faults, with declared runtime state unchanged. No address/route injection
+or daemon restart repaired connectivity. BIRD-file drift and unrelated static
+route injection refused save. External tc faults remain outside managed/save
+audit; saving with DNS on the backup exported only exact declarations and
+empty router static-route lists. Cold restore created fresh namespaces,
+relearned two adjacencies, selected the primary, passed DNS wire checks and
+restored baseline qdiscs. Host namespaces, links, IPv4/IPv6 routes/rules and
+IPv6 forwarding invariants remained unchanged.
+
+Single-transit DNS/OSPFv3, standalone physical/SVI OSPFv3 and general CI also
+passed on that commit. The other 48 jobs were intentionally skipped by manual
+selection and are not claimed as passing native coverage.
+
+Local tests passed 959 cases in 30.380 seconds with 151 environment-dependent
+skips; compilation and diff checks passed. Local controls refuse equal-cost,
+asymmetric-cost, unpaired/half-active or third-transit profiles, while retaining
+the prior single-link behavior. No failed native run preceded this checkpoint.
+
+This proves one two-link virtual graph with carrier-up bidirectional IPv6
+blackholes, not physical cable-pull, every-kernel/one-way coverage, zero-loss
+or fixed-time convergence, ECMP, a larger routing graph, redistribution or
+OSPF authentication. Other service/security/SVI/subinterface combinations
+remain separate. Remaining LAN work precedes GUI; static VXLAN with explicit
+VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3-failover`.

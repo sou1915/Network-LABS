@@ -1,5 +1,29 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: costed OSPFv3 DNS failover validated — 2026-11-05
+
+At implementation/validation commit
+`8c2978f05f324662665e5e9a3dfa06c6f31555d3`,
+`example --ipv6-dns-ospfv3-failover` adds two directly paired physical transits
+between the same routers, with symmetric per-link and distinct path costs.
+Single-link behavior remains available. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42055074653/job/127341141821)
+passed in 51.123 seconds. Both Full adjacencies, preferred FIB selection,
+carrier-up bidirectional primary blackhole with backup DNS/wire selection,
+failback, total withdrawal with local live-DNS controls, backup-only recovery,
+unchanged live daemon PIDs/declarations, drift refusal and fresh cold restore
+with primary DNS/wire and baseline qdiscs passed. Single-transit DNS/OSPFv3,
+standalone physical/SVI OSPFv3 and general CI also passed on that commit; 48
+other jobs were intentionally skipped by manual selection.
+
+Local tests passed 959 cases in 30.380 seconds with 151 environment-dependent
+skips; compilation/diff checks passed. No failed native run preceded this
+checkpoint. See IPV6_DNS_OSPFV3_FAILOVER.md and the final LAN_NEXT_STEPS
+section for scope. External tc faults remain outside managed/save audit;
+there is no zero-loss/fixed-time SLA, ECMP, larger graph or arbitrary physical/
+one-way failure claim. Remaining LAN work precedes GUI; static VXLAN mapping
+and later separate EVPN/BGP remain required roadmap work.
+
 ## Latest LAN increment: IPv6 DNS over OSPFv3 validated — 2026-11-05
 
 At implementation/validation commit
