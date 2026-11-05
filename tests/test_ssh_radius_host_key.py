@@ -2,6 +2,7 @@
 import copy
 import io
 import json
+import os
 from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
@@ -41,7 +42,9 @@ class SSHRadiusHostKeyTests(unittest.TestCase):
     def test_cli_emits_pinned_diagnostic_policy(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'client.pub').write_text(PUBLIC)
-            (root/'password').write_text('test-password');(root/'secret').write_text('example-radius-secret')
+            for name,value in (('password','test-password'),('secret','example-radius-secret')):
+                fd=os.open(root/name,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+                with os.fdopen(fd,'w') as stream:stream.write(value)
             with patch('network_labs.appliances.ssh_host_key.read_identity',return_value=(b'fixture',PUBLIC)),redirect_stdout(io.StringIO()) as output:
                 code=main(['example','--rootfs','/rootfs','--radius','--radius-ssh','--radius-user','learner',
                     '--radius-password-file',str(root/'password'),'--radius-secret-file',str(root/'secret'),
