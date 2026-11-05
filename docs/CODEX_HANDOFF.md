@@ -1,5 +1,32 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: separate IPv6 DNS and named HTTPS — 2026-11-05
+
+Implementation `05953899d1187f73a177e8e632704d5ab0cb6f90` adds
+`example --ipv6-dns-https --https-client-rootfs PATH`. Five static IPv6-only
+nodes put DNS PC3 and HTTPS PC2 on distinct R2-facing networks behind two
+routers. PC1 uses only the managed DNS resolver; AAAA resolves
+`secure.lab.test` and TLS verifies the original DNS name against the supplied
+CA. DNS/HTTPS co-location, external/service-node resolvers, combined firewall,
+dynamic, dual-stack and logical-interface compositions remain refused.
+Existing HTTPS/firewall and standalone DNS profiles remain separate.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42087775672/job/127457432669)
+passed in 15.027 seconds. UDP/TCP DNS plus named HTTPS, real DNS/TLS wire,
+GET body, wrong CA/name and unknown-name controls passed. DNS outage broke
+named HTTPS while literal verified TLS/the same HTTPS process stayed live;
+HTTPS outage preserved DNS answers and its process. Explicit recovery,
+resolver/DNS/HTTPS config drift refusal, exact declarative cold restore and
+host invariants passed. Baseline IPv6 HTTPS, tagged IPv6 DNS, dual-stack DNS
+and general CI also passed: five selected jobs succeeded; 50 other jobs were
+intentionally skipped, not new proof. Local tests passed 968 cases in 30.478
+seconds with 154 environment skips; compilation/diff checks passed. No
+failed native run preceded this result. See [IPV6_DNS_HTTPS.md](IPV6_DNS_HTTPS.md).
+
+Continue remaining LAN before full native GUI integration. Static VXLAN and
+separate EVPN/BGP/WAN remain tracked; planning estimates stay LAN about 80%,
+whole product about 45–50%, not measured coverage or an ETA.
+
 ## Latest LAN validation: same-port HTTPS source isolation — 2026-11-05
 
 Test commit `72b0732f90be9a93dd9075f42071486dae4b0e1a` strengthens the

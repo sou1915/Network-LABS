@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [separate IPv6 DNS and named HTTPS](IPV6_DNS_HTTPS.md)
+at `05953899d1187f73a177e8e632704d5ab0cb6f90`. Its dedicated native
+scenario passed in 15.027 seconds in
+[run 42087775672](https://github.com/sou1915/Network-LABS/actions/runs/42087775672).
+All five selected jobs passed, including baseline IPv6 HTTPS, tagged IPv6
+DNS, dual-stack DNS and general CI; 50 other jobs were intentionally skipped.
+Local tests passed 968 cases in
+30.478 seconds with 154 environment skips. This closes one service
+composition gap; planning estimates remain unchanged.
+
 The latest validation strengthens the existing HTTPS/firewall profile with
 same-interface, same-destination and same-port source denial before and after
 cold restore, at `72b0732f90be9a93dd9075f42071486dae4b0e1a`.

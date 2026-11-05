@@ -1988,3 +1988,35 @@ stay ahead of full native GUI integration. Static VXLAN mapping and separate
 EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
 product about 45–50%; added negative coverage does not justify a measured
 completion increase.
+
+## Separate IPv6 DNS and named HTTPS — 2026-11-05
+
+At implementation commit `05953899d1187f73a177e8e632704d5ab0cb6f90`,
+`example --ipv6-dns-https` adds a separate DNS PC3 at `2001:db8:30::30`
+and HTTPS PC2 at `2001:db8:20::20`, behind two physical routers. PC1 uses
+only the managed resolver and requests AAAA for `secure.lab.test`; HTTPS
+verifies that original DNS identity against only the explicit CA. No
+IPv4, host resolver, alternate resolver or literal-address fallback is added.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42087775672/job/127457432669)
+passed in 15.027 seconds. It verified named HTTPS using both UDP/TCP IPv6
+DNS, actual DNS and encrypted TLS packets, GET body and wrong CA/name/unknown
+DNS-name controls. Stopping DNS broke named HTTPS while literal verified TLS
+and the same HTTPS PID remained live. Explicit DNS restart recovered service.
+Stopping HTTPS preserved live DNS answers and its PID; explicit HTTPS restart
+recovered service. Resolver/DNS/HTTPS config drift refused save; exact
+declarations/public pins survived cold restore and verified named HTTPS
+returned. Host namespace/link/IPv4/IPv6 route/rule/forwarding invariants passed.
+
+Baseline IPv6 HTTPS, tagged IPv6 DNS, dual-stack DNS and general CI also
+passed in run 42087775672: five selected jobs succeeded; 50 other jobs
+were intentionally skipped, not new native proof. Local tests passed 968 cases in 30.478 seconds with 154 environment-dependent skips;
+compilation/diff checks passed. No failed native run preceded this result.
+The [guide](IPV6_DNS_HTTPS.md) documents scope and required DNS SAN/assets.
+Firewall+DNS+HTTPS, service co-location, external/service-node resolvers,
+dynamic, dual-stack, VLAN/SVI/subinterfaces and broader service compositions
+remain refused. DNS address resolution does not establish certificate trust.
+Remaining LAN work precedes full native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-https`.

@@ -50,7 +50,15 @@ answers and its process. It checks explicit recovery, resolver/DNS/HTTPS
 config drift refusal, exact saved declarations, cold restore and host
 namespace/link/IPv4/IPv6 route/rule/forwarding invariants.
 
-Native validation is pending for this implementation checkpoint. Run with:
+At implementation commit `05953899d1187f73a177e8e632704d5ab0cb6f90`,
+the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42087775672/job/127457432669)
+passed in 15.027 seconds. Baseline IPv6 HTTPS, tagged IPv6 DNS, dual-stack
+DNS and general CI also passed: all five selected jobs succeeded; 50 other
+jobs were intentionally skipped. Local tests passed 968 cases in 30.478 seconds
+with 154 environment-dependent skips; compilation/diff checks passed.
+No failed native run preceded this result.
+
+Run with:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-https`.
 The selector also runs baseline IPv6 HTTPS, IPv6 tagged DNS, dual-stack DNS
 and general CI regressions; intentionally skipped jobs are not new proof.
