@@ -1441,3 +1441,58 @@ VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains
 separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp-subinterfaces`.
+
+
+## Separate managed IPv6 DNS and TFTP services — 2026-11-05
+
+`example --ipv6-dns-tftp` combines PC4 DNS (`2001:db8:30::10`) behind R2 and
+PC3 read-only TFTP (`2001:db8:20::10`) on ROAS VLAN 20. PC1 on VLAN 10 uses
+only PC4 as its declared resolver. The AAAA-only zone maps `files.lab.test`
+to PC3; TFTP reads still use the explicit selected IPv6 literal. There is no
+automatic name resolution, name-to-transfer binding, DNS cache or family
+fallback. When DNS/resolvers coexist with IPv6 TFTP, validation requires one
+separate managed IPv6 DNS server and refuses unknown/alternate client resolvers,
+resolvers on the TFTP node and cohosted services. Static physical/dot1Q/Linux
+VLAN scope, complete routed numbering and other exclusions remain. See
+[IPV6_DNS_TFTP.md](IPV6_DNS_TFTP.md) for usage and topology.
+
+At implementation/validation commit
+`4a8cb132a9640d92ef6e99d3a16d119b75bb07ce`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42037833110/job/127280504290)
+passed in **32.381 seconds** on Ubuntu 24.04. Real DNS UDP/TCP AAAA answers,
+A/NODATA, NXDOMAIN, a managed DNS probe, separate DNS/TFTP listener observations,
+concurrently scheduled DNS and TFTP operations, and actual request/reply captures
+on VLANs 10/100 for DNS and 10/20 for TFTP passed. Empty, exact-block, binary-tail
+and 64-KiB transfers with classic/negotiated blocks, lengths and SHA-256 checks
+passed without changing runtime declarations.
+
+Stopping DNS left explicit-literal TFTP working and made both DNS transports
+and the managed name probe fail. Stopping TFTP left both DNS transports and
+the managed DNS probe working. Deleting the static subnet-30 route isolated
+DNS while TFTP remained healthy; pruning VLAN 20 isolated TFTP while DNS
+remained healthy. Same-VLAN PC1/PC2 traffic continued through these controls.
+Both service restarts and exact route/VLAN restoration recovered operation.
+Route/VLAN and either service-config drift refused save. Declarative cold
+restore retained the exact combined specification and both services, including
+a successful 64-KiB transfer. Host namespaces, links, IPv4/IPv6 routes/rules
+and IPv6 forwarding invariants remained unchanged.
+
+Standalone tagged IPv6 DNS, tagged IPv6 TFTP and general CI also passed on
+that commit. The other 42 jobs were skipped by explicit manual selection and
+are not claimed as passing native coverage.
+
+Local confirmation passed 938 tests in 28.277 seconds with 145 environment-
+dependent skips; compilation and diff checks passed. The first full local run
+failed one existing RADIUS retry socket case with a peer timeout. No accounting
+or retry code/assertion changed: the seven-case retry module passed unchanged
+in 1.514 seconds, then the full confirming run passed. The initial local failure
+is retained here; its timing cause was not established. No failed native run
+preceded this checkpoint.
+
+This validates separate managed DNS/TFTP coexistence on static IPv6 paths,
+not authenticated/encrypted DNS/files, TFTP name resolution or writes, DNS
+recursion/CNAME/DNSSEC, mixed/dual-stack, dynamic IPv6, SVIs, AAA/NTP or firewall
+combinations. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-tftp`.

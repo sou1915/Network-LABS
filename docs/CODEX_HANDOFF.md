@@ -1,5 +1,30 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: separate IPv6 DNS/TFTP validated — 2026-11-05
+
+At implementation/validation commit
+`4a8cb132a9640d92ef6e99d3a16d119b75bb07ce`,
+`example --ipv6-dns-tftp` combines one managed IPv6 DNS server and one separate
+read-only TFTP server across static ROAS VLANs and tagged transit. Clients use
+only the declared managed resolver; TFTP retains explicit IP literals and adds
+no automatic name resolution. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42037833110/job/127280504290)
+passed in 32.381 seconds. Concurrent DNS/file observations, actual tagged
+request/reply captures, separate listeners, AAAA/A-NODATA/NXDOMAIN, binary/hash
+checks, independent service/route/VLAN failures with the other service healthy,
+recovery, config drift refusal, cold restore and host invariants passed.
+Standalone tagged DNS, tagged TFTP and general CI jobs also passed on that
+commit; 42 unrelated jobs were intentionally skipped by suite selection.
+
+Local confirmation passed 938 tests in 28.277 seconds with 145 environment-
+dependent skips. The first local run had one timeout in the existing RADIUS
+retry socket test; the unchanged seven-test retry module then passed in
+1.514 seconds before that full confirming run. Compilation/diff checks passed.
+No failed native run preceded this checkpoint. See IPV6_DNS_TFTP.md and the
+final LAN_NEXT_STEPS section for exact bounds and selected regression results.
+Remaining LAN work precedes GUI; static VXLAN VTEP/VNI/VLAN mapping and
+separate later EVPN/BGP remain required roadmap work.
+
 ## Latest LAN increment: IPv6 TFTP over static dot1Q validated — 2026-11-05
 
 At implementation/validation commit
