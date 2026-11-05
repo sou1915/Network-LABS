@@ -828,6 +828,15 @@ def ospfv3_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_dns_ospfv3_lab(rootfs):
+    """AAAA-only DNS behind a physical two-router OSPFv3 path."""
+    spec=ospfv3_lab(rootfs);spec['name']='ipv6-dns-ospfv3-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:20::20']
+    spec['nodes'][3]['dns_server']={'interface':'eth0','zone':'lab.test','listen_ipv6':True,
+        'records':{},'records_ipv6':{'server.lab.test':'2001:db8:20::20'}}
+    return validate(spec)
+
+
 def ipv6_svi_lab(rootfs):
     """Two IPv6 VLANs across a tagged trunk, routed by real Linux switch SVIs."""
     spec = svi_lab(rootfs)

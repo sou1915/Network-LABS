@@ -122,6 +122,12 @@ def validate_lab(spec):
     ipv6_only_dns = dns_coexistence and not aaa_coexistence and all(
         not any(addresses(n).values()) and not n['forwarding'] and not n.get('gateway') and not n['routes']
         for n in spec['nodes'])
+    ospfv3_dns=dns_coexistence and any(n.get('ospfv3') for n in spec['nodes'])
+    if ospfv3_dns:
+        if not ipv6_only_dns:
+            raise ValueError('OSPFv3/DNS requires IPv6-only service routing without dual-stack or AAA.')
+        from .ospfv3 import validate_dns_lab
+        validate_dns_lab(spec)
     if aaa_coexistence:
         if not any(n.get('radius_server') for n in spec['nodes']):
             raise ValueError('Dual-stack AAA requires a separate managed RADIUS server.')
@@ -144,7 +150,7 @@ def validate_lab(spec):
                 raise ValueError('IPv6-only DNS composition excludes RADIUS access policy.')
             if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                         'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
-                                        'ospfv3', 'svis', 'ra_guard')) or (node.get('firewall_ipv6') is not None and not ipv6_only_dns) or (node['subinterfaces'] and not ipv6_only_dns):
+                                        'svis', 'ra_guard')) or (node.get('ospfv3') and not ospfv3_dns) or (node.get('firewall_ipv6') is not None and not ipv6_only_dns) or (node['subinterfaces'] and not ipv6_only_dns):
                 raise ValueError('Dual-stack service coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
             if node['role'] in ('host', 'router') and not (ipv6_only_dns and node['subinterfaces']) and (set(node['ipv6']) != set(node['interfaces']) or (not ipv6_only_dns and not all(node['interfaces'].values()))):
                 raise ValueError('Dual-stack services require IPv4 and static IPv6 on every physical host/router port.')

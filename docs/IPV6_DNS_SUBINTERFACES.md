@@ -34,6 +34,10 @@ mixed/partially numbered dual-stack subinterfaces, AAA, DHCP/RA/SLAAC, OSPFv3,
 SVIs or forwarding firewall/security combinations. Existing physical dual-stack
 DNS behavior stays in place, including refusal of partially numbered profiles.
 
+A separately scoped [physical OSPFv3/DNS profile](IPV6_DNS_OSPFV3.md) permits
+dynamic routing through two directly paired physical routers. It does not
+widen this tagged subinterface profile to dynamic routing.
+
 A separately scoped [DNS/TFTP composition](IPV6_DNS_TFTP.md) now permits a
 read-only IPv6 TFTP server on another host, with explicit managed-resolver
 constraints and independent service/path fault proof.
