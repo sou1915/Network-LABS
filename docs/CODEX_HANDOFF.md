@@ -1,5 +1,29 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN validation: same-port HTTPS source isolation — 2026-11-05
+
+Test commit `72b0732f90be9a93dd9075f42071486dae4b0e1a` strengthens the
+existing IPv6 HTTPS/firewall scenario without changing protocol behavior,
+manifest scope or the example. A temporary alternate source `2001:db8:10::99`
+uses the same interface, destination and TCP/443 as the authorized client.
+Completed DAD, source-bound gateway reachability and the expected route prove
+it can transmit. Its HTTPS connect times out, with actual ingress SYNs,
+absent egress, and increasing default-drop counters. Authorized and direct
+verified TLS remain successful, and the server PID stays unchanged. The
+extra address is observed as drift and refuses save; it is removed before
+successful save. The control passes again after cold restore. This is source
+address filtering, not authenticated client identity or anti-spoofing.
+
+The [expanded native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42086361238/job/127452432140)
+passed in 35.461 seconds. All five selected jobs in run 42086361238 passed,
+including baseline IPv6 HTTPS, standalone IPv6 firewall, DNS/firewall and
+general CI. Other 49 jobs were intentionally skipped. Four focused local
+policy/CLI tests, compilation/diff/link checks passed. No native failure
+preceded this validation. See [IPV6_HTTPS_FIREWALL.md](IPV6_HTTPS_FIREWALL.md).
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+Remaining LAN work still precedes full native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked.
+
 ## Latest LAN increment: IPv6 HTTPS forwarding firewall — validated 2026-11-05
 
 Implementation `8ce6321df0e06cee37bc5413478d7e20253288c3` adds

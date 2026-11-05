@@ -60,8 +60,15 @@ authorized/direct TLS controls and an unchanged server PID. Extra addressing
 must refuse save, then be removed before a successful save. The control runs
 again after cold restore. This is a bounded source-address rule test, not
 client identity authentication or prevention of allowlisted-address spoofing.
-Native proof of this additional control is pending at this checkpoint; the
-historical result below predates it.
+At test/validation commit `72b0732f90be9a93dd9075f42071486dae4b0e1a`, the
+[expanded native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42086361238/job/127452432140)
+passed in 35.461 seconds, including this control before and after cold restore.
+All five selected jobs passed (expanded scenario, baseline IPv6 HTTPS,
+standalone IPv6 firewall, DNS/firewall and general CI); 49 other jobs were
+intentionally skipped. Four focused local policy/CLI tests passed; compilation
+and diff checks passed. No protocol behavior or manifest scope changed, and
+no failed native run preceded this added validation. The older result below
+predates the added source control.
 
 At implementation commit `8ce6321df0e06cee37bc5413478d7e20253288c3`, the
 [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)

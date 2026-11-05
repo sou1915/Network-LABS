@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest validation strengthens the existing HTTPS/firewall profile with
+same-interface, same-destination and same-port source denial before and after
+cold restore, at `72b0732f90be9a93dd9075f42071486dae4b0e1a`.
+The expanded scenario passed in 35.461 seconds in
+[run 42086361238](https://github.com/sou1915/Network-LABS/actions/runs/42086361238).
+All five selected jobs passed; 49 other jobs were intentionally skipped.
+Four focused local policy/CLI tests and compilation/diff/link checks passed.
+Protocol behavior and manifest scope are unchanged. This closes a validation
+gap and leaves the planning estimates unchanged.
+
 The latest bounded increment adds [IPv6 HTTPS behind a forwarding firewall](IPV6_HTTPS_FIREWALL.md)
 at `8ce6321df0e06cee37bc5413478d7e20253288c3`. Its dedicated native
 scenario passed in 22.128 seconds in

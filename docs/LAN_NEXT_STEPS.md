@@ -1961,3 +1961,30 @@ production PMTU/error-traffic policy. Remaining LAN work precedes native GUI;
 static VXLAN mapping and separate EVPN/BGP/WAN remain tracked.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https-firewall`.
+
+## Same-port HTTPS source-isolation proof — 2026-11-05
+
+At test/validation commit `72b0732f90be9a93dd9075f42071486dae4b0e1a`,
+the existing IPv6 HTTPS/firewall native scenario adds a same-port negative
+source control. The temporary `2001:db8:10::99` address shares PC1's interface,
+destination and TCP/443. Completed DAD, source-bound gateway echo and the
+expected default route prove a usable source. A source-bound HTTPS connect
+must time out before TLS, with actual ingress SYNs and no egress packets,
+plus increasing default-drop counters. Authorized client and direct verified
+TLS controls stay successful with the same server PID. Extra addressing is
+observed as drift and refuses save, then is removed before normal save.
+The same source-isolation control passes after cold restore.
+
+The [expanded native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42086361238/job/127452432140)
+passed in 35.461 seconds. Baseline IPv6 HTTPS, standalone IPv6 firewall,
+DNS/firewall and general CI also passed: five selected jobs succeeded;
+49 other jobs were intentionally skipped. Four focused local policy/CLI
+tests and compilation/diff/link checks passed. No failed native run preceded
+this checkpoint. This is added evidence for the existing bounded profile,
+not new protocol behavior, authenticated client identity or anti-spoofing.
+
+Remaining broader AAA/switching/service compositions and resource acceptance
+stay ahead of full native GUI integration. Static VXLAN mapping and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%; added negative coverage does not justify a measured
+completion increase.
