@@ -2136,3 +2136,39 @@ EVPN/BGP/WAN stay tracked. Planning estimates remain LAN about 80%, whole
 product about 45–50%, not measured test coverage or an ETA.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dual-stack-ssh-host-key`.
+
+## Kernel memory peak and 20-node headless checkpoint — 2026-11-05
+
+At implementation commit `1ad4241d651fa3ebf6e70d3b10017aa028100712`,
+benchmark report v2 adds the optional kernel cgroup lifetime `memory.peak`
+beside phase samples, explicit fresh/prior-parent provenance and current-run
+assessment only when a fresh parent/kernel counter is available. Unsupported
+is null, not zero; inaccessible/corrupt counters fail. Populated pre-existing
+parents refuse before allocation, and no peak counter is reset. Parent OOM
+events now complement per-node events. Full app acceptance stays unverified.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42129277749/job/127601472273)
+passed two new scenarios in 29.601 seconds. A 12 MiB allocation freed before
+sampling was caught by a 14.965 MiB kernel peak versus a 2.098 MiB idle sample
+peak. The fresh 20-node reference ran 10 seconds idle and 10 seconds ICMP,
+12 clients/100 requests each. All 1,200 requests returned; all nodes stayed
+running and no OOM kill was observed. Kernel peak was 9,588,736 bytes
+(9.145 MiB), versus idle/load sampled peaks of 5.449/9.141 MiB. Kernel was
+7.0.0-1017-azure, x86_64, four logical CPUs. Host namespace/link/route/rule/
+forwarding/nftables invariants and stopped-runtime cleanup passed. The old
+enterprise benchmark plus actual HTTP/NAT/return-route/save-restore test
+also passed in 21.131 seconds, and general CI passed. Both selected jobs
+passed; 57 other jobs were intentionally skipped, not new native evidence.
+
+The artifact ZIP matched GitHub SHA-256 metadata. Exact JSON copies and
+per-member/source provenance are committed in docs/benchmarks; see
+[BENCHMARK_KERNEL_PEAK.md](BENCHMARK_KERNEL_PEAK.md). Local full tests under
+umask 022 passed 985 cases in 30.977 seconds with 159 environment skips;
+compilation/diff/link checks passed. No failed native run preceded this result.
+
+This closes a cgroup measurement blind spot, not GUI/heavy-service/full-app
+or 8-GB-laptop 2 GiB acceptance. Broader LAN/AAA/switching combinations remain
+before native GUI; static VXLAN mapping and separate EVPN/BGP/WAN stay tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=benchmark-kernel-peak`.

@@ -60,7 +60,44 @@ These short headless shared-kernel references do not validate GUI/heavy
 services, vendor firmware, VMs, every topology, maximum throughput or the
 whole application/laptop 2 GiB target. Those acceptance checks remain open.
 
-Native validation is pending for this implementation checkpoint. Run with:
+At implementation commit `1ad4241d651fa3ebf6e70d3b10017aa028100712`,
+the [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42129277749/job/127601472273)
+passed both new scenarios in 29.601 seconds and the existing enterprise
+regression in 21.131 seconds. General CI also passed: both selected jobs
+succeeded; 57 other jobs were intentionally skipped. Local tests passed
+985 cases in 30.977 seconds with 159 environment-dependent skips; compilation,
+diff and documentation-link checks passed. No failed native run preceded this
+checkpoint.
+
+On kernel `7.0.0-1017-azure`, x86_64, four logical CPUs:
+
+| Reference | Kernel cgroup peak | Idle sampled peak | Load sampled peak |
+| --- | ---: | ---: | ---: |
+| 20 nodes, 10s idle + 10s ICMP | 9.145 MiB | 5.449 MiB | 9.141 MiB |
+| Presampling transient control | 14.965 MiB | 2.098 MiB | 1.750 MiB |
+
+The following illustration is generated from those retained JSON reports;
+it compares measurement methods within each reference, not performance of
+equivalent workloads:
+
+![Kernel versus sampled cgroup memory](benchmarks/kernel-peak-ci-comparison.png)
+
+Both parents were fresh, all requested packets returned and no OOM kill was
+observed. The 20-node kernel peak was 9,588,736 bytes; its startup/readiness
+took about 4.43 seconds. These are one runner/reference measurements with the
+scope above, not total app RAM or a comparison of equivalent workloads.
+
+Exact artifact JSON is retained in the repository:
+[20-node report](benchmarks/enterprise-20-kernel-peak-ci.json),
+[transient report](benchmarks/presampling-transient-kernel-peak-ci.json), and
+[source/digest provenance](benchmarks/kernel-peak-ci-provenance.json).
+The downloaded ZIP matched GitHub's SHA-256
+`4900d5fe17670d61eed9f0a3a9d34a50f038488057e4c971e687e3fe0456b8a7`;
+the provenance file records each unchanged JSON member's digest too.
+The older [version-1 report](benchmarks/enterprise-20-ci.json) remains separate
+historical sampled evidence.
+
+Run with:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=benchmark-kernel-peak`.
 General CI is also selected; other jobs are intentionally skipped, not newly
 validated by this selection.

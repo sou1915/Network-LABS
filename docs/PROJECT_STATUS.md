@@ -12,6 +12,18 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest acceptance increment adds [kernel cgroup memory peaks](BENCHMARK_KERNEL_PEAK.md)
+at `1ad4241d651fa3ebf6e70d3b10017aa028100712`. In
+[run 42129277749](https://github.com/sou1915/Network-LABS/actions/runs/42129277749),
+two new native scenarios passed in 29.601 seconds and the old enterprise
+regression passed in 21.131 seconds. A real presampling transient exposed
+the sampling blind spot; the fresh 20-node reference delivered all 1,200
+requests with a 9.145 MiB kernel cgroup peak and no OOM kill. Both selected
+jobs passed (including general CI); 57 others were intentionally skipped.
+Exact artifact JSON/digest provenance is retained. Local tests passed 985
+cases in 30.977 seconds with 159 environment skips. Total application/GUI/
+heavy-service/laptop memory acceptance stays open; estimates are unchanged.
+
 The latest bounded increment adds [pinned dual-stack SSH with IPv4 RADIUS](DUAL_STACK_SSH_HOST_IDENTITY.md)
 at `8c776020e21b88d57a6cb3d7e4c2730216f36949`. Its dedicated native
 scenario passed in 37.598 seconds in
@@ -192,8 +204,9 @@ Static VXLAN with explicit VTEP/VNI/VLAN mapping remains planned. EVPN/BGP is
 separate. WAN/VPN is later. Optional Firecracker adapter detection/liveness
 does not make full guest OSs or vendor appliances automatically available.
 
-The 20-node [headless CI benchmark](benchmarks/enterprise-20-ci.json) is a short
-idle/ICMP reference. It does not prove total application RAM, GUI/services
+The historical [20-node sampled benchmark](benchmarks/enterprise-20-ci.json)
+and newer [kernel-peak checkpoint](BENCHMARK_KERNEL_PEAK.md) are short
+headless idle/ICMP references. They do not prove total application RAM, GUI/services
 under load, all lab sizes, or the 2 GiB target on the user's 8-GB laptop.
 That acceptance measurement remains open.
 

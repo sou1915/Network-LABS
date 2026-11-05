@@ -352,9 +352,10 @@ et sous charge, résultat des paquets et nettoyage. Le JSON complet inclut :
 | Mesure | Ce qu'elle couvre | Limite d'interprétation |
 | --- | --- | --- |
 | Cgroup parent du lab | `memory.current`, swap et `cpu.stat` avec descendants | Ne pas ajouter une seconde fois les valeurs par node ; certaines allocations réseau/kernel et helpers sont ailleurs |
+| Pic kernel, rapport v2 | `memory.peak` cumulé jusqu'à la photo après charge, avec provenance du parent | Inclut les charges cgroup de startup et les pics brefs ; historique antérieur possible, null si non supporté ; pas la RAM totale de l'app |
 | PSS et CPU du runner | Processus Python de mesure | Pas la GUI finale ni tous les helpers transitoires ; PSS et mémoire cgroup ne sont pas deux termes directement additionnables |
 | Host avant/après et pendant | `MemAvailable`, swap, ticks CPU globaux | Comprend les autres applications et l'activité de fond ; delta bruité, non attribuable exclusivement au lab |
-| Chaque node après charge | Mémoire courante, swap, CPU cumulé et événements OOM | Photo après charge, pas un pic de RAM de chaque node |
+| Chaque node après charge | Mémoire courante, pic kernel optionnel v2, swap, CPU cumulé et événements OOM | Photo après charge ; le pic kernel, si disponible, garde sa portée cumulée |
 | Paquets | Code retour, compteurs envoyés/reçus, sortie réelle de ping | Une perte rend le test négatif même si ping reçoit quelques réponses |
 
 CPU du lab : `100 × Δusage_usec / (durée × 1 000 000)` ; **100 % = un cœur**,
@@ -371,6 +372,10 @@ globale imposée. Le rapport garde `total_application_under_target: unverified`,
 même si le pic cgroup est inférieur à 2048 Mio. Il faut encore mesurer la GUI,
 les services plus lourds et les futurs backends avant de valider le budget total.
 Le benchmark ne sauvegarde aucune session ni configuration de lab à sa fermeture.
+Le [rapport v2 et son checkpoint natif](BENCHMARK_KERNEL_PEAK.md) ajoutent la
+mesure kernel des pics et un test de transient avant échantillonnage. Le
+checkpoint à 20 nodes utilise 10 secondes idle et 10 secondes ICMP ; les
+anciens résultats ci-dessous restent une mesure historique distincte.
 
 ### Routes statiques du manifest
 

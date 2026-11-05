@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "source_commit": "1ad4241d651fa3ebf6e70d3b10017aa028100712",
+  "workflow_run": 42129277749,
+  "native_job": 127601472273,
+  "url": "https://github.com/sou1915/Network-LABS/actions/runs/42129277749",
+  "artifact_id": 13462681774,
+  "artifact_name": "native-benchmark-kernel-peak",
+  "artifact_sha256": "4900d5fe17670d61eed9f0a3a9d34a50f038488057e4c971e687e3fe0456b8a7",
+  "reports": {
+    "enterprise-20-kernel-peak-ci.json": {
+      "artifact_member": "enterprise-20-kernel-peak.json",
+      "sha256": "100041afb63cd43bc27eae5bb316f11ba4689939f338f45b0285312ffd0d8080"
+    },
+    "presampling-transient-kernel-peak-ci.json": {
+      "artifact_member": "presampling-transient.json",
+      "sha256": "f91b1178ca14c43b6d50749b331b2315b5a21fbde588cab775eaaa981dc19fd2"
+    }
+  },
+  "scope": "Exact artifact JSON bytes; headless lab cgroup attribution, not total application or laptop 2 GiB certification."
+}

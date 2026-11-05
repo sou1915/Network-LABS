@@ -1,5 +1,40 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN acceptance measurement: kernel memory peak — 2026-11-05
+
+Implementation `1ad4241d651fa3ebf6e70d3b10017aa028100712` adds benchmark
+report version 2 with optional kernel cgroup-v2 `memory.peak`, parent history
+provenance, a fresh-parent current-run verdict and parent OOM events. Missing
+support is null, corrupt/inaccessible counters fail, populated parents refuse
+before allocation, and empty parents retain explicit prior-history scope.
+No counters are reset. The post-load snapshot covers charged startup/load
+memory, not all host work or total application RAM. Existing phase sampling
+and historical v1 reports remain separate. See [BENCHMARK_KERNEL_PEAK.md](BENCHMARK_KERNEL_PEAK.md).
+
+The [native job](https://github.com/sou1915/Network-LABS/actions/runs/42129277749/job/127601472273)
+passed the real presampling transient and 20-node scenarios in 29.601 seconds,
+then the existing enterprise HTTP/NAT/return-route/save-restore regression in
+21.131 seconds. The 20-node fresh-parent kernel peak was 9,588,736 bytes
+(9.145 MiB), with 10s idle and 10s ICMP from 12 clients, 100 requests each;
+all 1,200 requests returned, all nodes stayed running and no OOM kill was
+observed. The 12 MiB presampling allocation produced a 14.965 MiB kernel
+peak while idle sampling saw only 2.098 MiB. Host invariants and stopped-node
+cleanup passed. These remain headless cgroup references, not a whole-app,
+GUI/heavy-service or laptop 2 GiB certification.
+
+Both selected jobs (native benchmark and general CI) passed in run
+42129277749; 57 other jobs were intentionally skipped. Exact artifact JSON
+and source/digest provenance are committed under docs/benchmarks; ZIP SHA-256
+matched GitHub metadata. Local full tests under umask 022 passed 985 cases in
+30.977 seconds with 159 environment skips; compilation/diff/link checks passed.
+No native failure preceded this checkpoint. Remaining LAN precedes native
+GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked. Planning estimates
+stay LAN about 80%, whole product about 45–50%.
+
+Workflow maintenance: the manual selector now has 25 choices. Reuse/group
+selectors or adjust the input schema before adding another choice; preserve
+the default all scope and unconditional push/PR selection of every job.
+
 ## Latest LAN increment: pinned dual-stack SSH with IPv4 RADIUS — 2026-11-05
 
 Implementation `8c776020e21b88d57a6cb3d7e4c2730216f36949` permits the
