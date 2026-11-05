@@ -837,6 +837,17 @@ def ipv6_dns_ospfv3_lab(rootfs):
     return validate(spec)
 
 
+def ipv6_dns_ospfv3_failover_lab(rootfs):
+    """DNS over two costed physical OSPFv3 transits, without static fallback."""
+    spec=ipv6_dns_ospfv3_lab(rootfs);spec['name']='ipv6-dns-ospfv3-failover-lan'
+    for index in (1,2):
+        node=spec['nodes'][index];node['interfaces']['eth2']=''
+        node['ipv6']['eth2']=f'2001:db8:200::{index}/64'
+        node['ospfv3']['interfaces']['eth2']={'passive':False,'cost':100}
+    spec['links'].append([['R1','eth2'],['R2','eth2']])
+    return validate(spec)
+
+
 def ipv6_svi_lab(rootfs):
     """Two IPv6 VLANs across a tagged trunk, routed by real Linux switch SVIs."""
     spec = svi_lab(rootfs)

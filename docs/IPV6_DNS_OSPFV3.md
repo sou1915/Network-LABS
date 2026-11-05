@@ -33,10 +33,15 @@ Active ports must directly connect, router IDs must differ, and hello/dead
 timers must match. Clients may use only the managed DNS resolver. Existing
 static IPv6 DNS and standalone OSPFv3 references remain available.
 
+A separate [costed failover reference](IPV6_DNS_OSPFV3_FAILOVER.md) permits two
+paired physical transits with symmetric per-link and distinct path costs.
+The single-transit example above remains unchanged.
+
 This composition excludes mixed/dual-stack routing, AAA/management, switches,
 SVIs, subinterfaces, firewall/security, TFTP/NTP and dynamic address services.
 It retains single-area point-to-point OSPFv3 with static interface numbering.
-No alternative path, route redistribution, authenticated OSPF, DNS encryption,
+The single-transit reference adds no alternative path, route redistribution,
+authenticated OSPF, DNS encryption,
 DNSSEC, recursion or dynamic DNS registration is added.
 
 The dedicated native scenario requires Full adjacencies and bidirectional

@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - ipv6-dns-ospfv3-failover
           - ipv6-dns-ospfv3
           - syslog-recover
           - syslog-disk-queue
@@ -26,8 +27,18 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  ipv6-dns-ospfv3-failover-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3-failover'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated OSPFv3 failover prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump bird2 dnsmasq
+      - name: Verify costed DNS paths, carrier-up loss, failover, total withdrawal and cold restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_ospfv3_failover_integration.py -v
   ipv6-dns-ospfv3-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -503,7 +514,7 @@ jobs:
       - name: Verify actual IPv6 SVI routing, trunk tags, drift refusal and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_svi_integration.py -v
   ospfv3-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -554,7 +565,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
