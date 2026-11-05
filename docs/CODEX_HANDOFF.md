@@ -1,5 +1,28 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 DNS over OSPFv3 validated — 2026-11-05
+
+At implementation/validation commit
+`d320b987b0a75e84a2899a480e0dc7996e69398a`,
+`example --ipv6-dns-ospfv3` adds one managed IPv6 DNS host behind exactly two
+physical OSPFv3 routers, without router static routes. Active ports pair
+directly; IDs differ, timers match, every numbered port participates and LAN
+ports are passive. Clients use only the managed resolver. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42052137810/job/127330744403)
+passed in 40.685 seconds. Full adjacencies, bidirectional BIRD kernel routes,
+actual OSPFv3/DNS packets, AAAA/A-NODATA/NXDOMAIN, managed probes, independent
+DNS-service versus learned-route loss, local live-DNS controls, reconvergence,
+drift refusal, declarative cold restore and host invariants passed. Standalone
+physical/SVI OSPFv3, tagged IPv6 DNS, dual-stack DNS and general CI also passed
+on that commit; 46 other jobs were intentionally skipped by manual selection.
+
+Local tests passed 956 cases in 31.056 seconds with 150 environment-dependent
+skips; compilation/diff checks passed. No failed native run preceded this
+checkpoint. See IPV6_DNS_OSPFV3.md and the final LAN_NEXT_STEPS section for
+exact scope. Mixed/AAA, SVI/subinterface, firewall, other services and dynamic
+addressing remain excluded. Remaining LAN work precedes GUI; static VXLAN
+mapping and later separate EVPN/BGP remain required roadmap work.
+
 ## Latest LAN increment: guarded Syslog sender recovery validated — 2026-11-05
 
 At implementation/validation commit

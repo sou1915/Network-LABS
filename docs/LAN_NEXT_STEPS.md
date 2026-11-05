@@ -1745,3 +1745,48 @@ VXLAN with explicit VTEP/VNI/VLAN mapping remains required, with EVPN/BGP
 separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-recover`.
+
+
+## IPv6 DNS over a physical OSPFv3 pair — 2026-11-05
+
+`example --ipv6-dns-ospfv3` combines one separate managed IPv6 DNS server
+with exactly two physical OSPFv3 routers. Router static-route lists remain
+empty; hosts retain explicit default gateways. Every numbered router port
+participates, with one directly paired active transit and passive LAN ports.
+Router IDs differ and hello/dead timers match. Clients use only the managed
+IPv6 resolver. Mixed/AAA, switches/SVIs/subinterfaces, security, TFTP/NTP and
+dynamic addressing remain excluded. The reference zone is AAAA-only, with
+A/NODATA and NXDOMAIN behavior. See [IPV6_DNS_OSPFV3.md](IPV6_DNS_OSPFV3.md).
+
+At implementation/validation commit
+`d320b987b0a75e84a2899a480e0dc7996e69398a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42052137810/job/127330744403)
+passed in **40.685 seconds** on Ubuntu 24.04. Full adjacencies, both remote
+LAN kernel routes with BIRD protocol/link-local gateways, actual OSPFv3 and
+bidirectional UDP/TCP DNS packets, AAAA/A-NODATA/NXDOMAIN and managed DNS probes
+passed. No non-loopback IPv4 addresses were present. DNS shutdown left both
+OSPF routes/adjacencies and routed echo working. Stopping R2 BIRD withdrew R1's
+remote route and broke routed DNS, while both DNS transports still succeeded
+from R2's directly connected LAN to the independently live server. Restart
+reconverged both directions and restored DNS without inserting a static service
+route.
+
+Unmanaged static-route injection and DNS/BIRD config drift refused save.
+Cold restore retained exact declarations, empty router static-route lists and
+freshly learned routes/DNS behavior. Host namespaces, links, IPv4/IPv6 routes/
+rules and IPv6 forwarding invariants remained unchanged. Local tests passed
+956 cases in 31.056 seconds with 150 environment-dependent skips; compilation
+and diff checks passed. No failed native run preceded this checkpoint.
+
+Standalone physical/SVI OSPFv3, static tagged IPv6 DNS, physical dual-stack
+DNS and general CI all passed on that commit. The other 46 jobs were
+intentionally skipped by manual selection and are not claimed as passing
+native coverage.
+
+This physical dynamic-routing/service composition does not enable DNS over
+OSPFv3 subinterfaces/SVIs, alternative-path failover, redistribution, authenticated
+OSPF, encrypted DNS, DNSSEC or dynamic registration. Remaining LAN work precedes
+GUI. Static VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP
+remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3`.
