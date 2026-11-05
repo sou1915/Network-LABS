@@ -375,6 +375,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': SNMP requires a rootfs built with --snmpd.')
             from .https_server import preflight as https_preflight
             https_preflight(node)
+            from .syslog_forward import preflight as spool_preflight
+            spool_preflight(node)
             from .syslog_tls import config as tls_config, preflight as tls_preflight, MODULES as TLS_MODULES
             if tls_config(node) is not None:
                 tls_preflight(node)

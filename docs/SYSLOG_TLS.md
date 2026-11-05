@@ -14,6 +14,10 @@ collector peer identity. They may use different rootfs images. The sender
 keeps the existing bounded volatile queues and retry behavior. Co-located
 sender/collector and router/multi-interface TLS collectors are refused.
 
+The separately opted-in [disk action queue](SYSLOG_DISK_QUEUE.md) can retain
+already-spooled messages across a sender-daemon crash inside the same node.
+Default queues stay volatile; lab stop/recreation still removes the spool.
+
 Provision each image with its own leaf identity and the explicit trust CA:
 
 ```bash

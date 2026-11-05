@@ -1029,21 +1029,23 @@ def stp_lacp_lab(rootfs, min_links=1, lacp_strict=None):
     return validate(spec)
 
 
-def syslog_tcp_lab(rootfs, forward=False):
+def syslog_tcp_lab(rootfs, forward=False, *, disk_queue=False):
     """Plain TCP collector and a diagnostic client on an isolated switched LAN."""
     from .spec import example
     if type(forward) is not bool: raise ValueError('TCP syslog forward selection must be boolean.')
+    if type(disk_queue) is not bool or (disk_queue and not forward):raise ValueError('Disk queue requires boolean selection and TCP forwarding.')
     spec = example(rootfs); spec['name'] = 'syslog-tcp-lan'
     spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'transport': 'tcp', 'senders': ['192.0.2.20']}
     if forward:
         spec['nodes'][2]['management'] = {'interface': 'eth0', 'syslog_remote': '192.0.2.10', 'syslog_transport': 'tcp'}
+        if disk_queue:spec['nodes'][2]['management']['syslog_disk_queue']=True
     return validate(spec)
 
 
-def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, verify_peer_on_start=False):
+def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, verify_peer_on_start=False, disk_queue=False):
     """Mutual TLS with explicit certificate names and pinned offline public assets."""
     from .syslog_tls import policy
-    spec = syslog_tcp_lab(server_rootfs, forward=True); spec['name'] = 'syslog-tls-lan'
+    spec = syslog_tcp_lab(server_rootfs, forward=True, disk_queue=disk_queue); spec['name'] = 'syslog-tls-lan'
     spec['nodes'][0]['syslog_server'].update(transport='tls', tls=policy(server_rootfs, client_name))
     spec['nodes'][2]['rootfs'] = str(Path(client_rootfs).resolve())
     spec['nodes'][2]['management'].update(syslog_transport='tls', syslog_tls=policy(client_rootfs, server_name))

@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - syslog-disk-queue
           - syslog-tls-lifecycle
           - https-identity-lifecycle
           - dot1x
@@ -23,6 +24,16 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  syslog-disk-queue-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'syslog-disk-queue'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated TCP and TLS spool prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
+      - name: Verify queued markers across sender SIGKILL, TCP/TLS wire, drift and cold restore boundary
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_disk_queue_integration.py -v
   syslog-tls-lifecycle-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'syslog-tls-lifecycle'
     runs-on: ubuntu-24.04
@@ -304,7 +315,7 @@ jobs:
       - name: Verify persistent HTTPS trust and identity, methods, drift, outage and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_https_server_integration.py -v
   syslog-tls-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'syslog-tls-lifecycle'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -314,7 +325,7 @@ jobs:
       - name: Verify mutual names and trust, encrypted storage, rejection, retry, drift and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_integration.py -v
   syslog-tcp-forward-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'syslog-disk-queue'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -521,7 +532,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

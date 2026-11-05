@@ -123,7 +123,7 @@ def observe(manager, node):
     return {'configuration_verified': all(row['configuration_verified'] for row in checks.values()) and (tls is None or tls['configuration_verified']), 'tls': tls,
             'files': checks, 'address': listen_address(node), 'port': 6514 if node['syslog_server'].get('transport') == 'tls' else 514, 'transport': node['syslog_server'].get('transport', 'udp'),
             'allowed_senders': node['syslog_server']['senders'], 'log': LOG,
-            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. TCP uses plain imptcp with octet-counted and LF framing, 16 sessions; TLS optionally uses mutually authenticated gtls with pinned public trust and explicit peer names on TCP/6514. No durable sender queue or application acknowledgement.'}
+            'note': 'Managed file conformity only, not daemon liveness or message delivery. IP allowlist is not authentication. 64 KiB rotation threshold plus batch/message overshoot, one backup; volatile node logs, not saved/restored. TCP uses plain imptcp with octet-counted and LF framing, 16 sessions; TLS optionally uses mutually authenticated gtls with pinned public trust and explicit peer names on TCP/6514. Sender queue persistence depends on its explicitly selected profile; no application acknowledgement.'}
 
 
 def drift(manager, node):
