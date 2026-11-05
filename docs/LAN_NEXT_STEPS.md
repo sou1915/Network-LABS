@@ -1685,3 +1685,63 @@ VXLAN with explicit VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain
 required roadmap work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-disk-queue`.
+
+
+## Guarded operator recovery for a dead Syslog sender — 2026-11-05
+
+`syslog-forward-recover LAB NODE` makes sender-process recovery an explicit
+public CLI operation for an opted-in disk-queue TCP/TLS sender in a retained
+running OCI node. It refreshes state under the existing lab lock, refuses
+pending configuration or the wrong node/profile, requires managed config/TLS/
+spool conformity and reapplies opted-in peer checks with pinned offline assets.
+An in-container bounded process census detects a live PID owner or rsyslog
+executable even with a missing PID file. Malformed/non-regular/symlink PID files,
+unavailable evidence, excess process count and changed PID/inode snapshots
+refuse recovery. A second census and comparison precede removal of only the
+unchanged dead/zombie/absent process's regular stale PID file. No process is
+signalled. The existing start function tests config and launches the fixed
+sender; bounded live PID/argv observations are required before returning
+`status:started`. No policy or queue/log contents are rewritten by the helper.
+See [SYSLOG_FORWARD_RECOVERY.md](SYSLOG_FORWARD_RECOVERY.md).
+
+At implementation/validation commit
+`c68850c3070aae41473771348d9fd91ec8fa265a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42048879065/job/127319255687)
+passed in **21.454 seconds** on Ubuntu 24.04. Both TCP and TLS exercised the
+public CLI in separate processes. A live sender with its PID file was refused;
+with the file missing, the process census specifically identified live rsyslog
+and still refused. PID 1, malformed PID and symlink cases were refused with
+the supplied file/link intact and the original sender alive. After actual
+SIGKILL and observed death, config/spool drift refused before stale-file
+cleanup. TCP recovered a stale PID file; TLS recovered without a PID file.
+Both returned the actual new sender PID, and duplicate calls refused without
+replacing it.
+
+The original disk-queue protocol scenario remains shared, with its original
+manual-restart implementation separately selected as a regression. New CLI
+recovery preserved the same container init PID and on-disk fixture records,
+with exact new PID/argv observations. The fixture removed volatile local
+output but did not resubmit markers or rewrite queue bytes; collector recovery
+stored all three queued markers. Actual TCP replay contained plaintext while
+TLS captures contained packets without plaintext markers. New automatic
+delivery, unchanged declared state, permission/config drift-save refusal,
+cold-restore non-retention and host network invariants all passed.
+
+Original disk-queue, default TCP forwarding, default mutual-TLS forwarding and
+general CI all passed on that commit. The other 45 jobs were intentionally
+skipped by manual selection and are not claimed as passing native coverage.
+Local tests passed 952 cases in 30.346 seconds with 149 environment-dependent
+skips; compilation and diff checks passed. No failed native run preceded this
+checkpoint. Local checks also refuse invalid profile/state/drift before any
+container mutations and reject ambiguous census output.
+
+The lab lock serializes cooperating CLI actors, not a malicious root process
+racing arbitrary in-node changes. Failed readiness verification after a start
+request can leave an unverified daemon present; operators must inspect before
+retrying. Started is process evidence, not a delivery receipt. No automatic
+supervisor, delivery acknowledgement, exactly-once semantics or queue retention
+across lab stop/recreation is added. Remaining LAN work precedes GUI; static
+VXLAN with explicit VTEP/VNI/VLAN mapping remains required, with EVPN/BGP
+separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-recover`.

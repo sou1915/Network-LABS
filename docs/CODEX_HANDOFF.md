@@ -1,5 +1,31 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: guarded Syslog sender recovery validated — 2026-11-05
+
+At implementation/validation commit
+`c68850c3070aae41473771348d9fd91ec8fa265a`,
+`syslog-forward-recover LAB NODE` explicitly starts a confirmed dead opted-in
+disk-queue sender in its retained running node. It refreshes state under the
+lab lock, requires config/TLS/spool conformity, reapplies optional offline peer
+checks, uses bounded in-container process censuses and PID/inode comparisons,
+and refuses live or ambiguous state. No signals, manual queue rewrite or
+local-log replay. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42048879065/job/127319255687)
+passed in 21.454 seconds. Both TCP and TLS verified live/missing-PID process
+refusal, unrelated live PID refusal, malformed/symlink preservation, drift
+refusal before cleanup, stale/absent PID recovery through separate CLI calls,
+duplicate refusal, matching new PID/argv, same retained container, real queued
+replay and TCP/TLS packets, continued delivery and cold-restore non-retention.
+Original disk-queue, default TCP/TLS and general CI also passed on that commit;
+45 other jobs were intentionally skipped by manual suite selection.
+
+Local tests passed 952 cases in 30.346 seconds with 149 environment-dependent
+skips; compilation/diff checks passed. No failed native run preceded this
+checkpoint. See SYSLOG_FORWARD_RECOVERY.md and the final LAN_NEXT_STEPS
+section for exact scope. Started is process evidence, not collector delivery.
+No supervisor or cross-lab-stop queue retention is added. Remaining LAN work
+precedes GUI; static VXLAN mapping and later separate EVPN/BGP remain required.
+
 ## Latest LAN increment: node-overlay Syslog disk queue validated — 2026-11-05
 
 At implementation/validation commit
