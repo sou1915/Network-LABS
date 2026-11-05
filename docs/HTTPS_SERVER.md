@@ -3,7 +3,7 @@
 Optional `https_server` runs a real NGINX master and one worker inside a
 managed OCI host until the lab stops. It is separate from `https-demo`,
 which remains temporary host-Python demonstration traffic. The new service
-binds only the declared IPv4 eth0 address on TCP/443, enables TLS 1.2/1.3,
+binds only the declared eth0 address on TCP/443, enables TLS 1.2/1.3,
 and exposes one fixed readiness response: GET/HEAD `/` is 200, other paths
 are 404 and other methods are 405. It is a protocol lab endpoint, not a
 vendor GUI, application login, upload server or reverse proxy.
@@ -45,8 +45,10 @@ Manifest policy contains `interface:"eth0"`, `ca_sha256` and
 these public assets to create pins, never the raw private key. Startup checks
 the pins, matching key/certificate, permissions and executable assets; NGINX
 then tests its actual config before launch. Config edits require recreation.
-The initial profile is a standalone numbered UP single-interface OCI IPv4
-host; management/Syslog/other managed server co-location and IPv6 are refused.
+The default profile is a standalone numbered UP single-interface OCI IPv4
+host; management/Syslog/other managed server co-location is refused.
+An explicit [static IPv6-only HTTPS profile](IPV6_HTTPS.md) is separate;
+dual-stack and broader service/security combinations remain refused.
 
 Clients must choose an explicit CA and verify the target IP/DNS identity.
 For the example probe, provision IP SAN `192.0.2.10`; for DNS probing, provision

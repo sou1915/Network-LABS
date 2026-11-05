@@ -58,24 +58,40 @@ def install(rootfs, values):
         with os.fdopen(fd,'wb') as output:output.write(data)
 
 
-def policy(rootfs):
-    return {'interface':'eth0','ca_sha256':hashlib.sha256(read_asset(Path(rootfs)/CA.lstrip('/'))).hexdigest(),
-            'certificate_sha256':hashlib.sha256(read_asset(Path(rootfs)/CERT.lstrip('/'))).hexdigest()}
+def policy(rootfs, *, family='ipv4'):
+    value={'interface':'eth0','ca_sha256':hashlib.sha256(read_asset(Path(rootfs)/CA.lstrip('/'))).hexdigest(),
+           'certificate_sha256':hashlib.sha256(read_asset(Path(rootfs)/CERT.lstrip('/'))).hexdigest()}
+    if family!='ipv4':value['family']=family
+    return value
+
+
+def address(node):
+    if node['https_server'].get('family','ipv4')=='ipv6':
+        return str(ipaddress.IPv6Interface(node['ipv6']['eth0']).ip)
+    return str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
 
 
 def validate_node(node):
     from .spec import keys
     value=node.setdefault('https_server',None)
     if value is None:return
-    keys(value,('interface','ca_sha256','certificate_sha256'),'HTTPS server')
+    keys(value,('interface','ca_sha256','certificate_sha256','family'),'HTTPS server')
+    family=value.get('family','ipv4')
+    if family not in ('ipv4','ipv6'):raise ValueError('HTTPS family must be ipv4 or ipv6.')
     if (node['runtime']!='oci' or node['role']!='host' or set(node['interfaces'])!={'eth0'} or value.get('interface')!='eth0' or
-        not node['interfaces']['eth0'] or 'eth0' in node['shutdown'] or node.get('startup') or node.get('ipv6') or node.get('dhcp_clients') or
+        'eth0' in node['shutdown'] or node.get('startup') or node.get('dhcp_clients') or
         any(node.get(k) for k in ('management','syslog_server','radius_server','tftp_server','ntp_server','snmp_agent','snmp_receiver','dns_server'))):
-        raise ValueError('HTTPS initially requires a standalone numbered UP single-interface OCI IPv4 host.')
-    local=ipaddress.IPv4Interface(node['interfaces']['eth0'])
-    if (local.ip.is_unspecified or local.ip.is_multicast or local.ip.is_loopback or local.ip.is_reserved or
-        (local.network.prefixlen<31 and local.ip in (local.network.network_address,local.network.broadcast_address))):
-        raise ValueError('HTTPS requires a usable IPv4 address.')
+        raise ValueError('HTTPS requires a standalone numbered UP single-interface OCI host.')
+    if family=='ipv6':
+        if node['interfaces']['eth0'] or set(node.get('ipv6',{}))!={'eth0'}:
+            raise ValueError('IPv6 HTTPS requires IPv6-only static eth0 addressing.')
+    else:
+        if not node['interfaces']['eth0'] or node.get('ipv6'):
+            raise ValueError('IPv4 HTTPS requires IPv4-only static eth0 addressing.')
+        local=ipaddress.IPv4Interface(node['interfaces']['eth0'])
+        if (local.ip.is_unspecified or local.ip.is_multicast or local.ip.is_loopback or local.ip.is_reserved or
+            (local.network.prefixlen<31 and local.ip in (local.network.network_address,local.network.broadcast_address))):
+            raise ValueError('HTTPS requires a usable IPv4 address.')
     for name in ('ca_sha256','certificate_sha256'):
         if not isinstance(value.get(name),str) or not re.fullmatch('[0-9a-f]{64}',value[name]):
             raise ValueError('HTTPS requires explicit public CA/local certificate file SHA-256 pins.')
@@ -102,12 +118,13 @@ def rootfs_assets(binary):
 
 
 def files(node):
-    address=str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip)
+    local=address(node)
+    endpoint=('['+local+']:443 ssl ipv6only=on' if node['https_server'].get('family','ipv4')=='ipv6' else local+':443 ssl')
     text='\n'.join([
         'daemon off;','master_process on;','worker_processes 1;','user https https;','pid '+PID+';',
         'error_log stderr warn;','events { worker_connections 16; }','http {','  access_log off;',
         *('  '+name+'_temp_path /run/https/'+name+';' for name in ('client_body','proxy','fastcgi','uwsgi','scgi')),
-        '  server {','    listen '+address+':443 ssl;','    server_name _;',
+        '  server {','    listen '+endpoint+';','    server_name _;',
         '    ssl_certificate '+CERT+';','    ssl_certificate_key '+KEY+';',
         '    ssl_protocols TLSv1.2 TLSv1.3;','    ssl_session_cache off;','    ssl_session_tickets off;',
         '    keepalive_timeout 0;','    client_header_timeout 3s;','    client_body_timeout 3s;','    send_timeout 3s;',
@@ -154,7 +171,7 @@ def observe(manager,node):
                   sums.get(CERT)==value['certificate_sha256'] and expected is not None and sums.get(KEY)==expected)
     except (OSError,ValueError,RuntimeFailure,subprocess.TimeoutExpired):pass
     return {'configuration_verified':check['configuration_verified'] and identity,'files':{'https.conf':check},'identity_verified':identity,
-            'address':str(ipaddress.IPv4Interface(node['interfaces']['eth0']).ip),'port':443,
+            'address':address(node),'port':443,
             'scope':'NGINX configuration and identity-asset conformity, not daemon liveness, certificate handshake or delivery. Fixed GET/HEAD / response; no application login, uploads, reverse proxy or runtime session snapshot.'}
 
 

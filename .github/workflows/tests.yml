@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - ipv6-https
           - lan-readiness-retry
           - ipv6-dns-ospfv3-failover
           - ipv6-dns-ospfv3
@@ -28,6 +29,16 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  ipv6-https-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-https'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated IPv6 HTTPS prerequisites
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nginx-core openssl
+      - name: Verify routed IPv6 TLS, trust refusal, independent faults, drift and cold restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_https_integration.py -v
   ipv6-dns-ospfv3-failover-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ipv6-dns-ospfv3-failover'
     runs-on: ubuntu-24.04
@@ -79,7 +90,7 @@ jobs:
       - name: Verify offline pair rejection, rekey, CA change, distinct issuers, restore and rollback
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_lifecycle_integration.py -v
   https-identity-lifecycle-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'ipv6-https'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -339,7 +350,7 @@ jobs:
       - name: Verify real DNS TCP/UDP, matched truncation controls, framing failures and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dns_transport_integration.py -v
   https-server-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'ipv6-https'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -566,7 +577,7 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

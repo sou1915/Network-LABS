@@ -1075,6 +1075,17 @@ def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, ve
     return validate(spec)
 
 
+def ipv6_https_lab(server_rootfs, client_rootfs):
+    """One persistent HTTPS server beyond two static IPv6 physical routers."""
+    from .https_server import policy
+    spec=ipv6_routed_lab(client_rootfs);spec['name']='ipv6-https-lan'
+    server=spec['nodes'][3]
+    server['rootfs']=str(Path(server_rootfs).resolve())
+    server['https_server']=policy(server_rootfs,family='ipv6')
+    server['memory_mib']=max(server['memory_mib'],32)
+    return validate(spec)
+
+
 def https_lab(server_rootfs, client_rootfs):
     """Persistent server-authenticated HTTPS with offline supplied identity."""
     from .spec import example

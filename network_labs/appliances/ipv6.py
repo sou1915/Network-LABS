@@ -81,6 +81,17 @@ def validate_lab(spec):
         raise ValueError('Initial dual-stack routing requires static IPv6; RA/SLAAC/DHCPv6 coexistence is not in this profile.')
     from .firewall_ipv6 import validate_lab as validate_firewall_lab
     validate_firewall_lab(spec)
+    if any(n.get('https_server') for n in spec['nodes']):
+        servers=[n for n in spec['nodes'] if n.get('https_server')]
+        excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
+                  'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
+                  'dhcpv6_pd_server','dns_server','resolvers','tftp_server','ntp_server','management',
+                  'radius_server','radius_access','dot1x')
+        if len(servers)!=1 or servers[0]['https_server'].get('family')!='ipv6' or any(
+                n['role'] not in ('host','router') or any(n.get(k) for k in excluded) or
+                any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
+                set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
+            raise ValueError('IPv6 HTTPS requires one explicit IPv6 server and static IPv6-only physical hosts/routers without other service/security compositions.')
     if any(n.get('ntp_server') for n in spec['nodes']):
         servers=[n for n in spec['nodes'] if n.get('ntp_server')]
         excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
@@ -159,7 +170,7 @@ def validate_lab(spec):
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('https_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'startup', 'port_channels', 'firewall',
+        forbidden = ('snmp_receiver', 'snmp_agent', 'syslog_server', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or
