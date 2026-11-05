@@ -31,7 +31,7 @@ def files(node):
     from .syslog_tls import global_options
     driver = ('StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name" StreamDriverPermittedPeers="' + node['management']['syslog_tls']['peer'] + '" StreamDriver.CheckExtendedKeyPurpose="on" StreamDriver.PrioritizeSAN="on" gnutlsPriorityString="NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3"') if tls else 'StreamDriver="ptcp"'
     queue=(['         queue.type="Disk" queue.filename="forward" queue.spoolDirectory="'+SPOOL+'"',
-            '         queue.maxDiskSpace="1m" queue.maxFileSize="64k" queue.fileCreateMode="0600"',
+            '         queue.maxDiskSpace="1m" queue.maxFileSize="64k"',
             '         queue.checkpointInterval="1" queue.syncQueueFiles="on"',
             '         queue.workerThreads="1" queue.dequeueBatchSize="1"',
             '         queue.timeoutEnqueue="0" queue.saveOnShutdown="on")']
@@ -39,6 +39,7 @@ def files(node):
            ['         queue.type="FixedArray" queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1"',
             '         queue.timeoutEnqueue="0" queue.saveOnShutdown="off")'])
     config = '\n'.join([
+        *(['$umask 0077'] if node['management'].get('syslog_disk_queue') else []),
         'global(workDirectory="/run" net.enableDNS="off" maxMessageSize="1k"' + (global_options() if tls else '') + ')',
         'main_queue(queue.type="FixedArray" queue.size="256" queue.workerThreads="1" queue.dequeueBatchSize="1" queue.timeoutEnqueue="0")',
         'module(load="imuxsock" SysSock.Use="off")',

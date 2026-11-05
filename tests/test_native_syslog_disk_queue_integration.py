@@ -84,6 +84,8 @@ class NativeSyslogDiskQueueTests(unittest.TestCase):
                             emit(token);wait(lambda:spooled(token),'Marker never reached disk queue: '+token)
                             self.assertNotIn(token,logs())
                         self.assertEqual(manager.crun('exec','PC2','/bin/busybox','stat','-c','%a:%u:%g',SPOOL).stdout,'700:0:0\n')
+                        modes=manager.crun('exec','PC2','/bin/sh','-c','/bin/busybox stat -c "%a:%u:%g" '+SPOOL+'/forward*').stdout.splitlines()
+                        self.assertTrue(modes);self.assertTrue(all(mode=='600:0:0' for mode in modes),modes)
                         old_pid=sender_pid();self.assertIsNotNone(old_pid)
                         argv=manager.crun('exec','PC2','/bin/busybox','cat','/proc/'+str(old_pid)+'/cmdline').stdout.rstrip('\0').split('\0')
                         self.assertEqual(argv,command());self.assertNotEqual(status(old_pid),'Z')

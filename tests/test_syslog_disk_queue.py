@@ -30,7 +30,7 @@ class SyslogDiskQueueTests(unittest.TestCase):
             config=files(node)['syslog-forward.conf']
             for token in ('main_queue(queue.type="FixedArray" queue.size="256"','queue.type="Disk"',SPOOL,
                           'queue.maxDiskSpace="1m"','queue.checkpointInterval="1"','queue.syncQueueFiles="on"',
-                          'queue.fileCreateMode="0600"','queue.saveOnShutdown="on"'):
+                          '$umask 0077','queue.saveOnShutdown="on"'):
                 self.assertIn(token,config)
             self.assertNotIn('imfile',config)
         old=original['nodes'][2];new=copy.deepcopy(old);new['management']['syslog_disk_queue']=True

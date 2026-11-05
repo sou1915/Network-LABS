@@ -17,8 +17,9 @@ those in [SYSLOG_FORWARD.md](SYSLOG_FORWARD.md) and [SYSLOG_TLS.md](SYSLOG_TLS.m
 
 The action uses fixed queue prefix `forward` in
 `/var/spool/network-labs-syslog` on the owned node overlay, outside `/run`
-tmpfs. The directory is root-owned mode 0700 and queue files are configured
-mode 0600. The queue requests 1 MiB max disk space, 64 KiB segment size,
+tmpfs. The directory is root-owned mode 0700; the opted-in sender uses private
+umask 0077, with actual queue-file mode 0600 required by native validation.
+The queue requests 1 MiB max disk space, 64 KiB segment size,
 one worker, batch size one, checkpoint interval one, synchronous queue files,
 zero enqueue timeout and save-on-shutdown. These are rsyslog limits with
 metadata/record/segment overshoot, not a filesystem quota or an unlimited
