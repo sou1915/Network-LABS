@@ -1,5 +1,25 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 TFTP validated — 2026-11-05
+
+Commit `cc2361876e6869e4e6674c721f027f3ba05b7891` adds explicit IPv6 TFTP
+client/server family selection and `example --ipv6-tftp` over static physical
+IPv6-only routing. IPv4 defaults remain unchanged. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42028445357/job/127248456722)
+passed in 26.111 seconds; IPv4 TFTP/blksize, static IPv6 subinterface and general
+CI jobs also passed on that commit. Local tests passed 925 cases with 141
+environment-dependent skips. Native binary/64-KiB reads, negotiation, hash/error
+checks, service/routing outage controls, drift refusal, cold restore and host
+invariants passed. Local IPv6 socket coverage tests wrong TIDs and repeated
+final ACKs.
+
+See IPV6_TFTP.md and the final LAN_NEXT_STEPS section for exact scope and usage.
+This is bounded unauthenticated read-only TFTP with no DNS/family fallback,
+not generic file services, writes, encrypted/authenticated transfers or broader
+service/security/dynamic combinations. Continue remaining LAN before GUI;
+static VXLAN and later separate EVPN/BGP remain required. Older pending notes
+are historical, not current blockers.
+
 ## Latest LAN increment: AAAA-only DNS zones validated
 
 Commit `9306d24d57f90949947a76aa9cd9c81e5ae92c47` accepts an explicit empty

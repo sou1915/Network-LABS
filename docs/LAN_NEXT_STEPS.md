@@ -1253,3 +1253,50 @@ AAA/IPv6/switching work precede GUI. Static VXLAN with VTEP/VNI/VLAN mapping
 and later separate EVPN/BGP remain required roadmap work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dns-aaaa`.
+
+
+## Explicit IPv6 read-only TFTP increment — 2026-11-05
+
+`example --ipv6-tftp` adds one separate IPv6-only dnsmasq TFTP server on the
+existing static physical two-router reference. The server opts in through
+`tftp_server.family:ipv6`; the client independently chooses
+`tftp-read --family ipv6`. Omitted families retain IPv4 defaults. The client
+validates literal addresses against the explicit family, performs a matching
+route lookup with the observed IPv6 source, binds that source, and uses a
+v6-only socket. No DNS or family fallback is added. Peer tuple/TID pinning,
+65536-byte/256-datagram bounds, finite retries/deadline, blksize negotiation,
+final-ACK dally and optional expected SHA-256 retain their existing semantics.
+See [IPV6_TFTP.md](IPV6_TFTP.md) for setup and limits.
+
+At implementation/validation commit
+`cc2361876e6869e4e6674c721f027f3ba05b7891`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42028445357/job/127248456722)
+passed in **26.111 seconds** on Ubuntu 24.04. Real dnsmasq served empty,
+exact-block, binary-tail and 64-KiB content across the static IPv6 two-router
+path with classic/negotiated blocks and verified hashes. Actual IPv6 UDP
+captures contained the selected client/server addresses and blksize wire bytes.
+Wrong expected hash and missing-file errors, unchanged declared runtime state,
+service outage/recovery, forwarding failure with a successful local server
+wire control, forwarding/file-drift save refusal, saved IPv6-family retention,
+64-KiB cold restore and host namespace/link/IPv4+IPv6 route/rule/forwarding
+invariants passed.
+
+Existing IPv4 TFTP/blksize and static IPv6 subinterface native regressions,
+plus general CI, all passed on the same commit. The other 37 jobs were skipped
+by targeted manual selection and are not claimed as passing native coverage.
+Local tests passed 925 cases in 28.157 seconds with 141 environment-dependent
+skips. Added local IPv6 UDP wire coverage verified wrong-TID rejection,
+duplicate final-DATA acknowledgement and unchanged binary length/hash. Syntax
+and diff checks passed. No failed native run preceded this checkpoint.
+
+The managed IPv6 server profile requires exactly one static IPv6-only
+single-interface server, physical hosts/routers and static routes. It excludes
+mixed/dual-stack, switches, SVIs/subinterfaces, dynamic IPv6, DNS/AAA/management
+and firewall/security compositions. This is unauthenticated read-only TFTP,
+not writes, encryption, generic external-server interoperability, path-MTU
+coverage or confirmed final-ACK receipt. No received file is stored by the
+managed client. Broader file services and remaining AAA/IPv6/switching/service
+compositions continue before GUI. Static VXLAN with VTEP/VNI/VLAN mapping
+remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp`.
