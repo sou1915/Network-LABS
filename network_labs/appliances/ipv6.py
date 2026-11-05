@@ -85,14 +85,24 @@ def validate_lab(spec):
         servers=[n for n in spec['nodes'] if n.get('https_server')]
         excluded=('svis','subinterfaces','ra_guard','ospfv3','slaac','router_advertisements',
                   'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
-                  'dhcpv6_pd_server','dns_server','resolvers','tftp_server','ntp_server','management',
+                  'dhcpv6_pd_server','tftp_server','ntp_server','management',
                   'radius_server','radius_access','dot1x')
+        dns_servers=[n for n in spec['nodes'] if n.get('dns_server')]
+        if any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes']):
+            if (len(dns_servers)!=1 or not dns_servers[0]['dns_server'].get('listen_ipv6') or
+                    any(n.get('firewall_ipv6') is not None for n in spec['nodes'])):
+                raise ValueError('IPv6 HTTPS/DNS requires one separate managed IPv6 DNS server without a firewall composition.')
+            dns=dns_servers[0]
+            resolver=str(ipaddress.IPv6Interface(dns['ipv6'][dns['dns_server']['interface']]).ip)
+            if dns in servers or not any(n.get('resolvers') for n in spec['nodes']) or any(
+                    n.get('resolvers') and (n in servers or n is dns or n['resolvers']!=[resolver]) for n in spec['nodes']):
+                raise ValueError('IPv6 HTTPS/DNS requires separate service nodes and clients using only the managed IPv6 resolver.')
         if len(servers)!=1 or servers[0]['https_server'].get('family')!='ipv6' or any(
                 n['role'] not in ('host','router','firewall') or any(n.get(k) for k in excluded) or
                 (n.get('firewall_ipv6') is not None and 'input' in n['firewall_ipv6']) or
                 any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
                 set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
-            raise ValueError('IPv6 HTTPS requires one explicit IPv6 server and static IPv6-only physical hosts/routers, with at most one forwarding-only IPv6 firewall and no other service/security compositions.')
+            raise ValueError('IPv6 HTTPS requires one explicit IPv6 server and static IPv6-only physical hosts/routers, with separately scoped DNS or forwarding-only firewall coexistence.')
     if any(n.get('ntp_server') for n in spec['nodes']):
         servers=[n for n in spec['nodes'] if n.get('ntp_server')]
         excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',

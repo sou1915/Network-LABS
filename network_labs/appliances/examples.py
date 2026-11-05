@@ -1075,6 +1075,20 @@ def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, ve
     return validate(spec)
 
 
+def ipv6_dns_https_lab(server_rootfs, client_rootfs):
+    """Separate static IPv6 DNS and HTTPS behind two physical routers."""
+    spec=ipv6_https_lab(server_rootfs,client_rootfs);spec['name']='ipv6-dns-https-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:30::30']
+    spec['nodes'][1]['ipv6_routes'].append({'destination':'2001:db8:30::/64','gateway':'2001:db8:100::2','interface':'eth1'})
+    router=spec['nodes'][2];router['interfaces']['eth2']='';router['ipv6']['eth2']='2001:db8:30::1/64'
+    spec['nodes'].append({'name':'PC3','runtime':'oci','rootfs':str(Path(client_rootfs).resolve()),'interfaces':{'eth0':''},
+        'ipv6':{'eth0':'2001:db8:30::30/64'},'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:30::1','interface':'eth0'}],
+        'dns_server':{'interface':'eth0','zone':'lab.test','listen_ipv6':True,'records':{},
+                      'records_ipv6':{'secure.lab.test':'2001:db8:20::20'}}})
+    spec['links'].append([['R2','eth2'],['PC3','eth0']])
+    return validate(spec)
+
+
 def ipv6_https_firewall_lab(server_rootfs, client_rootfs):
     """One IPv6 HTTPS endpoint behind an explicit default-deny forward policy."""
     from .https_server import policy
