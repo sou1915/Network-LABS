@@ -1300,3 +1300,48 @@ compositions continue before GUI. Static VXLAN with VTEP/VNI/VLAN mapping
 remains required; EVPN/BGP remains separate later work.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp`.
+
+
+## Managed IPv6 isolated NTP reference — 2026-11-05
+
+`example --ipv6-ntp` adds `ntp_server.family:ipv6` for one separate static
+IPv6-only local reference, using chronyd `-6 -x`, an explicit bind address,
+private Unix control socket and /128 client ACLs. The IPv6 profile requires
+`local_stratum` and refuses upstream/hierarchy configurations. IPv4 defaults,
+including upstream/relay support, retain their existing behavior. Passive
+selected-family UDP socket observation now supports Linux /proc/net/udp6 with
+native 32-bit word order while preserving /proc/net/udp behavior for IPv4.
+See [IPV6_NTP.md](IPV6_NTP.md) for setup and scope.
+
+At implementation/validation commit
+`cdcd58c4213c5c7d495a017e8f2305d8b7cb54b8`, the
+[dedicated IPv6 native job](https://github.com/sou1915/Network-LABS/actions/runs/42030027136/job/127253825568)
+passed in **16.291 seconds** on Ubuntu 24.04. Actual managed chronyd stratum-10
+SNTP replies passed origin/version/mode/stratum checks. Allowed and denied
+client requests and allowed replies were captured on IPv6 UDP/123; the denied
+client had an independently proven routed ICMPv6 path. Config/PID/argv and
+exact UDP6 binding observations, fixed read-only tracking, no IPv4 UDP/123
+listener and all five live capability sets without CAP_SYS_TIME were verified.
+The fixture added one explicitly permitted R2 source for a successful independent
+wire control while R1 forwarding was disabled. No clock-setting command or
+client adjustment was invoked.
+
+Service outage/recovery, truthful socket-absent versus config-conformant evidence,
+stopped-control-socket refusal, forwarding/config drift save refusal, retained
+IPv6 family/client policy, cold restore and host namespace/link/IPv4+IPv6 route/
+rule/forwarding invariants passed. The existing IPv4 local-reference/relay/client
+native scenario, IPv6 service-probe and IPv6 TFTP regressions, plus general CI,
+all passed on the same commit. The other 38 jobs were skipped by the explicit
+manual selection and are not claimed as passing native coverage. Local tests
+passed 929 cases in 27.596 seconds with 142 environment-dependent skips;
+compilation/diff checks passed. No failed native run preceded this checkpoint.
+
+This is an isolated unauthenticated local reference, not accurate/external time,
+NTS, an IPv6 upstream hierarchy or automatic clock synchronization. The managed
+IPv6 profile excludes mixed dual-stack, switches, SVIs/subinterfaces, dynamic
+IPv6 and DNS/TFTP/AAA/management/firewall/security compositions. Broader LAN
+services and remaining AAA/IPv6/switching work continue before GUI. Static
+VXLAN with explicit VTEP/VNI/VLAN mappings remains required; EVPN/BGP remains
+a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp`.

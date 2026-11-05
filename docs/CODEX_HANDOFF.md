@@ -1,5 +1,24 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: IPv6 local NTP reference validated — 2026-11-05
+
+Commit `cdcd58c4213c5c7d495a017e8f2305d8b7cb54b8` adds explicit
+`ntp_server.family:ipv6` and `example --ipv6-ntp` with a separate statically
+bound chronyd local reference, /128 clients, `-6 -x`, no CAP_SYS_TIME and a
+private read-only control path. IPv4 defaults/upstream/relay remain unchanged.
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42030027136/job/127253825568)
+passed in 16.291 seconds. IPv4 NTP relay/client, IPv6 probe and TFTP native
+regressions plus general CI passed on that commit. Local tests passed 929 cases
+with 142 environment-dependent skips. Real allowed/denied SNTP, exact UDP6/
+PID/argv/live-capability evidence, independent routing-outage control, service
+recovery, drift refusal, cold restore and host invariants passed.
+
+See IPV6_NTP.md and the final LAN_NEXT_STEPS section for exact setup/evidence.
+This is an isolated local reference, not accurate external time, NTS, an IPv6
+upstream hierarchy, clock adjustment or broader dynamic/security combinations.
+Continue remaining LAN before GUI, with static VXLAN and separate EVPN/BGP
+still required on the roadmap. Older pending notes are historical.
+
 ## Latest LAN increment: IPv6 TFTP validated — 2026-11-05
 
 Commit `cc2361876e6869e4e6674c721f027f3ba05b7891` adds explicit IPv6 TFTP
