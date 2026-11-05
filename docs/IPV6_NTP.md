@@ -20,8 +20,9 @@ sudo python3 -m network_labs.appliances probe ipv6-ntp-lan PC1 \
 IPv6 requires a separate single-interface IPv6-only host, one declared
 `local_stratum` from 2 through 14, and 1..16 explicit unicast managed peer
 addresses. Each client becomes a /128 chronyd allow rule. The local reference
-has stratum 10 in the example. An IPv6 upstream is deliberately refused here;
-no Internet reference, DNS, hierarchy, NTS or authenticated time is implied.
+has stratum 10 in the example. The standalone example uses no upstream. A separate bounded managed IPv6
+relay profile is described in [IPV6_NTP_RELAY.md](IPV6_NTP_RELAY.md). No
+Internet reference, DNS, NTS or authenticated time is implied.
 This local reference supplies protocol observations, not a claim of accurate
 or externally synchronized time. The SNTP probe reads a measurement and does
 not set client or host clocks.

@@ -1,5 +1,27 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: managed IPv6 NTP relay validated — 2026-11-05
+
+Commit `6db2e15853b357ab224012a47500cf17d1ea4888` adds
+`example --ipv6-ntp-relay`: one managed stratum-10 local reference and one
+clockless IPv6 relay serving stratum 11 with explicit client ACLs. Upstream
+identity/ACL/graph bounds are validated, and acquisition binds the declared
+relay address. Both daemons remain `-6 -x` without CAP_SYS_TIME. The
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42032733623/job/127262984424)
+passed in 35.755 seconds. Standalone IPv6 NTP, IPv4 relay/client, IPv6 probe and
+general CI jobs also passed on that commit. Local tests passed 932 cases with
+143 environment-dependent skips. Wire/selected-source/ACL/capability evidence,
+fresh-relay source-loss/no-local-fallback, recovery, drift, cold restore and
+host invariants passed.
+
+See IPV6_NTP_RELAY.md and the final LAN_NEXT_STEPS section for precise scope
+and the retained first failed status-expectation fixture. Live relay holdover
+is not bounded here; no immediate source-loss revocation or externally accurate
+time is claimed. The user requested a visual explanation of this increment;
+provide a service-flow diagram that distinguishes source, relay and client,
+and explicitly notes no system clock adjustment. Continue LAN before GUI,
+retaining static VXLAN and separate EVPN/BGP in the roadmap.
+
 ## Latest LAN increment: IPv6 local NTP reference validated — 2026-11-05
 
 Commit `cdcd58c4213c5c7d495a017e8f2305d8b7cb54b8` adds explicit

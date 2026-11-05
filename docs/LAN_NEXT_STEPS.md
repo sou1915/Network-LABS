@@ -1345,3 +1345,53 @@ VXLAN with explicit VTEP/VNI/VLAN mappings remains required; EVPN/BGP remains
 a separate later increment.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp`.
+
+
+## Bounded managed IPv6 NTP relay — 2026-11-05
+
+`example --ipv6-ntp-relay` adds one IPv6 relay following another managed local
+reference. PC4 (`2001:db8:40::40`) serves local stratum 10 to PC2; PC2
+(`2001:db8:20::20`) serves derived stratum 11 to PC1. PC1 cannot query the
+source directly, and PC3 cannot query the relay. Upstream must be the bound
+address of another managed IPv6 NTP server whose ACL permits the relay's
+source. Self/unknown/non-NTP/unallowed upstreams, cycles, more than two servers
+and two independent roots in a two-server profile are refused. One standalone
+local reference remains supported. Relay acquisition binds its declared IPv6
+address. Both servers retain `-6 -x`, no CAP_SYS_TIME and private read-only
+control paths. See [IPV6_NTP_RELAY.md](IPV6_NTP_RELAY.md) for usage and limits.
+
+At implementation/validation commit
+`6db2e15853b357ab224012a47500cf17d1ea4888`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42032733623/job/127262984424)
+passed in **35.755 seconds** on Ubuntu 24.04. Actual stratum-10 source and
+stratum-11 relay/client responses, chronyc selected-source observation, upstream/
+downstream IPv6 UDP/123 captures, independently reachable but denied clients,
+PID/argv/socket evidence and all live capability sets without CAP_SYS_TIME
+passed. Source loss followed by a fresh relay produced an explicit rejected
+unsynchronised NTP response and `Not synchronised` tracking, not usable time or
+local fallback. Restored source/restarted acquisition, config drift refusal,
+declarative cold restore and host namespace/link/IPv4+IPv6 route/rule/forwarding
+invariants passed.
+
+Standalone IPv6 NTP, existing IPv4 reference/relay/client, IPv6 service-probe
+regressions and general CI all passed on the same commit. The other 39 jobs
+were skipped by explicit suite selection and are not claimed as passing native
+coverage. Local tests passed 932 cases in 28.261 seconds with 143 environment-
+dependent skips; compilation and diff checks passed.
+
+The first native run `42032370786`, job `127261769688`, failed because the
+fresh-source-loss control expected `failed` while the existing SNTP parser
+classifies invalid/unsynchronised replies as `unknown`. Fixture repair
+`6db2e15` requires `unknown`, `INVALID_RESPONSE`, an explicit `Unsynchronised`
+detail and independent `Not synchronised` tracking. Runtime probe semantics
+were not relaxed; the first run remains failed evidence.
+
+A live chronyd relay may retain its previous estimate after source loss.
+No immediate revocation or finite holdover timeout is claimed; only the fresh-
+relay/no-local-fallback boundary above is validated. This remains local lab
+reference behavior, not externally accurate time, clock adjustment, NTS,
+arbitrary external/multi-hop NTP hierarchies or broader service/security/dynamic
+compositions. Remaining LAN work precedes GUI; static VXLAN VTEP/VNI/VLAN
+mapping remains required, with EVPN/BGP separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp-relay`.
