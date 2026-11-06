@@ -263,7 +263,11 @@ class ApplianceWindow:
             if abs(y-yy)<5:
                 sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
             else:
-                sign=1 if yy>y else -1;ax=x;ay=y+sign*25;bx=xx;by=yy-sign*25;mid=(ay+by)/2
+                sign=1 if yy>y else -1;ax=x;ay=y+sign*25;bx=xx;by=yy-sign*25
+                graph_nodes={n['name']:n for n in graph['nodes']}
+                if graph_nodes[a[0]]['role']!='host':ax+=(int(a[1][3:])%8-3.5)*7
+                if graph_nodes[b[0]]['role']!='host':bx+=(int(b[1][3:])%8-3.5)*7
+                mid=min(ay,by)+19+(index%4)*10
                 points=(ax,ay,ax,mid,bx,mid,bx,by)
             self.canvas.create_line(*points,fill='#5180ae',width=1.5,tags=('link','link:'+str(index)))
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
@@ -277,13 +281,13 @@ class ApplianceWindow:
                 self.canvas.create_text(lx,ly,text='Trunk · 802.1Q',fill='#3a6085',font=('DejaVu Sans',8))
         for x1,y1,x2,bg,ink,vid,subnets in captions:
             self.canvas.create_rectangle(x1+3,y1+3,x2-3,y1+41,fill=bg,outline='')
-            self.canvas.create_text((x1+x2)/2,y1+14,text=f'VLAN {vid} · configuration',fill=ink,font=('DejaVu Sans',9,'bold'),tags=('vlan-label',))
+            self.canvas.create_text((x1+x2)/2,y1+14,text=f'VLAN {vid}',fill=ink,font=('DejaVu Sans',9,'bold'),tags=('vlan-label',))
             self.canvas.create_text((x1+x2)/2,y1+30,text=subnets,fill=MUTED,font=('DejaVu Sans',8))
         for node in graph['nodes']:
             name=node['name'];x,y=positions[name];observed=self.states.get(name,{})
             state=observed.get('status','non observé');memory=observed.get('memory')
             color=TEAL if state=='running' else MUTED;tags=('node','node:'+name)
-            self.node_shapes[name]=self.canvas.create_rectangle(x-64,y-43,x+64,y+43,fill='',outline='',width=1,tags=tags)
+            self.node_shapes[name]=self.canvas.create_rectangle(x-64,y-34 if node['role']=='host' else y-43,x+64,y+66 if node['role']=='host' else y+43,fill='',outline='',width=1,tags=tags)
             draw_device(self.canvas,node['role'],x,y,tags=tags)
             if node['role']=='host':
                 self.canvas.create_text(x,y+42,text=name,fill=TEXT,font=('DejaVu Sans',9,'bold'),tags=tags)
@@ -415,7 +419,8 @@ class ApplianceWindow:
         if not self.dragging:return
         name,_,_=self.dragging;self.dragging=None
         box=self.canvas.coords(self.node_shapes[name])
-        self.positions[name]=(max(85,(min(box[::2])+max(box[::2]))/2),max(70,(min(box[1::2])+max(box[1::2]))/2))
+        offset=16 if next(n for n in self.graph['nodes'] if n['name']==name)['role']=='host' else 0
+        self.positions[name]=(max(85,(min(box[::2])+max(box[::2]))/2),max(70,(min(box[1::2])+max(box[1::2]))/2-offset))
         self.draw(self.graph,self.states)
 
     def add_device_dialog(self,role='host'):
