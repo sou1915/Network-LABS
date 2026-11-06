@@ -719,6 +719,19 @@ jobs:
           .venv-ci/bin/python -m pip install -r experiments/micro_appliances/requirements.txt
       - name: Engine, CLI, desktop and executable appliance tests
         run: xvfb-run -a .venv-ci/bin/python -m unittest discover -s tests -v
+      - name: Install real native GUI integration prerequisites
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables conntrack tcpdump python3-pil
+      - name: Verify unprivileged GUI to sudo backend, real OCI traffic and cleanup
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
+        run: sudo env NETWORK_LABS_NATIVE_GUI_TESTS=1 NETWORK_LABS_NATIVE_GUI_ARTIFACT_DIR="$RUNNER_TEMP/native-gui" /usr/bin/python3 -m unittest discover -s tests -p test_native_gui_integration.py -v
+      - name: Retain native GUI screenshot and operation evidence
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-gui-flow
+          path: ${{ runner.temp }}/native-gui/*
+          if-no-files-found: warn
       - name: Executable guest smoke check
         run: .venv-ci/bin/python -m network_labs.micro_appliances demo --json /tmp/micro-demo.json --pcap /tmp/micro-demo.pcap
       - name: Execute saved project with Wasm backend
