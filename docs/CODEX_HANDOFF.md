@@ -1,5 +1,26 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Authoritative GUI reference supplied by user
+
+The user explicitly rejected both workspace_design.png and enterprise_lan.png
+as the agreed GUI. The actual reference is now retained at
+[agreed-gui-reference.jpg](images/agreed-gui-reference.jpg). This overrides
+all earlier statements calling the recent embedded workbench the agreed UI.
+It is a working backend prototype, not visual acceptance.
+
+Implement the reference's application shell: top menus/action toolbar and
+Topologie/Équipements/Scénarios/Captures navigation; searchable equipment
+library with device thumbnails/categories on the left; large topology with
+port/subnet annotations and coloured VLAN/DMZ groups; selected-device GUI/CLI
+panel on the right; docked device console tabs below; adjacent traffic events,
+packet details/logs and observed path. Preserve real native operations and
+honest capability boundaries. The pictured device brands, firmware screens,
+wireless and live traffic are design examples, not proof of implemented native
+support. Do not mark them functional or manufacture traffic events. Prioritise
+the shell and essential native workflows, then graphical editing and supported
+configuration. Keep providing real implementation screenshots. LAN core stays
+accepted; VXLAN remains tracked after LAN/GUI.
+
 ## Latest user correction: preserve the agreed GUI — 2026-11-06
 
 The user requires the existing agreed desktop layout, referenced by

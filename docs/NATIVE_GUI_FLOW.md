@@ -97,7 +97,7 @@ result-file owners, native probe and stop outcome. The
 artifact 13533009570, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
-## Agreed desktop layout
+## Previous desktop layout (rejected as the design reference)
 
 The native LAN now uses the existing [workspace design](workspace_design.png):
 light theme, equipment list on the left, topology in the centre and inspector
@@ -135,3 +135,14 @@ The dedicated wired 802.1X job passed managed-peer recovery (55.167 s) and
 independent-supplicant admission/revocation (219.122 s); 52 other profiles were
 intentionally skipped. The superseded run 42276666855 was canceled after the
 explicit desktop-entry correction, not used as final validation evidence.
+
+
+## User-supplied target design
+
+![Authoritative GUI reference](images/agreed-gui-reference.jpg)
+
+This is the user's target mockup, not an implementation screenshot. It
+supersedes workspace_design.png and enterprise_lan.png as the visual target.
+The current native workbench has verified backend functionality but does not
+implement this design yet. See CODEX_HANDOFF.md for the required layout and
+capability boundaries.
