@@ -2418,3 +2418,43 @@ automatic peer recovery, stronger EAP/TLS, multi-client/dynamic VLAN/accounting
 and wider switching remain open. LAN precedes native GUI; static VXLAN and
 separate EVPN/BGP/WAN remain tracked. Planning estimates stay LAN about 80%,
 whole product about 45–50%.
+
+## Wired 802.1X guarded in-place peer recovery — 2026-11-06
+
+Implementation `af6723cac8613278bfc921b191db58b8ac2bcd20` adds
+`dot1x-peer-recover LAB PC1 --json` for explicit in-place recovery of a dead
+recorded supplicant. It requires a stable running lab, no authenticator worker
+and a verified closed NAS gate. Original namespace/interface/MAC, credential/
+handoff and control directory/socket ownership identities must match. Live
+peers, active auth, drift, foreign entries/replaced sockets and responsive
+sockets without a matching owner are refused before replacement. Legacy
+active state without the new startup ownership metadata requires recreation.
+Only verified stale control objects are removed; namespaces, backend and
+policy remain. Startup uses the same sealed private handoff and ends with
+confirmed closure and authentication_required=true. Fresh explicit auth is
+still required. A failed restart retains recovering-peer phase and any
+recorded resources; auth/save refuse it until explicit stop/restore. Known dead
+children are reaped without waiting for or signalling a live reused PID.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42257561787/job/128028719091)
+passed the extended managed-peer/recovery scenario in 56.219 seconds and
+repeated the full independent-supplicant authenticator scenario in 193.355
+seconds. Recovery refused a live peer, active auth, changed credentials and
+a foreign regular file replacing the old socket, preserving records/files.
+A separate CLI then replaced only the dead peer: its namespace identity,
+all lab namespace names and the actual backend PID remained unchanged. The
+gate stayed closed until a new finite authentication produced four fresh
+RADIUS requests and bidirectional data; save retained the original manifest.
+Existing peer death, wrong-password, cold restore, teardown and host namespace/
+link/IPv4/IPv6 route/rule invariants passed. Both selected jobs passed; 58 others
+were intentionally skipped. Local full tests passed 1024 cases in 30.440
+seconds with 163 environment skips; the 17 focused peer cases, compile/diff/
+link checks passed. Unit coverage includes failed-restart auth/save refusal,
+missing clean-exit control paths and live reused-PID cache isolation. No failed
+native run preceded this increment.
+
+See [DOT1X_MANAGED_PEER.md](DOT1X_MANAGED_PEER.md). Recovery remains explicit;
+automatic peer recovery/persistent NAS supervision, stronger EAP/TLS,
+multi-client/dynamic VLAN/accounting and wider switching remain open. LAN
+precedes native GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.

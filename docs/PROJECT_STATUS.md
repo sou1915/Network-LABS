@@ -12,6 +12,19 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [explicit in-place wired peer recovery](DOT1X_MANAGED_PEER.md)
+at `af6723cac8613278bfc921b191db58b8ac2bcd20`. The
+[native job](https://github.com/sou1915/Network-LABS/actions/runs/42257561787/job/128028719091)
+passed the peer/recovery reference in 56.219 seconds and independent peer
+regression in 193.355 seconds. It proved refusal/preservation for live, active,
+credential-drift and foreign-socket cases, closed in-place replacement with
+unchanged namespaces/backend PID, and fresh authentication/data afterward.
+Both selected jobs passed; 58 were intentionally skipped. Local tests passed
+1024 cases in 30.440 seconds with 163 environment skips. Failed-restart state
+and reused-PID cache isolation have focused coverage. No failed native run
+preceded this increment. Recovery remains explicit; planning estimates are
+unchanged.
+
 The latest bounded increment adds an [engine-owned wired supplicant peer](DOT1X_MANAGED_PEER.md)
 at `f4ebb509df3d901ec3265b1665287a852d1783ab`, with normal-CLI pin
 redaction `22a0844` and final native fixture correction `ff4b08a`.
@@ -271,7 +284,8 @@ These weights are assumptions for this report, not an earlier delivery contract.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
   journal/reconciliation, finite wired EAP-MD5 admission/reauthentication
   with controlled-link revocation, verified backend session-duration caps and
-  bounded server-requested reauthentication and an optional owned peer service.
+  bounded server-requested reauthentication and an optional owned peer service
+  with guarded in-place recovery.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 
