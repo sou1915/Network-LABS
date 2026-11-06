@@ -21,6 +21,8 @@ from network_labs.appliances.spec import namespace, validate
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class NativeSSHRadiusShellTests(unittest.TestCase):
+    PINNED_HOST_KEY=False
+
     def test_real_shell_pty_background_expiry_disconnect_accounting_and_restart(self):
         self.assertEqual(os.geteuid(), 0)
         for tool in ('dropbear', 'freeradius', 'ssh', 'busybox', 'crun'):
@@ -30,6 +32,10 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
              patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
             root = Path(folder); key = root / 'identity'; known = root / 'known_hosts'
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key])
+            host_key=None
+            if self.PINNED_HOST_KEY:
+                self.assertIsNotNone(shutil.which('dropbearkey'))
+                host_key=root/'host-key';run(['dropbearkey','-t','ed25519','-f',host_key]);host_key.chmod(0o600)
             modules = next(p for p in ('/usr/lib/freeradius', '/usr/lib/x86_64-linux-gnu/freeradius')
                            if (Path(p) / 'rlm_pap.so').is_file())
             relay_binary = root / 'ssh-relay'
@@ -39,7 +45,8 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
                 freeradius=shutil.which('freeradius'), freeradius_modules=modules, freeradius_dictionaries='/usr/share/freeradius')
             digest = hashlib.sha256(password.encode()).hexdigest()
             spec = radius_lab(rootfs, secret, digest, ssh_key=key.with_suffix('.pub').read_text().strip(),
-                              ssh_shell=True, accounting=True)
+                              ssh_shell=True, accounting=True,accounting_outbox=self.PINNED_HOST_KEY,
+                              accounting_journal=self.PINNED_HOST_KEY,ssh_host_key_file=host_key)
             spec['name'] = 'ssh-shell-' + str(os.getpid())
             spec['nodes'][0]['radius_access']['session_seconds'] = 4
             spec['nodes'][0]['radius_access']['users']['viewer'] = ['hostname']
@@ -49,6 +56,15 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
             spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']]); spec = validate(spec)
             manager = Manager(spec['name'])
             def trust_host():
+                if self.PINNED_HOST_KEY:
+                    expected='192.0.2.10 '+spec['nodes'][0]['management']['ssh_host_key']['public_key']+'\n'
+                    if known.exists():self.assertEqual(known.read_text(),expected)
+                    else:known.write_text(expected)
+                    deadline=time.monotonic()+10
+                    while time.monotonic()<deadline:
+                        if manager.ns(0,'ss','-H','-ltn','sport = :22').stdout:return
+                        time.sleep(.1)
+                    self.fail('Pinned SSH shell listener did not become ready')
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
                     result = manager.ns(3, 'ssh-keyscan', '-T', '2', '-t', 'ed25519', '192.0.2.10', check=False, timeout=4)
@@ -69,6 +85,14 @@ class NativeSSHRadiusShellTests(unittest.TestCase):
                 self.assertNotIn('sleep 37', manager.crun('exec', 'PC1', '/bin/busybox', 'ps', '-o', 'args').stdout)
                 directories = manager.crun('exec', 'PC1', '/bin/busybox', 'ls', '/tmp').stdout
                 self.assertNotIn('ssh-radius.', directories, 'Guest transport directory leaked')
+                if self.PINNED_HOST_KEY:
+                    from network_labs.appliances import radius_journal as journal,radius_outbox as outbox
+                    deadline=time.monotonic()+5
+                    while time.monotonic()<deadline:
+                        if journal.pending(manager)['pending']==0 and outbox.pending(manager)['pending']==0:break
+                        time.sleep(.05)
+                    self.assertEqual(journal.pending(manager)['pending'],0)
+                    self.assertEqual(outbox.pending(manager)['pending'],0)
             def tty_shell(disconnect=False):
                 master, slave = pty.openpty(); process = None; output = bytearray()
                 user_sent = password_sent = commands_sent = False

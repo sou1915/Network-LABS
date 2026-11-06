@@ -55,6 +55,16 @@ pre-provisioned known_hosts, use a fresh bridge token, reject stale-runtime
 reconciliation and complete a healthy shell with Stop acknowledgement.
 Host namespace/link/IPv4/IPv6 route/rule invariants are checked.
 
+Additional native lifecycle coverage is now pending: the real PTY/shell suite
+with pinned identity and full outbox/journal enabled. It exercises denied
+credentials/actions without payload creation, a chosen command exit status,
+PTY/no-new-privileges/empty capabilities, no password echo, background-process
+cleanup, expiry, client disconnect, matching Start/Stop session IDs and all
+four expected termination causes. Healthy completion must leave both journal
+and outbox empty; restored shells must reuse the exact pre-provisioned trust
+file. Host namespace/link/route/rule/forwarding/unprivileged-port invariants
+are checked. This adds validation, not protocol behavior or manifest scope.
+
 At implementation commit `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`,
 the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)
 passed in 10.636 seconds. All six selected jobs passed: pinned shell, old SSH
