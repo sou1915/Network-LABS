@@ -13,8 +13,8 @@
   "node_count": 10,
   "link_count": 9,
   "verified": {
-    "lab": "Campus-entreprise-3650",
-    "started_at": "2026-11-06T23:20:23.116799+00:00",
+    "lab": "Campus-entreprise-3648",
+    "started_at": "2026-11-06T23:40:49.420991+00:00",
     "revision": 0,
     "status": "passed",
     "directions": [
@@ -64,7 +64,7 @@
         "address_family": "ipv4",
         "source_address": "192.168.10.10",
         "returncode": 0,
-        "stdout": "PING 192.168.20.33 (192.168.20.33): 56 data bytes\n64 bytes from 192.168.20.33: seq=0 ttl=63 time=0.081 ms\n64 bytes from 192.168.20.33: seq=1 ttl=63 time=0.070 ms\n\n--- 192.168.20.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.070/0.075/0.081 ms\n",
+        "stdout": "PING 192.168.20.33 (192.168.20.33): 56 data bytes\n64 bytes from 192.168.20.33: seq=0 ttl=63 time=0.083 ms\n64 bytes from 192.168.20.33: seq=1 ttl=63 time=0.076 ms\n\n--- 192.168.20.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.076/0.079/0.083 ms\n",
         "stderr": "",
         "attempted": true
       },
@@ -114,7 +114,7 @@
         "address_family": "ipv4",
         "source_address": "192.168.20.33",
         "returncode": 0,
-        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=63 time=0.038 ms\n64 bytes from 192.168.10.10: seq=1 ttl=63 time=0.069 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.038/0.053/0.069 ms\n",
+        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=63 time=0.046 ms\n64 bytes from 192.168.10.10: seq=1 ttl=63 time=0.084 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.046/0.065/0.084 ms\n",
         "stderr": "",
         "attempted": true
       }
@@ -149,7 +149,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "8e:73:37:02:dd:bc",
+              "address": "1e:f3:05:f1:ec:35",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -224,7 +224,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "b2:4c:40:a1:b9:6e",
+              "address": "0e:a3:d2:4f:93:82",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -275,11 +275,11 @@
     "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
     "configuration_changed": false,
     "probe_commands_attempted": 2,
-    "finished_at": "2026-11-06T23:20:25.152488+00:00"
+    "finished_at": "2026-11-06T23:40:51.456606+00:00"
   },
   "isolated": {
-    "lab": "Campus-entreprise-3650",
-    "started_at": "2026-11-06T23:20:18.815666+00:00",
+    "lab": "Campus-entreprise-3648",
+    "started_at": "2026-11-06T23:40:45.108661+00:00",
     "revision": 0,
     "status": "failed",
     "directions": [
@@ -408,7 +408,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "8e:73:37:02:dd:bc",
+              "address": "1e:f3:05:f1:ec:35",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -483,7 +483,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "4a:84:4a:ab:b9:80",
+              "address": "fe:be:79:9c:e4:76",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -534,7 +534,7 @@
     "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
     "configuration_changed": false,
     "probe_commands_attempted": 2,
-    "finished_at": "2026-11-06T23:20:22.850609+00:00"
+    "finished_at": "2026-11-06T23:40:49.145512+00:00"
   },
   "stopped": true,
   "callback_errors": []

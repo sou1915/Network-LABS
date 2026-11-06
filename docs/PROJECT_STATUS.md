@@ -16,6 +16,16 @@ Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
+## Workspace polish
+
+The reference-style workspace now has separated readable port captions,
+clear active navigation/tool state, a useful search hint, balanced lower
+panes, larger host labels and permanently visible interface Apply/Reload
+buttons. Runtime counts remain explicit observations, not inferred connectivity.
+The actual native campus and button visibility passed CI; the latest image
+and source-bound evidence are in NATIVE_GUI_FLOW.md. This is visual/usability
+polish; interactive native consoles and capture remain pending.
+
 ## Reference-colour campus workspace
 
 The latest visual revision follows the supplied 1280×720 proportions with a

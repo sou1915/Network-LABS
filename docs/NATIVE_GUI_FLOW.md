@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13548780601, source commit and run/job, with the verified original ZIP
+artifact 13549022791, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -426,3 +426,33 @@ including wired 802.1X and the
 The other 52 profiles were intentionally skipped. The GUI/campus template and
 fixture changed; native runtime/protocol assertions and privilege boundaries
 were not weakened.
+
+## Workspace polish and visible actions
+
+Source `f27f49fdd7021200840fcacb5f99636a229eda96` adds collision-aware port
+badges outside device art/model labels, slightly larger host names/addresses,
+consistent cable lanes and a closer 55/45 diagnostic/events split. The active
+main page has a blue underline synchronized with the actual hidden notebook;
+selection/cable tools have real selected state, including Escape-to-selection.
+The library search has a focus-aware hint without putting placeholder text
+into the query or project data.
+
+The management pane uses a wider navigation rail and a pinned Apply/Reload
+footer. Actions remain visible independently of scrolling; interface table
+height follows the port count. The native GUI test now checks Apply is mapped
+and entirely inside the 1280×720 window. The runtime summary labels a last
+observation and counts only observed running OCI processes; unknown/draft and
+confirmed-stop states do not imply live process/network readiness. The probe
+dock title identifies the actual source/destination while preserving the full
+JSON report. This remains read-only output, not an interactive CLI.
+
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42313340373/job/128219882981)
+passed 1047 cases in 50.288 s (116 environment/opt-in skips), followed by the
+real campus/form/visibility scenario in 10.129 s. Inter-VLAN PC1 ↔ CLIENT3
+succeeded; PC1 ↔ SRV1 failed with the configured default-drop firewall. All
+seven result files belonged to UID 1001, root-state reads were denied, and
+stop/host-network/callback invariants passed. Current screenshot/report/
+provenance bind to artifact 13549022791 with verified ZIP and file hashes.
+Full local tests under temporary Xvfb passed 1047 cases in 40.188 s (141 skips),
+and the focused actual Tk suite passed. No native runtime or privilege code
+changed, and no failed native run preceded this increment.

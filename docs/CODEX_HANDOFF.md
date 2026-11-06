@@ -21,7 +21,29 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current priority: supplied reference proportions and brighter palette
+## Current GUI polish checkpoint
+
+Source `f27f49fdd7021200840fcacb5f99636a229eda96` improves the reference-style
+campus: collision-aware port labels, larger host captions, synchronized page
+underline and selected toolbar modes, search hint, balanced lower panes and
+pinned interface Apply/Reload actions. Runtime hint is explicitly a snapshot
+and does not infer green/running from a declared topology. Diagnostic title
+shows the real probe pair; output remains read-only with separate full JSON.
+The user continues asking for visual improvement; preserve the supplied
+reference palette/proportions and keep providing actual screenshots.
+
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42313340373/job/128219882981)
+passed 1047 cases (50.288 s, 116 skips) plus real campus/form/visible-actions
+validation (10.129 s). Routing success, configured firewall-path failure,
+seven UID-1001 results, direct root-state refusal, stop/callback/host-network
+invariants passed. Screenshot/report/provenance now bind to artifact
+13549022791 at f27f49f. Full local regression with temporary Xvfb passed 1047
+cases (40.188 s, 141 skips), alongside focused actual Tk checks. No runtime/
+protocol or privilege code changed. See NATIVE_GUI_FLOW.md for exact scope.
+Next broader work remains genuine native interactive consoles/capture and
+supported richer GUI. LAN core remains accepted; static VXLAN stays tracked.
+
+## Reference-colour campus checkpoint
 
 The user rejected the previous look again, requesting the same design and
 colours as images/agreed-gui-reference.jpg. Source
