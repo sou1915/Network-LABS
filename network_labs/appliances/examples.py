@@ -611,8 +611,9 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
     if type(telnet_shell) is not bool or (telnet_shell and not telnet): raise ValueError('Telnet shell requires explicit Telnet RADIUS.')
-    if ssh_host_key_file is not None and (ssh_key is None or ssh_shell or allow_shell or accounting or telnet):
-        raise ValueError('Pinned SSH RADIUS requires SSH diagnostics without shell, accounting or Telnet.')
+    pinned_shell=ssh_shell and accounting and accounting_outbox and accounting_journal
+    if ssh_host_key_file is not None and (ssh_key is None or telnet or ((ssh_shell or allow_shell or accounting) and not pinned_shell)):
+        raise ValueError('Pinned SSH RADIUS requires diagnostics or an explicit shell with accounting, Stop outbox and session journal.')
     if type(telnet) is not bool or (telnet and (ssh_key is not None or ssh_shell or ((allow_shell or accounting) and not telnet_shell))):
         raise ValueError('Telnet RADIUS requires a boolean and a standalone diagnostic profile.')
     if telnet_shell: allow_shell = True

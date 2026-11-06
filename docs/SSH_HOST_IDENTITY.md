@@ -59,7 +59,9 @@ This bounded option requires restricted IPv4 SSH without Telnet, syslog or
 other managed server co-location. A separate [pinned RADIUS diagnostic
 profile](SSH_RADIUS_HOST_IDENTITY.md) also exists, including a separately
 bounded [dual-stack diagnostic reference](DUAL_STACK_SSH_HOST_IDENTITY.md).
-Shell/accounting and wider AAA/IPv6 combinations remain separate work. Existing ephemeral SSH/RADIUS
+A separately bounded [IPv4 journaled shell](SSH_SHELL_HOST_IDENTITY.md)
+requires accounting, Stop outbox and session journal. Wider AAA/IPv6
+combinations remain separate work. Existing ephemeral SSH/RADIUS
 defaults are unchanged.
 
 ## Validation

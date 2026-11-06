@@ -323,8 +323,9 @@ def main(arguments=None):
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
         elif args.command == 'example':
-            if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or args.radius_shell or args.radius_ssh_shell or args.radius_accounting):
-                raise ValueError('--ssh-host-key-file requires restricted --management or --radius --radius-ssh, an authorized key/action, and no combined DNS, shell or accounting.')
+            pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
+            if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):
+                raise ValueError('--ssh-host-key-file requires restricted --management or --radius --radius-ssh, an authorized key/action, with no combined DNS; shells additionally require accounting, outbox and journal.')
             if (args.https or args.ipv6_https or args.ipv6_https_firewall or args.ipv6_dns_https) != (args.https_client_rootfs is not None):
                 raise ValueError('--https, --ipv6-https, --ipv6-https-firewall or --ipv6-dns-https requires --https-client-rootfs; omit this option otherwise.')
             if args.syslog_tls != all(v is not None for v in (args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name)) or (not args.syslog_tls and any(v is not None for v in (args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name))):

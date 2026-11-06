@@ -38,8 +38,10 @@ This reference covers fixed IPv4 diagnostics. A separate
 families with the same IPv4 RADIUS backend. Direct-user and reusable-role
 declarations are allowed, but shell grants (including grants not requested
 through SSH), accounting, Telnet, syslog and other managed-server
-co-location on the NAS remain refused. Wider shell/accounting/IPv6
-compositions retain their separate scope. The native IPv4 increment
+co-location on the NAS remain refused for diagnostics. A separate
+[pinned journaled IPv4 shell](SSH_SHELL_HOST_IDENTITY.md) requires the full
+accounting/outbox/journal lifecycle. Wider shell/accounting/IPv6
+compositions retain their separate scope. The native IPv4 diagnostic increment
 uses direct-user grants; it does not claim every role/AAA combination.
 Protected RADIUS transport, automatic identity lifecycle and SSH host
 certificates remain separate work.

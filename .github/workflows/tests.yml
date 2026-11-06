@@ -35,6 +35,16 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  ssh-shell-host-key-interop:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-radius-host-key'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated pinned SSH shell and journal prerequisites
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev
+      - name: Verify pinned shell trust, worker death, orphan journal, Stop handoff and cold restore
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_shell_host_key_integration.py -v
   benchmark-kernel-peak:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'benchmark-kernel-peak'
     runs-on: ubuntu-24.04
@@ -324,7 +334,7 @@ jobs:
       - name: Verify CLI and SSH role grants, silent denials, accounting and cold policy changes
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_roles_integration.py -v
   ssh-radius-journal-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-radius-host-key'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

@@ -29,6 +29,8 @@ from test_native_integration import unexpected_host_link_changes
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class NativeSSHJournalTests(unittest.TestCase):
+    PINNED_HOST_KEY=False
+
     def test_real_ssh_worker_sigkill_stop_handoff_stale_runtime_and_restore(self):
         self.assertEqual(os.geteuid(), 0)
         for tool in ('dropbear', 'freeradius', 'ssh', 'ssh-keygen', 'cc', 'busybox', 'crun', 'tcpdump'):
@@ -42,19 +44,32 @@ class NativeSSHJournalTests(unittest.TestCase):
                 patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(d) / 'saved'):
             root = Path(d); key = root / 'identity'; known = root / 'known_hosts'
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key])
+            host_key=None
+            if self.PINNED_HOST_KEY:
+                self.assertIsNotNone(shutil.which('dropbearkey'))
+                host_key=root/'host-key';run(['dropbearkey','-t','ed25519','-f',host_key]);host_key.chmod(0o600)
             modules = next(p for p in ('/usr/lib/freeradius', '/usr/lib/x86_64-linux-gnu/freeradius') if (Path(p) / 'rlm_pap.so').is_file())
             relay = root / 'ssh-relay'
             run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', Path(__file__).parents[1] / 'network_labs/appliances/ssh_radius_relay.c', '-o', relay])
             rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs', dropbear=shutil.which('dropbear'), ssh_relay=relay,
                 freeradius=shutil.which('freeradius'), freeradius_modules=modules, freeradius_dictionaries='/usr/share/freeradius')
             spec = radius_lab(rootfs, secret, hashlib.sha256(password.encode()).hexdigest(), ssh_key=key.with_suffix('.pub').read_text().strip(),
-                              ssh_shell=True, accounting=True, accounting_outbox=True, accounting_journal=True)
+                              ssh_shell=True, accounting=True, accounting_outbox=True, accounting_journal=True,ssh_host_key_file=host_key)
             spec['name'] = 'ssh-journal-' + str(os.getpid()); spec['nodes'][0]['radius_access']['session_seconds'] = 60
             spec['nodes'][1]['interfaces']['eth2'] = ''
             spec['nodes'].append({'name': 'PC3', 'runtime': 'oci', 'rootfs': str(rootfs), 'interfaces': {'eth0': '192.0.2.30/24'}})
             spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']]); manager = Manager(spec['name'])
 
             def trust_host():
+                if self.PINNED_HOST_KEY:
+                    expected='192.0.2.10 '+spec['nodes'][0]['management']['ssh_host_key']['public_key']+'\n'
+                    if known.exists():self.assertEqual(known.read_text(),expected)
+                    else:known.write_text(expected)
+                    until=time.monotonic()+10
+                    while time.monotonic()<until:
+                        if manager.ns(0,'ss','-H','-ltn','sport = :22').stdout:return
+                        time.sleep(.1)
+                    self.fail('Pinned SSH shell listener did not become ready')
                 until = time.monotonic() + 10
                 while time.monotonic() < until:
                     scanned = manager.ns(3, 'ssh-keyscan', '-T', '2', '-t', 'ed25519', '192.0.2.10', check=False, timeout=4)
@@ -98,6 +113,13 @@ class NativeSSHJournalTests(unittest.TestCase):
             try:
                 with manager.locked(): manager.start(spec); manager.write_startup(); saved = load_startup(spec['name'])
                 trust_host(); client, sid, group, record = orphan()
+                if self.PINNED_HOST_KEY:
+                    expected=known.read_text()
+                    known.write_text('192.0.2.10 '+key.with_suffix('.pub').read_text().strip()+'\n')
+                    denied=run(arguments(),input_text='learner\n'+password+'\nexit\n',check=False,timeout=8)
+                    self.assertNotEqual(denied.returncode,0);self.assertIn('Host key verification failed',denied.stderr)
+                    known.write_text(expected)
+                    self.assertEqual(journal.pending(manager)['pending'],1)
                 self.assertTrue(str(journal.directory(manager)).startswith(str(root / 'saved')))
                 self.assertEqual(record['phase'], 'intent')
                 serialized = json.dumps(record); self.assertNotIn(secret, serialized); self.assertNotIn(password, serialized)

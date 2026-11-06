@@ -64,9 +64,13 @@ def validate(node):
     if config.get('ssh_radius'):
         from .radius_access import allowed_actions
         users=access.get('user_roles',access.get('users')) if isinstance(access,dict) else None
-        if (not isinstance(access,dict) or not isinstance(users,dict) or not users or access.get('accounting') or 'shell' in config['ssh_actions'] or
-                any('shell' in allowed_actions(access,user) for user in users)):
-            raise ValueError('Pinned SSH RADIUS identity permits diagnostics only, without shell grants or accounting.')
+        if not isinstance(access,dict) or not isinstance(users,dict) or not users:
+            raise ValueError('Pinned SSH RADIUS identity requires explicit diagnostic or journaled-shell grants.')
+        if 'shell' in config['ssh_actions']:
+            if node.get('ipv6') or not all(access.get(k) for k in ('accounting','accounting_outbox','accounting_journal')):
+                raise ValueError('Pinned SSH shell requires IPv4 and accounting with durable Stop outbox and session journal.')
+        elif access.get('accounting') or any('shell' in allowed_actions(access,user) for user in users):
+            raise ValueError('Pinned SSH diagnostics exclude shell grants or accounting; select the journaled IPv4 shell explicitly.')
     elif access:
         raise ValueError('Pinned SSH with RADIUS access requires explicit ssh_radius diagnostics.')
 
