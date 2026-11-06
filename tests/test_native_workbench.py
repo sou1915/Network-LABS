@@ -153,3 +153,6 @@ class WorkbenchGUITests(unittest.TestCase):
         window.remove_cable(('SW1','eth1'),('PC2','eth0'))
         window.connect_dialog('SW1','SW2');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
         self.assertIn([['SW1','eth1'],['SW2','eth0']],window.manifest()['links'])
+
+        window.connect_dialog('SW1','SW2');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
+        self.assertIn([['SW1','eth2'],['SW2','eth1']],window.manifest()['links'])

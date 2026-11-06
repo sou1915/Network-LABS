@@ -41,3 +41,17 @@ def free_ports(spec,name):
     if node is None:raise ValueError('Équipement absent du brouillon.')
     occupied={tuple(e) for link in spec['links'] for e in link}
     return [p for p in node['interfaces'] if (name,p) not in occupied]
+
+
+def next_port(spec,name):
+    node=next((n for n in spec['nodes'] if n['name']==name),None)
+    if node is None or node['runtime']!='oci' or len(node['interfaces'])>=64:
+        raise ValueError('Ajout de port disponible uniquement pour les nœuds OCI avec moins de 64 interfaces.')
+    return next(f'eth{i}' for i in range(100) if f'eth{i}' not in node['interfaces'])
+
+
+def add_port(spec,name,port):
+    draft=copy.deepcopy(spec)
+    if next_port(draft,name)!=port:raise ValueError('Le nouveau port ne correspond plus au brouillon.')
+    next(n for n in draft['nodes'] if n['name']==name)['interfaces'][port]=''
+    return validate(draft)

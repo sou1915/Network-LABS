@@ -36,3 +36,11 @@ class TopologyEditTests(unittest.TestCase):
             self.assertEqual(self.spec,original)
         single=edit.remove_node(edit.remove_node(self.spec,'PC1'),'PC2')
         with self.assertRaises(ValueError):edit.remove_node(single,'SW1')
+
+    def test_extend_full_switch_without_mutating_original_or_renaming_ports(self):
+        self.assertEqual(edit.next_port(self.spec,'SW1'),'eth2')
+        draft=edit.add_port(self.spec,'SW1','eth2')
+        self.assertEqual(edit.free_ports(draft,'SW1'),['eth2'])
+        self.assertEqual(draft['nodes'][1]['switchports']['eth2'],{'mode':'access','vlan':1})
+        self.assertNotIn('eth2',self.spec['nodes'][1]['interfaces'])
+        with self.assertRaises(ValueError):edit.add_port(self.spec,'SW1','eth0')

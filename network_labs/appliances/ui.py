@@ -305,16 +305,22 @@ class ApplianceWindow:
     def connect_dialog(self,first,second):
         try:
             spec=self.editing_spec();choices=[topology_edit.free_ports(spec,name) for name in (first,second)]
-            if not all(choices):raise ValueError('Aucun port libre sur un des équipements. Ajouter un port dans le brouillon JSON.')
+            additions={}
+            for index,name in enumerate((first,second)):
+                if not choices[index]:
+                    additions[name]=topology_edit.next_port(spec,name);choices[index]=[additions[name]]
         except (ValueError,TypeError,KeyError) as error:self.error(error);return
         win=tk.Toplevel(self.window);win.title('Connecter un câble');win.transient(self.window.winfo_toplevel());form=ttk.Frame(win,padding=14);form.pack()
         ports=[]
         for row,(name,available) in enumerate(zip((first,second),choices)):
-            ttk.Label(form,text=name).grid(row=row,column=0,pady=6)
+            ttk.Label(form,text=name+(' · nouveau port' if name in additions else '')).grid(row=row,column=0,pady=6)
             var=tk.StringVar(value=available[0]);ports.append(var)
             ttk.Combobox(form,textvariable=var,values=available,state='readonly').grid(row=row,column=1,padx=8)
         def apply():
-            try:self.commit_edit(topology_edit.connect(self.editing_spec(),(first,ports[0].get()),(second,ports[1].get())));win.destroy()
+            try:
+                draft=self.editing_spec()
+                for name,port in additions.items():draft=topology_edit.add_port(draft,name,port)
+                self.commit_edit(topology_edit.connect(draft,(first,ports[0].get()),(second,ports[1].get())));win.destroy()
             except (ValueError,TypeError,KeyError) as error:self.error(error)
         ttk.Button(form,text='Connecter au brouillon',command=apply).grid(row=2,column=1,pady=8)
         ttk.Button(form,text='Annuler',command=win.destroy).grid(row=2,column=0)
