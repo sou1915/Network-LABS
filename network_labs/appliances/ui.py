@@ -15,6 +15,7 @@ from ..theme import BG,PANEL,CARD,LINE,TEXT,MUTED,TEAL,BLUE,RED
 from .catalog import capabilities
 from .runtime import plan
 from .spec import example,validate
+from . import topology_edit
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -45,6 +46,7 @@ class ApplianceWindow:
             fit_dialog(self.window,1280,800);self.window.configure(bg=BG)
             self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(2,weight=1)
+        self.positions={};self.edit_mode=None;self.cable_source=None;self.dragging=None
         self.buttons=[]
         header=tk.Frame(self.window,bg='#223344',padx=14,pady=7);header.grid(row=0,column=0,sticky='ew')
         self.label(header,'Network LABS','#ffffff',13,True).pack(side='left')
@@ -54,10 +56,11 @@ class ApplianceWindow:
             button=ttk.Button(header,text=title,command=callback,style='Accent.TButton' if title=='Enregistrer' else 'TButton')
             button.pack(side='right',padx=4);self.buttons.append(button)
         toolbar=tk.Frame(self.window,bg=PANEL,padx=12,pady=6);toolbar.grid(row=1,column=0,sticky='ew',pady=(0,6))
-        self.label(toolbar,'Réseau réel · projet natif',TEAL,10,True).pack(side='left',padx=(0,18))
+        for title,callback in [('Sélection',lambda:self.set_edit_mode(None)),('Ajouter',self.add_device_dialog),('Câbler',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]:
+            button=ttk.Button(toolbar,text=title,command=callback);button.pack(side='left',padx=2);self.buttons.append(button)
         for title,action in [('Démarrer','start'),('Actualiser l’état','status'),('Arrêter','stop')]:
             button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a));button.pack(side='left',padx=3);self.buttons.append(button)
-        self.label(toolbar,'Observation sur demande',MUTED,9).pack(side='right')
+
         body=ttk.Panedwindow(self.window,orient='vertical');body.grid(row=2,column=0,sticky='nsew',padx=6)
         workspace=ttk.Panedwindow(body,orient='horizontal');body.add(workspace,weight=3)
         lower=ttk.Panedwindow(body,orient='horizontal');body.add(lower,weight=1)
@@ -90,6 +93,8 @@ class ApplianceWindow:
         diagram.columnconfigure(0,weight=1);diagram.rowconfigure(0,weight=1)
         self.canvas=tk.Canvas(diagram,background=BG,highlightthickness=0)
         self.canvas.grid(row=0,column=0,sticky='nsew');self.canvas.bind('<Configure>',self.resize_graph)
+        self.canvas.bind('<B1-Motion>',self.drag_node);self.canvas.bind('<ButtonRelease-1>',self.drop_node)
+        self.canvas.bind('<Escape>',lambda event:self.set_edit_mode(None))
         for orient,row,col in (('vertical',0,1),('horizontal',1,0)):
             scrollbar=ttk.Scrollbar(diagram,orient=orient,command=self.canvas.yview if orient=='vertical' else self.canvas.xview)
             scrollbar.grid(row=row,column=col,sticky='ns' if orient=='vertical' else 'ew')
@@ -116,6 +121,7 @@ class ApplianceWindow:
         tk.Label(details,textvariable=self.note,bg=PANEL,fg=TEAL,justify='left',anchor='nw',wraplength=265).pack(fill='x',padx=14,pady=4)
         self.label(details,'Vert = processus OCI observé.\nTester pour vérifier la connectivité.',MUTED,9).pack(side='bottom',padx=12,pady=6)
         self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0d131b',foreground='#dce6f0',insertbackground='white')
+        validate_button=ttk.Button(self.editor_tab,text='Valider / plan',command=self.preview);validate_button.grid(row=2,column=0,sticky='e',pady=4);self.buttons.append(validate_button)
         self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings')
         for key,title,width in [('runtime','Runtime',100),('implementation','Implémentation',100),('detected','Détecté',80),('scope','Périmètre',360)]:
             self.table.heading(key,text=title);self.table.column(key,width=width)
@@ -174,7 +180,7 @@ class ApplianceWindow:
     def load_spec(self,spec,path=None):
         spec=validate(spec);self.path=Path(path) if path else None
         self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
-        self.draw(public_topology(spec));self.observation.set('Topologie déclarée · état runtime à actualiser.')
+        self.positions={};self.draw(public_topology(spec));self.observation.set('Topologie déclarée · état runtime à actualiser.')
 
     def draw(self,graph,states=None):
         validate_topology(graph)
@@ -186,9 +192,12 @@ class ApplianceWindow:
         width=max(650,self.canvas.winfo_width());height=max(400,self.canvas.winfo_height())
         rows=math.ceil(len(graph['nodes'])/columns);spacing=max(195,width/columns)
         for index,node in enumerate(graph['nodes']):positions[node['name']]=(spacing/2+(index%columns)*spacing,max(180,height/2-(rows-1)*85)+(index//columns)*170)
-        for a,b in graph['links']:
+        positions.update({name:point for name,point in self.positions.items() if name in positions})
+        self.drawn_positions=positions
+        for index,(a,b) in enumerate(graph['links']):
             x,y=positions[a[0]];xx,yy=positions[b[0]]
-            self.canvas.create_line(x,y,xx,yy,fill=MUTED,width=2,tags=('link',))
+            self.canvas.create_line(x,y,xx,yy,fill=MUTED,width=2,tags=('link','link:'+str(index)))
+            self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
             for fraction,port in ((.35,a[1]),(.65,b[1])):
                 lx=x+(xx-x)*fraction;ly=y+(yy-y)*fraction
                 self.canvas.create_rectangle(lx-22,ly-27,lx+22,ly-9,fill=PANEL,outline=LINE)
@@ -204,12 +213,12 @@ class ApplianceWindow:
             self.canvas.create_text(x,y+31,text=name,fill=TEXT,font=('DejaVu Sans',10,'bold'),tags=tags)
             self.canvas.create_oval(x+54,y-41,x+60,y-35,fill=color,outline='',tags=tags)
             self.canvas.create_text(x,y+66,text=node['role']+' · '+node['runtime'],fill=MUTED,font=('DejaVu Sans',9),tags=tags)
-            self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.choose_node(n))
+            self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.node_pressed(event,n))
             self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],state,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
             self.library.insert('','end',iid=name,text=name+' · '+node['role'])
         self.filter_library()
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
-        self.canvas.configure(scrollregion=(0,0,max(width,columns*spacing),max(height,rows*170+180)))
+        self.canvas.configure(scrollregion=(0,0,max(width,columns*spacing,max(x for x,y in positions.values())+100),max(height,rows*170+180,max(y for x,y in positions.values())+100)))
         hosts=[n['name'] for n in graph['nodes'] if n['runtime']=='oci' and n['role']=='host']
         self.targets.configure(values=hosts);self.destination.set(destination if destination in hosts else hosts[-1] if hosts else '')
         if graph['nodes']:self.choose_node(previous if previous in positions else graph['nodes'][0]['name'])
@@ -224,6 +233,101 @@ class ApplianceWindow:
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else LINE,width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
+
+    def set_edit_mode(self,mode):
+        if self.pending:return
+        self.edit_mode=mode;self.cable_source=None;self.dragging=None
+        self.canvas.configure(cursor='crosshair' if mode=='cable' else '')
+        self.note.set('Câbler : choisir deux équipements, puis leurs ports libres.' if mode=='cable' else 'Sélectionner ou déplacer un équipement · clic droit sur un câble pour le retirer.')
+
+    def editing_spec(self):
+        if self.pending:raise ValueError('Attendre la fin de l’opération native.')
+        spec=self.manifest()
+        if public_topology(spec)!=self.graph:
+            raise ValueError('Le brouillon JSON diffère du dessin. Valider / plan avant une édition graphique.')
+        return spec
+
+    def commit_edit(self,spec):
+        spec=validate(spec)
+        self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
+        self.draw(public_topology(spec));self.observation.set('Brouillon modifié · état runtime non observé.')
+        self.note.set('Brouillon uniquement : enregistrer, puis arrêter / redémarrer pour appliquer. Aucun réseau actif modifié.')
+        self.tabs.select(self.topology_tab)
+
+    def node_pressed(self,event,name):
+        self.choose_node(name);self.canvas.focus_set()
+        if self.pending:return
+        if self.edit_mode=='cable':
+            if self.cable_source is None:self.cable_source=name;self.note.set('Choisir le deuxième équipement après '+name+'.')
+            elif self.cable_source!=name:
+                first=self.cable_source;self.cable_source=None;self.connect_dialog(first,name)
+            return
+        self.dragging=(name,self.canvas.canvasx(event.x),self.canvas.canvasy(event.y))
+
+    def drag_node(self,event):
+        if self.pending or not self.dragging:return
+        name,x,y=self.dragging;xx=self.canvas.canvasx(event.x);yy=self.canvas.canvasy(event.y)
+        self.canvas.move('node:'+name,xx-x,yy-y);self.dragging=(name,xx,yy)
+
+    def drop_node(self,event):
+        if not self.dragging:return
+        name,_,_=self.dragging;self.dragging=None
+        box=self.canvas.coords(self.node_shapes[name])
+        self.positions[name]=(max(85,(min(box[::2])+max(box[::2]))/2+1),max(70,(min(box[1::2])+max(box[1::2]))/2+1))
+        self.draw(self.graph,self.states)
+
+    def add_device_dialog(self):
+        try:spec=self.editing_spec()
+        except (ValueError,TypeError,KeyError) as error:self.error(error);return
+        win=tk.Toplevel(self.window);win.title('Ajouter un équipement Linux natif');win.transient(self.window.winfo_toplevel())
+        form=ttk.Frame(win,padding=14);form.pack(fill='both',expand=True)
+        values={}
+        rootfs=next((n['rootfs'] for n in spec['nodes'] if n['runtime']=='oci'),'')
+        for row,(key,title,initial) in enumerate([('name','Nom','PC3'),('role','Rôle','host'),('rootfs','Rootfs Linux',rootfs),('ports','Nombre de ports','1'),('address','IPv4 eth0 / CIDR (facultatif)','')]):
+            ttk.Label(form,text=title).grid(row=row,column=0,sticky='w',pady=5)
+            value=tk.StringVar(value=initial);values[key]=value
+            field=ttk.Combobox(form,textvariable=value,values=('host','switch','router'),state='readonly') if key=='role' else ttk.Entry(form,textvariable=value,width=38)
+            field.grid(row=row,column=1,sticky='ew',padx=8)
+        def browse():
+            path=filedialog.askdirectory(parent=win,title='Rootfs Linux')
+            if path:values['rootfs'].set(path)
+        ttk.Button(form,text='Parcourir…',command=browse).grid(row=2,column=2)
+        ttk.Label(form,text='OCI / Linux générique. Aucun firmware constructeur.').grid(row=5,column=0,columnspan=3,pady=8)
+        def apply():
+            try:
+                current=self.editing_spec()
+                result=topology_edit.add_node(current,**{k:v.get().strip() for k,v in values.items() if k!='ports'},ports=int(values['ports'].get()))
+                self.commit_edit(result);self.choose_node(values['name'].get().strip());win.destroy()
+            except (ValueError,TypeError,KeyError) as error:self.error(error)
+        ttk.Button(form,text='Ajouter au brouillon',command=apply).grid(row=6,column=1,sticky='e')
+        ttk.Button(form,text='Annuler',command=win.destroy).grid(row=6,column=0)
+
+    def connect_dialog(self,first,second):
+        try:
+            spec=self.editing_spec();choices=[topology_edit.free_ports(spec,name) for name in (first,second)]
+            if not all(choices):raise ValueError('Aucun port libre sur un des équipements. Ajouter un port dans le brouillon JSON.')
+        except (ValueError,TypeError,KeyError) as error:self.error(error);return
+        win=tk.Toplevel(self.window);win.title('Connecter un câble');win.transient(self.window.winfo_toplevel());form=ttk.Frame(win,padding=14);form.pack()
+        ports=[]
+        for row,(name,available) in enumerate(zip((first,second),choices)):
+            ttk.Label(form,text=name).grid(row=row,column=0,pady=6)
+            var=tk.StringVar(value=available[0]);ports.append(var)
+            ttk.Combobox(form,textvariable=var,values=available,state='readonly').grid(row=row,column=1,padx=8)
+        def apply():
+            try:self.commit_edit(topology_edit.connect(self.editing_spec(),(first,ports[0].get()),(second,ports[1].get())));win.destroy()
+            except (ValueError,TypeError,KeyError) as error:self.error(error)
+        ttk.Button(form,text='Connecter au brouillon',command=apply).grid(row=2,column=1,pady=8)
+        ttk.Button(form,text='Annuler',command=win.destroy).grid(row=2,column=0)
+
+    def delete_selected(self):
+        selected=self.nodes.selection()
+        if not selected:return
+        try:self.commit_edit(topology_edit.remove_node(self.editing_spec(),selected[0]))
+        except (ValueError,TypeError,KeyError) as error:self.error(error)
+
+    def remove_cable(self,a,b):
+        try:self.commit_edit(topology_edit.disconnect(self.editing_spec(),a,b))
+        except (ValueError,TypeError,KeyError) as error:self.error(error)
 
     def new(self):
         rootfs=filedialog.askdirectory(parent=self.window,title='Rootfs BusyBox natif')

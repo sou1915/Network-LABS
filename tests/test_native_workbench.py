@@ -112,3 +112,44 @@ class WorkbenchGUITests(unittest.TestCase):
         self.assertEqual(len(window.activity.get_children()),1)
         self.assertIn('Authentication canceled',str(window.activity.item(window.activity.get_children()[0])['values']))
         self.assertIs(window.output_tab.master,window.dock)
+
+    def test_graphical_edit_click_drag_and_pending_or_mismatched_view_guards(self):
+        from network_labs.appliances import topology_edit as edit
+        window=self.window;spec=window.manifest()
+        window.commit_edit(edit.add_node(spec,name='SW2',role='switch',rootfs='/tmp/rootfs',ports=4))
+        self.root.update();self.assertIn('SW2',window.node_shapes);self.assertFalse(window.states)
+        window.set_edit_mode('cable')
+        with patch.object(window,'connect_dialog') as connect:
+            window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
+            window.node_pressed(SimpleNamespace(x=30,y=30),'SW2')
+            connect.assert_called_once_with('SW1','SW2')
+        window.set_edit_mode(None);before=window.drawn_positions['SW2']
+        window.node_pressed(SimpleNamespace(x=100,y=100),'SW2')
+        window.drag_node(SimpleNamespace(x=140,y=130));window.drop_node(SimpleNamespace())
+        self.assertAlmostEqual(window.positions['SW2'][0],before[0]+40)
+        self.assertAlmostEqual(window.positions['SW2'][1],before[1]+30)
+        window.pending={'test':True}
+        try:
+            with self.assertRaises(ValueError):window.editing_spec()
+        finally:window.pending=None
+        window.editor.insert('1.0','invalid')
+        with self.assertRaises(ValueError):window.editing_spec()
+        window.editor.delete('1.0','end');window.editor.insert('1.0',json.dumps(spec))
+        with self.assertRaises(ValueError):window.editing_spec()
+
+    def test_add_and_connect_forms_apply_validated_draft(self):
+        import tkinter as tk
+        window=self.window
+        def dialog():return [w for w in window.window.winfo_children() if isinstance(w,tk.Toplevel)][-1]
+        def button(win,text):
+            return next(w for f in win.winfo_children() for w in f.winfo_children() if 'text' in w.keys() and w.cget('text')==text)
+        window.add_device_dialog();win=dialog();form=win.winfo_children()[0]
+        for row,value in [(0,'SW2'),(1,'switch'),(3,'4')]:
+            field=form.grid_slaves(row=row,column=1)[0]
+            if row==1:field.set(value)
+            else:field.delete(0,'end');field.insert(0,value)
+        button(win,'Ajouter au brouillon').invoke();self.root.update()
+        self.assertEqual(len(window.manifest()['nodes']),4)
+        window.remove_cable(('SW1','eth1'),('PC2','eth0'))
+        window.connect_dialog('SW1','SW2');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
+        self.assertIn([['SW1','eth1'],['SW2','eth0']],window.manifest()['links'])

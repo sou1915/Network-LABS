@@ -17,7 +17,7 @@ import json,os,sys,time,tkinter as tk
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,sys.argv[1])
-from network_labs.appliances import ui
+from network_labs.appliances import ui,topology_edit as edit
 from network_labs.appliances.runtime import Manager
 from PIL import ImageGrab
 assert os.geteuid()!=0,'The GUI must run unprivileged'
@@ -46,13 +46,22 @@ def drive(action,ok=True):
 try:
     with patch.object(ui,'launch_terminal',side_effect=direct_terminal),patch.object(ui,'read_result',side_effect=checked_result):
         root.update();assert len(window.node_shapes)==3;assert len(window.canvas.find_withtag('link'))==2
+        # Build and rewire the saved draft through the GUI's validated edit path.
+        draft=edit.disconnect(window.editing_spec(),('SW1','eth1'),('PC2','eth0'))
+        draft=edit.add_node(draft,name='SW2',role='switch',rootfs=spec['nodes'][0]['rootfs'],ports=4)
+        draft=edit.add_node(draft,name='PC3',role='host',rootfs=spec['nodes'][0]['rootfs'],address='192.0.2.30/24')
+        for a,b in [(('SW1','eth1'),('SW2','eth0')),(('SW2','eth1'),('PC2','eth0')),(('SW2','eth2'),('PC3','eth0'))]:draft=edit.connect(draft,a,b)
+        window.commit_edit(draft);window.positions={'PC1':(110,110),'SW1':(340,110),'SW2':(570,110),'PC2':(340,290),'PC3':(570,290)}
+        window.draw(window.graph);root.update()
+        assert len(window.node_shapes)==5 and len(window.canvas.find_withtag('link'))==4
+        assert not window.states and len(window.manifest()['nodes'])==5
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
         else:raise AssertionError('GUI could directly read root-owned runtime state')
         drive('status');window.choose_node('PC1')
         inspected=drive('inspect');assert inspected['data']['name']=='PC1';assert inspected['data']['links']
-        window.choose_node('PC1');window.destination.set('PC2');verified=drive('verify')
+        window.choose_node('PC1');window.destination.set('PC3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert len(window.activity.get_children())==4
         assert window.output_tab.master is window.dock
@@ -65,7 +74,7 @@ try:
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
         assert set(owners)=={os.geteuid()} and len(owners)==6,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':3,'link_count':2,'verified':verified['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':5,'link_count':4,'verified':verified['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
