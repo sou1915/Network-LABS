@@ -297,3 +297,11 @@ with original ZIP and per-file SHA-256 verification. Local regression passed
 1042 cases in 30.466 s (170 environment skips, including display-dependent
 cases); Tk and real native execution were verified in CI. No failed native
 run preceded this increment.
+
+
+All ten selected jobs on device-form source 13b6dcf passed in
+[run 42303521155](https://github.com/sou1915/Network-LABS/actions/runs/42303521155),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42303521155/job/128189114015).
+The other 52 profiles were intentionally skipped. No runtime behavior,
+protocol assertion or privilege boundary was weakened for this GUI increment.
