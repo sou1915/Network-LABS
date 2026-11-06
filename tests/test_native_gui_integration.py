@@ -51,12 +51,18 @@ try:
         draft=edit.add_node(draft,name='SW2',role='switch',rootfs=spec['nodes'][0]['rootfs'],ports=4)
         draft=edit.add_node(draft,name='PC3',role='host',rootfs=spec['nodes'][0]['rootfs'],address='192.0.2.30/24')
         for a,b in [(('SW1','eth1'),('SW2','eth0')),(('SW2','eth1'),('PC2','eth0')),(('SW2','eth2'),('PC3','eth0'))]:draft=edit.connect(draft,a,b)
-        window.commit_edit(draft);window.positions={'PC1':(110,110),'SW1':(340,110),'SW2':(570,110),'PC2':(340,290),'PC3':(570,290)}
+        # Display actual declared VLAN groups, including a tagged inter-switch link.
+        for node in draft['nodes']:
+            if node['role']=='switch':node['vlans']=[1,10,20]
+        switches={n['name']:n for n in draft['nodes'] if n['role']=='switch'}
+        switches['SW1']['switchports']={'eth0':{'mode':'access','vlan':10},'eth1':{'mode':'trunk','native_vlan':1,'allowed':[1,10,20]}}
+        switches['SW2']['switchports']={'eth0':{'mode':'trunk','native_vlan':1,'allowed':[1,10,20]},'eth1':{'mode':'access','vlan':20},'eth2':{'mode':'access','vlan':10},'eth3':{'mode':'access','vlan':20}}
+        window.commit_edit(draft)
         window.draw(window.graph);root.update()
         assert len(window.node_shapes)==5 and len(window.canvas.find_withtag('link'))==4
         assert not window.states and len(window.manifest()['nodes'])==5
         window.choose_node('PC3');window.load_config(force=True)
-        window.config_vars['name'].set('CLIENT3');window.config_vars['address'].set('192.0.2.33/24');window.config_vars['gateway'].set('192.0.2.20')
+        window.config_vars['name'].set('CLIENT3');window.config_vars['address'].set('192.0.2.33/24');window.config_vars['gateway'].set('192.0.2.10')
         assert window.apply_config(),window.config_message.get()
         assert 'CLIENT3' in window.node_shapes and 'PC3' not in window.node_shapes
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
@@ -65,11 +71,17 @@ try:
         else:raise AssertionError('GUI could directly read root-owned runtime state')
         drive('status');window.choose_node('CLIENT3')
         inspected=drive('inspect');assert inspected['data']['name']=='CLIENT3';assert inspected['data']['links']
-        assert any(r.get('dst')=='default' and r.get('gateway')=='192.0.2.20' for r in inspected['data']['routes'])
-        window.choose_node('PC1');window.destination.set('CLIENT3');verified=drive('verify')
+        assert any(r.get('dst')=='default' and r.get('gateway')=='192.0.2.10' for r in inspected['data']['routes'])
+        window.choose_node('PC1');window.destination.set('PC2');isolated=drive('verify')
+        assert isolated['data']['status']=='failed',isolated['data']
+        assert isolated['data']['probe_commands_attempted']==2
+        window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.0.2.33'
-        assert len(window.activity.get_children())==4
+        assert len(window.activity.get_children())==5
+        assert window.vlan_members=={'PC1':10,'PC2':20,'CLIENT3':10}
+        assert len(window.canvas.find_withtag('vlan-group'))==2
+        assert 'PING 192.0.2.33' in window.output.get('1.0','end')
         assert window.output_tab.master is window.dock
         root.update()
         assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()-190
@@ -79,9 +91,9 @@ try:
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
-        assert set(owners)=={os.geteuid()} and len(owners)==6,owners
+        assert set(owners)=={os.geteuid()} and len(owners)==7,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':5,'link_count':4,'verified':verified['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':5,'link_count':4,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
