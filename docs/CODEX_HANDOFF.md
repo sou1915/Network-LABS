@@ -21,6 +21,35 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
+## Current priority: supplied reference proportions and brighter palette
+
+The user rejected the previous look again, requesting the same design and
+colours as images/agreed-gui-reference.jpg. Source
+`9fcbd4a720cf49bfc3279caa1b6c429689aa05b2` now uses the 1280×720 layout:
+full-height left catalogue; topology/diagnostics to its right; compact top
+navigation; a red/dark management pane with interface table/details; blue/red
+monitor themes and blue/green/amber VLAN areas. Default native project is now
+the real Campus-entreprise template (10 nodes, 9 links), with routed VLANs
+10/20/30, two switches, R1, default-drop FW1 and a server endpoint. There is
+no fake Wi-Fi, vendor firmware, LACP or DNS/Web readiness. Client/server themes
+are presentation of Linux hosts. Small-LAN creation remains available.
+
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42311053032/job/128212313234)
+passed 1047 cases (49.576 s, 116 skips) plus the real campus (9.887 s), on its
+first native run. The form changed CLIENT3's name/address/default gateway;
+actual inter-VLAN PC1 ↔ CLIENT3 passed through R1, and PC1 ↔ SRV1 was blocked
+by FW1's default-drop policy. Seven result files remained UID 1001; root-state
+read refusal, stop, callback and host-network invariants passed. Current
+screenshot/proof/provenance: artifact 13548780601 at source 9fcbd4a. Full local
+regression under temporary Xvfb passed 1047 cases (38.163 s, 141 skips), plus
+focused actual Tk tests. Polling timer cleanup was corrected after local
+preview. See NATIVE_GUI_FLOW.md for exact behaviour and remaining scope.
+
+Keep the provided design as the reference. Next work: genuine interactive
+native consoles/capture and richer supported management forms, without routing
+native operations through the model backend. LAN core stays accepted; static
+VXLAN remains tracked after LAN/GUI. Older look checkpoints below are history.
+
 ## Current GUI visual correction
 
 Source `22e2206112e36d2a513e674a3c7cf76370314097` addresses the user's
@@ -1340,3 +1369,12 @@ including wired 802.1X and the
 The other 52 profiles were intentionally skipped. The visual redesign changed
 presentation and the GUI test fixture; native runtime/protocol behavior and
 privilege boundaries remain unchanged.
+
+
+All ten selected jobs on reference-campus source 9fcbd4a passed in
+[run 42311053032](https://github.com/sou1915/Network-LABS/actions/runs/42311053032),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42311053032/job/128214033629).
+The other 52 profiles were intentionally skipped. The GUI/campus template and
+fixture changed; native runtime/protocol assertions and privilege boundaries
+were not weakened.

@@ -10,25 +10,26 @@
     1001
   ],
   "root_state_denied": true,
-  "node_count": 5,
-  "link_count": 4,
+  "node_count": 10,
+  "link_count": 9,
   "verified": {
-    "lab": "native-gui-3650",
-    "started_at": "2026-11-06T22:47:41.645170+00:00",
+    "lab": "Campus-entreprise-3650",
+    "started_at": "2026-11-06T23:20:23.116799+00:00",
     "revision": 0,
     "status": "passed",
     "directions": [
       {
         "source": "PC1",
         "destination": "CLIENT3",
-        "destination_address": "192.0.2.33",
+        "destination_address": "192.168.20.33",
         "route": {
           "status": "observed",
           "records": [
             {
-              "dst": "192.0.2.33",
+              "dst": "192.168.20.33",
+              "gateway": "192.168.10.1",
               "dev": "eth0",
-              "prefsrc": "192.0.2.10",
+              "prefsrc": "192.168.10.10",
               "flags": [],
               "uid": 0,
               "cache": []
@@ -49,35 +50,36 @@
           "1",
           "-w",
           "4",
-          "192.0.2.33"
+          "192.168.20.33"
         ],
         "requested_packets": 2,
         "transmitted": 2,
         "received": 2,
         "loss_percent": 0.0,
         "reply_ttls": [
-          64,
-          64
+          63,
+          63
         ],
         "reply_hop_limits": [],
         "address_family": "ipv4",
-        "source_address": "192.0.2.10",
+        "source_address": "192.168.10.10",
         "returncode": 0,
-        "stdout": "PING 192.0.2.33 (192.0.2.33): 56 data bytes\n64 bytes from 192.0.2.33: seq=0 ttl=64 time=0.074 ms\n64 bytes from 192.0.2.33: seq=1 ttl=64 time=0.068 ms\n\n--- 192.0.2.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.068/0.071/0.074 ms\n",
+        "stdout": "PING 192.168.20.33 (192.168.20.33): 56 data bytes\n64 bytes from 192.168.20.33: seq=0 ttl=63 time=0.081 ms\n64 bytes from 192.168.20.33: seq=1 ttl=63 time=0.070 ms\n\n--- 192.168.20.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.070/0.075/0.081 ms\n",
         "stderr": "",
         "attempted": true
       },
       {
         "source": "CLIENT3",
         "destination": "PC1",
-        "destination_address": "192.0.2.10",
+        "destination_address": "192.168.10.10",
         "route": {
           "status": "observed",
           "records": [
             {
-              "dst": "192.0.2.10",
+              "dst": "192.168.10.10",
+              "gateway": "192.168.20.1",
               "dev": "eth0",
-              "prefsrc": "192.0.2.33",
+              "prefsrc": "192.168.20.33",
               "flags": [],
               "uid": 0,
               "cache": []
@@ -98,21 +100,21 @@
           "1",
           "-w",
           "4",
-          "192.0.2.10"
+          "192.168.10.10"
         ],
         "requested_packets": 2,
         "transmitted": 2,
         "received": 2,
         "loss_percent": 0.0,
         "reply_ttls": [
-          64,
-          64
+          63,
+          63
         ],
         "reply_hop_limits": [],
         "address_family": "ipv4",
-        "source_address": "192.0.2.33",
+        "source_address": "192.168.20.33",
         "returncode": 0,
-        "stdout": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=64 time=0.034 ms\n64 bytes from 192.0.2.10: seq=1 ttl=64 time=0.068 ms\n\n--- 192.0.2.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.034/0.051/0.068 ms\n",
+        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=63 time=0.038 ms\n64 bytes from 192.168.10.10: seq=1 ttl=63 time=0.069 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.038/0.053/0.069 ms\n",
         "stderr": "",
         "attempted": true
       }
@@ -123,7 +125,7 @@
         "node": "PC1",
         "interface": "eth0",
         "status": "ready",
-        "address": "192.0.2.10",
+        "address": "192.168.10.10",
         "dhcp_client_configured": false,
         "reasons": [],
         "container": "running",
@@ -131,8 +133,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 6,
-              "link_index": 5,
+              "ifindex": 11,
+              "link_index": 12,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -147,9 +149,9 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "b2:85:54:79:cb:4d",
+              "address": "8e:73:37:02:dd:bc",
               "broadcast": "ff:ff:ff:ff:ff:ff",
-              "link_netnsid": 1
+              "link_netnsid": 0
             }
           ],
           "returncode": 0,
@@ -159,8 +161,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 6,
-              "link_index": 5,
+              "ifindex": 11,
+              "link_index": 12,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -173,11 +175,11 @@
               "operstate": "UP",
               "group": "default",
               "txqlen": 1000,
-              "link_netnsid": 1,
+              "link_netnsid": 0,
               "addr_info": [
                 {
                   "family": "inet",
-                  "local": "192.0.2.10",
+                  "local": "192.168.10.10",
                   "prefixlen": 24,
                   "scope": "global",
                   "label": "eth0",
@@ -198,7 +200,7 @@
         "node": "CLIENT3",
         "interface": "eth0",
         "status": "ready",
-        "address": "192.0.2.33",
+        "address": "192.168.20.33",
         "dhcp_client_configured": false,
         "reasons": [],
         "container": "running",
@@ -206,8 +208,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 11,
-              "link_index": 12,
+              "ifindex": 15,
+              "link_index": 16,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -222,7 +224,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "e6:fc:0a:8c:37:bd",
+              "address": "b2:4c:40:a1:b9:6e",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -234,8 +236,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 11,
-              "link_index": 12,
+              "ifindex": 15,
+              "link_index": 16,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -252,7 +254,7 @@
               "addr_info": [
                 {
                   "family": "inet",
-                  "local": "192.0.2.33",
+                  "local": "192.168.20.33",
                   "prefixlen": 24,
                   "scope": "global",
                   "label": "eth0",
@@ -273,25 +275,26 @@
     "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
     "configuration_changed": false,
     "probe_commands_attempted": 2,
-    "finished_at": "2026-11-06T22:47:43.683498+00:00"
+    "finished_at": "2026-11-06T23:20:25.152488+00:00"
   },
   "isolated": {
-    "lab": "native-gui-3650",
-    "started_at": "2026-11-06T22:47:37.348440+00:00",
+    "lab": "Campus-entreprise-3650",
+    "started_at": "2026-11-06T23:20:18.815666+00:00",
     "revision": 0,
     "status": "failed",
     "directions": [
       {
         "source": "PC1",
-        "destination": "PC2",
-        "destination_address": "192.0.2.20",
+        "destination": "SRV1",
+        "destination_address": "172.16.0.10",
         "route": {
           "status": "observed",
           "records": [
             {
-              "dst": "192.0.2.20",
+              "dst": "172.16.0.10",
+              "gateway": "192.168.10.1",
               "dev": "eth0",
-              "prefsrc": "192.0.2.10",
+              "prefsrc": "192.168.10.10",
               "flags": [],
               "uid": 0,
               "cache": []
@@ -312,7 +315,7 @@
           "1",
           "-w",
           "4",
-          "192.0.2.20"
+          "172.16.0.10"
         ],
         "requested_packets": 2,
         "transmitted": 2,
@@ -321,23 +324,24 @@
         "reply_ttls": [],
         "reply_hop_limits": [],
         "address_family": "ipv4",
-        "source_address": "192.0.2.10",
+        "source_address": "192.168.10.10",
         "returncode": 1,
-        "stdout": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n\n--- 192.0.2.20 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "stdout": "PING 172.16.0.10 (172.16.0.10): 56 data bytes\n\n--- 172.16.0.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
         "stderr": "",
         "attempted": true
       },
       {
-        "source": "PC2",
+        "source": "SRV1",
         "destination": "PC1",
-        "destination_address": "192.0.2.10",
+        "destination_address": "192.168.10.10",
         "route": {
           "status": "observed",
           "records": [
             {
-              "dst": "192.0.2.10",
+              "dst": "192.168.10.10",
+              "gateway": "172.16.0.1",
               "dev": "eth0",
-              "prefsrc": "192.0.2.20",
+              "prefsrc": "172.16.0.10",
               "flags": [],
               "uid": 0,
               "cache": []
@@ -358,7 +362,7 @@
           "1",
           "-w",
           "4",
-          "192.0.2.10"
+          "192.168.10.10"
         ],
         "requested_packets": 2,
         "transmitted": 2,
@@ -367,9 +371,9 @@
         "reply_ttls": [],
         "reply_hop_limits": [],
         "address_family": "ipv4",
-        "source_address": "192.0.2.20",
+        "source_address": "172.16.0.10",
         "returncode": 1,
-        "stdout": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n\n--- 192.0.2.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
         "stderr": "",
         "attempted": true
       }
@@ -380,7 +384,7 @@
         "node": "PC1",
         "interface": "eth0",
         "status": "ready",
-        "address": "192.0.2.10",
+        "address": "192.168.10.10",
         "dhcp_client_configured": false,
         "reasons": [],
         "container": "running",
@@ -388,8 +392,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 6,
-              "link_index": 5,
+              "ifindex": 11,
+              "link_index": 12,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -404,9 +408,9 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "b2:85:54:79:cb:4d",
+              "address": "8e:73:37:02:dd:bc",
               "broadcast": "ff:ff:ff:ff:ff:ff",
-              "link_netnsid": 1
+              "link_netnsid": 0
             }
           ],
           "returncode": 0,
@@ -416,8 +420,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 6,
-              "link_index": 5,
+              "ifindex": 11,
+              "link_index": 12,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -430,11 +434,11 @@
               "operstate": "UP",
               "group": "default",
               "txqlen": 1000,
-              "link_netnsid": 1,
+              "link_netnsid": 0,
               "addr_info": [
                 {
                   "family": "inet",
-                  "local": "192.0.2.10",
+                  "local": "192.168.10.10",
                   "prefixlen": 24,
                   "scope": "global",
                   "label": "eth0",
@@ -452,10 +456,10 @@
         "dhcpv6_client_configured": false
       },
       {
-        "node": "PC2",
+        "node": "SRV1",
         "interface": "eth0",
         "status": "ready",
-        "address": "192.0.2.20",
+        "address": "172.16.0.10",
         "dhcp_client_configured": false,
         "reasons": [],
         "container": "running",
@@ -463,8 +467,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 9,
-              "link_index": 10,
+              "ifindex": 21,
+              "link_index": 22,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -479,7 +483,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "36:18:ea:67:0f:a0",
+              "address": "4a:84:4a:ab:b9:80",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -491,8 +495,8 @@
           "status": "observed",
           "records": [
             {
-              "ifindex": 9,
-              "link_index": 10,
+              "ifindex": 21,
+              "link_index": 22,
               "ifname": "eth0",
               "flags": [
                 "BROADCAST",
@@ -509,7 +513,7 @@
               "addr_info": [
                 {
                   "family": "inet",
-                  "local": "192.0.2.20",
+                  "local": "172.16.0.10",
                   "prefixlen": 24,
                   "scope": "global",
                   "label": "eth0",
@@ -530,7 +534,7 @@
     "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
     "configuration_changed": false,
     "probe_commands_attempted": 2,
-    "finished_at": "2026-11-06T22:47:41.381521+00:00"
+    "finished_at": "2026-11-06T23:20:22.850609+00:00"
   },
   "stopped": true,
   "callback_errors": []

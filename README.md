@@ -42,7 +42,11 @@ Les estimations de progression ne sont pas des pourcentages de couverture des te
 topologie au centre et inspecteur à droite, selon la disposition existante.
 Création de postes/switches/routeurs OCI, câblage par ports libres ou nouveaux,
 suppression et déplacement sont disponibles pour le brouillon. Enregistrer puis
-arrêter/redémarrer applique la topologie ; les positions restent en session.
+arrêter/redémarrer applique la topologie ; les positions restent en session. Le projet initial est maintenant un
+campus natif de dix nodes (VLAN 10/20/30, routeur, deux switches, firewall bloquant
+par défaut et serveur endpoint). **Fichier → Campus entreprise** crée une copie
+avec votre rootfs ; **Nouveau LAN** conserve le petit exemple. La bibliothèque
+occupe toute la hauteur et le panneau GUI affiche ports/adresses/détails.
 L’onglet Configuration du panneau équipement permet le nom, IPv4/passerelle et
 l’état d’un port OCI ; les modifications sont validées avant application au brouillon. La bibliothèque
 est illustrée et classée ; le canevas affiche les groupes VLAN déclarés et

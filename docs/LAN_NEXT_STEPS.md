@@ -18,6 +18,13 @@ richer supported forms and the
 actual [user-supplied visual target](images/agreed-gui-reference.jpg), not more
 advanced LAN prerequisites. See NATIVE_GUI_FLOW.md for edited-topology proof.
 
+The native GUI now opens a real ten-node campus matching the supplied layout:
+routed VLANs 10/20/30, two switches, router, default-drop firewall and server
+endpoint. Bright reference palette, full-height catalogue and management
+interface table are implemented; native inter-VLAN and firewall-path probes
+passed. Continue interactive consoles/capture and richer supported GUI within
+the supplied visual reference; do not reopen advanced LAN as a prerequisite.
+
 ## Core closure and next phase — 2026-11-06
 
 The [consolidated gate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)

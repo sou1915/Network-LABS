@@ -16,6 +16,17 @@ Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
+## Reference-colour campus workspace
+
+The latest visual revision follows the supplied 1280×720 proportions with a
+full-height catalogue, compact bars/navigation, brighter device/VLAN colours,
+and a red/dark management panel with an actual interface table and form. The
+default campus has ten real OCI nodes/nine cables, three routed VLANs, two
+switches, a router, default-drop firewall and server endpoint. Native CI
+verified inter-VLAN traffic and firewall blocking; the captured screenshot
+shows this actual campus. Generic artwork does not add proprietary firmware,
+Windows/Wi-Fi or server application support. See NATIVE_GUI_FLOW.md for proof.
+
 ## Visual alignment increment
 
 The user's supplied image now drives compact menus/toolbar, an illustrated
@@ -437,3 +448,12 @@ including wired 802.1X and the
 The other 52 profiles were intentionally skipped. The visual redesign changed
 presentation and the GUI test fixture; native runtime/protocol behavior and
 privilege boundaries remain unchanged.
+
+
+All ten selected jobs on reference-campus source 9fcbd4a passed in
+[run 42311053032](https://github.com/sou1915/Network-LABS/actions/runs/42311053032),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42311053032/job/128214033629).
+The other 52 profiles were intentionally skipped. The GUI/campus template and
+fixture changed; native runtime/protocol assertions and privilege boundaries
+were not weakened.

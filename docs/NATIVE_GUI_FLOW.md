@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13547310471, source commit and run/job, with the verified original ZIP
+artifact 13548780601, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -366,3 +366,63 @@ including wired 802.1X and the
 The other 52 profiles were intentionally skipped. The visual redesign changed
 presentation and the GUI test fixture; native runtime/protocol behavior and
 privilege boundaries remain unchanged.
+
+## Reference palette, complete-height library and campus layout
+
+After the user again rejected the visual distance and dull colours, source
+`9fcbd4a720cf49bfc3279caa1b6c429689aa05b2` rebuilds the shell around the actual
+1280×720 reference proportions: compact dark header/light action bar, top
+navigation, full-height left library, topology above the diagnostics and
+operation table, and a right-hand management GUI with red masthead, dark
+navigation rail, interface table and editable details. The library no longer
+ends above a console spanning the entire window. Blue/red monitor themes,
+blue/green/amber VLAN areas, a protected-server area and brighter status LEDs
+replace the earlier steel/grey look. Native-only theme styles preserve the
+pedagogical desktop styles on return. Original artwork/themes do not imply
+Windows guests, vendor firmware, Wi-Fi, LACP or DNS/Web services.
+
+The native workbench opens the validated **Campus-entreprise** template by
+default. **Fichier → Campus entreprise** / **Scénarios** lets the user choose
+a rootfs/name for a new copy. **Fichier → Nouveau LAN** retains the small LAN.
+The real template has ten OCI nodes/nine cables: R1 with three routed VLAN
+subinterfaces, two VLAN switches, five clients, default-drop stateful FW1 and
+SRV1 behind the firewall. These are native Linux roles, not product replicas.
+SRV1 is a Linux endpoint; no DNS/Web application is advertised as running.
+The firewall/server leaf is visually labelled **Segment pare-feu** without
+asserting a broader security guarantee. The palette creates generic router,
+switch, explicitly default-drop firewall, client and server-host presets.
+The server preset remains a host role. Advanced policy remains JSON.
+
+The optional project-device list is collapsed to preserve the supplied
+catalogue layout; its toggle exposes actual project nodes, and search handles
+both catalogue entries and named nodes. GUI interface rows show configured
+addresses/admin state. They are not continuous kernel-link monitoring.
+The management panel edits the same validated/stale-protected draft as before.
+
+Local validation now includes actual Tk tests under a temporary Xvfb display,
+without changing system packages. A stale polling timer found during that
+preview was canceled correctly; native operation semantics are unchanged.
+The full local suite passed 1047 cases in 38.163 s (141 environment/optional
+skips). The [CI desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42311053032/job/128212313234)
+passed 1047 cases in 49.576 s (116 skips) plus the real campus in 9.887 s.
+The device form renamed/addressed CLIENT3 at 192.168.20.33/24; kernel inspection
+observed its default route via 192.168.20.1. PC1 ↔ CLIENT3 succeeded across
+R1 between VLAN 10 and VLAN 20 (actual routed TTL 63); PC1 ↔ SRV1 failed through
+the default-drop firewall. Both reports remain in the artifact. All seven
+result files belonged to UID 1001, direct root-state reads were denied, and
+confirmed teardown left no callback/host-network leaks.
+
+The current screenshot/report/provenance bind to artifact 13548780601 at
+source 9fcbd4a, with verified original ZIP and per-file hashes. The screenshot
+shows the actual running campus and FW1 configuration; local draft previews
+were not substituted for native evidence. Interactive consoles, packet-event/
+capture workflows and richer vendor-style forms remain pending.
+
+
+All ten selected jobs on reference-campus source 9fcbd4a passed in
+[run 42311053032](https://github.com/sou1915/Network-LABS/actions/runs/42311053032),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42311053032/job/128214033629).
+The other 52 profiles were intentionally skipped. The GUI/campus template and
+fixture changed; native runtime/protocol assertions and privilege boundaries
+were not weakened.
