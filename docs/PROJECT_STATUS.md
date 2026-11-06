@@ -12,6 +12,15 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest validation strengthens [pinned SSH shell lifecycle evidence](SSH_SHELL_HOST_IDENTITY.md)
+at `91997a938d33eb54b48428dca9db981abd455caa`. In
+[run 42203206143](https://github.com/sou1915/Network-LABS/actions/runs/42203206143),
+the new pinned PTY/expiry/disconnect/complete-accounting scenario passed in
+7.773 seconds and orphan-journal controls passed again in 9.935 seconds.
+All six selected jobs passed; 54 others were intentionally skipped. Local
+tests passed 990 cases in 30.036 seconds with 161 environment skips. No
+protocol behavior or scope changed; estimates remain unchanged.
+
 The latest bounded increment adds a [pinned IPv4 journaled SSH shell](SSH_SHELL_HOST_IDENTITY.md)
 at `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`, requiring accounting,
 durable Stop outbox and session journal. Its native scenario passed in

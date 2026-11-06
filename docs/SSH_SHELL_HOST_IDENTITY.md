@@ -55,7 +55,7 @@ pre-provisioned known_hosts, use a fresh bridge token, reject stale-runtime
 reconciliation and complete a healthy shell with Stop acknowledgement.
 Host namespace/link/IPv4/IPv6 route/rule invariants are checked.
 
-Additional native lifecycle coverage is now pending: the real PTY/shell suite
+Additional native lifecycle coverage now includes the real PTY/shell suite
 with pinned identity and full outbox/journal enabled. It exercises denied
 credentials/actions without payload creation, a chosen command exit status,
 PTY/no-new-privileges/empty capabilities, no password echo, background-process
@@ -64,6 +64,16 @@ four expected termination causes. Healthy completion must leave both journal
 and outbox empty; restored shells must reuse the exact pre-provisioned trust
 file. Host namespace/link/route/rule/forwarding/unprivileged-port invariants
 are checked. This adds validation, not protocol behavior or manifest scope.
+
+At test/validation commit `91997a938d33eb54b48428dca9db981abd455caa`,
+the [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
+passed the pinned PTY/lifecycle scenario in 7.773 seconds and the orphan-journal
+scenario again in 9.935 seconds. The healthy reference recorded four Start
+and four Stop entries with matching session IDs and termination causes
+1, 5, 6 and 9, with no remaining journal/outbox records. All six selected
+jobs passed; 54 other jobs were intentionally skipped. Local tests passed
+990 cases in 30.036 seconds with 161 environment skips; compilation/diff/link
+checks passed. No failed native run preceded this added validation.
 
 At implementation commit `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`,
 the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)

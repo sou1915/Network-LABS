@@ -2206,3 +2206,28 @@ Remaining LAN precedes GUI; static VXLAN mapping and separate EVPN/BGP/WAN
 stay tracked. Estimates remain LAN about 80%, whole product about 45–50%.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
+
+## Pinned shell PTY, expiry, disconnect and complete accounting — 2026-11-06
+
+At test/validation commit `91997a938d33eb54b48428dca9db981abd455caa`,
+the real shell lifecycle reference also runs with pinned host identity and
+the full accounting/outbox/journal profile. No protocol or manifest-scope
+change is claimed. Wrong RADIUS credentials/actions created no payload;
+explicit exit status 7 propagated. Real PTY, no-new-privileges, empty
+capabilities and no password echo passed. Normal exit, duration expiry and
+client disconnect removed background payloads and transport directories.
+Healthy completions left journal/outbox empty. Backend records contained
+four Start/four Stop entries with matching session IDs and cause set 1/5/6/9.
+Cold restore reused exact known_hosts without keyscan and executed a verified
+shell. Host namespace/link/IPv4/IPv6 route/rule/forwarding/unprivileged-port
+invariants remained unchanged.
+
+The [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
+passed the lifecycle scenario in 7.773 seconds and repeated orphan-journal
+controls in 9.935 seconds. All six selected jobs in run 42203206143 passed;
+54 other jobs were intentionally skipped. Local full tests under umask 022
+passed 990 cases in 30.036 seconds with 161 environment skips; compilation,
+diff and link checks passed. No failed native run preceded this validation.
+See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md). Remaining LAN
+precedes GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked. Planning
+estimates remain LAN about 80%, whole product about 45–50%.

@@ -1,5 +1,29 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN validation: pinned shell PTY and accounting lifecycle — 2026-11-06
+
+Test commit `91997a938d33eb54b48428dca9db981abd455caa` extends the
+existing pinned IPv4 journaled shell validation without changing protocol
+behavior or manifest scope. The native PTY/shell reference now also runs
+with declared host identity and mandatory outbox/journal enabled. Wrong
+credentials/actions created no payload; command exit 7 propagated. Real PTY,
+no-new-privileges, empty capabilities and no password echo passed. Background
+payloads were removed after normal exit, expiry and client disconnect; healthy
+completion left no journal/outbox records. The backend recorded four Start
+and four Stop entries with matching session IDs and causes 1/5/6/9. Cold
+restore reused the exact pre-provisioned known_hosts without keyscan. Host
+namespace/link/IPv4/IPv6 route/rule/forwarding/unprivileged-port invariants passed.
+
+The [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
+passed the new lifecycle scenario in 7.773 seconds and repeated the orphan
+journal scenario in 9.935 seconds. All six selected jobs in run 42203206143
+passed; 54 other jobs were intentionally skipped. Local full tests under
+umask 022 passed 990 cases in 30.036 seconds with 161 environment skips;
+compilation/diff/link checks passed. No native failure preceded this validation.
+See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md). Native GUI remains
+after remaining LAN work; static VXLAN and separate EVPN/BGP/WAN stay tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
 ## Latest LAN increment: pinned IPv4 journaled SSH shell — 2026-11-06
 
 Implementation `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9` permits the
