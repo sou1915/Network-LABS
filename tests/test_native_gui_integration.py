@@ -56,6 +56,8 @@ try:
         assert verified['data']['status']=='passed',verified['data']
         assert len(window.activity.get_children())==4
         assert window.output_tab.master is window.dock
+        root.update()
+        assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()-190
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
         box=(window.window.winfo_rootx(),window.window.winfo_rooty(),window.window.winfo_rootx()+window.window.winfo_width(),window.window.winfo_rooty()+window.window.winfo_height())
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')
