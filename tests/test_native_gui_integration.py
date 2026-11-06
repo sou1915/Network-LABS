@@ -15,7 +15,6 @@ from test_native_integration import unexpected_host_link_changes
 CHILD=r'''
 import json,os,sys,time,tkinter as tk
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0,sys.argv[1])
 from network_labs.appliances import ui
@@ -23,7 +22,10 @@ from network_labs.appliances.runtime import Manager
 from PIL import ImageGrab
 assert os.geteuid()!=0,'The GUI must run unprivileged'
 spec=json.loads(Path(sys.argv[2]).read_text());directory=Path(sys.argv[3]);artifacts=Path(sys.argv[4])
-root=tk.Tk();root.withdraw();window=ui.ApplianceWindow(SimpleNamespace(root=root));window.load_spec(spec,directory/'project.json')
+from network_labs.__main__ import App
+root=tk.Tk();app=App(root);root.geometry('1280x800');window=app.open_native_lab();window.load_spec(spec,directory/'project.json')
+assert window.embedded and window.window.master is root
+assert app.lab.execution_backend=='model'
 errors=[];root.report_callback_exception=lambda *error:errors.append(str(error));owners=[]
 original=ui.read_result
 def checked_result(path,request):
@@ -60,6 +62,8 @@ try:
         assert set(owners)=={os.geteuid()} and len(owners)==6,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
         (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':3,'link_count':2,'verified':verified['data'],'stopped':True,'callback_errors':errors},indent=2))
+        window.close();root.update()
+        assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
 finally:root.destroy()
 '''
