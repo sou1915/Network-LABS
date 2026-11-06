@@ -71,7 +71,7 @@ class WorkbenchGUITests(unittest.TestCase):
     def setUp(self):
         import tkinter as tk
         from network_labs.appliances.ui import ApplianceWindow
-        self.root=tk.Tk();self.root.withdraw();self.window=ApplianceWindow(SimpleNamespace(root=self.root));self.errors=[]
+        self.root=tk.Tk();self.root.withdraw();self.window=ApplianceWindow(SimpleNamespace(root=self.root));self.window.load_spec(example('/tmp/rootfs'));self.errors=[]
         self.root.report_callback_exception=lambda *error:self.errors.append(str(error))
         self.root.update()
 
@@ -104,6 +104,7 @@ class WorkbenchGUITests(unittest.TestCase):
         window=self.window
         window.search.set('PC1');self.root.update()
         self.assertEqual(window.library.get_children(),('PC1',))
+        self.assertTrue(window.project_list_open)
         window.draw(window.graph);self.root.update()
         self.assertEqual(window.library.get_children(),('PC1',))
         window.search.set('');self.root.update()

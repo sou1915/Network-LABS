@@ -3,14 +3,15 @@ import copy
 from .spec import validate
 
 
-def add_node(spec, *, name, role, rootfs, ports=1, address=''):
+def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
     draft=copy.deepcopy(spec)
-    if role not in ('host','switch','router'):
+    if role not in ('host','switch','router','firewall'):
         raise ValueError('Création graphique : poste Linux, switch ou routeur OCI.')
     if type(ports) is not int or not 1<=ports<=16:
         raise ValueError('Choisir entre 1 et 16 interfaces.')
     draft['nodes'].append({'name':name,'role':role,'runtime':'oci','rootfs':rootfs,
                            'interfaces':{f'eth{i}':address if i==0 else '' for i in range(ports)}})
+    if firewall is not None:draft['nodes'][-1]['firewall']=copy.deepcopy(firewall)
     return validate(draft)
 
 
