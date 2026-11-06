@@ -255,7 +255,10 @@ sudo ip netns exec PC1_NAMESPACE wpa_supplicant -D wired -i eth0 \
 ```
 
 This supplicant is an independently managed peer, not a guest-image daemon or
-an engine-persisted credential. Stop it before lab teardown. In another terminal:
+an engine-persisted credential. Stop it before lab teardown.
+Alternatively, configure the optional [engine-owned peer](DOT1X_MANAGED_PEER.md)
+in the manifest and use the same NAS command below without manually launching
+a second supplicant. In another terminal:
 
 ```bash
 sudo python3 -m network_labs.appliances dot1x-auth dot1x-lan SW1 --json

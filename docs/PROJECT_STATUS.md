@@ -12,6 +12,19 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds an [engine-owned wired supplicant peer](DOT1X_MANAGED_PEER.md)
+at `f4ebb509df3d901ec3265b1665287a852d1783ab`, with normal-CLI pin
+redaction `22a0844` and final native fixture correction `ff4b08a`.
+The [dedicated job](https://github.com/sou1915/Network-LABS/actions/runs/42253373302/job/128014020814)
+passed the managed-peer scenario in 45.443 seconds and old authenticator
+regression in 193.528 seconds. Both selected jobs passed; 58 were intentionally
+skipped. Local tests passed 1015 cases in 30.441 seconds with 163 environment
+skips. An intermediate native first-ping failure was repaired with bounded
+verified-lease data readiness; the guide retains the exact attempt history.
+The peer is now managed across commands, while NAS authentication remains
+explicit/finite. Host-service/total-RAM acceptance remains open; planning
+estimates are unchanged.
+
 The latest bounded increment adds [verified RADIUS-requested wired reauthentication](DOT1X_WIRED.md)
 at `9329910fd9fd4b61a4c6ad8ab4e6f01d0aa9e9aa`. The
 [native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42243831204/job/127980741652)
@@ -258,14 +271,15 @@ These weights are assumptions for this report, not an earlier delivery contract.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
   journal/reconciliation, finite wired EAP-MD5 admission/reauthentication
   with controlled-link revocation, verified backend session-duration caps and
-  bounded server-requested reauthentication.
+  bounded server-requested reauthentication and an optional owned peer service.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 
 ## What remains
 
 LAN work still includes native MSTP/PVST and broader switching/kernel fault
-coverage; stronger/persistent 802.1X/EAP, multi-client/dynamic VLAN/accounting,
+coverage; stronger EAP and persistent NAS authentication/peer recovery,
+multi-client/dynamic VLAN/accounting,
 TACACS+/protected AAA; more dynamic/IPv6/security/service combinations; broader
 file/DNS service features; Syslog queue retention across lab recreation and
 broader durable delivery; and compatibility/resource acceptance. The detailed

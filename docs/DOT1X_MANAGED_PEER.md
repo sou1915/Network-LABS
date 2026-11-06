@@ -75,6 +75,9 @@ death or a foreign process group retains the record and refuses namespace
 teardown; another CLI can complete normal cleanup. No daemonization flag is
 used and no manual peer process is adopted.
 
+This host service is outside node OCI cgroup memory accounting. No total
+application/GUI/host-service RAM acceptance is claimed by this increment.
+
 ## Validation
 
 The dedicated native scenario runs real FreeRADIUS and the managed unmodified
@@ -82,6 +85,42 @@ wired supplicant. It covers repeated finite commands without manual peer
 launch, actual EAPOL/RADIUS cycles/data, private handoff, active save, peer death
 and save refusal, asset drift before allocation, cold restore, separate-CLI
 teardown during admission and independently pinned wrong credentials.
-Native results are pending. Unit tests additionally verify schema boundaries,
+Unit tests additionally verify schema boundaries,
 sealed memfd/argv/state handling, stale PID/foreign-group refusal and retained
 state after unconfirmed death.
+
+Implementation `f4ebb509df3d901ec3265b1665287a852d1783ab` adds an
+optional `dot1x_supplicant` policy to the existing wired PC1 peer. A trusted
+foreground host wpa_supplicant runs in that peer's namespace across finite
+NAS commands. The schema pins identity/interface and a private password-file
+hash; preflight rejects invalid assets before allocation. Configuration is
+passed through a sealed mode-0600 memfd, with no secret in argv, runtime peer
+files or startup JSON. Inspection checks owned process, namespace/interface,
+control readiness and original handoff/asset pins; save refuses dead or
+unverifiable peers. Normal CLI hash redaction is added by `22a0844`.
+Teardown stops the NAS first, then signals the owned peer group and confirms
+peer process death before namespace removal. PID reuse/foreign groups do not authorize signalling.
+Cold restore preserves policy only and starts a new peer with the gate closed.
+The authenticator remains explicit/finite; there is no automatic peer restart
+or persistent NAS authentication service.
+
+At final validation commit `ff4b08a7d96d62ce81dfe027ef1383b57b58a704`,
+the [dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/42253373302/job/128014020814)
+passed the new managed-peer scenario in 45.443 seconds and the existing full
+authenticator scenario in 193.528 seconds. The new reference verified two real
+EAPOL Success/four RADIUS requests, data in both directions, active save,
+a second CLI auth reusing the same peer, peer SIGKILL followed by closed
+authentication timeout/save refusal, changed-asset refusal before allocation,
+cold restore, separate-CLI teardown during admission and actual wrong-password
+rejection while the peer stayed running. Host namespace/link/IPv4/IPv6
+route/rule invariants passed. Both selected jobs passed; 58 others were
+intentionally skipped. Local full tests passed 1015 cases in 30.441 seconds
+with 163 environment skips; compile/diff/link checks passed.
+
+Initial run 42252777315 at `f4ebb50` passed both jobs (managed peer 44.769
+seconds, old authenticator 219.613 seconds). Run 42253118016 at `22a0844`
+passed general CI but failed the first admitted ping in the new fixture.
+Fixture-only correction `ff4b08a` uses the existing reference's bounded data/
+ARP readiness pattern: real traffic must succeed within two seconds and a
+verified admitted lease, otherwise it fails. Duration, packet, credential and
+cleanup assertions were retained; no admission/runtime policy was relaxed.

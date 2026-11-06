@@ -1,5 +1,49 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Wired 802.1X engine-owned supplicant peer — 2026-11-06
+
+Implementation `f4ebb509df3d901ec3265b1665287a852d1783ab` adds an
+optional `dot1x_supplicant` policy to the existing wired PC1 peer. A trusted
+foreground host wpa_supplicant runs in that peer's namespace across finite
+NAS commands. The schema pins identity/interface and a private password-file
+hash; preflight rejects invalid assets before allocation. Configuration is
+passed through a sealed mode-0600 memfd, with no secret in argv, runtime peer
+files or startup JSON. Inspection checks owned process, namespace/interface,
+control readiness and original handoff/asset pins; save refuses dead or
+unverifiable peers. Normal CLI hash redaction is added by `22a0844`.
+Teardown stops the NAS first, then signals the owned peer group and confirms
+peer process death before namespace removal. PID reuse/foreign groups do not authorize signalling.
+Cold restore preserves policy only and starts a new peer with the gate closed.
+The authenticator remains explicit/finite; there is no automatic peer restart
+or persistent NAS authentication service.
+
+At final validation commit `ff4b08a7d96d62ce81dfe027ef1383b57b58a704`,
+the [dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/42253373302/job/128014020814)
+passed the new managed-peer scenario in 45.443 seconds and the existing full
+authenticator scenario in 193.528 seconds. The new reference verified two real
+EAPOL Success/four RADIUS requests, data in both directions, active save,
+a second CLI auth reusing the same peer, peer SIGKILL followed by closed
+authentication timeout/save refusal, changed-asset refusal before allocation,
+cold restore, separate-CLI teardown during admission and actual wrong-password
+rejection while the peer stayed running. Host namespace/link/IPv4/IPv6
+route/rule invariants passed. Both selected jobs passed; 58 others were
+intentionally skipped. Local full tests passed 1015 cases in 30.441 seconds
+with 163 environment skips; compile/diff/link checks passed.
+
+Initial run 42252777315 at `f4ebb50` passed both jobs (managed peer 44.769
+seconds, old authenticator 219.613 seconds). Run 42253118016 at `22a0844`
+passed general CI but failed the first admitted ping in the new fixture.
+Fixture-only correction `ff4b08a` uses the existing reference's bounded data/
+ARP readiness pattern: real traffic must succeed within two seconds and a
+verified admitted lease, otherwise it fails. Duration, packet, credential and
+cleanup assertions were retained; no admission/runtime policy was relaxed.
+
+See [DOT1X_MANAGED_PEER.md](DOT1X_MANAGED_PEER.md). Persistent NAS supervision,
+automatic peer recovery, stronger EAP/TLS, multi-client/dynamic VLAN/accounting
+and wider switching remain open. LAN precedes native GUI; static VXLAN and
+separate EVPN/BGP/WAN remain tracked. Planning estimates stay LAN about 80%,
+whole product about 45–50%.
+
 ## Wired 802.1X bounded server-requested reauthentication — 2026-11-06
 
 Implementation `9329910fd9fd4b61a4c6ad8ab4e6f01d0aa9e9aa` adds
