@@ -1,5 +1,17 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest user correction: preserve the agreed GUI — 2026-11-06
+
+The user requires the existing agreed desktop layout, referenced by
+[workspace_design.png](workspace_design.png), rather than a separate technical
+native window. Native LAN now occupies the main desktop with the same theme,
+device icons and left equipment / centre topology / right inspector layout.
+Back restores the pedagogical workspace without changing its model backend;
+native sudo/IPC behavior remains unchanged. Validate the actual embedded App
+flow, capture its real native screenshot, and keep supplying screenshots after
+GUI additions. Graphical node/link creation and full device forms remain open.
+LAN core stays frozen; VXLAN remains later in the roadmap.
+
 ## Current priority: native GUI essentials — first flow verified — 2026-11-06
 
 LAN core remains accepted (7/7); advanced LAN extensions stay deferred. The

@@ -96,3 +96,20 @@ result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
 artifact 13528680261, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The full suite passed on the same commit.
+
+## Agreed desktop layout
+
+The native LAN now uses the existing [workspace design](workspace_design.png):
+light theme, equipment list on the left, topology in the centre and inspector
+on the right. Device cards reuse the desktop's own icons and shared colours.
+Opening native LAN replaces the visible workspace inside the main window;
+**Retour au projet pédagogique** restores the previous project and its save
+shortcut without changing its backend. Switching views does not stop a lab.
+Native process state and connectivity results still come from the real backend.
+The inspector keeps the result of a connectivity check visible beside the graph.
+
+This corrects the previous separate technical-window presentation. The left
+list selects existing native devices; graphical creation/cabling and full
+per-device forms remain pending. JSON, dependencies and detailed observations
+are available as central tabs. This is alignment with the agreed layout, not
+completion of all GUI editing workflows.

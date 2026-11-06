@@ -535,7 +535,7 @@ class App:
         previous=getattr(self,'native_lab_window',None)
         if previous is not None and previous.window.winfo_exists():
             previous.window.lift();return previous
-        self.native_lab_window=ApplianceWindow(self)
+        self.native_lab_window=ApplianceWindow(self,embedded=True)
         return self.native_lab_window
 
     def load_wasm_lab(self):

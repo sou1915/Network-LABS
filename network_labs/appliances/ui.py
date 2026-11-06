@@ -26,12 +26,12 @@ def launch_terminal(command):
 
 
 class ApplianceWindow:
-    def __init__(self,app):
+    def __init__(self,app,*,embedded=False):
         self.app=app;self.path=None;self.pending=None;self.poll_id=None;self.closed=False;self.last_response=None
         # Use the established desktop's theme and device artwork. Native state
         # stays separate from the pedagogical Session/model behind that desktop.
         from ..__main__ import App
-        self.root=app.root;self.embedded=isinstance(app,App);self.previous_widgets=[]
+        self.root=app.root;self.embedded=embedded;self.previous_widgets=[]
         App.style(self)
         if self.embedded:
             app.pause()
