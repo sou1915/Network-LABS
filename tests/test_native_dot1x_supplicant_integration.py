@@ -62,8 +62,15 @@ class NativeManagedWiredPeerTests(unittest.TestCase):
                 self.fail('Managed peer did not reach admission')
             def session():return pool.submit(authenticate,Manager(spec['name']),'SW1',timeout=5)
             def owner():return Manager(spec['name']).read()['dot1x_supplicants']['PC1']
+            def delivered(source='PC1',target='192.0.2.20'):
+                until=time.monotonic()+2
+                while ping(source,target)!=0:
+                    self.assertTrue(gate()['configuration_verified'])
+                    self.assertTrue(gate()['admitted'],'Delivery retry must remain within a verified admitted lease')
+                    if time.monotonic()>=until:self.fail('Admitted managed peer did not deliver real data')
+                    time.sleep(.03)
             def healthy(future):
-                admitted(future);self.assertEqual(ping(),0);self.assertEqual(ping('PC2','192.0.2.10'),0)
+                admitted(future);delivered();delivered('PC2','192.0.2.10')
                 result=future.result(timeout=12)
                 self.assertEqual(result['status'],'passed',result);self.assertEqual(result['completed_authentications'],2)
                 self.assertEqual(result['radius_requests'],4);self.assertTrue(result['port_closed']);closed()
