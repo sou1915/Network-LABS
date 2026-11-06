@@ -65,6 +65,15 @@ and outbox empty; restored shells must reuse the exact pre-provisioned trust
 file. Host namespace/link/route/rule/forwarding/unprivileged-port invariants
 are checked. This adds validation, not protocol behavior or manifest scope.
 
+Additional native fault coverage drops only Accounting-Response packets in
+the owned NAS while retaining RADIUS authentication and SSH. Lost Start
+receipts must prevent payload execution and preserve a compensating Stop;
+lost Stop receipts after an admitted shell must return uncertainty (SSH
+status 125), retain the durable Stop and require explicit flush. Packet
+captures, backend duplicate records, empty session groups and cold restore
+with unchanged host trust are checked. This is validation of existing
+behavior, not an exactly-once delivery guarantee. Native results are pending.
+
 At test/validation commit `91997a938d33eb54b48428dca9db981abd455caa`,
 the [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
 passed the pinned PTY/lifecycle scenario in 7.773 seconds and the orphan-journal

@@ -42,11 +42,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated pinned SSH shell and journal prerequisites
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev nftables
       - name: Verify pinned shell trust, worker death, orphan journal, Stop handoff and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_shell_host_key_integration.py -v
       - name: Verify pinned PTY, expiry, disconnect, complete accounting and unchanged restored trust
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_shell_host_key_lifecycle_integration.py -v
+      - name: Verify pinned shell Start and Stop receipt loss, durable uncertainty and explicit recovery
+        run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_shell_host_key_ack_loss_integration.py -v
   benchmark-kernel-peak:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'benchmark-kernel-peak'
     runs-on: ubuntu-24.04
