@@ -65,8 +65,8 @@ owned peer and a closed gate; explicit authentication is required again.
 There is no automatic restart after peer death. A current admitted lease may
 last until its existing finite kernel bound; immediate revocation on process
 SIGKILL is not claimed. Subsequent reauthentication without the peer times
-out closed. Recreate from a previously saved manifest after fixing the asset
-or service failure. Wrong credentials remain a RADIUS denial, not a daemon
+out closed. Explicit dead-peer recovery is described below; cold recreation
+also remains available. Wrong credentials remain a RADIUS denial, not a daemon
 startup success being mistaken for admission.
 
 Teardown closes/stops the NAS worker first, then signals only the matching
@@ -77,6 +77,39 @@ used and no manual peer process is adopted.
 
 This host service is outside node OCI cgroup memory accounting. No total
 application/GUI/host-service RAM acceptance is claimed by this increment.
+
+## Explicit recovery without lab recreation
+
+```bash
+sudo python3 -m network_labs.appliances dot1x-peer-recover LAB PC1 --json
+```
+
+This command replaces only a dead, recorded managed peer. It requires a
+stable running lab, no NAS authenticator worker, and a verified closed gate.
+It refuses a live peer, changed credentials/handoff, namespace/interface/MAC
+drift, changed control-directory ownership/inode/mode, foreign entries or a
+replaced/live control socket. Original directory/socket identities are recorded
+at startup; legacy active runtimes lacking these records must be recreated.
+An absent old socket/directory after clean peer exit is permitted, without
+adopting any existing object. No live process is signalled by recovery.
+
+After all checks, the engine records `phase:recovering-peer`, removes only the
+verified stale socket/directory, reaps an owned completed child if applicable
+and launches one fresh peer through the same sealed private handoff. It
+confirms the gate is still closed before returning to `running`. Node
+namespaces, containers, backend and declared policy are retained. The result
+requires a new explicit `dot1x-auth`; recovery never grants admission.
+
+Failure after recovery begins retains the incomplete phase and any recorded
+resources. Existing auth/save guards refuse this phase. Use normal explicit
+stop/restore to clean it up; another recover command does not adopt partial
+state. There is no background restart loop or automatic recovery policy.
+Inspection/start/stop also reap known completed children left by another CLI's
+teardown or recovery, without signalling live/reused processes.
+
+The extended native scenario tests active/live refusal, credential and foreign
+socket preservation, in-place CLI recovery, fresh RADIUS exchanges/data and
+unchanged backend/namespaces. Native results for this extension are pending.
 
 ## Validation
 

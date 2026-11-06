@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import patch
 from network_labs.appliances.capture import capture
 from network_labs.appliances.dot1x import authenticate,observe
+from network_labs.appliances.dot1x_supplicant import recover
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager,RuntimeFailure,run,static_busybox_rootfs
@@ -98,16 +99,50 @@ class NativeManagedWiredPeerTests(unittest.TestCase):
                 completed=run([sys.executable,'-m','network_labs.appliances','dot1x-auth',spec['name'],'SW1','--json'],timeout=15)
                 result=json.loads(completed.stdout);self.assertEqual(result['status'],'passed');self.assertEqual(result['completed_authentications'],2)
                 self.assertEqual(owner(),first);closed();self.assertTrue(service()['running'])
+                with self.assertRaises(RuntimeFailure):recover(Manager(spec['name']),'PC1')
+                self.assertEqual(owner(),first,'Live recovery refusal must preserve the peer')
                 # Inspect/save must detect the declared peer's death. The NAS
                 # remains independently finite and cannot reuse earlier success.
                 future=session();admitted(future);os.kill(first['pid'],signal.SIGKILL)
+                with self.assertRaises(RuntimeFailure):recover(Manager(spec['name']),'PC1')
+                self.assertEqual(owner(),first,'Recovery during authentication must retain the old record')
                 result=future.result(timeout=12)
                 self.assertEqual(result['status'],'unknown',result);self.assertEqual(result['reason'],'AUTH_TIMEOUT')
                 self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed']);closed()
                 self.assertFalse(service()['configuration_verified']);self.assertFalse(service()['running'])
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
+                # Explicit recovery validates assets and stale socket ownership
+                # before any replacement, keeping all node namespaces running.
+                asset.write_text('changed-owned-peer-password');asset.chmod(0o600)
+                with self.assertRaises(ValueError):recover(Manager(spec['name']),'PC1')
+                self.assertEqual(owner(),first);self.assertEqual(Manager(spec['name']).read()['phase'],'running')
+                asset.write_text(password);asset.chmod(0o600)
+                control=manager.directory/'dot1x-peer'/'eth0';backup=manager.directory/'original-peer-socket'
+                control.rename(backup);control.write_text('do-not-delete');control.chmod(0o600)
+                with self.assertRaises(RuntimeFailure):recover(Manager(spec['name']),'PC1')
+                self.assertEqual(control.read_text(),'do-not-delete');self.assertEqual(owner(),first)
+                control.unlink();backup.rename(control)
+                before_namespaces=Manager(spec['name']).read()['namespaces'][:]
+                backend_pid=manager.inspect('PC2')['radius_server']['process']['pid']
+                completed=run([sys.executable,'-m','network_labs.appliances','dot1x-peer-recover',spec['name'],'PC1','--json'],timeout=10)
+                recovery=json.loads(completed.stdout);self.assertEqual(recovery['status'],'passed')
+                self.assertTrue(recovery['port_closed']);self.assertTrue(recovery['authentication_required'])
+                recovered=owner();self.assertNotEqual((recovered['pid'],recovered['starttime']),(first['pid'],first['starttime']))
+                self.assertEqual(recovered['namespace'],first['namespace'])
+                self.assertEqual(Manager(spec['name']).read()['namespaces'],before_namespaces)
+                self.assertEqual(manager.inspect('PC2')['radius_server']['process']['pid'],backend_pid)
+                self.assertTrue(service()['configuration_verified']);closed()
+                event=threading.Event();recovered_wire=root/'recovered-radius.pcap'
+                recovered_cap=pool.submit(capture,Manager(spec['name']),'SW1','eth1',recovered_wire,seconds=8,packets=100,expression='udp port 1812',ready=event.set)
+                self.assertTrue(event.wait(5));healthy(session());recovered_cap.result(timeout=10)
+                recovered_packets=radius_packets(recovered_wire.read_bytes())
+                recovered_requests=[p for _,dst,p in recovered_packets if dst==1812]
+                self.assertEqual(len(recovered_requests),4)
+                self.assertTrue({p[4:20] for p in requests}.isdisjoint({p[4:20] for p in recovered_requests}))
+                with manager.locked():manager.write_startup()
+                self.assertEqual(load_startup(spec['name']),saved,'Recovery must preserve only the original declarative policy')
                 with manager.locked():manager.stop()
-                self.assertFalse(alive(first))
+                self.assertFalse(alive(first));self.assertFalse(alive(recovered))
                 # Offline credential drift is rejected before allocation.
                 asset.write_text('changed-owned-peer-password');asset.chmod(0o600)
                 with manager.locked(),self.assertRaises(ValueError):manager.start(saved)

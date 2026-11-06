@@ -214,6 +214,8 @@ def main(arguments=None):
     tftp.add_argument('--json', action='store_true')
     authport = commands.add_parser('dot1x-auth', help='Authenticate one pinned wired peer and hold finite controlled-port leases with optional bounded reauthentication.')
     authport.add_argument('name'); authport.add_argument('node'); authport.add_argument('--timeout',type=int,default=5); authport.add_argument('--json',action='store_true')
+    peer_recovery = commands.add_parser('dot1x-peer-recover', help='Recover one dead owned wired peer only after verified NAS closure; no authentication grant.')
+    peer_recovery.add_argument('name'); peer_recovery.add_argument('node'); peer_recovery.add_argument('--json',action='store_true')
     radius = commands.add_parser('radius-auth', help='One explicit PAP authentication request to an existing RADIUS server; no node access changes.')
     radius.add_argument('name'); radius.add_argument('source'); radius.add_argument('server')
     radius.add_argument('--username', required=True)
@@ -452,6 +454,9 @@ def main(arguments=None):
                              ready=lambda: print(f'Capture active : {args.node}/{args.interface}. Vous pouvez lancer le trafic dans un autre terminal.', file=sys.stderr, flush=True))
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 130 if result['stop_reason'] == 'interrupted' else 0
+        elif args.command == 'dot1x-peer-recover':
+            from .dot1x_supplicant import recover
+            result=recover(Manager(args.name),args.node)
         elif args.command == 'dot1x-auth':
             if __import__('os').geteuid()!=0: raise RuntimeFailure('802.1X authenticator requires root.')
             from .dot1x import authenticate
