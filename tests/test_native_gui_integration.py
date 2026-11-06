@@ -23,7 +23,7 @@ from PIL import ImageGrab
 assert os.geteuid()!=0,'The GUI must run unprivileged'
 spec=json.loads(Path(sys.argv[2]).read_text());directory=Path(sys.argv[3]);artifacts=Path(sys.argv[4])
 from network_labs.__main__ import App
-root=tk.Tk();app=App(root);root.geometry('1280x800');window=app.open_native_lab();window.load_spec(spec,directory/'project.json')
+root=tk.Tk();app=App(root);root.geometry('1240x800+0+0');window=app.open_native_lab();window.load_spec(spec,directory/'project.json')
 assert window.embedded and window.window.master is root
 assert app.lab.execution_backend=='model'
 errors=[];root.report_callback_exception=lambda *error:errors.append(str(error));owners=[]
@@ -54,6 +54,8 @@ try:
         inspected=drive('inspect');assert inspected['data']['name']=='PC1';assert inspected['data']['links']
         window.choose_node('PC1');window.destination.set('PC2');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
+        assert len(window.activity.get_children())==4
+        assert window.output_tab.master is window.dock
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
         box=(window.window.winfo_rootx(),window.window.winfo_rooty(),window.window.winfo_rootx()+window.window.winfo_width(),window.window.winfo_rooty()+window.window.winfo_height())
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')

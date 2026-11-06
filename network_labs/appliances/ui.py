@@ -46,9 +46,9 @@ class ApplianceWindow:
             self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(2,weight=1)
         self.buttons=[]
-        header=tk.Frame(self.window,bg=PANEL,padx=18,pady=12);header.grid(row=0,column=0,sticky='ew')
-        self.label(header,'NETWORK LABS',TEAL,16,True).pack(side='left')
-        self.label(header,'LAN natif',MUTED).pack(side='left',padx=18)
+        header=tk.Frame(self.window,bg='#223344',padx=14,pady=7);header.grid(row=0,column=0,sticky='ew')
+        self.label(header,'Network LABS','#ffffff',13,True).pack(side='left')
+        self.label(header,'Projet LAN natif','#cbd5e1').pack(side='left',padx=18)
         if self.embedded:ttk.Button(header,text='Retour au projet pédagogique',command=self.close).pack(side='left')
         for title,callback in [('Enregistrer',self.save),('Ouvrir',self.open),('Nouveau LAN',self.new)]:
             button=ttk.Button(header,text=title,command=callback,style='Accent.TButton' if title=='Enregistrer' else 'TButton')
@@ -57,17 +57,29 @@ class ApplianceWindow:
         self.label(toolbar,'Réseau réel · projet natif',TEAL,10,True).pack(side='left',padx=(0,18))
         for title,action in [('Démarrer','start'),('Actualiser l’état','status'),('Arrêter','stop')]:
             button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a));button.pack(side='left',padx=3);self.buttons.append(button)
-        self.label(toolbar,'Construire   ·   Observer   ·   Tester',MUTED,9).pack(side='right')
-        workspace=ttk.Panedwindow(self.window,orient='horizontal');workspace.grid(row=2,column=0,sticky='nsew',padx=10)
+        self.label(toolbar,'Observation sur demande',MUTED,9).pack(side='right')
+        body=ttk.Panedwindow(self.window,orient='vertical');body.grid(row=2,column=0,sticky='nsew',padx=6)
+        workspace=ttk.Panedwindow(body,orient='horizontal');body.add(workspace,weight=3)
+        lower=ttk.Panedwindow(body,orient='horizontal');body.add(lower,weight=1)
+        self.dock=ttk.Notebook(lower,height=155);lower.add(self.dock,weight=3)
+        self.activity_book=ttk.Notebook(lower,height=155);lower.add(self.activity_book,weight=2)
+        activity=ttk.Frame(self.activity_book);self.activity_book.add(activity,text='Événements des opérations')
+        self.activity=ttk.Treeview(activity,columns=('time','action','result'),show='headings',height=5)
+        for key,title,width in [('time','Heure',75),('action','Opération',85),('result','Résultat observé',280)]:
+            self.activity.heading(key,text=title);self.activity.column(key,width=width,minwidth=60)
+        self.activity.pack(fill='both',expand=True)
+        ttk.Label(activity,text='Opérations natives reçues · aucune capture de paquets en direct',padding=4).pack(fill='x')
         library=tk.Frame(workspace,bg=PANEL,width=185);library.pack_propagate(False);workspace.add(library,weight=0)
-        self.label(library,'ÉQUIPEMENTS DU LAB',MUTED,9,True).pack(anchor='w',padx=12,pady=16)
+        self.label(library,'Bibliothèque du projet',TEXT,10,True).pack(anchor='w',padx=10,pady=10)
+        self.search=tk.StringVar();search=ttk.Entry(library,textvariable=self.search);search.pack(fill='x',padx=8,pady=(0,8))
+        self.search.trace_add('write',self.filter_library)
         self.library=ttk.Treeview(library,show='tree',selectmode='browse');self.library.pack(fill='both',expand=True,padx=8)
         self.library.bind('<<TreeviewSelect>>',self.library_selected)
-        self.label(library,'Sélectionner un équipement\n pour observer son état.',MUTED,9).pack(padx=10,pady=15)
+        self.label(library,'Équipements déclarés',MUTED,9).pack(padx=8,pady=10)
         self.tabs=ttk.Notebook(workspace);workspace.add(self.tabs,weight=1)
         self.topology_tab=tk.Frame(self.tabs,bg=BG);self.editor_tab=ttk.Frame(self.tabs)
-        diagnostics=ttk.Frame(self.tabs);self.output_tab=ttk.Frame(self.tabs)
-        for frame,title in ((self.topology_tab,'Topologie'),(self.editor_tab,'Configuration JSON'),(diagnostics,'Dépendances'),(self.output_tab,'Observations')):
+        diagnostics=ttk.Frame(self.tabs);self.output_tab=ttk.Frame(self.dock);self.dock.add(self.output_tab,text='Résultats natifs / inspection')
+        for frame,title in ((self.topology_tab,'Topologie'),(self.editor_tab,'Configuration JSON'),(diagnostics,'Dépendances')):
             self.tabs.add(frame,text=title)
         self.topology_tab.columnconfigure(0,weight=1);self.topology_tab.rowconfigure(1,weight=1)
         titlebar=tk.Frame(self.topology_tab,bg=PANEL,padx=12,pady=12);titlebar.grid(row=0,column=0,sticky='ew')
@@ -87,7 +99,7 @@ class ApplianceWindow:
         self.label(legend,'● Non observé / arrêté',MUTED,9).pack(side='left',padx=5)
         self.label(legend,'Traits : liens déclarés',MUTED,9).pack(side='right')
         details=tk.Frame(workspace,bg=PANEL,width=300);details.pack_propagate(False);workspace.add(details,weight=0)
-        self.label(details,'Inspecteur',TEAL,12,True).pack(anchor='w',padx=14,pady=16)
+        self.label(details,'Équipement · réseau natif',TEXT,11,True).pack(anchor='w',padx=14,pady=16)
         self.selected_title=tk.StringVar();self.selected_details=tk.StringVar()
         tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=('DejaVu Sans',13,'bold'),anchor='w').pack(fill='x',padx=14)
         tk.Label(details,textvariable=self.selected_details,bg=PANEL,fg=MUTED,justify='left',anchor='w',wraplength=265).pack(fill='x',padx=14,pady=10)
@@ -103,7 +115,7 @@ class ApplianceWindow:
         self.note=tk.StringVar(value='Ouvrir un projet natif ou créer un LAN pour commencer.')
         tk.Label(details,textvariable=self.note,bg=PANEL,fg=TEAL,justify='left',anchor='nw',wraplength=265).pack(fill='x',padx=14,pady=12)
         self.label(details,'Vert = processus OCI observé.\nTester pour vérifier la connectivité.',MUTED,9).pack(side='bottom',padx=12,pady=15)
-        self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled')
+        self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0d131b',foreground='#dce6f0',insertbackground='white')
         self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings')
         for key,title,width in [('runtime','Runtime',100),('implementation','Implémentation',100),('detected','Détecté',80),('scope','Périmètre',360)]:
             self.table.heading(key,text=title);self.table.column(key,width=width)
@@ -118,6 +130,20 @@ class ApplianceWindow:
     @staticmethod
     def label(parent,text,color=TEXT,size=10,bold=False):
         return tk.Label(parent,text=text,bg=parent.cget('bg'),fg=color,justify='left',font=('DejaVu Sans',size,'bold' if bold else 'normal'))
+
+    def record_event(self,action,result):
+        self.activity.insert('','end',values=(time.strftime('%H:%M:%S'),action,result))
+        children=self.activity.get_children()
+        if len(children)>200:self.activity.delete(*children[:-200])
+        self.activity.see(self.activity.get_children()[-1])
+
+    def filter_library(self,*args):
+        if not hasattr(self,'graph'):return
+        query=self.search.get().strip().casefold()
+        for node in self.graph['nodes']:
+            name=node['name']
+            if not query or query in (name+' '+node['role']+' '+node['runtime']).casefold():self.library.reattach(name,'','end')
+            else:self.library.detach(name)
 
     def library_selected(self,event=None):
         selected=self.library.selection()
@@ -155,7 +181,7 @@ class ApplianceWindow:
         selected=self.nodes.selection();previous=selected[0] if selected else None;destination=self.destination.get()
         self.graph=graph;self.view_lab=graph['name'];self.states=states or {};self.node_shapes={}
         from ..__main__ import App,roundrect
-        self.canvas.delete('all');self.nodes.delete(*self.nodes.get_children());self.library.delete(*self.library.get_children())
+        self.canvas.delete('all');self.nodes.delete(*self.nodes.get_children());self.library.delete(*[n['name'] for n in getattr(self,'library_graph',{}).get('nodes',[]) if self.library.exists(n['name'])]);self.library_graph=graph
         columns=max(3,math.ceil(math.sqrt(len(graph['nodes']))));positions={}
         width=max(650,self.canvas.winfo_width());height=max(400,self.canvas.winfo_height())
         rows=math.ceil(len(graph['nodes'])/columns);spacing=max(195,width/columns)
@@ -181,6 +207,7 @@ class ApplianceWindow:
             self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.choose_node(n))
             self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],state,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
             self.library.insert('','end',iid=name,text=name+' · '+node['role'])
+        self.filter_library()
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
         self.canvas.configure(scrollregion=(0,0,max(width,columns*spacing),max(height,rows*170+180)))
         hosts=[n['name'] for n in graph['nodes'] if n['runtime']=='oci' and n['role']=='host']
@@ -210,7 +237,7 @@ class ApplianceWindow:
         try:spec=self.manifest();report=plan(spec)
         except (ValueError,TypeError,KeyError) as error:self.error(error);return False
         self.draw(public_topology(spec));self.observation.set('Topologie déclarée · état runtime à actualiser.')
-        self.show_output(report);self.tabs.select(self.output_tab);return True
+        self.show_output(report);self.dock.select(self.output_tab);return True
 
     def open(self):
         path=filedialog.askopenfilename(parent=self.window,filetypes=[('Native lab JSON','*.json')])
@@ -273,7 +300,7 @@ class ApplianceWindow:
         if not response['ok']:
             self.last_response=response
             self.note.set(response.get('error','Opération non confirmée.'));self.observation.set('État à vérifier ; aucune réussite déduite.')
-            self.draw(self.graph);self.show_output(response);return
+            self.draw(self.graph);self.show_output(response);self.record_event(request['action'],self.note.get());return
         if response.get('lab')!=request['lab'] or response.get('action')!=request['action'] or response['topology']['name']!=request['lab']:
             raise ValueError('Le résultat ne correspond pas au lab demandé.')
         self.last_response=response
@@ -287,7 +314,8 @@ class ApplianceWindow:
             states={n['name']:{'status':'stopped'} for n in graph['nodes']};self.observation.set(request['lab']+' · arrêt confirmé')
         self.draw(graph,states);self.show_output(data)
         self.note.set(('Test réseau : '+data['status']) if action=='verify' else action+' · '+request['lab']+' : terminé')
-        self.tabs.select(self.output_tab if action=='inspect' else self.topology_tab)
+        self.dock.select(self.output_tab);self.tabs.select(self.topology_tab)
+        self.record_event(action,self.note.get())
 
     def destroyed(self,event):
         if event.widget is self.window:

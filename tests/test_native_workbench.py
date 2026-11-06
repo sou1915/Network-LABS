@@ -99,3 +99,16 @@ class WorkbenchGUITests(unittest.TestCase):
             bridge.private_json(Path(pending['directory'].name)/'result.json',{'id':request['id'],'action':'start','lab':request['lab'],'response':{'ok':False,'error':'Cancelled auth'}})
             window.poll_result();self.root.update();self.assertIsNone(window.pending)
             self.assertIn('Cancelled auth',window.note.get());self.assertEqual(window.editor.cget('state'),'normal')
+
+    def test_search_redraw_and_backend_events_keep_real_results(self):
+        window=self.window
+        window.search.set('PC1');self.root.update()
+        self.assertEqual(window.library.get_children(),('PC1',))
+        window.draw(window.graph);self.root.update()
+        self.assertEqual(window.library.get_children(),('PC1',))
+        window.search.set('');self.root.update()
+        self.assertEqual(len(window.library.get_children()),3)
+        window.apply_response({'ok':False,'error':'Authentication canceled'}, {'lab':window.view_lab,'action':'start'})
+        self.assertEqual(len(window.activity.get_children()),1)
+        self.assertIn('Authentication canceled',str(window.activity.item(window.activity.get_children()[0])['values']))
+        self.assertIs(window.output_tab.master,window.dock)
