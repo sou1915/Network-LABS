@@ -18,7 +18,7 @@ from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.radius_session import session_parent
 from network_labs.appliances import radius_journal as journal,radius_outbox as outbox
 from network_labs.appliances.runtime import Manager,run,static_busybox_rootfs
-from network_labs.appliances.spec import namespace
+from network_labs.appliances.spec import namespace,validate
 from test_native_radius_accounting_retry_integration import requests
 from test_native_radius_accounting_retry import attrs
 from test_native_integration import unexpected_host_link_changes
@@ -47,7 +47,7 @@ class NativePinnedShellAckLossTests(unittest.TestCase):
             spec['name']='pinned-ack-loss-'+str(os.getpid());spec['nodes'][0]['radius_access']['session_seconds']=15
             spec['nodes'][1]['interfaces']['eth2']=''
             spec['nodes'].append({'name':'PC3','runtime':'oci','rootfs':str(rootfs),'interfaces':{'eth0':'192.0.2.30/24'}})
-            spec['links'].append([['SW1','eth2'],['PC3','eth0']]);manager=Manager(spec['name'])
+            spec['links'].append([['SW1','eth2'],['PC3','eth0']]);spec=validate(spec);manager=Manager(spec['name'])
             trusted='192.0.2.10 '+spec['nodes'][0]['management']['ssh_host_key']['public_key']+'\n';known.write_text(trusted)
             def args(action='shell'):
                 return ['ssh','-F','/dev/null','-T','-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes',
