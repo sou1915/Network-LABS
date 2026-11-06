@@ -12,6 +12,18 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment enforces [verified wired RADIUS Session-Timeout](DOT1X_WIRED.md)
+at corrected commit `78b44e1acbac047a2aa5fe7cb1e6246e781b814f`.
+The [native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42240831488/job/127970370968)
+passed in 160.962 seconds: a backend limit shortened the kernel lease through
+cold restore and worker SIGKILL, a longer backend limit could not extend the
+NAS limit, and a real oversized element refused save/new authentication.
+Both selected jobs passed; 58 were intentionally skipped. Local full tests
+passed 1003 cases in 30.905 seconds with 162 environment skips. The first
+native attempt failed its JSON milliseconds assumption; the corrected run
+also repairs the pre-existing runtime unit/bounds check. See the guide for
+whole-second precision and protocol limits. Planning estimates are unchanged.
+
 The latest bounded increment adds [wired controlled-link revocation](DOT1X_WIRED.md)
 at `73a3c56497d95b58dafd8998c598d8151fb0a0f7`. The extended
 [native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42232715325/job/127942385678)
@@ -235,7 +247,7 @@ These weights are assumptions for this report, not an earlier delivery contract.
   replacement, node-overlay sender queues and guarded dead-sender recovery.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
   journal/reconciliation, finite wired EAP-MD5 admission/reauthentication
-  with controlled-link revocation.
+  with controlled-link revocation and verified backend session-duration caps.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 

@@ -1,5 +1,49 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Wired 802.1X verified backend session duration — 2026-11-06
+
+Implementation `d71a8ba7c2e95fbfaa3040aab6c96db9b0aae185` and
+correction `78b44e1acbac047a2aa5fe7cb1e6246e781b814f` add verified
+RADIUS Session-Timeout enforcement to finite wired admission. EAP-enabled
+backend users may declare a positive uint32 `session_timeout`; the managed
+server emits the standard attribute. Only after authenticated Access-Accept
+and EAP Success does the NAS grant `min(local seconds, server timeout)`.
+Presence of the attribute ends the finite command after that admission,
+discarding unused renewals. Results report effective/server seconds and
+SERVER_SESSION_TIMEOUT or the earlier local LEASE_EXPIRED. Missing attributes
+preserve existing finite reauthentication. Zero/duplicate/malformed durations
+and unsupported or ambiguous Termination-Action are refused before admission.
+PAP-only server user configuration rejects the new field.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42240831488/job/127970370968)
+passed the extended real supplicant/FreeRADIUS scenario in 160.962 seconds at
+`78b44e1`. Captured Access-Accept carried timeout 3; the kernel element used
+3 seconds under a 30-second NAS bound, before and after cold restore. Each
+command completed only one admission/two requests despite unused renewals.
+SIGKILL still expired the shortened kernel lease. A 20-second backend limit
+could not extend a 2-second NAS limit. A foreign 10-second element under that
+2-second policy invalidated observation and refused save/new authentication.
+Existing denial/reauthentication/carrier/expiry/Logoff/drift/teardown controls
+and host namespace/link/IPv4/IPv6 route/rule invariants passed. Both selected
+jobs passed; 58 others were intentionally skipped. Local full tests passed
+1003 cases in 30.905 seconds with 162 environment skips; compile/diff/link
+checks passed.
+
+Initial run 42239853939 at `d71a8ba` failed the new native assertion expecting
+3000 where nft JSON returned 3. Review of libnftables documentation/source
+confirmed whole-second timeout/expiration output. Correction `78b44e1` fixes
+both the test and pre-existing runtime inspection's milliseconds assumption,
+checks strict integer bounds, and uses the actual set default when an element
+omits its timeout. The new real oversized-element refusal verifies the runtime
+repair. JSON whole-second precision does not certify fractional edits by an
+external privileged writer; managed leases use explicit integer seconds.
+
+See [DOT1X_WIRED.md](DOT1X_WIRED.md). Persistent authenticator/supplicant
+service, stronger EAP/TLS, multi-client/dynamic VLAN/accounting and wider
+switching remain open. LAN precedes native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked. Planning estimates stay LAN about 80%, whole
+product about 45–50%.
+
 ## Wired 802.1X controlled-link revocation — 2026-11-06
 
 Implementation `73a3c56497d95b58dafd8998c598d8151fb0a0f7` adds

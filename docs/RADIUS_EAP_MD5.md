@@ -101,3 +101,9 @@ and the [FreeRADIUS EAP-MD5 module](https://networkradius.com/doc/current/raddb/
 A separately explicit [finite wired controlled-port profile](DOT1X_WIRED.md)
 now builds on this backend using real EAPOL pass-through and a kernel timeout
 gate. The raw `radius-eap-md5` diagnostic itself still changes no access policy.
+
+The managed EAP-enabled backend also accepts a per-user `session_timeout`
+positive uint32 and emits RADIUS Session-Timeout. The standalone diagnostic
+remains an authentication observation. The separate [wired profile](DOT1X_WIRED.md)
+enforces the verified reply as a finite kernel admission cap; PAP-only server
+user configuration rejects this setting.

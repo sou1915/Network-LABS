@@ -109,6 +109,8 @@ EAP Success, the wired worker installs a kernel lease of
 `min(dot1x.seconds, Session-Timeout)`. The configured policy fingerprint and
 default timeout stay unchanged; only the admission element is shortened.
 The result reports `authorization_seconds` and `server_session_timeout`.
+For example, add `"session_timeout": 3` alongside the existing digest and
+private password path for the backend's `learner` user.
 
 Presence of this backend attribute terminates the finite command after that
 one admission, discarding unused local reauthentication cycles. A server
@@ -125,7 +127,53 @@ checks apply to authenticated Accepts, not unverified replies or Challenges.
 This setting is EAP-only; PAP user configuration rejects it. The standalone
 EAP diagnostic still reports authentication rather than opening any port or
 enforcing a session. Save/restore retains the declared integer, never a lease.
-Dedicated native validation of the duration extension is pending.
+The dedicated native duration evidence is recorded below.
+
+Gate observation interprets libnftables JSON `timeout`/`expires` in seconds;
+an omitted element timeout inherits the actual set default. These JSON values
+have whole-second precision. Fractional changes made by a privileged external
+writer are not certified by this observation. The managed admission command
+uses explicit integer-second kernel timeouts. See the
+[JSON schema](https://manpages.debian.org/bookworm/libnftables1/libnftables-json.5.en.html)
+and [RADIUS Session-Timeout](https://www.rfc-editor.org/rfc/rfc2865#section-5.27).
+
+## Backend duration validation — 2026-11-06
+
+Implementation `d71a8ba7c2e95fbfaa3040aab6c96db9b0aae185` and
+correction `78b44e1acbac047a2aa5fe7cb1e6246e781b814f` add verified
+RADIUS Session-Timeout enforcement to finite wired admission. EAP-enabled
+backend users may declare a positive uint32 `session_timeout`; the managed
+server emits the standard attribute. Only after authenticated Access-Accept
+and EAP Success does the NAS grant `min(local seconds, server timeout)`.
+Presence of the attribute ends the finite command after that admission,
+discarding unused renewals. Results report effective/server seconds and
+SERVER_SESSION_TIMEOUT or the earlier local LEASE_EXPIRED. Missing attributes
+preserve existing finite reauthentication. Zero/duplicate/malformed durations
+and unsupported or ambiguous Termination-Action are refused before admission.
+PAP-only server user configuration rejects the new field.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42240831488/job/127970370968)
+passed the extended real supplicant/FreeRADIUS scenario in 160.962 seconds at
+`78b44e1`. Captured Access-Accept carried timeout 3; the kernel element used
+3 seconds under a 30-second NAS bound, before and after cold restore. Each
+command completed only one admission/two requests despite unused renewals.
+SIGKILL still expired the shortened kernel lease. A 20-second backend limit
+could not extend a 2-second NAS limit. A foreign 10-second element under that
+2-second policy invalidated observation and refused save/new authentication.
+Existing denial/reauthentication/carrier/expiry/Logoff/drift/teardown controls
+and host namespace/link/IPv4/IPv6 route/rule invariants passed. Both selected
+jobs passed; 58 others were intentionally skipped. Local full tests passed
+1003 cases in 30.905 seconds with 162 environment skips; compile/diff/link
+checks passed.
+
+Initial run 42239853939 at `d71a8ba` failed the new native assertion expecting
+3000 where nft JSON returned 3. Review of libnftables documentation/source
+confirmed whole-second timeout/expiration output. Correction `78b44e1` fixes
+both the test and pre-existing runtime inspection's milliseconds assumption,
+checks strict integer bounds, and uses the actual set default when an element
+omits its timeout. The new real oversized-element refusal verifies the runtime
+repair. JSON whole-second precision does not certify fractional edits by an
+external privileged writer; managed leases use explicit integer seconds.
 
 ## Reference setup
 
