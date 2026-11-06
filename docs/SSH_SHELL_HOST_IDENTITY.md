@@ -72,7 +72,27 @@ lost Stop receipts after an admitted shell must return uncertainty (SSH
 status 125), retain the durable Stop and require explicit flush. Packet
 captures, backend duplicate records, empty session groups and cold restore
 with unchanged host trust are checked. This is validation of existing
-behavior, not an exactly-once delivery guarantee. Native results are pending.
+behavior, not an exactly-once delivery guarantee.
+
+Corrected test commit `3a5b15a85e3a8ee051f1103ee2c4d69c8ab66b6b`
+adds native packet-loss validation without runtime or protocol scope changes.
+Lost Start ACK prevented payload execution (SSH 126) and durably queued a
+zero-duration compensating Stop/cause 9. Lost Stop ACK after an admitted
+shell returned uncertainty (125), retained Stop/cause 1 and recovered only
+through explicit flush. Captures/session IDs, actual backend duplicate Stops,
+empty journal/session groups, exact host trust through cold restore and
+host namespace/link/IPv4/IPv6 route/rule/nftables invariants passed. Duplicate
+delivery is expected; this does not claim exactly-once accounting.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42209558186/job/127864535740)
+passed ACK-loss in 20.104 seconds, orphan-journal in 9.479 seconds and pinned
+lifecycle in 7.596 seconds. All six selected jobs passed; 54 intentionally
+skipped. Local tests passed 991 cases in 30.594 seconds with 162 environment
+skips. Initial run 42209349058 at `504371a` passed the loss/recovery checks
+but failed final saved-spec equality because the expanded fixture lacked
+default canonicalization. The corrected fixture uses the standard validator
+before startup and retains the exact equality assertion; no runtime behavior
+or acceptance assertion was relaxed.
 
 At test/validation commit `91997a938d33eb54b48428dca9db981abd455caa`,
 the [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
