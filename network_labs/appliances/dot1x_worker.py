@@ -24,7 +24,9 @@ def nft(*args,input_text=None):
     return subprocess.run(['nft',*args],input=input_text,text=True,capture_output=True,check=True,timeout=2).stdout
 
 
-def gate(config,admit=False):
+def gate(config,admit=False,*,seconds=None):
+    duration=config['seconds'] if seconds is None else seconds
+    if type(duration) is not int or not 1<=duration<=config['seconds']:raise ValueError('Unbounded admission duration')
     data=json.loads(nft('-j','list','table','bridge',TABLE))
     pin,_=gate_snapshot(data,config['port'],config['seconds'])
     if pin!=config['fingerprint']:raise ValueError('Gate differs')
@@ -36,10 +38,10 @@ def gate(config,admit=False):
         # see the old closed gate or the new authorized gate, never no gate.
         node={'dot1x':{'port':config['port'],'seconds':config['seconds']}}
         command=f'delete table bridge {TABLE}\n'+render(node,config['peer_mac'])
-        command+=f'add element bridge {TABLE} admitted {{ {json.dumps(config["port"])} timeout {config["seconds"]}s }}\n'
+        command+=f'add element bridge {TABLE} admitted {{ {json.dumps(config["port"])} timeout {duration}s }}\n'
     nft('-f','-',input_text=command)
     data=json.loads(nft('-j','list','table','bridge',TABLE))
-    pin,opened=gate_snapshot(data,config['port'],config['seconds'])
+    pin,opened=gate_snapshot(data,config['port'],duration if admit else config['seconds'])
     if pin!=config['fingerprint'] or opened!=admit:raise ValueError('Gate transition unconfirmed')
 
 
@@ -71,6 +73,23 @@ def envelope(frame,peer,own):
     return kind,payload
 
 
+def admission_policy(packet,maximum):
+    """Read duration policy only after RADIUS integrity and EAP Success verify."""
+    values={27:[],29:[]};offset=20
+    while offset<len(packet):
+        if offset+2>len(packet):raise ValueError('Truncated policy attribute')
+        kind,size=packet[offset:offset+2]
+        if size<2 or offset+size>len(packet):raise ValueError('Invalid policy attribute')
+        if kind in values:values[kind].append(packet[offset+2:offset+size])
+        offset+=size
+    for items in values.values():
+        if len(items)>1 or any(len(value)!=4 for value in items):raise ValueError('Ambiguous session policy')
+    if values[29] and int.from_bytes(values[29][0],'big')!=0:raise ValueError('Unsupported Termination-Action')
+    timeout=int.from_bytes(values[27][0],'big') if values[27] else None
+    if timeout==0:raise ValueError('Zero-duration admission refused')
+    return min(maximum,timeout) if timeout is not None else maximum,timeout
+
+
 def serve(config):
     result={'status':'unknown','authenticated':False,'port_closed':False,'reason':'UNCONFIRMED','radius_requests':0,'discarded':0,'completed_authentications':0}
     phase='initial'
@@ -83,13 +102,13 @@ def serve(config):
             def emit(eap):raw.send(peer+own+b'\x88\x8e'+struct.pack('!BBH',2,0,len(eap))+eap)
             identity=secrets.randbelow(256);emit(eap_packet(1,identity,b'\x01'))
             phase='identity';deadline=time.monotonic()+config['timeout'];packet=None;state=None;username=None
-            bound_username=None
+            bound_username=None;server_timeout=None
             publish(config,{**result,'phase':phase})
             while True:
                 current(config)
                 link.check()
                 if time.monotonic()>=deadline:
-                    if phase=='authorized' and result['completed_authentications']<=config.get('reauthentications',0):
+                    if phase=='authorized' and server_timeout is None and result['completed_authentications']<=config.get('reauthentications',0):
                         # Reauthentication never extends an old authorization.
                         # Close first, discard the old RADIUS transaction/State,
                         # and require another complete verified exchange.
@@ -99,7 +118,7 @@ def serve(config):
                         emit(eap_packet(1,identity,b'\x01'));publish(config,{**result,'phase':phase})
                         continue
                     result.update(status='passed' if phase=='authorized' else 'unknown',
-                                  reason='LEASE_EXPIRED' if phase=='authorized' else 'AUTH_TIMEOUT')
+                                  reason=('SERVER_SESSION_TIMEOUT' if server_timeout is not None and server_timeout<=config['seconds'] else 'LEASE_EXPIRED') if phase=='authorized' else 'AUTH_TIMEOUT')
                     break
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
                 readable,_,_=select.select([raw,udp],[],[],min(.1,max(0,deadline-time.monotonic())))
@@ -144,9 +163,11 @@ def serve(config):
                             if code!=11 or len(eap)<22 or eap[0]!=1 or eap[4:6]!=b'\x04\x10' or new_state is None:raise ValueError('Verified MD5 challenge required')
                             state=new_state;identity=eap[1];emit(eap);phase='md5'
                         elif code==2 and eap==eap_packet(3,identity) and new_state is None:
-                            current(config);link.check();gate(config,True);emit(eap);phase='authorized';result['authenticated']=True
+                            duration,server_timeout=admission_policy(received,config['seconds'])
+                            current(config);link.check();gate(config,True,seconds=duration);emit(eap);phase='authorized';result['authenticated']=True
                             bound_username=username;result['completed_authentications']+=1
-                            deadline=time.monotonic()+config['seconds'];publish(config,{**result,'phase':phase})
+                            result.update(authorization_seconds=duration,server_session_timeout=server_timeout)
+                            deadline=time.monotonic()+duration;publish(config,{**result,'phase':phase})
                         else:raise ValueError('Verified EAP success required')
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
     except LinkLost:

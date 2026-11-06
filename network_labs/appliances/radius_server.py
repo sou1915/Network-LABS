@@ -57,8 +57,11 @@ def validate_node(node):
     for username, user in users.items():
         if not isinstance(username, str) or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', username):
             raise ValueError('RADIUS usernames require 1..64 ASCII login characters.')
-        keys(user, ('password_sha256', 'password_file') if policy.get('eap_md5') else ('password_sha256',), 'RADIUS user')
+        keys(user, ('password_sha256', 'password_file', 'session_timeout') if policy.get('eap_md5') else ('password_sha256',), 'RADIUS user')
         if policy.get('eap_md5'):
+            if 'session_timeout' in user:
+                from .spec import integer
+                integer(user['session_timeout'],1,4294967295,'EAP Session-Timeout')
             path = user.get('password_file')
             if not isinstance(path, str) or not Path(path).is_absolute() or '..' in Path(path).parts or '\0' in path or len(path) > 4096:
                 raise ValueError('EAP-MD5 requires an absolute private password-file path per user.')
@@ -125,9 +128,10 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accou
     users = '\n'.join('''        if (&User-Name == "%s") {
             update control {
                 %s := %s
-            }
+            }%s
         }''' % (name, 'Cleartext-Password' if policy.get('eap_md5') else 'SHA2-Password',
-                  eap_literal(user) if policy.get('eap_md5') else '0x' + user['password_sha256'])
+                  eap_literal(user) if policy.get('eap_md5') else '0x' + user['password_sha256'],
+                  '\n            update reply {\n                Session-Timeout := %d\n            }' % user['session_timeout'] if 'session_timeout' in user else '')
                       for name, user in policy['users'].items())
     eap_module = eap_authorize = eap_authenticate = ''
     if policy.get('eap_md5'):

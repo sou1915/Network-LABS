@@ -102,6 +102,33 @@ Save/restore preserves the budget only, never a worker, completed cycle or lease
 
 ## Reference setup
 
+### Optional backend session duration
+
+An EAP-MD5 server user may declare `session_timeout` (integer 1..4294967295)
+under `radius_server.users.USER`. The managed backend emits the standard
+RADIUS `Session-Timeout` reply attribute. After verifying Access-Accept and
+EAP Success, the wired worker installs a kernel lease of
+`min(dot1x.seconds, Session-Timeout)`. The configured policy fingerprint and
+default timeout stay unchanged; only the admission element is shortened.
+The result reports `authorization_seconds` and `server_session_timeout`.
+
+Presence of this backend attribute terminates the finite command after that
+one admission, discarding unused local reauthentication cycles. A server
+limit at or below the NAS limit reports `SERVER_SESSION_TIMEOUT`; an earlier
+NAS limit reports `LEASE_EXPIRED`. Both require confirmed gate closure for a
+passed result. A new explicit authentication is needed for another grant.
+Without the attribute, the existing bounded reauthentication behavior stays
+unchanged. Zero, duplicate or malformed duration attributes are refused before
+admission. Only absent/default-zero `Termination-Action` is supported;
+RADIUS-Request (1), other values or malformed/duplicate action attributes are
+refused rather than creating an implicit reauthentication service. These
+checks apply to authenticated Accepts, not unverified replies or Challenges.
+
+This setting is EAP-only; PAP user configuration rejects it. The standalone
+EAP diagnostic still reports authentication rather than opening any port or
+enforcing a session. Save/restore retains the declared integer, never a lease.
+Dedicated native validation of the duration extension is pending.
+
 Build the matching EAP-MD5 FreeRADIUS rootfs and prepare the root-owned private
 password asset as described in [RADIUS_EAP_MD5.md](RADIUS_EAP_MD5.md). Then:
 

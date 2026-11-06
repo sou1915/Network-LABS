@@ -277,6 +277,61 @@ class NativeDot1xTests(unittest.TestCase):
                 packets=radius_packets(recovery_wire.read_bytes())
                 self.assertEqual(len([p for _,dst,p in packets if dst==1812]),2)
                 self.assertEqual([p[0] for src,_,p in packets if src==1812],[11,2])
+                # A verified backend Session-Timeout caps the kernel element,
+                # ends the command and cannot spend unused renewal cycles.
+                timeout_spec=json.loads(json.dumps(carrier_saved))
+                timeout_spec['nodes'][2]['radius_server']['users']['learner']['session_timeout']=3
+                with manager.locked():manager.stop();manager.start(timeout_spec)
+                for restored in (False,True):
+                    close_check();start_peer()
+                    event=threading.Event();timeout_wire=root/('timeout-restored.pcap' if restored else 'timeout.pcap')
+                    cap=pool.submit(capture,Manager(spec['name']),'SW1','eth1',timeout_wire,seconds=5,packets=100,expression='udp port 1812',ready=event.set)
+                    self.assertTrue(event.wait(5));began=time.monotonic();future=session();admitted(future)
+                    data=json.loads(manager.ns(1,'nft','-j','list','table','bridge',TABLE).stdout)
+                    elements=[entry['set']['elem'] for entry in data['nftables'] if entry.get('set',{}).get('name')=='admitted']
+                    self.assertEqual(len(elements),1);self.assertEqual(len(elements[0]),1)
+                    self.assertEqual(elements[0][0]['elem']['timeout'],3000)
+                    self.assertLessEqual(elements[0][0]['elem']['expires'],3000)
+                    delivered();delivered('PC2','192.0.2.10')
+                    result=future.result(timeout=7)
+                    self.assertLess(time.monotonic()-began,10,'Backend duration must shorten the 30-second NAS lease')
+                    self.assertEqual(result['status'],'passed',result);self.assertEqual(result['reason'],'SERVER_SESSION_TIMEOUT')
+                    self.assertEqual(result['authorization_seconds'],3);self.assertEqual(result['server_session_timeout'],3)
+                    self.assertEqual(result['completed_authentications'],1);self.assertEqual(result['radius_requests'],2)
+                    self.assertTrue(result['port_closed']);cap.result(timeout=7);close_check();stop_peer()
+                    packets=radius_packets(timeout_wire.read_bytes());replies=[p for src,_,p in packets if src==1812]
+                    self.assertEqual(len([p for _,dst,p in packets if dst==1812]),2)
+                    self.assertEqual([p[0] for p in replies],[11,2])
+                    self.assertEqual(attrs(replies[-1])[27],[bytes.fromhex('00000003')])
+                    self.assertFalse(Manager(spec['name']).read().get('dot1x_workers'))
+                    if not restored:
+                        with manager.locked():
+                            manager.write_startup();timeout_saved=load_startup(spec['name'])
+                            self.assertEqual(timeout_saved['nodes'][2]['radius_server']['users']['learner']['session_timeout'],3)
+                            manager.stop();manager.start(timeout_saved)
+                # SIGKILL cannot extend the backend-shortened kernel lease to
+                # the longer configured NAS default or start another cycle.
+                start_peer();future=session();admitted(future)
+                owner=Manager(spec['name']).read()['dot1x_workers']['SW1']
+                killed=time.monotonic();os.kill(owner['pid'],signal.SIGKILL)
+                self.assertEqual(future.result(timeout=5)['status'],'unknown')
+                until=killed+5
+                while gate()['admitted']:
+                    if time.monotonic()>=until:self.fail('Backend-shortened lease survived worker death')
+                    time.sleep(.03)
+                self.assertFalse(alive(owner));stop_peer();close_check()
+                self.assertFalse(Manager(spec['name']).read().get('dot1x_workers'))
+                # A larger backend value cannot extend the configured NAS bound.
+                local_bound=json.loads(json.dumps(timeout_saved))
+                local_bound['nodes'][1]['dot1x']['seconds']=2
+                local_bound['nodes'][2]['radius_server']['users']['learner']['session_timeout']=20
+                with manager.locked():manager.stop();manager.start(local_bound)
+                close_check();start_peer();future=session();admitted(future);delivered()
+                result=future.result(timeout=6)
+                self.assertEqual(result['status'],'passed',result);self.assertEqual(result['reason'],'LEASE_EXPIRED')
+                self.assertEqual(result['authorization_seconds'],2);self.assertEqual(result['server_session_timeout'],20)
+                self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
+                stop_peer();close_check()
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')

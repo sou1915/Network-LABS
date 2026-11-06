@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.dot1x import TABLE, gate_snapshot, render, stop
-from network_labs.appliances.dot1x_worker import current, envelope, serve, gate
+from network_labs.appliances.dot1x_worker import current, envelope, serve, gate, admission_policy
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
@@ -17,6 +17,26 @@ from network_labs.appliances.runtime import Manager, RuntimeFailure
 
 class Dot1xTests(unittest.TestCase):
     def spec(self):return dot1x_lab('/rootfs','private-dot1x-secret','a'*64,'/private/password')
+
+    def test_verified_session_policy_caps_lease_and_rejects_ambiguous_or_unsupported_values(self):
+        def field(kind,value):return bytes((kind,len(value)+2))+value
+        self.assertEqual(admission_policy(bytes(20),5),(5,None))
+        for maximum,timeout in ((30,1),(30,3),(2,30),(30,4294967295)):
+            self.assertEqual(admission_policy(bytes(20)+field(27,timeout.to_bytes(4,'big'))+field(29,bytes(4)),maximum),(min(maximum,timeout),timeout))
+        valid=field(27,(3).to_bytes(4,'big'))
+        for invalid in (field(27,bytes(4)),valid+valid,field(27,b'\x01'),field(29,(1).to_bytes(4,'big')),field(29,bytes(4))*2,b'\x1b',b'\x1b\x01'):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):admission_policy(bytes(20)+invalid,30)
+
+    def test_shortened_kernel_element_keeps_configured_default_policy_and_checks_shorter_bound(self):
+        config=dict(port='eth0',seconds=5,peer_mac='02:00:00:00:01:10',fingerprint='original')
+        with patch('network_labs.appliances.dot1x_worker.nft',return_value='{}') as nft,patch('network_labs.appliances.dot1x_worker.gate_snapshot',side_effect=[('original',False),('original',True)]) as snapshot:
+            gate(config,True,seconds=2)
+        script=nft.call_args_list[1].kwargs['input_text']
+        self.assertIn('timeout 5s; size 1;',script);self.assertIn('"eth0" timeout 2s',script)
+        self.assertEqual(snapshot.call_args.args[2],2)
+        for duration in (0,6,True):
+            with patch('network_labs.appliances.dot1x_worker.nft') as nft,self.assertRaises(ValueError):gate(config,True,seconds=duration)
+            nft.assert_not_called()
 
     def test_grant_atomically_replaces_verified_gate_without_increasing_capacity(self):
         config=dict(port='eth0',seconds=5,peer_mac='02:00:00:00:01:10',fingerprint='original')
@@ -98,7 +118,7 @@ class Dot1xTests(unittest.TestCase):
                     if index%2==0:self.assertEqual(len(call.args),2,'Fresh exchange must not reuse old State')
                     else:self.assertEqual(call.args[2],b'state-'+bytes([index//2]))
 
-    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False,rejected=False,link_loss=None):
+    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False,rejected=False,link_loss=None,policy=b''):
         raw=Mock();udp=Mock()
         for sock in (raw,udp):
             sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
@@ -130,7 +150,7 @@ class Dot1xTests(unittest.TestCase):
             patch('network_labs.appliances.dot1x_worker.LinkMonitor') as monitor,
             patch('network_labs.appliances.dot1x_worker.current'),
             patch('network_labs.appliances.dot1x_worker.publish'),
-            patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False:transitions.append(admit)),
+            patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False,**options:transitions.append(admit)),
             patch('socket.socket',side_effect=[raw,udp]),
             patch('secrets.randbelow',return_value=7),
             patch('time.monotonic',side_effect=lambda:clock[0]),
@@ -138,6 +158,7 @@ class Dot1xTests(unittest.TestCase):
             patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09') as requests,
             patch('network_labs.appliances.dot1x_worker.response_code',side_effect=lambda packet,*_:{b'challenge':11,b'success':2,b'reject':3}[packet]),
             patch('network_labs.appliances.dot1x_worker.inner',side_effect=responses),
+            patch('network_labs.appliances.dot1x_worker.admission_policy',side_effect=lambda packet,maximum:admission_policy(bytes(20)+policy,maximum)),
         ):
             if link_loss is not None:
                 from network_labs.appliances.dot1x_link import LinkLost
@@ -150,6 +171,19 @@ class Dot1xTests(unittest.TestCase):
         self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'AUTH_TIMEOUT')
         self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
         self.assertEqual(transitions,[False,True,False,False])
+
+    def test_backend_session_timeout_ends_command_without_spending_unused_renewals(self):
+        result,transitions,calls=self.simulated_cycles(3,policy=b'\x1b\x06\x00\x00\x00\x01')
+        self.assertEqual(result['status'],'passed',result);self.assertEqual(result['reason'],'SERVER_SESSION_TIMEOUT')
+        self.assertEqual(result['authorization_seconds'],1);self.assertEqual(result['server_session_timeout'],1)
+        self.assertEqual(result['completed_authentications'],1);self.assertEqual(len(calls),2)
+        self.assertEqual(transitions,[False,True,False]);self.assertTrue(result['port_closed'])
+
+    def test_invalid_backend_policy_never_opens_gate_despite_verified_eap_success(self):
+        for policy in (b'\x1b\x06'+bytes(4),b'\x1d\x06\x00\x00\x00\x01'):
+            result,transitions,_=self.simulated_cycles(3,policy=policy)
+            self.assertEqual(result['status'],'unknown',result);self.assertFalse(result['authenticated'])
+            self.assertTrue(result['port_closed']);self.assertEqual(transitions,[False,False])
 
     def test_carrier_loss_before_success_or_during_admission_ends_all_renewals_closed(self):
         for boundary,authenticated,requests in ((9,False,2),(10,True,2)):

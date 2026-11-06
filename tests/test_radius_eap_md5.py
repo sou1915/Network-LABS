@@ -34,6 +34,20 @@ def eap(code, identifier, data=b''): return struct.pack('!BBH', code, identifier
 
 
 class EAPMD5Tests(unittest.TestCase):
+    def test_eap_only_session_timeout_is_validated_and_rendered_as_integer_reply(self):
+        spec=radius_lab('/rootfs',SECRET,'a'*64,eap_password_file='/private/password')
+        for value in (1,3,4294967295):
+            spec['nodes'][2]['radius_server']['users']['learner']['session_timeout']=value
+            normalized=validate(spec)
+            with patch('network_labs.appliances.radius_server.eap_literal',return_value="'private'"):
+                self.assertIn('Session-Timeout := '+str(value),config_text(normalized['nodes'][2]))
+        for value in (0,-1,4294967296,True,'3',None):
+            spec['nodes'][2]['radius_server']['users']['learner']['session_timeout']=value
+            with self.subTest(value=value),self.assertRaises(ValueError):validate(spec)
+        pap=radius_lab('/rootfs',SECRET,'a'*64)
+        pap['nodes'][2]['radius_server']['users']['learner']['session_timeout']=3
+        with self.assertRaises(ValueError):validate(pap)
+
     def exchange(self, fault=None, reject=False):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
             server.bind(('127.0.0.1',0)); server.settimeout(2); errors=[]; seen=[]
