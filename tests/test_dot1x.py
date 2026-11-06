@@ -20,11 +20,12 @@ class Dot1xTests(unittest.TestCase):
 
     def test_verified_session_policy_caps_lease_and_rejects_ambiguous_or_unsupported_values(self):
         def field(kind,value):return bytes((kind,len(value)+2))+value
-        self.assertEqual(admission_policy(bytes(20),5),(5,None))
+        self.assertEqual(admission_policy(bytes(20),5),(5,None,0))
         for maximum,timeout in ((30,1),(30,3),(2,30),(30,4294967295)):
-            self.assertEqual(admission_policy(bytes(20)+field(27,timeout.to_bytes(4,'big'))+field(29,bytes(4)),maximum),(min(maximum,timeout),timeout))
+            self.assertEqual(admission_policy(bytes(20)+field(27,timeout.to_bytes(4,'big'))+field(29,bytes(4)),maximum),(min(maximum,timeout),timeout,0))
         valid=field(27,(3).to_bytes(4,'big'))
-        for invalid in (field(27,bytes(4)),valid+valid,field(27,b'\x01'),field(29,(1).to_bytes(4,'big')),field(29,bytes(4))*2,b'\x1b',b'\x1b\x01'):
+        self.assertEqual(admission_policy(bytes(20)+valid+field(29,(1).to_bytes(4,'big')),30),(3,3,1))
+        for invalid in (field(27,bytes(4)),valid+valid,field(27,b'\x01'),field(29,(1).to_bytes(4,'big')),valid+field(29,(2).to_bytes(4,'big')),field(29,bytes(4))*2,b'\x1b',b'\x1b\x01'):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):admission_policy(bytes(20)+invalid,30)
 
     def test_shortened_kernel_element_keeps_configured_default_policy_and_checks_shorter_bound(self):
@@ -184,6 +185,26 @@ class Dot1xTests(unittest.TestCase):
             result,transitions,_=self.simulated_cycles(3,policy=policy)
             self.assertEqual(result['status'],'unknown',result);self.assertFalse(result['authenticated'])
             self.assertTrue(result['port_closed']);self.assertEqual(transitions,[False,False])
+
+    def test_backend_reauthentication_uses_local_budget_closes_between_cycles_and_keeps_fresh_state(self):
+        policy=b'\x1b\x06\x00\x00\x00\x01\x1d\x06\x00\x00\x00\x01'
+        for budget in (0,1,3):
+            result,transitions,calls=self.simulated_cycles(budget,policy=policy)
+            self.assertEqual(result['status'],'passed',result);self.assertEqual(result['reason'],'SERVER_SESSION_TIMEOUT')
+            self.assertEqual(result['completed_authentications'],budget+1);self.assertEqual(result['radius_requests'],2*(budget+1))
+            self.assertEqual(result['server_termination_action'],1);self.assertTrue(result['port_closed'])
+            self.assertEqual(transitions,[False]+[v for _ in range(budget+1) for v in (True,False)])
+            for index,call in enumerate(calls):
+                if index%2==0:self.assertEqual(len(call.args),2)
+                else:self.assertEqual(call.args[2],b'state-'+bytes([index//2]))
+
+    def test_backend_reauthentication_outage_or_identity_change_never_reuses_earlier_admission(self):
+        policy=b'\x1b\x06\x00\x00\x00\x01\x1d\x06\x00\x00\x00\x01'
+        for fault,status,reason in (({'outage':True},'unknown','AUTH_TIMEOUT'),({'changed_identity':True},'blocked','IDENTITY_CHANGED'),({'rejected':True},'failed','REJECTED')):
+            result,transitions,_=self.simulated_cycles(1,policy=policy,**fault)
+            self.assertEqual(result['status'],status,result);self.assertEqual(result['reason'],reason)
+            self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
+            self.assertEqual(transitions,[False,True,False,False])
 
     def test_carrier_loss_before_success_or_during_admission_ends_all_renewals_closed(self):
         for boundary,authenticated,requests in ((9,False,2),(10,True,2)):

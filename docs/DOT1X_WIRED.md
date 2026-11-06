@@ -112,17 +112,30 @@ The result reports `authorization_seconds` and `server_session_timeout`.
 For example, add `"session_timeout": 3` alongside the existing digest and
 private password path for the backend's `learner` user.
 
-Presence of this backend attribute terminates the finite command after that
+By default this backend attribute terminates the finite command after that
 one admission, discarding unused local reauthentication cycles. A server
 limit at or below the NAS limit reports `SERVER_SESSION_TIMEOUT`; an earlier
 NAS limit reports `LEASE_EXPIRED`. Both require confirmed gate closure for a
 passed result. A new explicit authentication is needed for another grant.
 Without the attribute, the existing bounded reauthentication behavior stays
 unchanged. Zero, duplicate or malformed duration attributes are refused before
-admission. Only absent/default-zero `Termination-Action` is supported;
-RADIUS-Request (1), other values or malformed/duplicate action attributes are
-refused rather than creating an implicit reauthentication service. These
-checks apply to authenticated Accepts, not unverified replies or Challenges.
+admission. These checks apply to authenticated Accepts, not unverified replies
+or Challenges.
+
+An EAP-enabled backend user may also declare `"termination_action": 1`
+(RADIUS-Request), requiring `session_timeout`. Verified Termination-Action 1
+allows a fresh exchange when the effective lease expires, only within the
+NAS's existing `dot1x.reauthentications` budget (0..3). The old gate closes
+first; each new grant requires a complete verified EAP exchange with fresh
+State and the pinned identity. NAS duration/budget bounds always apply.
+Budget zero still permits only one grant; exhaustion ends closed, even when
+the server asks again. There is no grace lease, automatic restart or fallback
+to an earlier success when RADIUS is unavailable. The final result reports
+`server_termination_action` (0 by default). Explicit 0 retains termination;
+action 1 without Session-Timeout, values other than 0/1, and malformed or
+duplicate action attributes are refused before admission. The managed server
+configuration accepts an explicit action only alongside the duration. Native
+evidence for this bounded server-requested renewal extension is pending.
 
 This setting is EAP-only; PAP user configuration rejects it. The standalone
 EAP diagnostic still reports authentication rather than opening any port or

@@ -84,10 +84,12 @@ def admission_policy(packet,maximum):
         offset+=size
     for items in values.values():
         if len(items)>1 or any(len(value)!=4 for value in items):raise ValueError('Ambiguous session policy')
-    if values[29] and int.from_bytes(values[29][0],'big')!=0:raise ValueError('Unsupported Termination-Action')
+    action=int.from_bytes(values[29][0],'big') if values[29] else 0
+    if action not in (0,1):raise ValueError('Unsupported Termination-Action')
     timeout=int.from_bytes(values[27][0],'big') if values[27] else None
     if timeout==0:raise ValueError('Zero-duration admission refused')
-    return min(maximum,timeout) if timeout is not None else maximum,timeout
+    if action==1 and timeout is None:raise ValueError('Reauthentication requires Session-Timeout')
+    return min(maximum,timeout) if timeout is not None else maximum,timeout,action
 
 
 def serve(config):
@@ -102,18 +104,18 @@ def serve(config):
             def emit(eap):raw.send(peer+own+b'\x88\x8e'+struct.pack('!BBH',2,0,len(eap))+eap)
             identity=secrets.randbelow(256);emit(eap_packet(1,identity,b'\x01'))
             phase='identity';deadline=time.monotonic()+config['timeout'];packet=None;state=None;username=None
-            bound_username=None;server_timeout=None
+            bound_username=None;server_timeout=None;server_action=0
             publish(config,{**result,'phase':phase})
             while True:
                 current(config)
                 link.check()
                 if time.monotonic()>=deadline:
-                    if phase=='authorized' and server_timeout is None and result['completed_authentications']<=config.get('reauthentications',0):
+                    if phase=='authorized' and (server_timeout is None or server_action==1) and result['completed_authentications']<=config.get('reauthentications',0):
                         # Reauthentication never extends an old authorization.
                         # Close first, discard the old RADIUS transaction/State,
                         # and require another complete verified exchange.
                         gate(config)
-                        packet=None;state=None;username=None;identity=(identity+1)%256
+                        packet=None;state=None;username=None;server_timeout=None;server_action=0;identity=(identity+1)%256
                         phase='identity';deadline=time.monotonic()+config['timeout']
                         emit(eap_packet(1,identity,b'\x01'));publish(config,{**result,'phase':phase})
                         continue
@@ -163,10 +165,10 @@ def serve(config):
                             if code!=11 or len(eap)<22 or eap[0]!=1 or eap[4:6]!=b'\x04\x10' or new_state is None:raise ValueError('Verified MD5 challenge required')
                             state=new_state;identity=eap[1];emit(eap);phase='md5'
                         elif code==2 and eap==eap_packet(3,identity) and new_state is None:
-                            duration,server_timeout=admission_policy(received,config['seconds'])
+                            duration,server_timeout,server_action=admission_policy(received,config['seconds'])
                             current(config);link.check();gate(config,True,seconds=duration);emit(eap);phase='authorized';result['authenticated']=True
                             bound_username=username;result['completed_authentications']+=1
-                            result.update(authorization_seconds=duration,server_session_timeout=server_timeout)
+                            result.update(authorization_seconds=duration,server_session_timeout=server_timeout,server_termination_action=server_action)
                             deadline=time.monotonic()+duration;publish(config,{**result,'phase':phase})
                         else:raise ValueError('Verified EAP success required')
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break

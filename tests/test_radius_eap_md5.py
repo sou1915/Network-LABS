@@ -34,6 +34,22 @@ def eap(code, identifier, data=b''): return struct.pack('!BBH', code, identifier
 
 
 class EAPMD5Tests(unittest.TestCase):
+    def test_eap_termination_action_requires_duration_and_only_declared_default_or_request(self):
+        spec=radius_lab('/rootfs',SECRET,'a'*64,eap_password_file='/private/password')
+        user=spec['nodes'][2]['radius_server']['users']['learner'];user['session_timeout']=3
+        for value in (0,1):
+            user['termination_action']=value;normalized=validate(spec)
+            with patch('network_labs.appliances.radius_server.eap_literal',return_value="'private'"):
+                text=config_text(normalized['nodes'][2])
+                self.assertIn('Session-Timeout := 3',text);self.assertIn('Termination-Action := '+str(value),text)
+        for value in (-1,2,True,'1',None):
+            user['termination_action']=value
+            with self.subTest(value=value),self.assertRaises(ValueError):validate(spec)
+        user['termination_action']=1;del user['session_timeout']
+        with self.assertRaises(ValueError):validate(spec)
+        pap=radius_lab('/rootfs',SECRET,'a'*64);pap['nodes'][2]['radius_server']['users']['learner']['termination_action']=1
+        with self.assertRaises(ValueError):validate(pap)
+
     def test_eap_only_session_timeout_is_validated_and_rendered_as_integer_reply(self):
         spec=radius_lab('/rootfs',SECRET,'a'*64,eap_password_file='/private/password')
         for value in (1,3,4294967295):
