@@ -1208,3 +1208,12 @@ Do not ask repeatedly for already-authorized reversible repo work. Preserve
 explicit boundaries, failed-run evidence and native validation limits. Root
 native tests must remain isolated to owned lab namespaces/resources. Do not
 remove existing tests or weaken checks just to obtain a green result.
+
+
+All ten selected jobs on final shell source passed in
+[run 42293363242](https://github.com/sou1915/Network-LABS/actions/runs/42293363242),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42293363242/job/128154680651).
+The other 52 profiles were intentionally skipped. The initial shell also
+passed all ten selected jobs in run 42293016742. No native runtime behavior or
+protocol assertions were changed for this GUI increment.

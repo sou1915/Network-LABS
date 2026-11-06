@@ -174,3 +174,12 @@ The screenshot/report/provenance now correspond to artifact 13540452917.
 The earlier shell passed its desktop/native test too; its screenshot exposed
 clipped controls, which the final source corrects. Local general regression
 passed 1034 cases in 30.402 s (167 environment skips, including display tests).
+
+
+All ten selected jobs on final shell source passed in
+[run 42293363242](https://github.com/sou1915/Network-LABS/actions/runs/42293363242),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42293363242/job/128154680651).
+The other 52 profiles were intentionally skipped. The initial shell also
+passed all ten selected jobs in run 42293016742. No native runtime behavior or
+protocol assertions were changed for this GUI increment.
