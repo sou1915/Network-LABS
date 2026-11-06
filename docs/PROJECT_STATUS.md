@@ -5,7 +5,9 @@ defer advanced extensions, then integrate the native GUI. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.
 It is accepted: **7/7 essential checks passed** on one source revision. Native
 GUI integration is in progress: the first native lifecycle/observation/traffic
-flow is verified; node/link editing and basic configuration forms are next.
+flow is verified. Its layout now follows the agreed main desktop (equipment
+left, topology centre, inspector right); node/link editing and basic
+configuration forms are next.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
@@ -15,6 +17,14 @@ claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
 ## Validation checkpoint
+
+The agreed embedded desktop layout passed at
+`a82b0571194f81759e29bf6e50d8e5b65dfd8664` in the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42276785462/job/128095032017).
+Regression passed 1033 cases (47.945 s, 116 skips), and actual embedded Tk /
+sudo / OCI start-status-inspect-verify-stop plus restored model workspace
+passed in 4.466 s. The [current screenshot and proof](NATIVE_GUI_FLOW.md)
+show this layout; full graphical editing/forms remain pending.
 
 The [first native GUI flow](NATIVE_GUI_FLOW.md) passed at
 `cad63774a58a9d51aa3b73bc28d90b932fb7fc86` in

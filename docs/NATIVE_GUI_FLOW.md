@@ -1,9 +1,9 @@
 # Native GUI lifecycle and observations
 
 The native workbench now has a topology view and a real backend result path.
-Open it from the desktop's existing native-lab entry. It remains distinct
-from the educational canvas and Wasm backend; opening this window does not
-change their selected execution engine.
+Open it from the desktop's existing native-lab entry. It uses the agreed
+main-window layout while keeping native state separate from the educational
+canvas and Wasm backend. Returning restores their existing project and engine.
 
 ## First usable flow
 
@@ -94,8 +94,8 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13528680261, source commit and run/job, with the verified original ZIP
-SHA-256 and individual file hashes. The full suite passed on the same commit.
+artifact 13533009570, source commit and run/job, with the verified original ZIP
+SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Agreed desktop layout
 
@@ -113,3 +113,17 @@ list selects existing native devices; graphical creation/cabling and full
 per-device forms remain pending. JSON, dependencies and detailed observations
 are available as central tabs. This is alignment with the agreed layout, not
 completion of all GUI editing workflows.
+
+
+At source `a82b0571194f81759e29bf6e50d8e5b65dfd8664`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42276785462/job/128095032017)
+passed 1033 regression cases in 47.945 seconds (116 environment/opt-in skips).
+The real native GUI test passed in 4.466 seconds using the actual main App and
+embedded native workspace, including return to the preserved model project.
+It verified three running OCI devices, kernel inspection, bidirectional ICMP,
+six private user-owned responses, direct root-state denial and confirmed
+teardown without callback errors or host-network leaks. The screenshot and
+report above now show this embedded layout rather than the earlier window.
+Local full regression passed 1033 cases in 30.311 seconds (166 skips, including
+Tk because the local environment has no display); desktop execution was
+verified in CI. Interactive password-prompt and hardware acceptance remain open.

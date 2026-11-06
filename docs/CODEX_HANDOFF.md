@@ -12,6 +12,14 @@ flow, capture its real native screenshot, and keep supplying screenshots after
 GUI additions. Graphical node/link creation and full device forms remain open.
 LAN core stays frozen; VXLAN remains later in the roadmap.
 
+Source `a82b0571194f81759e29bf6e50d8e5b65dfd8664` passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42276785462/job/128095032017):
+1033 regression cases (47.945 s, 116 skips), plus real embedded App / sudo / OCI
+lifecycle and bidirectional ICMP (4.466 s), including return to the model
+workspace. Screenshot/report/provenance now refer to artifact 13533009570.
+Local full regression passed 1033 cases (30.311 s, 166 environment skips).
+
+
 ## Current priority: native GUI essentials — first flow verified — 2026-11-06
 
 LAN core remains accepted (7/7); advanced LAN extensions stay deferred. The

@@ -24,7 +24,10 @@ for per-job evidence and exact limits. No runtime/test assertions were relaxed.
 
 The [first native GUI flow](NATIVE_GUI_FLOW.md) is now verified (run
 42267670327): topology, lifecycle, kernel observations and real ICMP from an
-unprivileged GUI. Continue native node/link editing/basic configuration.
+unprivileged GUI. The subsequent layout correction follows the agreed
+[main workspace](workspace_design.png): equipment left, topology centre,
+inspector right, with return to the preserved pedagogical project. Keep this
+layout for subsequent native node/link editing/basic configuration.
 Do not resume advanced LAN implementation
 or small validation refinements as prerequisites. Keep the remaining catalogue
 tracked for later and repair only demonstrated core regressions.

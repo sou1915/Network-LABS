@@ -38,10 +38,13 @@ et [couverture exacte des profils LAN natifs](docs/LAN_PROTOCOL_COVERAGE.md).
 Les estimations de progression ne sont pas des pourcentages de couverture des tests.
 
 **Fichier → Micro-nodes natifs · runtimes / manifest**, ou
-`python3 -m network_labs --native-lab`, ouvre le diagnostic des runtimes et un
-éditeur de lab JSON avec validation et budget mémoire cible. Le laboratoire
-natif est distinct du canvas pédagogique : il ne convertit pas automatiquement
-les modèles constructeur ni leurs configurations.
+`python3 -m network_labs --native-lab`, ouvre le LAN natif dans la fenêtre principale : équipements à gauche,
+topologie au centre et inspecteur à droite, selon la disposition existante.
+Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
+dépendances et plan mémoire restent accessibles par onglets. Le bouton de
+retour restaure le projet pédagogique. Le laboratoire natif garde son propre
+état : il ne convertit pas automatiquement les modèles constructeur ni leurs
+configurations. Voir la [capture réelle et les limites GUI](docs/NATIVE_GUI_FLOW.md).
 
 Le nouveau gestionnaire peut démarrer des **containers OCI/crun persistants**,
 relier leurs namespaces par veth et lancer des **microVMs Firecracker** optionnelles
