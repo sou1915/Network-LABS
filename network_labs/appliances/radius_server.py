@@ -274,6 +274,8 @@ def redact(value):
     if isinstance(value, list): return [redact(item) for item in value]
     if not isinstance(value, dict): return value
     result = {key: redact(item) for key, item in value.items()}
+    if isinstance(result.get('dot1x_supplicant'),dict) and 'password_sha256' in result['dot1x_supplicant']:
+        result['dot1x_supplicant']['password_sha256']='[redacted]'
     if isinstance(result.get('radius_server'), dict):
         policy = result['radius_server']
         for client in policy.get('clients', []):

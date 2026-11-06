@@ -70,6 +70,12 @@ class ManagedPeerTests(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):configure(manager,0,new,old)
         manager.ns.assert_not_called()
 
+    def test_normal_cli_redacts_peer_password_pin_without_changing_exportable_spec(self):
+        from network_labs.appliances.radius_server import redact
+        spec=self.spec();result=redact(spec)
+        self.assertEqual(result['nodes'][0]['dot1x_supplicant']['password_sha256'],'[redacted]')
+        self.assertEqual(spec['nodes'][0]['dot1x_supplicant']['password_sha256'],'b'*64)
+
     def test_reused_pid_is_not_signalled_and_dead_owned_child_is_reaped(self):
         manager=Mock();manager.state={'dot1x_supplicants':{'PC1':{'pid':123,'starttime':'old'}}};child=Mock();peer.PROCESSES[123]=child
         with patch.object(peer,'alive',return_value=False),patch.object(peer.os,'killpg') as kill:
