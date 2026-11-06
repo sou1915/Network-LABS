@@ -19,7 +19,7 @@ from . import topology_edit
 from .campus import campus_example
 from . import reference_theme
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED,FONT
-from .workspace_art import draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption
+from .workspace_art import draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -52,7 +52,7 @@ class ApplianceWindow:
             self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(3,weight=1)
         self.layout_id=None;self.config_key=None;self.config_baseline=None;self.positions={};self.edit_mode=None;self.cable_source=None;self.dragging=None
-        self.buttons=[]
+        self.tool_mode=tk.StringVar(value='select');self.buttons=[]
         header=tk.Frame(self.window,bg='#223344',padx=7,pady=1);header.grid(row=0,column=0,sticky='ew')
         self.label(header,'◉  Network LABS','#ffffff',9,True).pack(side='left')
         self.project_title=tk.StringVar(value='Projet LAN')
@@ -68,30 +68,41 @@ class ApplianceWindow:
         if self.embedded:ttk.Button(header,text='Retour',command=self.close,style='Native.TButton').pack(side='right')
         toolbar=tk.Frame(self.window,bg='#f1f5fb',padx=7,pady=2);toolbar.grid(row=1,column=0,sticky='ew',pady=(0,2))
         for title,callback in [('↖ Sélection',lambda:self.set_edit_mode(None)),('+ Ajouter un équipement',self.add_device_dialog),('⌁ Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]:
-            button=ttk.Button(toolbar,text=title,command=callback,style='Native.TButton');button.pack(side='left',padx=2);self.buttons.append(button)
+            if title.startswith('↖') or title.startswith('⌁'):
+                button=ttk.Radiobutton(toolbar,text=title,command=callback,variable=self.tool_mode,value='select' if title.startswith('↖') else 'cable',style='Native.Toolbutton')
+            else:button=ttk.Button(toolbar,text=title,command=callback,style='Native.TButton')
+            button.pack(side='left',padx=2);self.buttons.append(button)
         for title,action in [('▶ Démarrer','start'),('↻ État','status'),('■ Arrêter','stop')]:
             button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a),style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
         button=ttk.Button(toolbar,text='▣ Enregistrer',command=self.save,style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
 
         nav=tk.Frame(self.window,bg=BG,height=24);nav.grid(row=2,column=0,sticky='ew')
+        self.nav_items={};self.nav_current='Topologie'
         for label,callback in [('Topologie',lambda:self.tabs.select(self.topology_tab)),('Équipements',lambda:self.tabs.select(self.editor_tab)),('Scénarios',self.new_campus),('Outils',lambda:self.tabs.select(self.tools_tab))]:
-            tk.Button(nav,text=label,command=callback,font=(FONT,8),bg=BG,fg=BLUE if label=='Topologie' else TEXT,relief='flat',borderwidth=0,padx=12,pady=4,activebackground='white',activeforeground=BLUE).pack(side='left')
+            item=tk.Frame(nav,bg=BG);item.pack(side='left')
+            button=tk.Button(item,text=label,command=callback,font=(FONT,8),bg=BG,fg=BLUE if label=='Topologie' else TEXT,relief='flat',borderwidth=0,highlightthickness=0,padx=12,pady=4,activebackground='white',activeforeground=BLUE);button.pack()
+            line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2);line.pack(fill='x')
+            self.nav_items[label]=(button,line)
         body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
         library=tk.Frame(body,bg=SIDEBAR,width=190);library.pack_propagate(False);body.add(library,weight=0)
         content=self.content=ttk.Panedwindow(body,orient='vertical');body.add(content,weight=1)
         workspace=ttk.Panedwindow(content,orient='horizontal');content.add(workspace,weight=3)
-        lower=ttk.Panedwindow(content,orient='horizontal');content.add(lower,weight=1)
+        lower=self.lower=ttk.Panedwindow(content,orient='horizontal');content.add(lower,weight=1)
         self.dock=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.dock,weight=3)
         self.activity_book=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.activity_book,weight=2)
-        activity=ttk.Frame(self.activity_book);self.activity_book.add(activity,text='Événements natifs')
+        activity=ttk.Frame(self.activity_book);self.activity_book.add(activity,text='Événements')
         self.activity=ttk.Treeview(activity,columns=('time','action','result'),show='headings',height=5,style='Native.Treeview')
         for key,title,width in [('time','Heure',75),('action','Opération',85),('result','Résultat observé',280)]:
             self.activity.heading(key,text=title);self.activity.column(key,width=width,minwidth=60)
         self.activity.tag_configure('failed',foreground=RED);self.activity.tag_configure('passed',foreground=TEAL)
         self.activity.pack(fill='both',expand=True)
-        ttk.Label(activity,text='Opérations natives reçues · aucune capture de paquets en direct',padding=4).pack(fill='x')
         self.label(library,'Bibliothèque',TEXT,9,True).pack(anchor='w',padx=9,pady=8)
         self.search=tk.StringVar();search=ttk.Entry(library,textvariable=self.search,style='Native.TEntry');search.pack(fill='x',padx=8,pady=(0,8))
+        self.search_hint=tk.Label(search,text='Rechercher un équipement',bg=PANEL,fg=MUTED,font=(FONT,8))
+        self.search_hint.place(x=5,rely=.5,anchor='w');self.search_hint.bind('<Button-1>',lambda event:search.focus_set())
+        search.bind('<FocusIn>',lambda event:self.search_hint.place_forget())
+        search.bind('<FocusOut>',lambda event:self.refresh_search_hint())
+        self.search_entry=search
         self.search.trace_add('write',self.filter_library)
         self.build_library_palette(library)
         self.project_list=tk.Frame(library,bg=SIDEBAR)
@@ -106,6 +117,7 @@ class ApplianceWindow:
         self.raw_tab=ttk.Frame(self.dock);self.dock.add(self.raw_tab,text='Détails JSON')
         for frame,title in ((self.topology_tab,'Topologie'),(self.editor_tab,'Équipements / JSON'),(diagnostics,'Outils')):
             self.tabs.add(frame,text=title)
+        self.tabs.bind('<<NotebookTabChanged>>',self.sync_navigation)
         self.topology_tab.columnconfigure(0,weight=1);self.topology_tab.rowconfigure(1,weight=1)
         self.observation=tk.StringVar(value='Aucun état runtime observé.')
         diagram=ttk.Frame(self.topology_tab);diagram.grid(row=1,column=0,sticky='nsew')
@@ -119,8 +131,7 @@ class ApplianceWindow:
             scrollbar.grid(row=row,column=col,sticky='ns' if orient=='vertical' else 'ew')
             self.canvas.configure(**({'yscrollcommand':scrollbar.set} if orient=='vertical' else {'xscrollcommand':scrollbar.set}))
         legend=tk.Frame(self.topology_tab,bg=PANEL,padx=8,pady=3);legend.grid(row=2,column=0,sticky='ew')
-        self.label(legend,'● Processus actifs',TEAL,8).pack(side='left',padx=5)
-        self.label(legend,'● Non observé / arrêté',MUTED,8).pack(side='left',padx=5)
+        self.runtime_hint=tk.StringVar(value='État non observé');self.runtime_label=tk.Label(legend,textvariable=self.runtime_hint,bg=PANEL,fg=MUTED,font=(FONT,8));self.runtime_label.pack(side='left',padx=5)
         self.label(legend,'VLAN / adresses : configuration',MUTED,8).pack(side='right')
         device=tk.Frame(workspace,bg=PANEL,width=354);device.pack_propagate(False);workspace.add(device,weight=0)
         self.device_tabs=ttk.Notebook(device,style='Native.TNotebook');self.device_tabs.pack(fill='both',expand=True)
@@ -168,6 +179,19 @@ class ApplianceWindow:
         self.layout_id=None
         if not self.closed and self.content.winfo_height()>350:
             self.content.sashpos(0,max(250,self.content.winfo_height()-184))
+            self.lower.sashpos(0,int(self.content.winfo_width()*.55))
+
+    def sync_navigation(self,event=None):
+        if self.closed:return
+        current=self.tabs.select()
+        self.nav_current=next((name for name,frame in [('Topologie',self.topology_tab),('Équipements',self.editor_tab),('Outils',self.tools_tab)] if str(frame)==current),'Topologie')
+        for name,(button,line) in self.nav_items.items():
+            button.configure(fg=BLUE if name==self.nav_current else TEXT)
+            line.configure(bg=BLUE if name==self.nav_current else BG)
+
+    def refresh_search_hint(self):
+        if self.search.get() or self.root.focus_get() is self.search_entry:self.search_hint.place_forget()
+        else:self.search_hint.place(x=5,rely=.5,anchor='w')
 
     @staticmethod
     def label(parent,text,color=TEXT,size=10,bold=False):
@@ -211,6 +235,7 @@ class ApplianceWindow:
 
     def filter_library(self,*args):
         if not hasattr(self,'graph'):return
+        self.refresh_search_hint()
         query=self.search.get().strip().casefold()
         for node in self.graph['nodes']:
             name=node['name']
@@ -250,7 +275,11 @@ class ApplianceWindow:
 
     def show_output(self,value):
         raw=json.dumps(value,ensure_ascii=False,indent=2);display=raw
+        self.dock.tab(self.output_tab,text='Diagnostic réseau · lecture seule')
         if isinstance(value,dict) and isinstance(value.get('directions'),list):
+            if value['directions']:
+                first=value['directions'][0]
+                self.dock.tab(self.output_tab,text='ICMP · '+str(first.get('source',''))[:18]+' ↔ '+str(first.get('destination',''))[:18])
             lines=['TEST ICMP · résultat : '+str(value.get('status','unknown')),'']
             for direction in value['directions']:
                 lines.append(str(direction.get('source',''))+' → '+str(direction.get('destination','')))
@@ -300,25 +329,31 @@ class ApplianceWindow:
             xx,yy=positions[name]
             roundrect(self.canvas,xx-43,yy-52,xx+43,yy+76,r=7,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
             self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(FONT,7,'bold'))
+        graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
         for index,(a,b) in enumerate(graph['links']):
             x,y=positions[a[0]];xx,yy=positions[b[0]]
             if abs(y-yy)<45:
                 sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
             else:
                 sign=1 if yy>y else -1;ax=x;ay=y+sign*25;bx=xx;by=yy-sign*25
-                graph_nodes={n['name']:n for n in graph['nodes']}
-                if graph_nodes[a[0]]['role']!='host':ax+=(int(a[1][3:])%8-3.5)*7
-                if graph_nodes[b[0]]['role']!='host':bx+=(int(b[1][3:])%8-3.5)*7
-                mid=min(ay,by)+19+(index%4)*10
+                if graph_nodes[a[0]]['role']!='host':ax+=(list(graph_nodes[a[0]]['interfaces']).index(a[1])%8-3.5)*7
+                if graph_nodes[b[0]]['role']!='host':bx+=(list(graph_nodes[b[0]]['interfaces']).index(b[1])%8-3.5)*7
+                mid=min(ay,by)+8+(index%3)*8
                 points=(ax,ay,ax,mid,bx,mid,bx,by)
             self.canvas.create_line(*points,fill='#3886b9',width=1.5,tags=('link','link:'+str(index)))
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
-            for px,py,port in ((ax,ay,a[1]),(bx,by,b[1])):
+            for endpoint,peer,px,py in ((a,b,ax,ay),(b,a,bx,by)):
                 self.canvas.create_oval(px-2,py-2,px+2,py+2,fill='#4f83b3',outline='')
-                self.canvas.create_text(px+6,py-8,text=port,fill=MUTED,font=(FONT,7),anchor='w')
+                nx,ny=positions[endpoint[0]];other_y=positions[peer[0]][1]
+                ordinal=list(graph_nodes[endpoint[0]]['interfaces']).index(endpoint[1])
+                tx,ty,anchor=px+5,py-8,'w'
+                if graph_nodes[endpoint[0]]['role']!='host':
+                    if other_y<ny-45:tx,ty,anchor=nx-56,ny-19,'e'
+                    else:tx,ty=px+5,ny+30+(ordinal%4)*10
+                port_labels.append(dict(x=tx,y=ty,text=endpoint[1],anchor=anchor,tag='link:'+str(index)))
             caption=link_caption(a,b,config)
             if caption:
-                lx=(ax+bx)/2;ly=(ay+by)/2-10
+                lx=(ax+bx)/2;ly=((ay+by)/2 if abs(y-yy)<45 else mid)-12
                 self.canvas.create_text(lx,ly,text=caption,fill='#315b7d',font=(FONT,7))
         for x1,y1,x2,bg,ink,vid,subnets in captions:
             self.canvas.create_rectangle(x1+3,y1+3,x2-3,y1+41,fill=bg,outline='')
@@ -333,9 +368,9 @@ class ApplianceWindow:
             host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
             draw_device(self.canvas,kind,x,y,scale=.85 if node['role']=='host' else .9,tags=tags,variant='red' if host_index%2 else 'blue')
             if node['role']=='host':
-                self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(FONT,8,'bold'),tags=tags)
+                self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(FONT,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
-                self.canvas.create_text(x,y+49,text=', '.join(ips) or 'Linux · OCI',fill=MUTED,font=(FONT,7),tags=tags)
+                self.canvas.create_text(x,y+49,text=', '.join(ips) or 'Linux · OCI',fill=MUTED,font=(FONT,8),tags=tags)
             else:
                 self.canvas.create_text(x,y-48,text=name,fill=TEXT,font=(FONT,8,'bold'),tags=tags)
                 self.canvas.create_text(x,y-34,text={'switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}.get(node['role'],'Linux'),fill=MUTED,font=(FONT,7),tags=tags)
@@ -343,6 +378,17 @@ class ApplianceWindow:
             self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.node_pressed(event,n))
             self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],state,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
             self.library.insert('','end',iid=name,text=name)
+        obstacles=[self.canvas.bbox(item) for item in self.canvas.find_all() if self.canvas.type(item)=='text']
+        for node in graph['nodes']:
+            x,y=positions[node['name']];host=node['role']=='host'
+            obstacles.append((x-32 if host else x-50,y-29,x+32 if host else x+50,y+24))
+        draw_port_labels(self.canvas,port_labels,obstacles,(FONT,7),MUTED)
+        for index,(a,b) in enumerate(graph['links']):
+            self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
+        running=sum(n['runtime']=='oci' and self.states.get(n['name'],{}).get('status')=='running' for n in graph['nodes'])
+        stopped=bool(self.states) and all(self.states.get(n['name'],{}).get('status')=='stopped' for n in graph['nodes'])
+        self.runtime_hint.set(f'● Relevé : {running} processus OCI en marche' if running else '● Arrêt confirmé' if stopped else '○ État non observé')
+        self.runtime_label.configure(fg='#159746' if running else MUTED)
         self.filter_library();self.project_title.set(graph['name'])
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
         self.canvas.configure(scrollregion=(0,0,max(width,max(x for x,y in positions.values())+90),max(height,max(y for x,y in positions.values())+90)))
@@ -369,11 +415,14 @@ class ApplianceWindow:
         brand=tk.Frame(parent,bg='#df1723',height=31);brand.pack(fill='x')
         tk.Label(brand,text='NETWORK LABS',bg='#df1723',fg='white',font=(FONT,12,'bold'),padx=9,pady=6).pack(side='left')
         tk.Label(brand,text='Linux · GUI',bg='#df1723',fg='white',font=(FONT,8),padx=6).pack(side='right')
+        action_footer=tk.Frame(parent,bg='#253440');action_footer.pack(side='bottom',fill='x')
+        tk.Frame(action_footer,bg='#253440',width=96).pack(side='left',fill='y')
+        self.config_actions=tk.Frame(action_footer,bg=PANEL,padx=8,pady=6);self.config_actions.pack(side='left',fill='x',expand=True)
         shell=tk.Frame(parent,bg='#f6f8fb');shell.pack(fill='both',expand=True)
-        rail=tk.Frame(shell,bg='#253440',width=76);rail.pack(side='left',fill='y');rail.pack_propagate(False)
+        rail=tk.Frame(shell,bg='#253440',width=96);rail.pack(side='left',fill='y');rail.pack_propagate(False)
         self.config_scroll=ScrollPanel(shell,PANEL);self.config_scroll.pack(side='left',fill='both',expand=True)
         for title,fraction in [('▦ Réseau',0),('  Interfaces',0),('  Passerelle',.65),('  Détails',.3)]:
-            tk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),bg='#253440',fg='#edf4fa',activebackground='#364f64',activeforeground='white',relief='flat',font=(FONT,7),anchor='w',padx=4,pady=8).pack(fill='x')
+            tk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),bg='#253440',fg='#edf4fa',activebackground='#364f64',activeforeground='white',relief='flat',font=(FONT,8),anchor='w',padx=6,pady=8).pack(fill='x')
         form=self.config_scroll.inner
         self.label(form,'Interfaces',TEXT,11,True).pack(anchor='w',padx=9,pady=(9,4))
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
@@ -388,14 +437,14 @@ class ApplianceWindow:
         fields.columnconfigure(1,weight=1)
         self.config_vars={key:tk.StringVar() for key in ('name','port','address','gateway')};self.config_fields={}
         for row,(key,title) in enumerate([('name','Nom système'),('port','Interface'),('address','IPv4 / CIDR'),('gateway','Passerelle')]):
-            self.label(fields,title,MUTED,8).grid(row=row,column=0,sticky='w',padx=(0,7),pady=5)
+            self.label(fields,title,MUTED,8).grid(row=row,column=0,sticky='w',padx=(0,7),pady=3)
             field=ttk.Combobox(fields,textvariable=self.config_vars[key],state='readonly',style='Native.TCombobox',width=15) if key=='port' else ttk.Entry(fields,textvariable=self.config_vars[key],style='Native.TEntry',width=15)
-            field.grid(row=row,column=1,sticky='ew',pady=5);self.config_fields[key]=field
+            field.grid(row=row,column=1,sticky='ew',pady=3);self.config_fields[key]=field
         self.config_fields['port'].bind('<<ComboboxSelected>>',self.config_port_selected)
         self.config_enabled=tk.BooleanVar(value=True)
         self.config_admin=ttk.Checkbutton(form,text='Interface activée',variable=self.config_enabled,style='Native.TCheckbutton');self.config_admin.pack(anchor='w',padx=9,pady=5)
-        self.config_apply=ttk.Button(form,text='Appliquer au brouillon',command=self.apply_config,style='Native.Primary.TButton');self.config_apply.pack(fill='x',padx=9,pady=4)
-        ttk.Button(form,text='Recharger',command=lambda:self.load_config(force=True),style='Native.TButton').pack(fill='x',padx=9,pady=2)
+        self.config_apply=ttk.Button(self.config_actions,text='Appliquer au brouillon',command=self.apply_config,style='Native.Primary.TButton');self.config_apply.pack(side='left',fill='x',expand=True,padx=(0,5))
+        ttk.Button(self.config_actions,text='Recharger',command=lambda:self.load_config(force=True),style='Native.TButton').pack(side='right')
         self.config_message=tk.StringVar()
         tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,font=(FONT,7),justify='left',wraplength=230,anchor='w').pack(fill='x',padx=9,pady=7)
 
@@ -416,6 +465,7 @@ class ApplianceWindow:
             node=next(n for n in spec['nodes'] if n['name']==selected[0]);self.config_baseline=spec
             self.device_heading.set(node['name']+' · '+{'host':'Linux','switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}[node['role']])
             self.port_table.delete(*self.port_table.get_children())
+            self.port_table.configure(height=max(1,min(3,len(node['interfaces']))))
             for port,address in node['interfaces'].items():
                 enabled=port not in node.get('shutdown',[])
                 self.port_table.insert('','end',iid=port,text=port,values=(address or '—','Activé' if enabled else 'Arrêté'),tags=('enabled' if enabled else 'disabled',))
@@ -456,7 +506,7 @@ class ApplianceWindow:
 
     def set_edit_mode(self,mode):
         if self.pending:return
-        self.edit_mode=mode;self.cable_source=None;self.dragging=None
+        self.edit_mode=mode;self.tool_mode.set('cable' if mode=='cable' else 'select');self.cable_source=None;self.dragging=None
         self.canvas.configure(cursor='crosshair' if mode=='cable' else '')
         self.note.set('Câbler : choisir deux équipements, puis leurs ports libres.' if mode=='cable' else 'Sélectionner ou déplacer un équipement · clic droit sur un câble pour le retirer.')
 

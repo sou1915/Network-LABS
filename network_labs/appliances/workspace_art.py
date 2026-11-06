@@ -111,3 +111,24 @@ def link_caption(a,b,config):
         nets=[ipaddress.IPv4Interface(v).network for v in addresses]
         if nets[0]==nets[1]:return str(nets[0])
     return ''
+
+
+def draw_port_labels(canvas,labels,obstacles,font,color):
+    """Prefer nearby free positions; reserve badges separately from wire geometry."""
+    occupied=[box for box in obstacles if box]
+    offsets=[(0,0),(18,0),(-18,0),(0,12),(18,12),(-18,12),(0,-12),(32,0),(-32,0),(0,24),(32,12),(-32,12),(0,-24),(0,36)]
+    def overlap(box):
+        x1,y1,x2,y2=box
+        return sum(max(0,min(x2+2,b[2])-max(x1-2,b[0]))*max(0,min(y2+2,b[3])-max(y1-2,b[1])) for b in occupied)
+    for label in labels:
+        x,y=label['x'],label['y'];tags=('port-label',label['tag'])
+        item=canvas.create_text(x,y,text=label['text'],anchor=label['anchor'],fill=color,font=font,tags=tags)
+        best=None
+        for dx,dy in offsets:
+            canvas.coords(item,x+dx,y+dy);box=canvas.bbox(item)
+            score=overlap(box)
+            if best is None or score<best[0]:best=(score,dx,dy,box)
+            if score==0:break
+        _,dx,dy,box=best;canvas.coords(item,x+dx,y+dy)
+        bg=canvas.create_rectangle(box[0]-2,box[1]-1,box[2]+2,box[3]+1,fill='#ffffff',outline='#e0e9f2',tags=('port-label-bg',label['tag']))
+        canvas.tag_raise(item,bg);occupied.append((box[0]-2,box[1]-1,box[2]+2,box[3]+1))

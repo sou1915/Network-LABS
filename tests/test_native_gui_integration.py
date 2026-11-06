@@ -78,6 +78,9 @@ try:
         assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()-190
         window.choose_node('FW1');window.device_tabs.select(window.config_panel)
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
+        assert window.config_apply.winfo_ismapped()
+        assert window.config_apply.winfo_rooty()+window.config_apply.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()
+        assert window.nav_current=='Topologie'
         box=(window.window.winfo_rootx(),window.window.winfo_rooty(),window.window.winfo_rootx()+window.window.winfo_width(),window.window.winfo_rooty()+window.window.winfo_height())
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}

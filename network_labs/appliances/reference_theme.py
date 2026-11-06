@@ -18,6 +18,8 @@ def apply(root):
     s=ttk.Style(root)
     s.configure('Native.TButton',background=BG,foreground=TEXT,font=(FONT,8),padding=(7,4),borderwidth=0)
     s.map('Native.TButton',background=[('active','#e0efff')])
+    s.configure('Native.Toolbutton',background=BG,foreground=TEXT,font=(FONT,8),padding=(7,4),borderwidth=0)
+    s.map('Native.Toolbutton',background=[('selected','#ddecff'),('active','#e7f2ff')],foreground=[('selected',BLUE)])
     s.configure('Native.Primary.TButton',background=BLUE,foreground='white',font=(FONT,8,'bold'),padding=(7,4),borderwidth=0)
     s.map('Native.Primary.TButton',background=[('active','#0067c4')])
     s.configure('Native.TNotebook',background=BG,borderwidth=0,lightcolor='#d9e2ee',darkcolor='#d9e2ee',bordercolor='#d9e2ee')
