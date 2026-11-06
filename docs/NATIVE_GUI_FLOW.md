@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13545820693, source commit and run/job, with the verified original ZIP
+artifact 13547310471, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -305,3 +305,55 @@ including wired 802.1X and the
 [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42303521155/job/128189114015).
 The other 52 profiles were intentionally skipped. No runtime behavior,
 protocol assertion or privilege boundary was weakened for this GUI increment.
+
+## Visual alignment with the supplied reference
+
+The workspace now uses a compact dark application/menu bar, a light action
+bar, a categorized device palette with original rack/screen illustrations,
+a white dotted topology surface, orthogonal cable lanes and smaller device
+labels. Physical-port labels and a trunk badge come from declared links and
+both endpoints' actual trunk policies. Generic artwork does not claim a
+vendor model, firmware or an exact chassis port count. Palette entries create
+the existing generic OCI roles; there are no decorative unsupported devices.
+
+Coloured VLAN zones group hosts only when explicit adjacent access-port
+configuration gives one unambiguous VLAN. Trunk-only and ambiguous multihomed
+hosts are not assigned an invented access VLAN. Network captions use the
+address on the linked access interface, excluding unrelated NICs. Groups are
+configuration taxonomy, not proof of forwarding, isolation, trunk convergence
+or live traffic. When the displayed graph differs from the JSON draft, these
+derived configuration decorations are omitted rather than mixed with a
+contradictory backend graph.
+
+The lower **Diagnostic réseau · lecture seule** pane now renders actual probe
+commands and captured ping output. **Détails JSON** retains the complete raw
+report. This is not an interactive terminal. Operation failures/successes have
+red/green text in the adjacent event table, not fabricated packet events.
+
+The native GUI fixture now declares real VLAN 10 and VLAN 20 access ports and
+a tagged inter-switch trunk. PC1 and CLIENT3 use VLAN 10; PC2 uses VLAN 20.
+All deliberately share 192.0.2.0/24, allowing a bounded cross-VLAN ICMP failure
+without a routing mismatch as the explanation. The CLIENT3 gateway is now
+192.0.2.10, in its own VLAN. A real PC1 ↔ PC2 probe fails, and PC1 ↔ CLIENT3
+succeeds. The report retains both observations and seven user-owned results.
+This is bounded evidence for this fixture, not a general isolation guarantee.
+The current screenshot uses automatic role/VLAN layout, not hand-positioned
+sample cards. Interactive consoles, packet capture/event integration and
+vendor-specific device GUI forms remain open; this is not full visual parity.
+
+At final visual source `22e2206112e36d2a513e674a3c7cf76370314097`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42307186227/job/128199382142)
+passed 1045 regression cases in 48.487 s (116 environment/opt-in skips) and the
+real two-VLAN GUI scenario in 9.269 s. The scenario asserted two VLAN zones,
+correct access membership, a failed two-direction PC1 ↔ PC2 probe with two
+actual ping commands and a successful PC1 ↔ CLIENT3 probe via the trunk.
+The diagnostic pane contains the real ping output; JSON retains both reports.
+The CLIENT3 default route via .10 was observed in the kernel. All seven result
+files remained UID 1001, direct root-state access was denied, stop completed,
+and no callback errors or host-network leaks remained. The current capture,
+operation JSON and provenance bind to artifact 13547310471, with verified ZIP
+and individual file SHA-256 hashes. Local regression on the initial visual
+revision passed 1045 cases in 31.263 s (170 environment skips); the final lane/
+selection correction has the full CI desktop/native proof above. Both visual
+revisions passed their desktop/native jobs; no failed native run preceded
+this increment.

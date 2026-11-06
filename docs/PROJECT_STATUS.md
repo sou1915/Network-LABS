@@ -16,6 +16,17 @@ Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
+## Visual alignment increment
+
+The user's supplied image now drives compact menus/toolbar, an illustrated
+categorized palette, role/VLAN placement, coloured declared access zones,
+orthogonal cables and readable ping output beside real operation events.
+Original generic device illustrations replace large flat cards; they are not
+vendor models or firmware replicas. An explicit two-VLAN native fixture checks
+both successful same-VLAN and failed cross-VLAN probes. Interactive consoles,
+packet capture/views and richer supported device GUI remain pending. See
+[NATIVE_GUI_FLOW.md](NATIVE_GUI_FLOW.md) for the actual captured implementation.
+
 ## Basic device form increment
 
 A right-hand Configuration tab now edits generic OCI names, physical-port

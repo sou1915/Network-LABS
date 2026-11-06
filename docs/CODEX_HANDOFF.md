@@ -21,6 +21,37 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
+## Current GUI visual correction
+
+Source `22e2206112e36d2a513e674a3c7cf76370314097` addresses the user's
+explicit complaint that the GUI still did not resemble the supplied image.
+Compact menus/toolbar, original rack/monitor artwork, categorized clickable
+palette, dotted white canvas, role/VLAN placement, coloured declared access
+zones, physical port captions and orthogonal cable lanes replace large cards.
+The dark read-only diagnostic pane renders actual ping output; raw JSON has
+its own tab. Do not call it an interactive console or claim vendor firmware.
+VLAN groups come only from explicit unambiguous access membership, and subnet
+captions exclude unconnected interfaces. The actual native scenario now has
+VLAN 10 / VLAN 20 and an 802.1Q trunk, with failed PC1 ↔ PC2 and successful
+PC1 ↔ CLIENT3 probes; the latter's gateway is .10 in VLAN 10. Seven result files
+remain user-owned. First visual capture exposed overlapping cable lanes and
+selection/labels; the final source corrects these without runtime changes.
+Next priorities remain interactive native consoles/capture and supported
+richer device GUI, while respecting the supplied visual reference. LAN core
+stays frozen; VXLAN remains tracked. See NATIVE_GUI_FLOW.md for exact limits.
+
+
+The final [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42307186227/job/128199382142)
+passed 1045 cases (48.487 s, 116 skips) plus the real two-VLAN UI scenario
+(9.269 s). It observed same-VLAN success and cross-VLAN failure, retained
+actual ping output and seven private user-owned result files, confirmed stop
+and left no callback/host-network leaks. Screenshot/report/provenance now
+refer to artifact 13547310471 at source 22e2206. Local general regression on
+the initial visual revision passed 1045 cases (31.263 s, 170 skips). Both
+visual revisions passed desktop/native tests; the final screenshot corrects
+the initial visual overlaps. Read the supplied reference as the continuing
+target, not a claim of completed vendor UI or interactive console support.
+
 ## Basic native device forms
 
 Source `13b6dcf2342afa79bcc042869997cd8a6f0aff29` adds a right-hand
