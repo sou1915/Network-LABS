@@ -357,3 +357,12 @@ revision passed 1045 cases in 31.263 s (170 environment skips); the final lane/
 selection correction has the full CI desktop/native proof above. Both visual
 revisions passed their desktop/native jobs; no failed native run preceded
 this increment.
+
+
+All ten selected jobs on final visual source 22e2206 passed in
+[run 42307186227](https://github.com/sou1915/Network-LABS/actions/runs/42307186227),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42307186227/job/128201233579).
+The other 52 profiles were intentionally skipped. The visual redesign changed
+presentation and the GUI test fixture; native runtime/protocol behavior and
+privilege boundaries remain unchanged.
