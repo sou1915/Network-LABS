@@ -290,8 +290,8 @@ class NativeDot1xTests(unittest.TestCase):
                     data=json.loads(manager.ns(1,'nft','-j','list','table','bridge',TABLE).stdout)
                     elements=[entry['set']['elem'] for entry in data['nftables'] if entry.get('set',{}).get('name')=='admitted']
                     self.assertEqual(len(elements),1);self.assertEqual(len(elements[0]),1)
-                    self.assertEqual(elements[0][0]['elem']['timeout'],3000)
-                    self.assertLessEqual(elements[0][0]['elem']['expires'],3000)
+                    self.assertEqual(elements[0][0]['elem']['timeout'],3)
+                    self.assertLessEqual(elements[0][0]['elem']['expires'],3)
                     delivered();delivered('PC2','192.0.2.10')
                     result=future.result(timeout=7)
                     self.assertLess(time.monotonic()-began,10,'Backend duration must shorten the 30-second NAS lease')
@@ -332,6 +332,14 @@ class NativeDot1xTests(unittest.TestCase):
                 self.assertEqual(result['authorization_seconds'],2);self.assertEqual(result['server_session_timeout'],20)
                 self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
                 stop_peer();close_check()
+                # Real JSON seconds must reject a 10-second foreign element
+                # against this 2-second NAS bound, not treat it as 10 ms.
+                manager.ns(1,'nft','add','element','bridge',TABLE,'admitted','{ "eth0" timeout 10s }')
+                self.assertFalse(gate()['configuration_verified'])
+                with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
+                with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')
+                manager.ns(1,'nft','flush','set','bridge',TABLE,'admitted')
+                self.assertTrue(gate()['configuration_verified']);close_check()
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')

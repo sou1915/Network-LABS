@@ -100,9 +100,7 @@ reports failed; identity changes report blocked. `inspect` includes the declared
 reauthentication budget separately from the actual kernel admission.
 Save/restore preserves the budget only, never a worker, completed cycle or lease.
 
-## Reference setup
-
-### Optional backend session duration
+## Optional backend session duration
 
 An EAP-MD5 server user may declare `session_timeout` (integer 1..4294967295)
 under `radius_server.users.USER`. The managed backend emits the standard
@@ -128,6 +126,8 @@ This setting is EAP-only; PAP user configuration rejects it. The standalone
 EAP diagnostic still reports authentication rather than opening any port or
 enforcing a session. Save/restore retains the declared integer, never a lease.
 Dedicated native validation of the duration extension is pending.
+
+## Reference setup
 
 Build the matching EAP-MD5 FreeRADIUS rootfs and prepare the root-owned private
 password asset as described in [RADIUS_EAP_MD5.md](RADIUS_EAP_MD5.md). Then:

@@ -105,7 +105,11 @@ def gate_snapshot(value,port,seconds):
             if len(elements)>1:raise ValueError('Unexpected admission entries.')
             for element in elements:
                 item=element.get('elem',{}) if isinstance(element,dict) else {}
-                if item.get('val')!=port or type(item.get('expires')) is not int or not 0<=item['expires']<=seconds*1000 or item.get('timeout',seconds*1000)>seconds*1000:
+                # libnftables JSON uses seconds, not the kernel's milliseconds.
+                # An omitted element timeout inherits the set's actual default.
+                timeout=item.get('timeout',entry.get('timeout'))
+                if (item.get('val')!=port or type(item.get('expires')) is not int or not 0<=item['expires']<=seconds
+                        or type(timeout) is not int or not 1<=timeout<=seconds):
                     raise ValueError('Unbounded or foreign admission.')
                 admitted=True
     return fingerprint(data),admitted

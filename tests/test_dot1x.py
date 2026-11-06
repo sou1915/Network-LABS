@@ -213,13 +213,16 @@ class Dot1xTests(unittest.TestCase):
         self.assertIn('iifname "eth0" counter drop',text);self.assertIn('oifname "eth0" counter drop',text)
 
     def test_dynamic_lease_preserves_static_fingerprint_but_rejects_foreign_or_unbounded_entries(self):
-        value={'nftables':[{'set':{'family':'bridge','table':TABLE,'name':'admitted','type':'ifname','flags':['timeout'],'timeout':5000,'size':1}}]}
+        value={'nftables':[{'set':{'family':'bridge','table':TABLE,'name':'admitted','type':'ifname','flags':['timeout'],'timeout':5,'size':1}}]}
         pin,active=gate_snapshot(value,'eth0',5);self.assertFalse(active)
-        value['nftables'][0]['set']['elem']=[{'elem':{'val':'eth0','timeout':5000,'expires':4500}}]
+        value['nftables'][0]['set']['elem']=[{'elem':{'val':'eth0','timeout':5,'expires':4}}]
         self.assertEqual(gate_snapshot(value,'eth0',5),(pin,True))
-        for fault in ({'val':'eth1'},{'expires':5001},{'timeout':30000}):
+        for fault in ({'val':'eth1'},{'expires':6},{'expires':True},{'timeout':30},{'timeout':0},{'timeout':True},{'timeout':'5'}):
             bad=copy.deepcopy(value);bad['nftables'][0]['set']['elem'][0]['elem'].update(fault)
             with self.assertRaises(ValueError):gate_snapshot(bad,'eth0',5)
+        inherited=copy.deepcopy(value);del inherited['nftables'][0]['set']['elem'][0]['elem']['timeout']
+        self.assertEqual(gate_snapshot(inherited,'eth0',5),(pin,True))
+        with self.assertRaises(ValueError):gate_snapshot(inherited,'eth0',3)
         value['nftables'].append({'rule':{'family':'bridge','table':TABLE,'expr':[{'accept':None}]}})
         self.assertNotEqual(gate_snapshot(value,'eth0',5)[0],pin)
 
