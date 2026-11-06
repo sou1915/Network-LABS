@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13540452917, source commit and run/job, with the verified original ZIP
+artifact 13544318464, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -183,3 +183,61 @@ including wired 802.1X and the
 The other 52 profiles were intentionally skipped. The initial shell also
 passed all ten selected jobs in run 42293016742. No native runtime behavior or
 protocol assertions were changed for this GUI increment.
+
+## Graphical topology editing
+
+**Ajouter** creates a generic OCI Linux host, switch or router with an explicit
+rootfs, name, 1–16 initial ports and optional IPv4/CIDR on eth0. Use empty
+physical addresses for switches. Advanced existing configurations and
+Firecracker remain editable through JSON, not cloned as generic devices.
+
+**Câbler** selects two devices on the canvas, then offers their free ports.
+If an OCI device has no free port, the dialog explicitly labels a new port;
+confirmation creates that interface and cable together in the draft. There
+is no silent modification to a running node. Native manifest validation
+rejects occupied/invalid ports, self-links and unguarded switch loops. A
+refused cable never leaves a newly created interface behind. Canceling the
+port dialog changes nothing. Right-click a cable to remove it from the draft.
+**Supprimer** removes the selected device and its attached cables. Deleting
+the last node, or breaking advanced references, is refused by native validation.
+
+**Sélection** restores selection/dragging. Dragging repositions a card; links
+follow on release. Coordinates currently last only for this workbench session,
+while saved native JSON retains the actual devices, interfaces and cables.
+There is no persisted layout/undo history yet.
+
+All edits run against an isolated copy and commit only after full native
+validation. Editing is blocked during pending native operations. If JSON or
+backend observation differs from the drawing, use **Configuration JSON →
+Valider / plan** before editing. Edits clear runtime colours and label the
+view as a draft: save, explicitly stop the running lab if needed and start to
+apply. An observed status can redisplay the actual running topology without
+overwriting the JSON draft. There is no live topology reconfiguration.
+
+The native GUI scenario now inserts a second switch and a third host,
+rewires the draft to five devices/four links, saves it through the GUI, then
+starts the real OCI fabric and verifies PC1 ↔ PC3. Form/click/drag tests cover
+adding, cable-port selection and extension, loop rejection without partial
+edits, pending-operation guards and JSON/view mismatch. The packet scenario
+uses the same GUI commit path; it does not automate physical mouse gestures.
+Device photos, VLAN visual groups, per-device configuration forms,
+interactive consoles and packet-event views remain separate pending work.
+
+
+At final editor source `c6e3a282dddc7990582fd0b3797aa7b3a626076f`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42302077273/job/128182107166)
+passed 1039 cases in 49.335 s (116 environment/opt-in skips), followed by the
+real edited-topology scenario in 4.771 s. Five OCI devices/four links started
+from the saved GUI draft; PC1 ↔ PC3 passed through the two-switch fabric.
+The GUI and all six result files remained UID 1001, direct root-state access
+was denied, stop completed, and no callback or host-network leaks remained.
+The current screenshot/report/provenance bind to artifact 13544318464 with
+verified ZIP and file SHA-256 hashes. Local regression passed 1039 cases in
+30.460 s (169 environment skips, including display-dependent tests).
+
+The earlier editor source dc9a439 passed its desktop/native scenario too.
+Run 42301952887 was canceled when a new GUI fixture mistakenly expected an
+unguarded switch loop to succeed. The fixture was corrected to assert refusal
+and unchanged draft, then exercise safe new-port cabling to a host; the native
+loop check and runtime behavior were not weakened. Final validation uses
+run 42302077273, not the canceled run.

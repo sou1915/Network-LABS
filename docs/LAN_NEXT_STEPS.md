@@ -12,6 +12,11 @@ Static VXLAN mapping remains after LAN/GUI; EVPN/BGP and WAN are separate
 later stages. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and
 [LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) for bounded capabilities.
 
+The native GUI now also supports basic validated topology creation/cabling,
+removal and session-only movement. Continue supported per-device forms and the
+actual [user-supplied visual target](images/agreed-gui-reference.jpg), not more
+advanced LAN prerequisites. See NATIVE_GUI_FLOW.md for edited-topology proof.
+
 ## Core closure and next phase — 2026-11-06
 
 The [consolidated gate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
@@ -24,10 +29,10 @@ for per-job evidence and exact limits. No runtime/test assertions were relaxed.
 
 The [first native GUI flow](NATIVE_GUI_FLOW.md) is now verified (run
 42267670327): topology, lifecycle, kernel observations and real ICMP from an
-unprivileged GUI. The subsequent layout correction follows the agreed
-[main workspace](workspace_design.png): equipment left, topology centre,
-inspector right, with return to the preserved pedagogical project. Keep this
-layout for subsequent native node/link editing/basic configuration.
+unprivileged GUI. Basic native topology editing is now verified too. The
+actual visual target is the [user-supplied mockup](images/agreed-gui-reference.jpg),
+superseding workspace_design.png. Continue supported device forms and the
+remaining reference layout while preserving the working native backend.
 Do not resume advanced LAN implementation
 or small validation refinements as prerequisites. Keep the remaining catalogue
 tracked for later and repair only demonstrated core regressions.

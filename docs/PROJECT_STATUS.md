@@ -5,9 +5,9 @@ defer advanced extensions, then integrate the native GUI. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.
 It is accepted: **7/7 essential checks passed** on one source revision. Native
 GUI integration is in progress: the first native lifecycle/observation/traffic
-flow is verified. Its layout now follows the agreed main desktop (equipment
-left, topology centre, inspector right); node/link editing and basic
-configuration forms are next.
+flow and basic graphical topology editing are verified. Work continues
+toward the actual user-supplied mockup, with device forms, photos, VLAN visual
+groups, interactive consoles and packet views still pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
@@ -15,6 +15,18 @@ No protocol/security assertion is relaxed by this scope decision.
 Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
+
+## Graphical topology editor
+
+Generic OCI host/switch/router creation, free/new-port cable dialogs, cable/
+device removal and session-only dragging now edit native JSON through atomic
+native validation. They do not modify running networks; save and stop/start
+apply the draft. The real five-device/four-link GUI scenario passes with
+PC1 ↔ PC3 through two switches. Forms and click/drag behavior are covered by
+Tk tests. See [GUI flow and current screenshot](NATIVE_GUI_FLOW.md) for proof.
+Device photos, VLAN visual groups, supported per-device forms, interactive
+consoles and packet-event views remain pending; the target mockup is not yet
+fully implemented.
 
 ## GUI target and shell
 

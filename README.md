@@ -40,6 +40,9 @@ Les estimations de progression ne sont pas des pourcentages de couverture des te
 **Fichier → Micro-nodes natifs · runtimes / manifest**, ou
 `python3 -m network_labs --native-lab`, ouvre le LAN natif dans la fenêtre principale : équipements à gauche,
 topologie au centre et inspecteur à droite, selon la disposition existante.
+Création de postes/switches/routeurs OCI, câblage par ports libres ou nouveaux,
+suppression et déplacement sont disponibles pour le brouillon. Enregistrer puis
+arrêter/redémarrer applique la topologie ; les positions restent en session.
 Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
 dépendances et plan mémoire restent accessibles par onglets. Le bouton de
 retour restaure le projet pédagogique. Le laboratoire natif garde son propre

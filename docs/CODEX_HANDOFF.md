@@ -21,6 +21,41 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
+## Graphical topology editor
+
+Latest source `c6e3a282dddc7990582fd0b3797aa7b3a626076f` adds generic OCI
+host/switch/router creation, mouse cable selection with explicit free/new
+ports, cable/device removal and dragging. All configuration changes are
+atomic validated drafts; no live Manager/kernel changes occur. A full OCI
+port list can be extended in the cable dialog. Native occupied-port, loop,
+reference and final-node checks remain strict. JSON validation is available
+in its tab. Drag coordinates are session-only; native JSON persists topology.
+See NATIVE_GUI_FLOW.md for operation and exact limits. Do not confuse the
+results dock with an interactive console. Photos/VLAN groups/device forms/
+interactive consoles/capture remain pending. Keep supplied reference and VXLAN
+roadmap. The expanded native GUI scenario builds five nodes/four links and
+verifies PC1 ↔ PC3 after a real save/start, without changing privilege handling.
+
+
+
+At final editor source `c6e3a282dddc7990582fd0b3797aa7b3a626076f`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42302077273/job/128182107166)
+passed 1039 cases in 49.335 s (116 environment/opt-in skips), followed by the
+real edited-topology scenario in 4.771 s. Five OCI devices/four links started
+from the saved GUI draft; PC1 ↔ PC3 passed through the two-switch fabric.
+The GUI and all six result files remained UID 1001, direct root-state access
+was denied, stop completed, and no callback or host-network leaks remained.
+The current screenshot/report/provenance bind to artifact 13544318464 with
+verified ZIP and file SHA-256 hashes. Local regression passed 1039 cases in
+30.460 s (169 environment skips, including display-dependent tests).
+
+The earlier editor source dc9a439 passed its desktop/native scenario too.
+Run 42301952887 was canceled when a new GUI fixture mistakenly expected an
+unguarded switch loop to succeed. The fixture was corrected to assert refusal
+and unchanged draft, then exercise safe new-port cabling to a host; the native
+loop check and runtime behavior were not weakened. Final validation uses
+run 42302077273, not the canceled run.
+
 ## GUI reference shell increment
 
 Source `d18df0909839b28a223cdd8835fbacce0d1f970d` begins implementing the
@@ -46,7 +81,7 @@ The earlier shell passed its desktop/native test too; its screenshot exposed
 clipped controls, which the final source corrects. Local general regression
 passed 1034 cases in 30.402 s (167 environment skips, including display tests).
 
-## Latest user correction: preserve the agreed GUI — 2026-11-06
+## Superseded layout interpretation — user rejected this reference
 
 The user requires the existing agreed desktop layout, referenced by
 [workspace_design.png](workspace_design.png), rather than a separate technical
