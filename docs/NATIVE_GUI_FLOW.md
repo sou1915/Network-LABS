@@ -456,3 +456,11 @@ provenance bind to artifact 13549022791 with verified ZIP and file hashes.
 Full local tests under temporary Xvfb passed 1047 cases in 40.188 s (141 skips),
 and the focused actual Tk suite passed. No native runtime or privilege code
 changed, and no failed native run preceded this increment.
+
+
+All ten selected jobs on polish source f27f49f passed in
+[run 42313340373](https://github.com/sou1915/Network-LABS/actions/runs/42313340373),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42313340373/job/128221582556).
+The other 52 profiles were intentionally skipped. No native runtime/protocol
+or privilege assertion was changed to support the visual/usability polish.
