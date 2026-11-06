@@ -19,6 +19,14 @@ lifecycle and bidirectional ICMP (4.466 s), including return to the model
 workspace. Screenshot/report/provenance now refer to artifact 13533009570.
 Local full regression passed 1033 cases (30.311 s, 166 environment skips).
 
+The same source also passed all ten selected jobs in
+[run 42276785462](https://github.com/sou1915/Network-LABS/actions/runs/42276785462),
+including the [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42276785462/job/128097531781).
+The dedicated wired 802.1X job passed managed-peer recovery (55.167 s) and
+independent-supplicant admission/revocation (219.122 s); 52 other profiles were
+intentionally skipped. The superseded run 42276666855 was canceled after the
+explicit desktop-entry correction, not used as final validation evidence.
+
 
 ## Current priority: native GUI essentials — first flow verified — 2026-11-06
 

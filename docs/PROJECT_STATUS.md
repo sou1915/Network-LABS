@@ -360,3 +360,11 @@ The next work should close explicitly selected LAN gaps and acceptance checks,
 keeping new combinations scoped and independently proven before native GUI
 integration. This inventory is a checkpoint, not permission to count planned
 features as working.
+
+The same source also passed all ten selected jobs in
+[run 42276785462](https://github.com/sou1915/Network-LABS/actions/runs/42276785462),
+including the [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42276785462/job/128097531781).
+The dedicated wired 802.1X job passed managed-peer recovery (55.167 s) and
+independent-supplicant admission/revocation (219.122 s); 52 other profiles were
+intentionally skipped. The superseded run 42276666855 was canceled after the
+explicit desktop-entry correction, not used as final validation evidence.
