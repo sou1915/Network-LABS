@@ -154,5 +154,10 @@ class WorkbenchGUITests(unittest.TestCase):
         window.connect_dialog('SW1','SW2');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
         self.assertIn([['SW1','eth1'],['SW2','eth0']],window.manifest()['links'])
 
-        window.connect_dialog('SW1','SW2');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
-        self.assertIn([['SW1','eth2'],['SW2','eth1']],window.manifest()['links'])
+        window.connect_dialog('SW1','SW2');win=dialog()
+        with patch.object(window,'error') as error:button(win,'Connecter au brouillon').invoke()
+        error.assert_called_once();self.assertNotIn('eth2',window.manifest()['nodes'][1]['interfaces']);win.destroy()
+        from network_labs.appliances import topology_edit as edit
+        window.commit_edit(edit.add_node(window.manifest(),name='PC3',role='host',rootfs='/tmp/rootfs'))
+        window.connect_dialog('SW1','PC3');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
+        self.assertIn([['SW1','eth2'],['PC3','eth0']],window.manifest()['links'])
