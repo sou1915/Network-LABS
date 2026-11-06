@@ -48,7 +48,7 @@ a new window. Optional finite reauthentication is described below.
 
 The live worker also subscribes to Linux link events for the pinned controlled
 interface before sampling its administrative/carrier flags. Observed admin
-DOWN, carrier loss or deletion ends the entire command with `status:blocked`,
+DOWN or carrier loss ends the entire command with `status:blocked`,
 `reason:LINK_LOST` and confirmed `port_closed:true` when cleanup succeeds.
 An earlier admission remains historical (`authenticated:true`); unused
 reauthentication cycles are discarded. A queued down/up pair still revokes
@@ -56,7 +56,9 @@ the old admission even if current flags have recovered. Link return requires
 a new explicit command and complete EAP exchange. Checks run before backend
 Success can grant admission and around the event wait (at most 100 ms per
 wait, plus scheduling/processing/cleanup); zero-latency revocation is not
-claimed. Malformed, truncated, overrun or excessive link events fail closed
+claimed. Interface deletion/replacement still requires the existing generation
+and closure checks; unconfirmed closure reports unknown. Malformed, truncated,
+overrun or excessive link events fail closed
 with an unknown outcome. If the worker is killed or cannot confirm gate
 closure, the existing finite kernel lease remains the independent bound.
 
@@ -177,8 +179,35 @@ The carrier extension adds sustained peer-down and rapid down/up fixtures
 with a 30-second lease and unused renewals: both must end before lease expiry,
 remain closed after link return and preserve the uncontrolled backend path.
 Saved recreation must start closed and recover only through a new explicit
-exchange with actual RADIUS packets and bidirectional data. Native validation
-of this extension is pending.
+exchange with actual RADIUS packets and bidirectional data.
+
+Implementation `73a3c56497d95b58dafd8998c598d8151fb0a0f7` adds
+controlled-link revocation to the existing finite wired EAP-MD5 profile.
+The live worker subscribes to pinned-namespace Linux link events before
+sampling flags, checks administrative/carrier state around its bounded wait
+and before granting backend Success, and remembers queued down/up loss.
+Observed link loss terminates the command with `blocked/LINK_LOST`, closes
+the verified gate and discards unused reauthentication cycles. Historical
+`authenticated:true` does not mean the peer remains admitted. Link return
+requires a new explicit authentication. Truncated/overrun/excessive events
+fail closed with an unknown result; runtime/interface generation and gate
+closure checks still apply. Scheduling/cleanup latency and the independent
+kernel lease after worker death remain explicit limits.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42232715325/job/127942385678)
+passed the full extended scenario in 128.714 seconds. Real supplicant/RADIUS
+admission with a 30-second lease and unused renewals was revoked after both
+sustained peer-down and rapid down/up, before lease expiry. Both returned
+LINK_LOST with one completed admission/two RADIUS requests and confirmed
+closure; neither resumed authorization on link return. The uncontrolled
+NAS/backend path survived. Saved recreation started closed; a new explicit
+exchange captured two Access-Requests and Challenge/Accept and restored
+bidirectional traffic, then Logoff closed the gate. Existing expiry, denial,
+reauthentication, worker-kill, teardown, drift and host-isolation checks passed.
+Both selected jobs passed, including general CI; 58 others were intentionally
+skipped. Local tests passed 998 cases in 30.643 seconds with 162 environment
+skips; compilation, diff and documentation-link checks passed. No failed
+native run preceded this result.
 
 References: [wpa_supplicant](https://w1.fi/wpa_supplicant/),
 [nftables timeout elements](https://wiki.nftables.org/wiki-nftables/index.php/Element_timeouts),

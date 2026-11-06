@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [wired controlled-link revocation](DOT1X_WIRED.md)
+at `73a3c56497d95b58dafd8998c598d8151fb0a0f7`. The extended
+[native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42232715325/job/127942385678)
+passed in 128.714 seconds, including sustained carrier loss, queued down/up,
+closed link return, explicit authentication recovery after cold restore and
+existing wired regression/host-isolation controls. Both selected jobs passed;
+58 were intentionally skipped. Local tests passed 998 cases in 30.643 seconds
+with 162 environment skips. No failed native run preceded this result. The
+profile remains finite single-peer EAP-MD5; planning estimates are unchanged.
+
 Corrected test commit `3a5b15a85e3a8ee051f1103ee2c4d69c8ab66b6b`
 adds native packet-loss validation without runtime or protocol scope changes.
 Lost Start ACK prevented payload execution (SSH 126) and durably queued a
@@ -224,7 +234,8 @@ These weights are assumptions for this report, not an earlier delivery contract.
 - Persistent fixed IPv4/separate static IPv6 HTTPS and Syslog TCP/TLS, explicit certificate/key/CA
   replacement, node-overlay sender queues and guarded dead-sender recovery.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
-  journal/reconciliation, finite wired EAP-MD5 admission/reauthentication.
+  journal/reconciliation, finite wired EAP-MD5 admission/reauthentication
+  with controlled-link revocation.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 

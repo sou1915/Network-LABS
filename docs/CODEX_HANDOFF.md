@@ -1,5 +1,40 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Wired 802.1X controlled-link revocation — 2026-11-06
+
+Implementation `73a3c56497d95b58dafd8998c598d8151fb0a0f7` adds
+controlled-link revocation to the existing finite wired EAP-MD5 profile.
+The live worker subscribes to pinned-namespace Linux link events before
+sampling flags, checks administrative/carrier state around its bounded wait
+and before granting backend Success, and remembers queued down/up loss.
+Observed link loss terminates the command with `blocked/LINK_LOST`, closes
+the verified gate and discards unused reauthentication cycles. Historical
+`authenticated:true` does not mean the peer remains admitted. Link return
+requires a new explicit authentication. Truncated/overrun/excessive events
+fail closed with an unknown result; runtime/interface generation and gate
+closure checks still apply. Scheduling/cleanup latency and the independent
+kernel lease after worker death remain explicit limits.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42232715325/job/127942385678)
+passed the full extended scenario in 128.714 seconds. Real supplicant/RADIUS
+admission with a 30-second lease and unused renewals was revoked after both
+sustained peer-down and rapid down/up, before lease expiry. Both returned
+LINK_LOST with one completed admission/two RADIUS requests and confirmed
+closure; neither resumed authorization on link return. The uncontrolled
+NAS/backend path survived. Saved recreation started closed; a new explicit
+exchange captured two Access-Requests and Challenge/Accept and restored
+bidirectional traffic, then Logoff closed the gate. Existing expiry, denial,
+reauthentication, worker-kill, teardown, drift and host-isolation checks passed.
+Both selected jobs passed, including general CI; 58 others were intentionally
+skipped. Local tests passed 998 cases in 30.643 seconds with 162 environment
+skips; compilation, diff and documentation-link checks passed. No failed
+native run preceded this result.
+
+See [DOT1X_WIRED.md](DOT1X_WIRED.md). Persistent authenticators/supplicants,
+stronger EAP/TLS, multi-client/dynamic VLAN/accounting and wider switching
+remain open. LAN precedes native GUI; static VXLAN and separate EVPN/BGP/WAN
+remain tracked. Planning estimates stay LAN about 80%, whole product 45–50%.
+
 ## Pinned shell accounting ACK loss — 2026-11-06
 
 Corrected test commit `3a5b15a85e3a8ee051f1103ee2c4d69c8ab66b6b`
