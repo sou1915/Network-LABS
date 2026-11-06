@@ -391,3 +391,11 @@ The dedicated wired 802.1X job passed managed-peer recovery (55.167 s) and
 independent-supplicant admission/revocation (219.122 s); 52 other profiles were
 intentionally skipped. The superseded run 42276666855 was canceled after the
 explicit desktop-entry correction, not used as final validation evidence.
+
+
+All ten selected jobs on graphical-editor source c6e3a28 passed in
+[run 42302077273](https://github.com/sou1915/Network-LABS/actions/runs/42302077273),
+including wired 802.1X and the
+[7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42302077273/job/128184138620).
+The other 52 profiles were intentionally skipped. No native runtime or safety
+assertion was weakened to support graphical editing.
