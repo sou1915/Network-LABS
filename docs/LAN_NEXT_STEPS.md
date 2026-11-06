@@ -1,26 +1,16 @@
 # LAN work order
 
-Agreed order: complete the bounded AAA, IPv6 and switching profiles, polish
-the other LAN services, then integrate the native engine into the GUI.
-WAN work remains later. Each feature needs packet/service evidence and
-failure/recovery coverage appropriate to its scope.
+Current user direction: finish the essentials quickly, defer optional detail
+and advanced extensions, then start native GUI integration. The frozen
+[LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) is now the authoritative
+first-release boundary. Do not extend that gate with new protocols or more
+micro-increments. Close its seven existing functional checks and fix only
+observed blockers. The historical roadmap below remains extension tracking,
+not an instruction to finish the whole catalogue before GUI.
 
-For the current feature inventory and explicitly approximate planning percentages,
-see [PROJECT_STATUS.md](PROJECT_STATUS.md) and [LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md).
-
-1. AAA: RADIUS-gated execution and declared per-node action policy, then
-   Interactive SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
-   and protected transports require their own implementations and validation.
-2. IPv6: the bounded SVI/subinterface, OSPFv3, relay/PD, forwarding-firewall
-   and RA Guard increments below have dedicated evidence. Remaining work is
-   broader IPv4/IPv6 and service/security coexistence, subinterface service
-   combinations and separately scoped local-input firewall behavior.
-3. Switching: physical/carrier failure coverage, remaining kernel validation,
-   broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: broader DNS/file services, service coexistence, and HTTPS/Syslog certificate lifecycle/durable retry;
-   improve diagnostics, lifecycle, save/restore and documentation.
-5. GUI: connect the native lifecycle, configuration and observations to the UI
-   after the above profiles are ready.
+Static VXLAN mapping remains after LAN/GUI; EVPN/BGP and WAN are separate
+later stages. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and
+[LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) for bounded capabilities.
 
 ## Current IPv6 sequence
 

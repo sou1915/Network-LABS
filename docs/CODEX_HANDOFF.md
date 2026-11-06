@@ -1,5 +1,20 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Current priority: close LAN core, defer extensions — 2026-11-06
+
+The user explicitly redirected work toward essentials and faster closure.
+[LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md) freezes seven existing
+functional checks as the first LAN release gate. Candidate validation is
+pending. No more protocol/AAA micro-increments are required before GUI unless
+a demonstrated core blocker needs repair. Persistent NAS/stronger EAP,
+MSTP/PVST and wider combinations stay tracked as deferred extensions.
+Run the consolidated gate with `suite=lan-readiness-retry`; it reuses the
+existing selector and retains both historical retry jobs. `lan-core-ready`
+requires all seven essential jobs to pass on one source revision. Runtime
+behavior and existing test assertions are unchanged. Static VXLAN remains
+after LAN/GUI, with EVPN/BGP/WAN separate. Older percentages below describe
+the broad catalogue; use the gate's actual check results for current closure.
+
 ## Wired 802.1X guarded in-place peer recovery — 2026-11-06
 
 Implementation `af6723cac8613278bfc921b191db58b8ac2bcd20` adds

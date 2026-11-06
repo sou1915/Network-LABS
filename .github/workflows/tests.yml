@@ -35,6 +35,46 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  lan-core-acceptance:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install core LAN packet and service prerequisites
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nftables conntrack dnsmasq-base bird2 lldpd
+      - name: Verify core routing, VLAN gateways, DHCP and DNS services, dual stack and cold restore
+        run: |
+          sudo env NETWORK_LABS_NATIVE_TESTS=1 PYTHONPATH=tests /usr/bin/python3 -m unittest -v \
+            test_native_integration.RealContainerTests.test_appliance_a_static_route_cli_return_path_longest_prefix_rollback_and_restore \
+            test_native_integration.RealContainerTests.test_appliance_l3_svis_real_gateways_intervlan_trunk_shutdown_rollback_and_restore \
+            test_native_integration.RealContainerTests.test_appliance_aa_lan_services_routed_dns_http_failures_pcap_and_restore \
+            test_native_integration.RealContainerTests.test_dns_real_udp_tcp_dhcp_resolver_http_failure_config_drift_and_restore \
+            test_native_integration.RealContainerTests.test_appliance_aj_multi_vlan_ospf_dhcp_isolation_helpers_scoped_recovery_restore \
+            test_native_integration.RealContainerTests.test_appliance_aa_dual_stack_independent_forwarding_routes_capture_and_restore
+  lan-core-ready:
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry') }}
+    needs: [lan-core-acceptance, benchmark-kernel-peak, switching-interop, ssh-access, radius-interop, dot1x-wired-interop, tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all seven essential LAN checks
+        env:
+          LAN_CORE_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCORE'
+          import json, os
+          checks = json.loads(os.environ['LAN_CORE_RESULTS'])
+          rows = [(name, item['result']) for name, item in sorted(checks.items())]
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## LAN core acceptance\n\n| Check | Result |\n| --- | --- |\n')
+              for name, result in rows:
+                  summary.write(f'| {name} | {result} |\n')
+              summary.write('\nScope: existing bounded native LAN profiles; advanced extensions remain deferred.\n')
+          failed = [name for name, result in rows if result != 'success']
+          if len(rows) != 7 or failed:
+              raise SystemExit('LAN core is blocked: ' + ', '.join(failed or ['missing checks']))
+          print('LAN_CORE_READY: all seven essential checks passed')
+          PYCORE
   ssh-shell-host-key-interop:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-radius-host-key'
     runs-on: ubuntu-24.04
@@ -50,7 +90,7 @@ jobs:
       - name: Verify pinned shell Start and Stop receipt loss, durable uncertainty and explicit recovery
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_shell_host_key_ack_loss_integration.py -v
   benchmark-kernel-peak:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'benchmark-kernel-peak'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'benchmark-kernel-peak' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -278,7 +318,7 @@ jobs:
       - name: Verify IPv6-only DNS across static tagged routing, outages, drift and restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_subinterfaces_integration.py -v
   dot1x-wired-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -625,7 +665,7 @@ jobs:
       - name: Verify real physical/SVI OSPFv3, tagged transit pruning, kernel delivery and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
   switching-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -641,7 +681,7 @@ jobs:
       - name: Verify common STP and LACP restore packet path
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_integration.py -k test_common_stp_uses -v
   ssh-access:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -650,7 +690,7 @@ jobs:
       - name: Verify server-enforced SSH actions, bypass denials and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
   radius-interop:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

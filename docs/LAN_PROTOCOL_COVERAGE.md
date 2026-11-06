@@ -7,6 +7,10 @@ desktop/vendor-style forms do not automatically configure the native fabric.
 See [project status](PROJECT_STATUS.md) for the requested planning estimates,
 validation checkpoint and priorities; estimates are not test coverage.
 
+The user has frozen [first LAN core acceptance](LAN_CORE_ACCEPTANCE.md) around
+the essential implemented references. Remaining/advanced entries in this table
+stay tracked beyond that gate; they are not all prerequisites for GUI work.
+
 Exact per-increment native commits/jobs and failed-run history remain in
 [LAN_NEXT_STEPS.md](LAN_NEXT_STEPS.md) and the linked guides. The full current
 regression audit is tracked there separately from historical targeted suites.

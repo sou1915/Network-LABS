@@ -1,10 +1,11 @@
 # Project checkpoint and planning estimate — 2026-11-06
 
-This assessment answers the user's request for what works, what remains and
-an approximate percentage. It does not declare the LAN or project complete.
-The agreed order remains bounded LAN work, native GUI integration, then the
-tracked overlay/WAN stages. No existing roadmap item is moved past that order
-by this report.
+The current user priority is a bounded first LAN release: finish essentials,
+defer advanced extensions, then integrate the native GUI. The frozen
+[LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.
+Its consolidated validation is pending. Older broad-catalogue percentages below
+are historical planning estimates, not a completion counter for this new gate.
+No protocol/security assertion is relaxed by this scope decision.
 
 Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
@@ -289,9 +290,10 @@ These weights are assumptions for this report, not an earlier delivery contract.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 
-## What remains
+## Deferred LAN extensions and next product work
 
-LAN work still includes native MSTP/PVST and broader switching/kernel fault
+The following catalogue extensions remain tracked beyond the frozen first core
+release. They do not all block native GUI integration: native MSTP/PVST and broader switching/kernel fault
 coverage; stronger EAP and persistent NAS authentication/peer recovery,
 multi-client/dynamic VLAN/accounting,
 TACACS+/protected AAA; more dynamic/IPv6/security/service combinations; broader
@@ -299,7 +301,7 @@ file/DNS service features; Syslog queue retention across lab recreation and
 broader durable delivery; and compatibility/resource acceptance. The detailed
 coverage table distinguishes implemented subsets from these remaining options.
 
-After the LAN gate, the native engine still needs complete desktop topology,
+After the seven-check LAN core gate, the native engine still needs complete desktop topology,
 configuration, observations/capture and privilege-flow integration. Existing
 educational forms are not already that integration. Manufacturer-inspired
 pages/partial CLI dialects are not full vendor firmware.
