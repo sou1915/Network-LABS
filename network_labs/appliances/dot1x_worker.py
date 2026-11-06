@@ -1,5 +1,6 @@
 """Finite EAPOL pass-through authenticator; authorization is a kernel timeout lease."""
 import json
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import time
 from .dot1x import TABLE, gate_snapshot, render
+from .dot1x_link import LinkLost, LinkMonitor
 from .radius_eap_worker import access_request, eap_packet, inner
 from .radius_worker import response_code
 
@@ -74,8 +76,9 @@ def serve(config):
     phase='initial'
     try:
         current(config);gate(config)
-        with socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(0x888e)) as raw, socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
+        with socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(0x888e)) as raw, socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp, ExitStack() as resources:
             raw.bind((config['port'],0));own=raw.getsockname()[4];peer=bytes.fromhex(config['peer_mac'].replace(':',''))
+            link=resources.enter_context(LinkMonitor(config,raw))
             udp.bind((config['source'],0));server=(config['address'],1812)
             def emit(eap):raw.send(peer+own+b'\x88\x8e'+struct.pack('!BBH',2,0,len(eap))+eap)
             identity=secrets.randbelow(256);emit(eap_packet(1,identity,b'\x01'))
@@ -84,6 +87,7 @@ def serve(config):
             publish(config,{**result,'phase':phase})
             while True:
                 current(config)
+                link.check()
                 if time.monotonic()>=deadline:
                     if phase=='authorized' and result['completed_authentications']<=config.get('reauthentications',0):
                         # Reauthentication never extends an old authorization.
@@ -99,6 +103,7 @@ def serve(config):
                     break
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
                 readable,_,_=select.select([raw,udp],[],[],min(.1,max(0,deadline-time.monotonic())))
+                link.check()  # Link revocation precedes queued EAPOL/backend success.
                 # Process EAPOL first so queued Logoff cannot be ignored at authorization.
                 if raw in readable:
                     frame=raw.recv(1101);message=envelope(frame,peer,own)
@@ -139,11 +144,13 @@ def serve(config):
                             if code!=11 or len(eap)<22 or eap[0]!=1 or eap[4:6]!=b'\x04\x10' or new_state is None:raise ValueError('Verified MD5 challenge required')
                             state=new_state;identity=eap[1];emit(eap);phase='md5'
                         elif code==2 and eap==eap_packet(3,identity) and new_state is None:
-                            current(config);gate(config,True);emit(eap);phase='authorized';result['authenticated']=True
+                            current(config);link.check();gate(config,True);emit(eap);phase='authorized';result['authenticated']=True
                             bound_username=username;result['completed_authentications']+=1
                             deadline=time.monotonic()+config['seconds'];publish(config,{**result,'phase':phase})
                         else:raise ValueError('Verified EAP success required')
                 if result['discarded']>=64:result['reason']='PACKET_LIMIT';break
+    except LinkLost:
+        result.update(status='blocked',reason='LINK_LOST')
     except (OSError,ValueError,KeyError,UnicodeError,subprocess.SubprocessError) as error:
         result.update(status='unknown',reason='PROTOCOL_OR_GATE_UNCONFIRMED',last_stage=phase,error_type=type(error).__name__)
         if isinstance(error,subprocess.CalledProcessError):

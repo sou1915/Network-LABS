@@ -46,6 +46,20 @@ seconds, and then is blocked without worker cleanup. Immediate SIGKILL
 revocation is not claimed. By default a new explicit command is required for
 a new window. Optional finite reauthentication is described below.
 
+The live worker also subscribes to Linux link events for the pinned controlled
+interface before sampling its administrative/carrier flags. Observed admin
+DOWN, carrier loss or deletion ends the entire command with `status:blocked`,
+`reason:LINK_LOST` and confirmed `port_closed:true` when cleanup succeeds.
+An earlier admission remains historical (`authenticated:true`); unused
+reauthentication cycles are discarded. A queued down/up pair still revokes
+the old admission even if current flags have recovered. Link return requires
+a new explicit command and complete EAP exchange. Checks run before backend
+Success can grant admission and around the event wait (at most 100 ms per
+wait, plus scheduling/processing/cleanup); zero-latency revocation is not
+claimed. Malformed, truncated, overrun or excessive link events fail closed
+with an unknown outcome. If the worker is killed or cannot confirm gate
+closure, the existing finite kernel lease remains the independent bound.
+
 A passed result means a verified admission occurred and final closure was
 confirmed; it does not certify application traffic or a zero-loss interval.
 `inspect` exposes gate conformity and actual kernel admission separately.
@@ -158,6 +172,13 @@ cover bounded reauthentication, fresh State, identity pinning, replayed
 identities, queued Logoff before backend Success, runtime and
 namespace/interface generation refusal, and unconfirmed SIGKILL cleanup. Exact
 validation evidence and limits are recorded in LAN_NEXT_STEPS.md.
+
+The carrier extension adds sustained peer-down and rapid down/up fixtures
+with a 30-second lease and unused renewals: both must end before lease expiry,
+remain closed after link return and preserve the uncontrolled backend path.
+Saved recreation must start closed and recover only through a new explicit
+exchange with actual RADIUS packets and bidirectional data. Native validation
+of this extension is pending.
 
 References: [wpa_supplicant](https://w1.fi/wpa_supplicant/),
 [nftables timeout elements](https://wiki.nftables.org/wiki-nftables/index.php/Element_timeouts),

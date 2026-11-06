@@ -68,7 +68,7 @@ class Dot1xTests(unittest.TestCase):
         challenge=struct.pack('!BBH',1,8,22)+b'\x04\x10'+bytes(16)
         ready=lambda *s:(list(s),[],[])
         config=dict(port='eth0',peer_mac='02:00:00:00:01:10',source='192.0.2.1',address='192.0.2.20',users=['learner'],timeout=5,seconds=5,secret='test')
-        with patch('network_labs.appliances.dot1x_worker.current'),patch('network_labs.appliances.dot1x_worker.publish'),patch('network_labs.appliances.dot1x_worker.gate') as gate,patch('socket.socket',side_effect=[raw,udp]),patch('secrets.randbelow',return_value=7),patch('select.select',side_effect=[ready(raw),ready(raw),ready(udp),ready(),ready(raw),ready(udp),ready(raw),ready(raw,udp)]),patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09'),patch('network_labs.appliances.dot1x_worker.response_code',return_value=11),patch('network_labs.appliances.dot1x_worker.inner',return_value=(challenge,b'opaque-state')):
+        with patch('network_labs.appliances.dot1x_worker.LinkMonitor'),patch('network_labs.appliances.dot1x_worker.current'),patch('network_labs.appliances.dot1x_worker.publish'),patch('network_labs.appliances.dot1x_worker.gate') as gate,patch('socket.socket',side_effect=[raw,udp]),patch('secrets.randbelow',return_value=7),patch('select.select',side_effect=[ready(raw),ready(raw),ready(udp),ready(),ready(raw),ready(udp),ready(raw),ready(raw,udp)]),patch('network_labs.appliances.dot1x_worker.access_request',return_value=b'\x01\x09'),patch('network_labs.appliances.dot1x_worker.response_code',return_value=11),patch('network_labs.appliances.dot1x_worker.inner',return_value=(challenge,b'opaque-state')):
             result=serve(config)
         self.assertEqual(result['reason'],'LOGOFF');self.assertEqual(result['status'],'blocked')
         self.assertFalse(result['authenticated']);self.assertTrue(result['port_closed'])
@@ -98,7 +98,7 @@ class Dot1xTests(unittest.TestCase):
                     if index%2==0:self.assertEqual(len(call.args),2,'Fresh exchange must not reuse old State')
                     else:self.assertEqual(call.args[2],b'state-'+bytes([index//2]))
 
-    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False,rejected=False):
+    def simulated_cycles(self,renewals,*,outage=False,changed_identity=False,rejected=False,link_loss=None):
         raw=Mock();udp=Mock()
         for sock in (raw,udp):
             sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
@@ -127,6 +127,7 @@ class Dot1xTests(unittest.TestCase):
         config=dict(port='eth0',peer_mac='02:00:00:00:01:10',source='192.0.2.1',address='192.0.2.20',users=['learner','other'],timeout=1,seconds=1,secret='test',reauthentications=renewals)
         transitions=[]
         with (
+            patch('network_labs.appliances.dot1x_worker.LinkMonitor') as monitor,
             patch('network_labs.appliances.dot1x_worker.current'),
             patch('network_labs.appliances.dot1x_worker.publish'),
             patch('network_labs.appliances.dot1x_worker.gate',side_effect=lambda config,admit=False:transitions.append(admit)),
@@ -138,6 +139,9 @@ class Dot1xTests(unittest.TestCase):
             patch('network_labs.appliances.dot1x_worker.response_code',side_effect=lambda packet,*_:{b'challenge':11,b'success':2,b'reject':3}[packet]),
             patch('network_labs.appliances.dot1x_worker.inner',side_effect=responses),
         ):
+            if link_loss is not None:
+                from network_labs.appliances.dot1x_link import LinkLost
+                monitor.return_value.__enter__.return_value.check.side_effect=[None]*(link_loss-1)+[LinkLost()]
             result=serve(config)
         return result,transitions,requests.call_args_list
 
@@ -146,6 +150,15 @@ class Dot1xTests(unittest.TestCase):
         self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'AUTH_TIMEOUT')
         self.assertEqual(result['completed_authentications'],1);self.assertTrue(result['port_closed'])
         self.assertEqual(transitions,[False,True,False,False])
+
+    def test_carrier_loss_before_success_or_during_admission_ends_all_renewals_closed(self):
+        for boundary,authenticated,requests in ((9,False,2),(10,True,2)):
+            with self.subTest(boundary=boundary):
+                result,transitions,calls=self.simulated_cycles(3,link_loss=boundary)
+                self.assertEqual(result['status'],'blocked',result);self.assertEqual(result['reason'],'LINK_LOST')
+                self.assertEqual(result['authenticated'],authenticated);self.assertTrue(result['port_closed'])
+                self.assertEqual(result['radius_requests'],requests);self.assertEqual(len(calls),requests)
+                self.assertEqual(transitions,[False,True,False] if authenticated else [False,False])
 
     def test_verified_reauthentication_reject_never_reopens_the_port(self):
         result,transitions,_=self.simulated_cycles(1,rejected=True)

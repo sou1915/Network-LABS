@@ -241,6 +241,42 @@ class NativeDot1xTests(unittest.TestCase):
                 self.assertFalse(Manager(spec['name']).read().get('dot1x_workers'))
                 # Observe beyond a further exchange deadline as well.
                 close_check();stop_peer()
+                # Carrier loss revokes the old grant, including a queued down/up
+                # pair. Link return cannot spend the remaining renewal budget.
+                carrier_spec=json.loads(json.dumps(saved))
+                carrier_spec['nodes'][1]['dot1x'].update(seconds=30,reauthentications=3)
+                with manager.locked():manager.stop();manager.start(carrier_spec)
+                for flap in (False,True):
+                    start_peer();future=session();admitted(future);delivered()
+                    lost=time.monotonic()
+                    if flap:
+                        manager.ns(0,'ip','-batch','-',input_text='link set dev eth0 down\nlink set dev eth0 up\n')
+                    else:manager.ns(0,'ip','link','set','dev','eth0','down')
+                    result=future.result(timeout=5)
+                    self.assertLess(time.monotonic()-lost,6,'Revocation must precede the 30-second lease expiry')
+                    self.assertEqual(result['status'],'blocked',result);self.assertEqual(result['reason'],'LINK_LOST')
+                    self.assertTrue(result['authenticated']);self.assertTrue(result['port_closed'])
+                    self.assertEqual(result['completed_authentications'],1);self.assertEqual(result['radius_requests'],2)
+                    if not flap:manager.ns(0,'ip','link','set','dev','eth0','up')
+                    stop_peer();close_check()
+                    self.assertFalse(Manager(spec['name']).read().get('dot1x_workers'))
+                    self.assertEqual(ping('SW1'),0,'Uncontrolled backend path must survive peer carrier loss')
+                # Save/restore remains closed; a new explicit authentication
+                # with two captured Access-Requests is required to recover.
+                with manager.locked():
+                    manager.write_startup();carrier_saved=load_startup(spec['name']);manager.stop();manager.start(carrier_saved)
+                close_check();start_peer()
+                event=threading.Event();recovery_wire=root/'carrier-recovery-radius.pcap'
+                cap=pool.submit(capture,Manager(spec['name']),'SW1','eth1',recovery_wire,seconds=4,packets=100,expression='udp port 1812',ready=event.set)
+                self.assertTrue(event.wait(5));future=session();admitted(future);delivered();delivered('PC2','192.0.2.10')
+                logoff=manager.ns(0,'wpa_cli','-p',str(ctrl),'-i','eth0','logoff',check=False,timeout=3)
+                self.assertIn('OK',logoff.stdout);result=future.result(timeout=6)
+                self.assertEqual(result['status'],'passed',result);self.assertEqual(result['reason'],'LOGOFF')
+                self.assertEqual(result['completed_authentications'],1);self.assertEqual(result['radius_requests'],2)
+                cap.result(timeout=6);stop_peer();close_check()
+                packets=radius_packets(recovery_wire.read_bytes())
+                self.assertEqual(len([p for _,dst,p in packets if dst==1812]),2)
+                self.assertEqual([p[0] for src,_,p in packets if src==1812],[11,2])
                 manager.ns(1,'nft','add','rule','bridge',TABLE,'ingress','counter','accept')
                 with manager.locked(),self.assertRaises(RuntimeFailure):manager.write_startup()
                 with self.assertRaises(RuntimeFailure):authenticate(Manager(spec['name']),'SW1')
