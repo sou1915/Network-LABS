@@ -3,8 +3,9 @@
 The current user priority is a bounded first LAN release: finish essentials,
 defer advanced extensions, then integrate the native GUI. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.
-Its consolidated validation is pending. Older broad-catalogue percentages below
-are historical planning estimates, not a completion counter for this new gate.
+It is accepted: **7/7 essential checks passed** on one source revision. Native
+GUI integration is now the next phase. Older broad-catalogue percentages below
+are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
 
 Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
@@ -12,6 +13,17 @@ claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
 ## Validation checkpoint
+
+The [LAN core aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
+passed at `16bce142fe312dc654ee404d726971cf825f2935`: six core native
+packet/service scenarios (166.885 s), switching, restricted SSH, RADIUS/shell/
+accounting, finite wired/managed peer, 20-node headless reference and general
+regression all passed. General CI ran 1024 cases in 48.339 seconds with 115
+skips and passed executable guest smoke. All ten selected jobs passed; 52
+other profiles were intentionally skipped. No runtime behavior/assertions
+changed. See [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md) for limits and
+deferred extensions. This closes the first core LAN gate and enables GUI work;
+it does not declare the broad catalogue or entire product complete.
 
 The latest bounded increment adds [explicit in-place wired peer recovery](DOT1X_MANAGED_PEER.md)
 at `af6723cac8613278bfc921b191db58b8ac2bcd20`. The

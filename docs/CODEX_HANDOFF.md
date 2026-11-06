@@ -1,19 +1,27 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
-## Current priority: close LAN core, defer extensions — 2026-11-06
+## Current priority: LAN core accepted; proceed to native GUI — 2026-11-06
 
-The user explicitly redirected work toward essentials and faster closure.
-[LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md) freezes seven existing
-functional checks as the first LAN release gate. Candidate validation is
-pending. No more protocol/AAA micro-increments are required before GUI unless
-a demonstrated core blocker needs repair. Persistent NAS/stronger EAP,
-MSTP/PVST and wider combinations stay tracked as deferred extensions.
-Run the consolidated gate with `suite=lan-readiness-retry`; it reuses the
-existing selector and retains both historical retry jobs. `lan-core-ready`
-requires all seven essential jobs to pass on one source revision. Runtime
-behavior and existing test assertions are unchanged. Static VXLAN remains
-after LAN/GUI, with EVPN/BGP/WAN separate. Older percentages below describe
-the broad catalogue; use the gate's actual check results for current closure.
+The user explicitly prioritised essentials and deferred optional/advanced LAN
+extensions. The frozen [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md) gate
+is now **closed: 7/7 essential checks passed** at
+`16bce142fe312dc654ee404d726971cf825f2935` in
+[run 42262198799](https://github.com/sou1915/Network-LABS/actions/runs/42262198799).
+`lan-core-ready` reported all seven successful dependencies. All ten selected
+jobs passed (including two retained historical retries); 52 were intentionally
+skipped. Six core native packet scenarios passed in 166.885 seconds, and the
+existing access/wired/switching/resource/general checks also passed. Runtime
+behavior and test assertions were unchanged. Exact evidence is in the gate guide.
+
+**Next: native GUI integration, not more LAN micro-increments.** Start from the
+existing unprivileged [native workbench](../network_labs/appliances/ui.py) and
+connect native topology/configuration, lifecycle/status and observations into
+a useful end-to-end GUI flow. Preserve the privilege boundary and actual
+backend results. Existing educational/Wasm forms are separate engines.
+Persistent NAS/stronger EAP, MSTP/PVST and wider combinations remain deferred
+extensions, not GUI blockers. Static VXLAN remains after LAN/GUI; EVPN/BGP/WAN
+stay separate. The historical broad 80% estimate below is not the new gate's
+completion counter. Do not expand the frozen LAN gate without user direction.
 
 ## Wired 802.1X guarded in-place peer recovery — 2026-11-06
 

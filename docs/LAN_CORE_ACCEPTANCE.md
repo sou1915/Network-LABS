@@ -64,9 +64,34 @@ After the core gate closes, implement the native GUI lifecycle/configuration/
 observations flow. Keep static VXLAN VTEP/VNI/VLAN mapping after LAN/GUI;
 EVPN/BGP and WAN/VPN remain separate later stages.
 
-## Candidate status
+## Acceptance result — core gate closed
 
-Native acceptance is pending. The old broad-catalogue estimate (about 80%)
-and whole-product estimate (45–50%) are historical planning estimates, not a
-percentage for this frozen gate. Report the seven actual check results and
-remaining demonstrated blockers instead of inventing a new percentage.
+**LAN core is accepted for native GUI integration: 7/7 essential checks passed**
+at `16bce142fe312dc654ee404d726971cf825f2935` in
+[run 42262198799](https://github.com/sou1915/Network-LABS/actions/runs/42262198799).
+The [aggregate gate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
+reported `LAN_CORE_READY: all seven essential checks passed`.
+
+| Essential check | Passing evidence |
+| --- | --- |
+| Core packet/service integration | [Six native scenarios, 166.885 s](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044774347) |
+| Switching | [Trunk 24.700 s; common STP/LACP 163.781 s](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044776177) |
+| Restricted SSH | [Passed](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044776472) |
+| RADIUS/SSH shell/accounting | [Passed](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044776362) |
+| Wired admission/managed peer | [Managed peer/recovery 55.518 s; authenticator 198.144 s](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044776250) |
+| 20-node headless reference | [Kernel peak cases 29.007 s; enterprise HTTP/NAT/restore 19.455 s](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044774774) |
+| General regression | [1024 cases in 48.339 s, 115 environment/opt-in skips; executable guest smoke passed](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128044776615) |
+
+All ten selected jobs passed, including the summary and two retained historical
+retry jobs. The other 52 profiles were intentionally skipped, not rerun or
+counted as fresh native evidence. No failed native attempt preceded this
+consolidated acceptance. Workflow YAML/dependencies/scenario names, local
+all-success versus skipped-required gate behavior and documentation links were
+checked. Runtime behavior and test assertions were unchanged.
+
+The first LAN release boundary is now closed. Next work is native GUI
+integration; deferred extensions above must not be added back as prerequisites
+without an explicit scope change. The old broad-catalogue estimate (about 80%)
+and whole-product estimate (45–50%) remain historical planning estimates, not a
+percentage for this gate. This closure does not claim the entire LAN catalogue,
+enterprise NAC, all combinations or whole-product/laptop RAM certification.

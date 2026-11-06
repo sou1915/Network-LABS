@@ -4,13 +4,27 @@ Current user direction: finish the essentials quickly, defer optional detail
 and advanced extensions, then start native GUI integration. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) is now the authoritative
 first-release boundary. Do not extend that gate with new protocols or more
-micro-increments. Close its seven existing functional checks and fix only
-observed blockers. The historical roadmap below remains extension tracking,
+micro-increments. Its seven existing functional checks are now passed on the same revision;
+fix only observed regressions in this scope. The historical roadmap below remains extension tracking,
 not an instruction to finish the whole catalogue before GUI.
 
 Static VXLAN mapping remains after LAN/GUI; EVPN/BGP and WAN are separate
 later stages. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and
 [LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) for bounded capabilities.
+
+## Core closure and next phase — 2026-11-06
+
+The [consolidated gate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
+passed **7/7 essentials** at `16bce142fe312dc654ee404d726971cf825f2935`.
+All ten selected jobs passed; 52 were intentionally skipped. The six existing
+core packet scenarios passed in 166.885 seconds, alongside switching,
+SSH/RADIUS, wired admission/managed peer, 20-node headless reference and
+general regression. See [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md)
+for per-job evidence and exact limits. No runtime/test assertions were relaxed.
+
+Proceed to native GUI integration. Do not resume advanced LAN implementation
+or small validation refinements as prerequisites. Keep the remaining catalogue
+tracked for later and repair only demonstrated core regressions.
 
 ## Current IPv6 sequence
 
