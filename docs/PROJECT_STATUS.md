@@ -6,8 +6,8 @@ defer advanced extensions, then integrate the native GUI. The frozen
 It is accepted: **7/7 essential checks passed** on one source revision. Native
 GUI integration is in progress: the first native lifecycle/observation/traffic
 flow and basic graphical topology editing are verified. Work continues
-toward the actual user-supplied mockup, with device forms, photos, VLAN visual
-groups, interactive consoles and packet views still pending.
+toward the actual user-supplied mockup, with basic native device forms now implemented; photos, VLAN visual
+groups, richer forms, interactive consoles and packet views remain pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
@@ -15,6 +15,16 @@ No protocol/security assertion is relaxed by this scope decision.
 Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
+
+## Basic device form increment
+
+A right-hand Configuration tab now edits generic OCI names, physical-port
+IPv4, node-wide gateway and admin state through validated offline drafts.
+Stale forms refuse Apply; renames with advanced references/scripts require
+JSON instead of guessed rewrites. The native GUI scenario uses the form to
+rename/address CLIENT3, observes its real default route and probes the new IP.
+This is a generic project form; vendor firmware views and advanced forms are
+not complete. See NATIVE_GUI_FLOW.md for current evidence and screenshot.
 
 ## Graphical topology editor
 

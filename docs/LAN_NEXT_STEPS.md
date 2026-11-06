@@ -13,7 +13,8 @@ later stages. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and
 [LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) for bounded capabilities.
 
 The native GUI now also supports basic validated topology creation/cabling,
-removal and session-only movement. Continue supported per-device forms and the
+removal and session-only movement. Basic OCI identity/IPv4/gateway/admin forms are also now implemented. Continue
+richer supported forms and the
 actual [user-supplied visual target](images/agreed-gui-reference.jpg), not more
 advanced LAN prerequisites. See NATIVE_GUI_FLOW.md for edited-topology proof.
 

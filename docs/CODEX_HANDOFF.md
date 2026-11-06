@@ -21,6 +21,38 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
+## Basic native device forms
+
+Source `13b6dcf2342afa79bcc042869997cd8a6f0aff29` adds a right-hand
+Configuration tab beside État / test: OCI name, selected physical port IPv4,
+node-wide gateway and port enabled state. Whole-draft snapshot checking
+prevents stale forms from overwriting concurrent edits. All changes are atomic
+validated drafts, applied to the runtime only after save/stop/start. Basic
+renames update cable endpoints and session positions; structured references,
+scripts/custom commands conservatively require explicit JSON rename. Switch
+physical IP/gateway, DHCP-controlled addresses and Firecracker are read-only
+in this basic form. See NATIVE_GUI_FLOW.md for full boundaries. Next work is
+the remaining actual reference layout: images/VLAN visual groups, richer
+supported device forms, interactive native consoles and packet views. Keep
+LAN core frozen and VXLAN tracked. Never route native actions to model CLI.
+
+
+
+At source `13b6dcf2342afa79bcc042869997cd8a6f0aff29`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42303521155/job/128187034367)
+passed 1042 regression cases in 47.928 s (116 environment/opt-in skips) and the
+separate real device-form scenario in 4.505 s. The form renamed PC3 to CLIENT3,
+updated its IPv4 to 192.0.2.33/24 and gateway to 192.0.2.20 before native
+save/start. Kernel inspection asserted the actual default route via .20;
+bidirectional PC1 ↔ CLIENT3 probes used the new .33 address and passed.
+All five OCI nodes and four links were stopped without callback or host-network
+leaks. GUI/result ownership remained UID 1001 and root-state access was denied.
+The current screenshot/report/provenance correspond to artifact 13545820693,
+with original ZIP and per-file SHA-256 verification. Local regression passed
+1042 cases in 30.466 s (170 environment skips, including display-dependent
+cases); Tk and real native execution were verified in CI. No failed native
+run preceded this increment.
+
 ## Graphical topology editor
 
 Latest source `c6e3a282dddc7990582fd0b3797aa7b3a626076f` adds generic OCI

@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13544318464, source commit and run/job, with the verified original ZIP
+artifact 13545820693, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -249,3 +249,51 @@ including wired 802.1X and the
 [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42302077273/job/128184138620).
 The other 52 profiles were intentionally skipped. No native runtime or safety
 assertion was weakened to support graphical editing.
+
+## Basic device configuration
+
+The right device pane now has **État / test** and **Configuration** tabs.
+Choose an OCI device, then edit its name, one physical port's IPv4/CIDR,
+node-wide IPv4 gateway and enabled state. Apply commits a validated draft;
+save and stop/start are still required to change the running network. This
+is a generic native project form, not a vendor firmware GUI. It edits one
+selected port per application; selecting another port reloads that port's
+saved values. **Recharger le formulaire** discards unapplied form fields.
+
+Switch physical addresses and gateway are read-only here (SVI configuration
+remains JSON). DHCP-managed port addresses are read-only; DHCP is not switched
+to static implicitly. Firecracker remains read-only in this basic form. Other
+configuration is retained and checked by the existing native validator.
+
+A basic rename updates cable endpoints and retains the session position.
+Exact structured references, startup scripts or custom commands make renaming
+conservative: use explicit JSON editing for such projects rather than guessing
+how to rewrite advanced references. Invalid addressing, duplicate names,
+unknown ports or unsupported combinations commit no part of the change.
+
+The form snapshots the whole canonical draft when loaded. If another action
+changes any project configuration, the old form refuses Apply and asks for
+reload; this also catches changes invisible in the public topology such as
+memory settings. Pending native operations refuse Apply. Form drafts do not
+replace observed kernel state and do not imply successful network traffic.
+
+The real native GUI scenario now uses this form to rename PC3 to CLIENT3,
+change its address to 192.0.2.33/24 and set gateway 192.0.2.20 before save/start.
+It then inspects the actual default route and verifies PC1 ↔ CLIENT3 using the
+new IPv4 address. The screenshot selects the new Configuration tab.
+
+
+At source `13b6dcf2342afa79bcc042869997cd8a6f0aff29`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42303521155/job/128187034367)
+passed 1042 regression cases in 47.928 s (116 environment/opt-in skips) and the
+separate real device-form scenario in 4.505 s. The form renamed PC3 to CLIENT3,
+updated its IPv4 to 192.0.2.33/24 and gateway to 192.0.2.20 before native
+save/start. Kernel inspection asserted the actual default route via .20;
+bidirectional PC1 ↔ CLIENT3 probes used the new .33 address and passed.
+All five OCI nodes and four links were stopped without callback or host-network
+leaks. GUI/result ownership remained UID 1001 and root-state access was denied.
+The current screenshot/report/provenance correspond to artifact 13545820693,
+with original ZIP and per-file SHA-256 verification. Local regression passed
+1042 cases in 30.466 s (170 environment skips, including display-dependent
+cases); Tk and real native execution were verified in CI. No failed native
+run preceded this increment.

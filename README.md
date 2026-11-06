@@ -43,6 +43,8 @@ topologie au centre et inspecteur à droite, selon la disposition existante.
 Création de postes/switches/routeurs OCI, câblage par ports libres ou nouveaux,
 suppression et déplacement sont disponibles pour le brouillon. Enregistrer puis
 arrêter/redémarrer applique la topologie ; les positions restent en session.
+L’onglet Configuration du panneau équipement permet le nom, IPv4/passerelle et
+l’état d’un port OCI ; les modifications sont validées avant application au brouillon.
 Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
 dépendances et plan mémoire restent accessibles par onglets. Le bouton de
 retour restaure le projet pédagogique. Le laboratoire natif garde son propre
