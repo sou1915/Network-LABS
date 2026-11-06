@@ -1,4 +1,4 @@
-# Project checkpoint and planning estimate — 2026-11-05
+# Project checkpoint and planning estimate — 2026-11-06
 
 This assessment answers the user's request for what works, what remains and
 an approximate percentage. It does not declare the LAN or project complete.
@@ -11,6 +11,16 @@ claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
 ## Validation checkpoint
+
+The latest bounded increment adds a [pinned IPv4 journaled SSH shell](SSH_SHELL_HOST_IDENTITY.md)
+at `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`, requiring accounting,
+durable Stop outbox and session journal. Its native scenario passed in
+10.636 seconds in [run 42173268692](https://github.com/sou1915/Network-LABS/actions/runs/42173268692),
+including orphan cleanup/Stop delivery and unchanged host trust through cold
+restore. All six selected jobs passed; 54 others were intentionally skipped.
+Local tests passed
+989 cases in 31.490 seconds with 160 environment skips. Wider AAA/LAN
+acceptance scope remains open; planning estimates are unchanged.
 
 The latest acceptance increment adds [kernel cgroup memory peaks](BENCHMARK_KERNEL_PEAK.md)
 at `1ad4241d651fa3ebf6e70d3b10017aa028100712`. In

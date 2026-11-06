@@ -2172,3 +2172,37 @@ before native GUI; static VXLAN mapping and separate EVPN/BGP/WAN stay tracked.
 Planning estimates stay LAN about 80%, whole product about 45–50%.
 
 Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=benchmark-kernel-peak`.
+
+## Pinned IPv4 SSH shell with full journaled accounting — 2026-11-06
+
+At implementation commit `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`,
+the explicit host identity is permitted with an IPv4 RADIUS SSH shell only
+when accounting, durable Stop outbox and session journal are all enabled.
+The CLI requires the complete lifecycle explicitly. Diagnostics-only profiles
+still refuse unselected shell grants/accounting. IPv6 pinned shells, partial
+lifecycles, Telnet, syslog and NAS service co-location remain refused.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)
+passed in 10.636 seconds. It reuses the real journaled SSH shell reference
+with pre-provisioned strict known_hosts and no keyscan. Wrong-host trust
+failed without a second intent; an authenticated shell left a live payload
+after supervisor SIGKILL. Live-owner and populated-session cleanup refused.
+Explicit reconciliation terminated the payload and durably queued Stop
+without sending network traffic. A bounded explicit flush sent one observed
+Stop with the expected session/status/cause and real backend records.
+Restarts preserved host trust but created fresh bridge tokens; stale-runtime
+reconciliation still refused. Healthy completion followed Stop acknowledgement.
+Host namespace/link/IPv4/IPv6 route/rule invariants passed. Native grants are
+direct-user; wider role/topology combinations remain unproven.
+
+The suite reuses `ssh-radius-host-key`, now selecting new pinned shell,
+old unpinned journal, pinned diagnostics, standalone pinned SSH, RADIUS/SSH
+and general CI. All six selected jobs passed in run 42173268692; 54 other
+jobs were intentionally skipped, not new native evidence.
+Local full tests under umask 022 passed 989 cases in 31.490 seconds with
+160 environment skips; compilation/diff checks passed. No failed native run
+preceded this result. See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md).
+Remaining LAN precedes GUI; static VXLAN mapping and separate EVPN/BGP/WAN
+stay tracked. Estimates remain LAN about 80%, whole product about 45–50%.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.

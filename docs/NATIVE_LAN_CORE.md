@@ -4126,8 +4126,9 @@ save/restore; recreated nodes have fresh host keys. Verify a recreated node's
 new key before updating the dedicated known-hosts file; host checking is not
 silently disabled by the application.
 An optional [explicit offline SSH host identity](SSH_HOST_IDENTITY.md) instead
-keeps the declared public identity through cold restore for standalone
-restricted IPv4 SSH. It references a separately retained mode-0600 private
+keeps the declared public identity through cold restore for its documented
+restricted SSH profiles, including a separately scoped
+[journaled IPv4 RADIUS shell](SSH_SHELL_HOST_IDENTITY.md). It references a separately retained mode-0600 private
 asset; the startup JSON does not contain or back up that key.
 
 Telnet binds the same node address on TCP/23 and invokes real `/bin/login`.

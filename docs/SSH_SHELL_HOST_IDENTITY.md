@@ -55,8 +55,16 @@ pre-provisioned known_hosts, use a fresh bridge token, reject stale-runtime
 reconciliation and complete a healthy shell with Stop acknowledgement.
 Host namespace/link/IPv4/IPv6 route/rule invariants are checked.
 
-Native validation is pending for this implementation checkpoint. The existing
-manual selector is reused without adding a 26th choice:
+At implementation commit `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`,
+the [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)
+passed in 10.636 seconds. All six selected jobs passed: pinned shell, old SSH
+journal, pinned diagnostics, standalone pinned SSH, RADIUS/SSH and general CI.
+The other 54 jobs were intentionally skipped, not new native evidence.
+Local full tests under umask 022 passed 989 cases in 31.490 seconds with
+160 environment-dependent skips; compilation/diff checks passed. No failed
+native run preceded this result.
+
+The existing manual selector is reused without adding a 26th choice:
 `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
 It selects the new pinned journaled shell, the existing unpinned SSH journal,
 pinned diagnostics, standalone pinned SSH, RADIUS/SSH and general CI.

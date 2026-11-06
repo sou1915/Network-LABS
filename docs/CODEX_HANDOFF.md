@@ -1,5 +1,37 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Latest LAN increment: pinned IPv4 journaled SSH shell — 2026-11-06
+
+Implementation `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9` permits the
+explicit SSH host identity with an IPv4 RADIUS shell only when accounting,
+durable Stop outbox and session journal are all selected. Generator flags
+are `--radius --radius-ssh --radius-ssh-shell --radius-accounting
+--radius-accounting-outbox --radius-accounting-journal --ssh-host-key-file`.
+Client-key/RADIUS/action/Start gates remain unchanged. Diagnostics cannot
+silently acquire shell grants; partial accounting, IPv6 pinned shells,
+Telnet/syslog and NAS managed-server co-location remain refused. The suite
+reuses `ssh-radius-host-key`; selector choices stay at 25.
+See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md).
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)
+passed in 10.636 seconds. The real SSH journal reference ran with pinned,
+pre-provisioned strict known_hosts and no keyscan. Wrong host trust created
+no additional session intent. Live-owner cleanup refusal, supervisor SIGKILL
+with orphan payload, nonempty-session refusal, explicit termination, durable
+Stop handoff without network delivery, one explicit Stop transmission with
+backend records, stale-runtime cleanup refusal and healthy acknowledged
+completion passed. Cold restore kept the exact trust file and used a fresh
+bridge token. Host namespace/link/IPv4/IPv6 route/rule invariants passed.
+Native grants are direct-user; not every role/topology combination is claimed.
+
+All six selected jobs passed in run 42173268692: pinned shell, old SSH
+journal, pinned diagnostics, standalone pinned SSH, RADIUS/SSH and general CI.
+The other 54 jobs were intentionally skipped. Local full tests under
+umask 022 passed 989 cases in 31.490 seconds with 160 environment skips;
+compilation/diff checks passed. No native failure preceded this result.
+Continue LAN before native GUI; static VXLAN and separate EVPN/BGP/WAN
+remain tracked. Estimates stay LAN about 80%, whole product about 45–50%.
+
 ## Latest LAN acceptance measurement: kernel memory peak — 2026-11-05
 
 Implementation `1ad4241d651fa3ebf6e70d3b10017aa028100712` adds benchmark
