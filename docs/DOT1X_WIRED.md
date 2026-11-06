@@ -134,8 +134,8 @@ to an earlier success when RADIUS is unavailable. The final result reports
 `server_termination_action` (0 by default). Explicit 0 retains termination;
 action 1 without Session-Timeout, values other than 0/1, and malformed or
 duplicate action attributes are refused before admission. The managed server
-configuration accepts an explicit action only alongside the duration. Native
-evidence for this bounded server-requested renewal extension is pending.
+configuration accepts an explicit action only alongside the duration. The
+native evidence for bounded server-requested renewal is recorded below.
 
 This setting is EAP-only; PAP user configuration rejects it. The standalone
 EAP diagnostic still reports authentication rather than opening any port or
@@ -149,6 +149,38 @@ writer are not certified by this observation. The managed admission command
 uses explicit integer-second kernel timeouts. See the
 [JSON schema](https://manpages.debian.org/bookworm/libnftables1/libnftables-json.5.en.html)
 and [RADIUS Session-Timeout](https://www.rfc-editor.org/rfc/rfc2865#section-5.27).
+
+## Server-requested renewal validation — 2026-11-06
+
+Implementation `9329910fd9fd4b61a4c6ad8ab4e6f01d0aa9e9aa` adds
+verified Termination-Action=RADIUS-Request (1) to the finite wired EAP-MD5
+profile. EAP-enabled backend users may declare `termination_action` 0/1
+alongside required `session_timeout`. Action 1 permits fresh authentication
+after the effective lease expires, within the existing local 0..3 renewal
+budget only. Each old gate closes before a fresh EAP exchange; request/State
+and per-exchange policy reset, with identity pinned. Action 0/default keeps
+one admission when Session-Timeout is present. Missing duration with action 1,
+unsupported values and malformed/duplicate policy attributes refuse admission.
+The result also reports `server_termination_action`; there is no grace lease,
+implicit worker restart or fallback to a previous success.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42243831204/job/127980741652)
+passed the full extended scenario in 196.309 seconds. Real wpa_supplicant and
+FreeRADIUS produced two MD5/Success cycles and exactly four Access-Requests
+with four distinct request authenticators and two fresh State values. Both
+Accepts carried Session-Timeout 3 and Termination-Action 1 under a 30-second
+NAS ceiling and local budget 1. Second-lease bidirectional data worked; budget
+exhaustion completed closed after two admissions. Backend loss after the first
+grant returned unknown/AUTH_TIMEOUT with one admission, three requests,
+historical authenticated=true and confirmed closure. Saved recreation started
+closed, retained both policy fields/budget and completed two healthy admissions
+with four requests. Previous duration/SIGKILL/carrier/denial/reauthentication/
+drift/teardown controls and host namespace/link/IPv4/IPv6 route/rule invariants
+passed. Both selected jobs passed; 58 others were intentionally skipped.
+Local full tests passed 1006 cases in 30.862 seconds with 162 environment
+skips; compile/diff/link checks passed. Unit coverage includes budgets 0/1/3,
+fresh State/closed transitions, backend outage/rejection and identity changes.
+No failed native run preceded this increment.
 
 ## Backend duration validation — 2026-11-06
 

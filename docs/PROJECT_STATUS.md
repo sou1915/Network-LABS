@@ -12,6 +12,16 @@ guides on this branch for the recent engine features.
 
 ## Validation checkpoint
 
+The latest bounded increment adds [verified RADIUS-requested wired reauthentication](DOT1X_WIRED.md)
+at `9329910fd9fd4b61a4c6ad8ab4e6f01d0aa9e9aa`. The
+[native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42243831204/job/127980741652)
+passed in 196.309 seconds: two actual MD5/Success cycles, four fresh requests,
+verified duration/action attributes, closed budget exhaustion, backend-outage
+refusal and healthy cold-restore recovery. Both selected jobs passed; 58 were
+intentionally skipped. Local tests passed 1006 cases in 30.862 seconds with
+162 environment skips. No failed native run preceded this increment. The
+profile remains finite single-peer EAP-MD5; planning estimates are unchanged.
+
 The latest bounded increment enforces [verified wired RADIUS Session-Timeout](DOT1X_WIRED.md)
 at corrected commit `78b44e1acbac047a2aa5fe7cb1e6246e781b814f`.
 The [native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42240831488/job/127970370968)
@@ -247,7 +257,8 @@ These weights are assumptions for this report, not an earlier delivery contract.
   replacement, node-overlay sender queues and guarded dead-sender recovery.
 - RADIUS authorization/roles, bounded SSH/Telnet sessions, accounting outbox/
   journal/reconciliation, finite wired EAP-MD5 admission/reauthentication
-  with controlled-link revocation and verified backend session-duration caps.
+  with controlled-link revocation, verified backend session-duration caps and
+  bounded server-requested reauthentication.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 

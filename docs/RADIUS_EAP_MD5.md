@@ -107,3 +107,9 @@ positive uint32 and emits RADIUS Session-Timeout. The standalone diagnostic
 remains an authentication observation. The separate [wired profile](DOT1X_WIRED.md)
 enforces the verified reply as a finite kernel admission cap; PAP-only server
 user configuration rejects this setting.
+
+An EAP-enabled user may also declare `termination_action` 0 (Default) or 1
+(RADIUS-Request), only together with `session_timeout`. The wired profile
+honors verified action 1 within its explicit local finite renewal budget;
+action 0/default terminates the admitted session. This does not turn the
+standalone authentication diagnostic into a persistent access service.
