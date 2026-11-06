@@ -95,3 +95,13 @@ without an explicit scope change. The old broad-catalogue estimate (about 80%)
 and whole-product estimate (45–50%) remain historical planning estimates, not a
 percentage for this gate. This closure does not claim the entire LAN catalogue,
 enterprise NAC, all combinations or whole-product/laptop RAM certification.
+
+## GUI follow-up — 2026-11-06
+
+The same seven essential checks passed again at GUI implementation
+`cad63774a58a9d51aa3b73bc28d90b932fb7fc86` in
+[run 42267670327](https://github.com/sou1915/Network-LABS/actions/runs/42267670327).
+All ten selected jobs passed; 52 were skipped. General CI additionally verified
+the [first actual GUI/native flow](NATIVE_GUI_FLOW.md) with an unprivileged Tk
+client, sudo backend and real OCI traffic. The LAN scope remains frozen;
+GUI essentials are the active phase.

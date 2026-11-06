@@ -64,4 +64,35 @@ native GUI test runs Tk as the normal hosted-runner user, uses the actual
 sudo/backend and OCI packets, verifies private result ownership and confirms
 stop/host cleanup. Only external-terminal presentation is replaced for CI's
 passwordless sudo; interactive password-prompt UX still needs a real desktop.
-It retains a screenshot and JSON evidence. Native validation is pending.
+It retains a screenshot and JSON evidence.
+
+At implementation `cad63774a58a9d51aa3b73bc28d90b932fb7fc86`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42267670327/job/128063724857)
+passed general regression (1033 cases, 47.405 seconds, 116 environment/opt-in
+skips) and the separate real GUI/native scenario (4.207 seconds). Tk ran as
+UID 1001; all six result files were written by UID 1001, and direct root-state
+access was refused. The actual sudo backend created three OCI nodes/two links,
+returned runtime status/kernel inspection, verified bidirectional native ICMP,
+confirmed stop and handled a subsequent failed status without false success.
+No callback errors or namespace/link/IPv4/IPv6 route/rule leaks remained.
+Only terminal presentation was substituted for passwordless CI; kernel,
+Manager, sudo and traffic were real. Interactive password-prompt UX remains
+manual desktop acceptance.
+
+All ten selected jobs in run 42267670327 passed, including `lan-core-ready`;
+52 other profiles were intentionally skipped. Local full tests passed 1033
+cases in 30.030 seconds with 166 environment skips. Compilation, workflow
+structure, diff and documentation-link checks passed. No failed native run
+preceded this GUI increment. LAN protocol behavior was unchanged.
+
+
+## Captured GUI evidence
+
+![Running native GUI with verified traffic](images/native-gui-running.png)
+
+This is the actual Xvfb capture after real native verification.
+The public [operation report](images/native-gui-result.json) records the UI UID,
+result-file owners, native probe and stop outcome. The
+[provenance record](images/native-gui-provenance.json) binds both files to
+artifact 13528680261, source commit and run/job, with the verified original ZIP
+SHA-256 and individual file hashes. The full suite passed on the same commit.

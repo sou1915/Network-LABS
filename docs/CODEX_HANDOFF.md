@@ -1,27 +1,48 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
-## Current priority: LAN core accepted; proceed to native GUI — 2026-11-06
+## Current priority: native GUI essentials — first flow verified — 2026-11-06
 
-The user explicitly prioritised essentials and deferred optional/advanced LAN
-extensions. The frozen [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md) gate
-is now **closed: 7/7 essential checks passed** at
-`16bce142fe312dc654ee404d726971cf825f2935` in
-[run 42262198799](https://github.com/sou1915/Network-LABS/actions/runs/42262198799).
-`lan-core-ready` reported all seven successful dependencies. All ten selected
-jobs passed (including two retained historical retries); 52 were intentionally
-skipped. Six core native packet scenarios passed in 166.885 seconds, and the
-existing access/wired/switching/resource/general checks also passed. Runtime
-behavior and test assertions were unchanged. Exact evidence is in the gate guide.
+LAN core remains accepted (7/7); advanced LAN extensions stay deferred. The
+user prioritises practical essentials and larger useful increments over LAN
+micro-refinements. **Continue GUI work, not advanced LAN implementation.**
 
-**Next: native GUI integration, not more LAN micro-increments.** Start from the
-existing unprivileged [native workbench](../network_labs/appliances/ui.py) and
-connect native topology/configuration, lifecycle/status and observations into
-a useful end-to-end GUI flow. Preserve the privilege boundary and actual
-backend results. Existing educational/Wasm forms are separate engines.
-Persistent NAS/stronger EAP, MSTP/PVST and wider combinations remain deferred
-extensions, not GUI blockers. Static VXLAN remains after LAN/GUI; EVPN/BGP/WAN
-stay separate. The historical broad 80% estimate below is not the new gate's
-completion counter. Do not expand the frozen LAN gate without user direction.
+The [native workbench](../network_labs/appliances/ui.py) now renders a native
+topology, creates a basic LAN or opens JSON, saves private configuration and
+performs start/status/inspect/bounded bidirectional verify/stop with actual
+backend results. [ui_bridge.py](../network_labs/appliances/ui_bridge.py) keeps
+the GUI/terminal wrapper unprivileged and runs only typed operations via sudo.
+The root backend never writes the GUI result path. Results are private and
+context-bound; invalid/failed replies do not imply running or stopped state.
+The educational canvas/Wasm engine remain separate and unchanged.
+
+At implementation `cad63774a58a9d51aa3b73bc28d90b932fb7fc86`, the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42267670327/job/128063724857)
+passed general regression (1033 cases, 47.405 seconds, 116 environment/opt-in
+skips) and the separate real GUI/native scenario (4.207 seconds). Tk ran as
+UID 1001; all six result files were written by UID 1001, and direct root-state
+access was refused. The actual sudo backend created three OCI nodes/two links,
+returned runtime status/kernel inspection, verified bidirectional native ICMP,
+confirmed stop and handled a subsequent failed status without false success.
+No callback errors or namespace/link/IPv4/IPv6 route/rule leaks remained.
+Only terminal presentation was substituted for passwordless CI; kernel,
+Manager, sudo and traffic were real. Interactive password-prompt UX remains
+manual desktop acceptance.
+
+All ten selected jobs in run 42267670327 passed, including `lan-core-ready`;
+52 other profiles were intentionally skipped. Local full tests passed 1033
+cases in 30.030 seconds with 166 environment skips. Compilation, workflow
+structure, diff and documentation-link checks passed. No failed native run
+preceded this GUI increment. LAN protocol behavior was unchanged.
+
+See [NATIVE_GUI_FLOW.md](NATIVE_GUI_FLOW.md) for the captured screenshot,
+operation JSON, exact privilege/observation limits and usage. Next useful GUI
+increment: native node/link editing and basic per-node configuration instead
+of requiring JSON for topology changes. Embedded consoles/capture and broader
+forms follow. Do not reopen the frozen [LAN core gate](LAN_CORE_ACCEPTANCE.md)
+for deferred features. Existing main desktop/vendor forms are not yet full
+native configuration integration. Static VXLAN stays after LAN/GUI, with
+EVPN/BGP/WAN separate. Historical percentage estimates below are not a GUI
+completion counter.
 
 ## Wired 802.1X guarded in-place peer recovery — 2026-11-06
 

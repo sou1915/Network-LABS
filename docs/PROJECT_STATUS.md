@@ -4,7 +4,9 @@ The current user priority is a bounded first LAN release: finish essentials,
 defer advanced extensions, then integrate the native GUI. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.
 It is accepted: **7/7 essential checks passed** on one source revision. Native
-GUI integration is now the next phase. Older broad-catalogue percentages below
+GUI integration is in progress: the first native lifecycle/observation/traffic
+flow is verified; node/link editing and basic configuration forms are next.
+Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
 
@@ -13,6 +15,19 @@ claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
 ## Validation checkpoint
+
+The [first native GUI flow](NATIVE_GUI_FLOW.md) passed at
+`cad63774a58a9d51aa3b73bc28d90b932fb7fc86` in
+[run 42267670327](https://github.com/sou1915/Network-LABS/actions/runs/42267670327).
+A real unprivileged Tk session drove sudo/OCI start, status, kernel inspection,
+bidirectional traffic and confirmed stop in 4.207 seconds. All six result files
+were owned by UID 1001, root state remained directly unreadable, and a failed
+status did not become success. A captured screenshot/report are retained.
+General CI passed 1033 cases in 47.405 seconds with 116 skips; all ten selected
+jobs passed, including the essential LAN gate. Local tests passed 1033 cases
+with 166 skips. Full native topology editing/forms/console/capture integration
+and real desktop/hardware acceptance remain open; this is one verified GUI
+vertical slice, not full GUI completion.
 
 The [LAN core aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
 passed at `16bce142fe312dc654ee404d726971cf825f2935`: six core native
@@ -299,6 +314,9 @@ These weights are assumptions for this report, not an earlier delivery contract.
   with controlled-link revocation, verified backend session-duration caps and
   bounded server-requested reauthentication and an optional owned peer service
   with guarded in-place recovery.
+- Native workbench topology, private manifest lifecycle, observed status/inspection
+  and real connectivity verification through a sudo backend. Node/link editing
+  and broader native forms remain pending.
 - Existing educational desktop/web interfaces and the limited Wasm LAN
   backend. They remain distinct from the native engine's full integration.
 

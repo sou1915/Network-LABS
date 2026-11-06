@@ -22,7 +22,10 @@ SSH/RADIUS, wired admission/managed peer, 20-node headless reference and
 general regression. See [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md)
 for per-job evidence and exact limits. No runtime/test assertions were relaxed.
 
-Proceed to native GUI integration. Do not resume advanced LAN implementation
+The [first native GUI flow](NATIVE_GUI_FLOW.md) is now verified (run
+42267670327): topology, lifecycle, kernel observations and real ICMP from an
+unprivileged GUI. Continue native node/link editing/basic configuration.
+Do not resume advanced LAN implementation
 or small validation refinements as prerequisites. Keep the remaining catalogue
 tracked for later and repair only demonstrated core regressions.
 
