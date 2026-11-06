@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13533009570, source commit and run/job, with the verified original ZIP
+artifact 13540452917, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -146,3 +146,31 @@ supersedes workspace_design.png and enterprise_lan.png as the visual target.
 The current native workbench has verified backend functionality but does not
 implement this design yet. See CODEX_HANDOFF.md for the required layout and
 capability boundaries.
+
+## Reference shell implementation
+
+The first increment toward the supplied mockup adds a compact dark title bar,
+a central topology/technical notebook, a resizable bottom dock for real native
+results, and a neighbouring operation-event table. The project equipment list
+supports case-insensitive search by name, role or runtime. Redrawing or loading
+a project preserves the search without leaving hidden stale equipment entries.
+
+Events record received backend operation outcomes, including failures; they
+are not packet capture events. The dark results dock displays real inspection
+and probe JSON, not an interactive vendor CLI. Device thumbnails, VLAN/DMZ
+visual groups, graphical editing, embedded device forms/interactive consoles
+and packet-event integration remain pending. The supplied mockup is still the
+target, and this increment is not visual completion or a firmware replica.
+
+
+Final shell source `d18df0909839b28a223cdd8835fbacce0d1f970d` passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42293363242/job/128152218260):
+1034 regression cases in 45.238 s (116 environment/opt-in skips), plus the
+real embedded GUI / sudo / OCI scenario in 4.079 s. The latter verifies the
+connectivity button remains visible above the dock at 1240×800, four actual
+operation events after verification, real bidirectional ICMP, private results,
+confirmed stop, preserved model project and no callback/host-network leaks.
+The screenshot/report/provenance now correspond to artifact 13540452917.
+The earlier shell passed its desktop/native test too; its screenshot exposed
+clipped controls, which the final source corrects. Local general regression
+passed 1034 cases in 30.402 s (167 environment skips, including display tests).

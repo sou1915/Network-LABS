@@ -21,6 +21,31 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
+## GUI reference shell increment
+
+Source `d18df0909839b28a223cdd8835fbacce0d1f970d` begins implementing the
+actual supplied mockup: compact dark header, searchable project equipment,
+upper topology/device area and resizable lower results/operation-event docks.
+The event table only records actual backend outcomes; the dark results area
+is JSON inspection/probe output, not an interactive console or packet stream.
+Next priorities remain graphical topology editing and supported device forms,
+plus the reference's device images and VLAN groups. Do not claim visual parity.
+Keep native backend/privilege boundaries and real screenshots.
+
+
+
+Final shell source `d18df0909839b28a223cdd8835fbacce0d1f970d` passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42293363242/job/128152218260):
+1034 regression cases in 45.238 s (116 environment/opt-in skips), plus the
+real embedded GUI / sudo / OCI scenario in 4.079 s. The latter verifies the
+connectivity button remains visible above the dock at 1240×800, four actual
+operation events after verification, real bidirectional ICMP, private results,
+confirmed stop, preserved model project and no callback/host-network leaks.
+The screenshot/report/provenance now correspond to artifact 13540452917.
+The earlier shell passed its desktop/native test too; its screenshot exposed
+clipped controls, which the final source corrects. Local general regression
+passed 1034 cases in 30.402 s (167 environment skips, including display tests).
+
 ## Latest user correction: preserve the agreed GUI — 2026-11-06
 
 The user requires the existing agreed desktop layout, referenced by

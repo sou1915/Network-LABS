@@ -16,6 +16,17 @@ Current work is on `handoff/codex-dot1x-2026-11-04`; this checkpoint does not
 claim it has been merged into the older prototype branch. Use the native
 guides on this branch for the recent engine features.
 
+## GUI target and shell
+
+The actual user-supplied target is
+[agreed-gui-reference.jpg](images/agreed-gui-reference.jpg), superseding both
+older desktop screenshots. The first shell increment adds searchable project
+equipment and lower native-result/operation-event docks. The device panel's
+controls remain visible at the tested laptop size. The real screenshot is in
+[NATIVE_GUI_FLOW.md](NATIVE_GUI_FLOW.md). Device thumbnails, VLAN visual groups,
+graphical editing, embedded forms/interactive consoles and packet-event
+integration remain pending; visual parity has not been reached.
+
 ## Validation checkpoint
 
 The agreed embedded desktop layout passed at
