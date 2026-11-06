@@ -22,6 +22,10 @@ def drift(manager):
     for index, node in enumerate(manager.read()['spec']['nodes']):
         if node['runtime'] != 'oci':
             continue
+        if node.get('dot1x_supplicant'):
+            from .dot1x_supplicant import observe as observe_supplicant
+            if not observe_supplicant(manager,index,node)['configuration_verified']:
+                errors.append(node['name'] + ': managed wired peer differs or is unavailable')
         if node.get('dot1x'):
             from .dot1x import observe as observe_dot1x
             if not observe_dot1x(manager,index,node)['configuration_verified']:

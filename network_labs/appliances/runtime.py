@@ -354,6 +354,9 @@ class Manager:
                 if (key == 'rootfs' and not asset.is_dir()) or (key != 'rootfs' and not asset.is_file()):
                     raise RuntimeFailure(f'{node["name"]}: missing {key}: {asset}')
         for node in spec['nodes']:
+            if node.get('dot1x_supplicant'):
+                from .dot1x_supplicant import preflight as preflight_supplicant
+                preflight_supplicant(node)
             if node.get('ntp_server') and not (Path(node['rootfs']) / 'usr/lib/network-labs/chronyd').is_file():
                 raise RuntimeFailure(node['name'] + ': NTP requires a rootfs built with --chronyd.')
             if node.get('radius_server') and any(not (Path(node['rootfs']) / path).is_file() for path in
@@ -529,6 +532,8 @@ class Manager:
             start_snmp(self)
             from .radius_server import start_servers as start_radius
             start_radius(self)
+            from .dot1x_supplicant import start as start_supplicants
+            start_supplicants(self)
             self.state['phase'] = 'running'; self.save()
             from .stp_carrier import start as start_carrier
             start_carrier(self)
@@ -840,6 +845,8 @@ class Manager:
         state = self.read(); errors = []
         from .dot1x import stop as stop_dot1x
         stop_dot1x(self)
+        from .dot1x_supplicant import stop as stop_supplicants
+        stop_supplicants(self)
         from .stp_carrier import stop as stop_carrier
         stop_carrier(self)
         from .ssh_radius import stop_worker as stop_ssh_radius

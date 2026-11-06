@@ -271,7 +271,9 @@ policy and starts closed, never from a saved authorization or worker token.
 ## Current limits and validation
 
 This is a finite untagged wired EAP-MD5 command with optional bounded
-reauthentication, not a persistent managed supplicant/authenticator service.
+reauthentication. An optional [managed peer service](DOT1X_MANAGED_PEER.md)
+can now stay alive across explicit commands; a persistent authenticator
+service remains separate work.
 Unbounded reauthentication, multi-client ports, trunks/LAGs, other security
 compositions, dynamic VLANs, MACsec,
 EAP-TLS/PEAP/TTLS and accounting remain separate work. EAP-MD5 does not supply

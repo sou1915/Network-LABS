@@ -120,6 +120,8 @@ def validate(data):
     validate_ntp_lab(data)
     from .dot1x import validate_lab as validate_dot1x_lab
     validate_dot1x_lab(data)
+    from .dot1x_supplicant import validate_lab as validate_supplicant_lab
+    validate_supplicant_lab(data)
     from .radius_server import validate_lab as validate_radius_lab
     validate_radius_lab(data)
     from .snmp import validate_lab as validate_snmp_lab
