@@ -44,3 +44,26 @@ class TopologyEditTests(unittest.TestCase):
         self.assertEqual(draft['nodes'][1]['switchports']['eth2'],{'mode':'access','vlan':1})
         self.assertNotIn('eth2',self.spec['nodes'][1]['interfaces'])
         with self.assertRaises(ValueError):edit.add_port(self.spec,'SW1','eth0')
+
+    def test_configure_identity_address_gateway_and_admin_atomically(self):
+        original=copy.deepcopy(self.spec)
+        draft=edit.configure_node(self.spec,'PC2',new_name='CLIENT2',port='eth0',address='192.0.2.22/24',gateway='192.0.2.10',enabled=False)
+        node=draft['nodes'][2]
+        self.assertEqual(node['name'],'CLIENT2');self.assertEqual(node['interfaces']['eth0'],'192.0.2.22/24')
+        self.assertEqual(node['gateway'],'192.0.2.10');self.assertEqual(node['shutdown'],['eth0'])
+        self.assertIn([['SW1','eth1'],['CLIENT2','eth0']],draft['links'])
+        self.assertEqual(self.spec,original)
+        restored=edit.configure_node(draft,'CLIENT2',new_name='CLIENT2',port='eth0',address='192.0.2.22/24',gateway='',enabled=True)
+        self.assertNotIn('gateway',restored['nodes'][2]);self.assertEqual(restored['nodes'][2]['shutdown'],[])
+
+    def test_rejected_configuration_never_applies_partial_name_or_links(self):
+        original=copy.deepcopy(self.spec)
+        defaults=dict(new_name='CLIENT2',port='eth0',address='192.0.2.22/24',gateway='',enabled=True)
+        for fault in ({'address':'invalid'},{'gateway':'198.51.100.1'},{'new_name':'PC1'},{'port':'eth9'},{'enabled':1}):
+            with self.subTest(fault=fault),self.assertRaises(ValueError):edit.configure_node(self.spec,'PC2',**{**defaults,**fault})
+            self.assertEqual(self.spec,original)
+        with self.assertRaises(ValueError):edit.configure_node(self.spec,'SW1',**defaults)
+        scripted=copy.deepcopy(self.spec);scripted['nodes'][0]['startup']=[['/bin/echo','ref=PC2']]
+        before=copy.deepcopy(scripted)
+        with self.assertRaises(ValueError):edit.configure_node(scripted,'PC2',**defaults)
+        self.assertEqual(scripted,before)

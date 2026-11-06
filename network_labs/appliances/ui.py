@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog,messagebox,simpledialog,ttk
 import uuid
 import os
-from ..layout import fit_dialog
+from ..layout import fit_dialog,ScrollPanel
 from ..theme import BG,PANEL,CARD,LINE,TEXT,MUTED,TEAL,BLUE,RED
 from .catalog import capabilities
 from .runtime import plan
@@ -46,7 +46,7 @@ class ApplianceWindow:
             fit_dialog(self.window,1280,800);self.window.configure(bg=BG)
             self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(2,weight=1)
-        self.positions={};self.edit_mode=None;self.cable_source=None;self.dragging=None
+        self.config_key=None;self.config_baseline=None;self.positions={};self.edit_mode=None;self.cable_source=None;self.dragging=None
         self.buttons=[]
         header=tk.Frame(self.window,bg='#223344',padx=14,pady=7);header.grid(row=0,column=0,sticky='ew')
         self.label(header,'Network LABS','#ffffff',13,True).pack(side='left')
@@ -103,7 +103,11 @@ class ApplianceWindow:
         self.label(legend,'● OCI en marche',TEAL,9).pack(side='left',padx=5)
         self.label(legend,'● Non observé / arrêté',MUTED,9).pack(side='left',padx=5)
         self.label(legend,'Traits : liens déclarés',MUTED,9).pack(side='right')
-        details=tk.Frame(workspace,bg=PANEL,width=300);details.pack_propagate(False);workspace.add(details,weight=0)
+        device=tk.Frame(workspace,bg=PANEL,width=300);device.pack_propagate(False);workspace.add(device,weight=0)
+        self.device_tabs=ttk.Notebook(device);self.device_tabs.pack(fill='both',expand=True)
+        details=tk.Frame(self.device_tabs,bg=PANEL);self.device_tabs.add(details,text='État / test')
+        self.config_panel=ScrollPanel(self.device_tabs,PANEL);self.device_tabs.add(self.config_panel,text='Configuration')
+        self.build_config_form(self.config_panel.inner)
         self.label(details,'Équipement · réseau natif',TEXT,11,True).pack(anchor='w',padx=14,pady=8)
         self.selected_title=tk.StringVar();self.selected_details=tk.StringVar()
         tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=('DejaVu Sans',13,'bold'),anchor='w').pack(fill='x',padx=14)
@@ -180,7 +184,7 @@ class ApplianceWindow:
     def load_spec(self,spec,path=None):
         spec=validate(spec);self.path=Path(path) if path else None
         self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
-        self.positions={};self.draw(public_topology(spec));self.observation.set('Topologie déclarée · état runtime à actualiser.')
+        self.config_key=None;self.positions={};self.draw(public_topology(spec));self.observation.set('Topologie déclarée · état runtime à actualiser.')
 
     def draw(self,graph,states=None):
         validate_topology(graph)
@@ -233,6 +237,68 @@ class ApplianceWindow:
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else LINE,width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
+        if node:self.load_config()
+        self.config_apply.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending and self.config_baseline is not None else ['disabled'])
+
+    def build_config_form(self,parent):
+        self.label(parent,'Configuration du projet',TEXT,11,True).pack(anchor='w',padx=10,pady=(12,4))
+        self.label(parent,'Brouillon · appliquer après arrêt / démarrage',MUTED,8).pack(anchor='w',padx=10,pady=(0,8))
+        self.config_vars={key:tk.StringVar() for key in ('name','port','address','gateway')};self.config_fields={}
+        for key,title in [('name','Nom de l’équipement'),('port','Interface physique'),('address','IPv4 / CIDR (vide = aucune)'),('gateway','Passerelle IPv4 (vide = aucune)')]:
+            self.label(parent,title,MUTED,9).pack(anchor='w',padx=10,pady=(6,3))
+            field=ttk.Combobox(parent,textvariable=self.config_vars[key],state='readonly') if key=='port' else ttk.Entry(parent,textvariable=self.config_vars[key])
+            field.pack(fill='x',padx=10);self.config_fields[key]=field
+        self.config_fields['port'].bind('<<ComboboxSelected>>',self.config_port_selected)
+        self.config_enabled=tk.BooleanVar(value=True)
+        self.config_admin=ttk.Checkbutton(parent,text='Interface activée',variable=self.config_enabled);self.config_admin.pack(anchor='w',padx=10,pady=8)
+        self.config_apply=ttk.Button(parent,text='Appliquer au brouillon',command=self.apply_config);self.config_apply.pack(fill='x',padx=10,pady=3)
+        ttk.Button(parent,text='Recharger le formulaire',command=lambda:self.load_config(force=True)).pack(fill='x',padx=10,pady=3)
+        self.config_message=tk.StringVar()
+        tk.Label(parent,textvariable=self.config_message,bg=PANEL,fg=MUTED,justify='left',wraplength=255,anchor='w').pack(fill='x',padx=10,pady=8)
+
+    def load_config(self,force=False):
+        selected=self.nodes.selection()
+        if not selected:return
+        key=(self.view_lab,selected[0])
+        if not force and self.config_key==key:return
+        self.config_key=key;self.config_baseline=None
+        try:
+            spec=self.manifest()
+            if public_topology(spec)!=self.graph:raise ValueError('Valider le JSON avant de charger le formulaire.')
+            node=next(n for n in spec['nodes'] if n['name']==selected[0]);self.config_baseline=spec
+            self.config_vars['name'].set(node['name']);self.config_vars['gateway'].set(node.get('gateway',''))
+            ports=list(node['interfaces']);self.config_fields['port'].configure(values=ports)
+            self.config_vars['port'].set(ports[0] if ports else '')
+            self.config_port_selected()
+            self.config_fields['name'].configure(state='normal' if node['runtime']=='oci' else 'disabled')
+            self.config_fields['gateway'].configure(state='normal' if node['runtime']=='oci' and node['role']!='switch' else 'disabled')
+            self.config_message.set('Modifier un port puis appliquer. Le réseau actif reste inchangé.' if node['runtime']=='oci' else 'MicroVM : configuration JSON uniquement.')
+            self.config_apply.state(['!disabled'] if ports and node['runtime']=='oci' and not self.pending else ['disabled'])
+        except (ValueError,TypeError,KeyError,StopIteration) as error:
+            self.config_message.set(str(error));self.config_apply.state(['disabled'])
+
+    def config_port_selected(self,event=None):
+        if self.config_baseline is None:return
+        node=next(n for n in self.config_baseline['nodes'] if n['name']==self.config_key[1])
+        port=self.config_vars['port'].get()
+        self.config_vars['address'].set(node['interfaces'].get(port,''));self.config_enabled.set(port not in node.get('shutdown',[]))
+        editable=node['runtime']=='oci' and node['role']!='switch' and port not in node.get('dhcp_clients',[])
+        self.config_fields['address'].configure(state='normal' if editable else 'disabled')
+        self.config_admin.state(['!disabled'] if node['runtime']=='oci' else ['disabled'])
+
+    def apply_config(self):
+        try:
+            current=self.editing_spec()
+            if self.config_baseline is None or current!=self.config_baseline:
+                raise ValueError('Le projet a changé. Recharger le formulaire avant d’appliquer.')
+            old=self.config_key[1];values={k:v.get().strip() for k,v in self.config_vars.items()}
+            result=topology_edit.configure_node(current,old,new_name=values['name'],port=values['port'],address=values['address'],gateway=values['gateway'],enabled=self.config_enabled.get())
+            if old!=values['name'] and old in self.positions:self.positions[values['name']]=self.positions.pop(old)
+            self.config_key=None;self.commit_edit(result);self.choose_node(values['name']);self.load_config(force=True)
+            self.config_message.set('Brouillon appliqué. Enregistrer puis arrêter / démarrer pour activer les changements.')
+            return True
+        except (ValueError,TypeError,KeyError) as error:
+            self.config_message.set(str(error));return False
 
     def set_edit_mode(self,mode):
         if self.pending:return

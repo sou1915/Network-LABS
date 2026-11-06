@@ -161,3 +161,22 @@ class WorkbenchGUITests(unittest.TestCase):
         window.commit_edit(edit.add_node(window.manifest(),name='PC3',role='host',rootfs='/tmp/rootfs'))
         window.connect_dialog('SW1','PC3');win=dialog();button(win,'Connecter au brouillon').invoke();self.root.update()
         self.assertIn([['SW1','eth2'],['PC3','eth0']],window.manifest()['links'])
+
+    def test_device_form_invalid_stale_and_successful_apply(self):
+        window=self.window;window.choose_node('PC2');self.root.update();window.load_config(force=True)
+        original=window.manifest()
+        window.config_vars['name'].set('CLIENT2');window.config_vars['address'].set('invalid')
+        self.assertFalse(window.apply_config());self.assertEqual(window.manifest(),original)
+        window.config_vars['address'].set('192.0.2.22/24');window.config_vars['gateway'].set('192.0.2.10')
+        self.assertTrue(window.apply_config());self.root.update()
+        self.assertIn('CLIENT2',window.node_shapes);self.assertIn('CLIENT2',str(window.manifest()['links']))
+        self.assertEqual(window.config_vars['address'].get(),'192.0.2.22/24')
+        # A new valid JSON change with identical public topology still makes
+        # the old form stale; no metadata is overwritten by an old draft.
+        changed=window.manifest();changed['nodes'][0]['memory_mib']=80
+        window.editor.delete('1.0','end');window.editor.insert('1.0',json.dumps(changed))
+        self.assertFalse(window.apply_config());self.assertEqual(window.manifest()['nodes'][0]['memory_mib'],80)
+        self.assertIn('Recharger',window.config_message.get())
+        window.load_config(force=True);window.pending={'test':True}
+        try:self.assertFalse(window.apply_config())
+        finally:window.pending=None

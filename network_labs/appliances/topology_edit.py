@@ -55,3 +55,31 @@ def add_port(spec,name,port):
     if next_port(draft,name)!=port:raise ValueError('Le nouveau port ne correspond plus au brouillon.')
     next(n for n in draft['nodes'] if n['name']==name)['interfaces'][port]=''
     return validate(draft)
+
+
+def configure_node(spec,name,*,new_name,port,address,gateway,enabled):
+    """Edit one physical port and basic identity without guessing advanced refs."""
+    draft=copy.deepcopy(spec)
+    node=next((n for n in draft['nodes'] if n['name']==name),None)
+    if node is None or node['runtime']!='oci':raise ValueError('Configuration de base : équipement OCI existant requis.')
+    if port not in node['interfaces']:raise ValueError('Choisir une interface physique existante.')
+    if not all(isinstance(v,str) for v in (new_name,address,gateway)) or type(enabled) is not bool:
+        raise ValueError('Nom, IPv4 et passerelle textuels ; état du port booléen requis.')
+    if new_name!=name:
+        def referenced(value):
+            if isinstance(value,dict):return any(k==name or referenced(v) for k,v in value.items())
+            if isinstance(value,list):return any(referenced(v) for v in value)
+            return value==name
+        if any(n.get('startup') or n.get('command',['/bin/sleep','2147483647'])!=['/bin/sleep','2147483647'] or referenced({k:v for k,v in n.items() if k!='name'}) for n in draft['nodes']):
+            raise ValueError('Référence avancée à cet équipement : renommer explicitement dans le JSON.')
+        node['name']=new_name
+        for link in draft['links']:
+            for endpoint in link:
+                if endpoint[0]==name:endpoint[0]=new_name
+    node['interfaces'][port]=address
+    if gateway:node['gateway']=gateway
+    else:node.pop('gateway',None)
+    shutdown=[p for p in node.get('shutdown',[]) if p!=port]
+    if not enabled:shutdown.append(port)
+    node['shutdown']=shutdown
+    return validate(draft)

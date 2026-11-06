@@ -55,18 +55,25 @@ try:
         window.draw(window.graph);root.update()
         assert len(window.node_shapes)==5 and len(window.canvas.find_withtag('link'))==4
         assert not window.states and len(window.manifest()['nodes'])==5
+        window.choose_node('PC3');window.load_config(force=True)
+        window.config_vars['name'].set('CLIENT3');window.config_vars['address'].set('192.0.2.33/24');window.config_vars['gateway'].set('192.0.2.20')
+        assert window.apply_config(),window.config_message.get()
+        assert 'CLIENT3' in window.node_shapes and 'PC3' not in window.node_shapes
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
         else:raise AssertionError('GUI could directly read root-owned runtime state')
-        drive('status');window.choose_node('PC1')
-        inspected=drive('inspect');assert inspected['data']['name']=='PC1';assert inspected['data']['links']
-        window.choose_node('PC1');window.destination.set('PC3');verified=drive('verify')
+        drive('status');window.choose_node('CLIENT3')
+        inspected=drive('inspect');assert inspected['data']['name']=='CLIENT3';assert inspected['data']['links']
+        assert any(r.get('dst')=='default' and r.get('gateway')=='192.0.2.20' for r in inspected['data']['routes'])
+        window.choose_node('PC1');window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
+        assert verified['data']['directions'][0]['destination_address']=='192.0.2.33'
         assert len(window.activity.get_children())==4
         assert window.output_tab.master is window.dock
         root.update()
         assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()-190
+        window.choose_node('CLIENT3');window.device_tabs.select(window.config_panel)
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
         box=(window.window.winfo_rootx(),window.window.winfo_rooty(),window.window.winfo_rootx()+window.window.winfo_width(),window.window.winfo_rooty()+window.window.winfo_height())
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')
