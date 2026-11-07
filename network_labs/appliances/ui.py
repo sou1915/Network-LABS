@@ -171,12 +171,12 @@ class ApplianceWindow:
         self.label(details,'Vert : processus actif. Tester le réseau.',MUTED,7).pack(side='bottom',padx=12,pady=6)
         self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0b0f15',foreground='#edf1f7',insertbackground='white');self.output.master.configure(bg='#0b0f15');self.output.master.master.face='#0b0f15'
         self.raw_output=self.text_area(self.raw_tab);self.raw_output.configure(state='disabled')
-        validate_button=ttk.Button(self.editor_tab,text='Valider / plan',command=self.preview);validate_button.grid(row=2,column=0,sticky='e',pady=4);self.buttons.append(validate_button)
-        self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings')
+        validate_button=ttk.Button(self.editor_tab,text='Valider / plan',command=self.preview,style='Native.TButton');validate_button.grid(row=2,column=0,sticky='e',pady=4);self.buttons.append(validate_button)
+        self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings',style='Native.Treeview')
         for key,title,width in [('runtime','Runtime',100),('implementation','Implémentation',100),('detected','Détecté',80),('scope','Périmètre',360)]:
             self.table.heading(key,text=title);self.table.column(key,width=width)
         self.table.pack(fill='both',expand=True)
-        ttk.Button(diagnostics,text='Actualiser les dépendances',command=self.refresh).pack(anchor='w',padx=8,pady=6)
+        ttk.Button(diagnostics,text='Actualiser les dépendances',command=self.refresh,style='Native.TButton').pack(anchor='w',padx=8,pady=6)
         footer=tk.Frame(self.window,bg=PANEL,padx=10,pady=3);footer.grid_forget()
         self.counts=tk.StringVar();self.label(footer,'Sélection · état natif observé sur demande',MUTED,9).pack(side='left')
         tk.Label(footer,textvariable=self.counts,bg=PANEL,fg=TEAL,font=(self.font,8)).pack(side='right')
@@ -657,7 +657,7 @@ class ApplianceWindow:
         def browse():
             path=filedialog.askdirectory(parent=win,title='Rootfs Linux')
             if path:values['rootfs'].set(path)
-        ttk.Button(form,text='Parcourir…',command=browse).grid(row=2,column=2)
+        ttk.Button(form,text='Parcourir…',command=browse,style='Native.TButton').grid(row=2,column=2)
         ttk.Label(form,text='Linux natif · pare-feu : trafic transitant bloqué par défaut.').grid(row=5,column=0,columnspan=3,pady=8)
         def apply():
             try:
@@ -665,8 +665,8 @@ class ApplianceWindow:
                 result=topology_edit.add_node(current,**{k:v.get().strip() for k,v in values.items() if k!='ports'},ports=int(values['ports'].get()),firewall={'default':'drop','stateful':True,'rules':[]} if values['role'].get()=='firewall' else None)
                 self.commit_edit(result);self.choose_node(values['name'].get().strip());win.destroy()
             except (ValueError,TypeError,KeyError) as error:self.error(error)
-        ttk.Button(form,text='Ajouter au brouillon',command=apply).grid(row=6,column=1,sticky='e')
-        ttk.Button(form,text='Annuler',command=win.destroy).grid(row=6,column=0)
+        ttk.Button(form,text='Ajouter au brouillon',command=apply,style='Native.Primary.TButton').grid(row=6,column=1,sticky='e')
+        ttk.Button(form,text='Annuler',command=win.destroy,style='Native.TButton').grid(row=6,column=0)
 
     def connect_dialog(self,first,second):
         try:
@@ -681,15 +681,15 @@ class ApplianceWindow:
         for row,(name,available) in enumerate(zip((first,second),choices)):
             ttk.Label(form,text=name+(' · nouveau port' if name in additions else '')).grid(row=row,column=0,pady=6)
             var=tk.StringVar(value=available[0]);ports.append(var)
-            ttk.Combobox(form,textvariable=var,values=available,state='readonly').grid(row=row,column=1,padx=8)
+            ttk.Combobox(form,textvariable=var,values=available,state='readonly',style='Native.TCombobox',font=(self.font,9)).grid(row=row,column=1,padx=8)
         def apply():
             try:
                 draft=self.editing_spec()
                 for name,port in additions.items():draft=topology_edit.add_port(draft,name,port)
                 self.commit_edit(topology_edit.connect(draft,(first,ports[0].get()),(second,ports[1].get())));win.destroy()
             except (ValueError,TypeError,KeyError) as error:self.error(error)
-        ttk.Button(form,text='Connecter au brouillon',command=apply).grid(row=2,column=1,pady=8)
-        ttk.Button(form,text='Annuler',command=win.destroy).grid(row=2,column=0)
+        ttk.Button(form,text='Connecter au brouillon',command=apply,style='Native.Primary.TButton').grid(row=2,column=1,pady=8)
+        ttk.Button(form,text='Annuler',command=win.destroy,style='Native.TButton').grid(row=2,column=0)
 
     def delete_selected(self):
         selected=self.nodes.selection()

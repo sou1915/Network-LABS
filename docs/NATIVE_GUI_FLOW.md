@@ -94,7 +94,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both screenshots and the report to
-artifact 13550324801, source commit and run/job, with the verified original ZIP
+artifact 13562216866, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -558,3 +558,23 @@ container service. [Browser provenance](images/native-web-provenance.json)
 records its exact source and successful browser interactions. The native OCI
 traffic scenario separately verifies that an HTTP-configured address becomes
 reachable after starting the saved draft.
+
+
+Native web acceptance on source d0e6df1 passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42342996553/job/128314605964):
+1055 general cases (57.839 s, 117 skips, including the optional browser check)
+and the actual ten-node native scenario (12.055 s). The scenario applied
+CLIENT3's IPv4 through real authenticated HTTP, saw the same value in Tk,
+started the saved draft, and verified kernel ICMP delivery to 192.168.20.33.
+Default-drop firewall-path failure, seven UID-1001 results, root-state refusal,
+confirmed stop and callback/host-network cleanup invariants passed.
+`native_web_http_apply_verified: true` is retained in the report.
+
+Current normal/zoomed screenshots and report bind to artifact 13562216866,
+source d0e6df1, run 42342996553/job 128314605964. ZIP SHA-256 is
+`c0b6676b4313715f65810a58bcd668c39583eed0e16155786776cb251423fbd2`.
+The browser screenshot separately records actual local Chromium interactions;
+its local full suite passed 1054 cases (55.851 s, 141 skips), followed by the
+additional switch/DHCP readonly check. Fifteen actual Tk checks passed after
+applying the same rounded control styles to add/cable dialogs and tools.
+That final style-only extension does not change the HTTP/runtime path.

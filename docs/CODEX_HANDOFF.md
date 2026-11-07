@@ -47,6 +47,15 @@ lab was started for that local browser capture. The dedicated GitHub native
 scenario now applies CLIENT3's actual address through HTTP before real probes.
 See NATIVE_GUI_FLOW.md. LAN core stays frozen; VXLAN remains later.
 
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42342996553/job/128314605964)
+passed 1055 cases (57.839 s, 117 skips) and the actual HTTP-configured native
+campus scenario (12.055 s). The HTTP-edited address was reached through R1;
+firewall-path failure, seven UID-1001 results, root-state refusal, stop and
+host cleanup passed. Normal/zoomed screenshots/report/provenance now bind to
+artifact 13562216866 at d0e6df1. The final style-only extension applies the
+same rounded controls to add/cable dialogs and tools; fifteen focused Tk
+checks passed afterwards. It does not change the validated runtime path.
+
 ## Previous GUI typography and interaction checkpoint
 
 Latest user feedback rejects the old typeface and sharp edges and explicitly
