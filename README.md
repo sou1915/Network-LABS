@@ -60,7 +60,8 @@ Les boutons − / + / Centrer règlent aussi la vue sans modifier le manifest.
 locale dans le navigateur : interfaces, nom/IP/passerelle et état administratif
 partagent le même brouillon que la GUI ; routes et politique pare-feu sont
 modifiables dans les éditeurs dédiés : filtrage IPv4 ordonné, NAT, routes,
-VLAN/access/trunk/SVI, sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
+VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC,
+sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
 Enregistrer puis arrêter / démarrer pour activer les changements.
 [Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
 Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,

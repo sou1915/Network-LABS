@@ -108,3 +108,42 @@ class NativePortalTests(unittest.TestCase):
         original=self.app.manifest()
         self.assertEqual(self.request('POST','/api/apply',json.dumps(payload),self.headers)['status'],409);self.assertEqual(original,self.app.manifest())
         self.assertEqual(self.section('PC1','addressing',{'resolvers':[],'dhcp_clients':['eth0']})['status'],400);self.assertEqual(original,self.app.manifest())
+
+    def test_stp_component_update_and_lacp_pair_edits_are_atomic(self):
+        from network_labs.appliances.examples import lacp_lab
+        self.app.spec=lacp_lab('/tmp/rootfs');self.app.view_lab=self.app.spec['name']
+        original=self.app.manifest()
+        policy={'mode':'stp','priority':4096,'hello_time':1,'max_age':6,'forward_delay':4,'carrier_recovery':False,'ports':{}}
+        self.assertEqual(self.section('SW1','stp',{'spanning_tree':policy,'component':False})['status'],400)
+        self.assertEqual(self.app.manifest(),original)
+        self.assertEqual(self.section('SW1','stp',{'spanning_tree':policy,'component':True})['status'],200)
+        nodes={n['name']:n for n in self.app.spec['nodes']}
+        self.assertEqual(nodes['SW1']['spanning_tree']['priority'],4096)
+        self.assertEqual(nodes['SW2']['spanning_tree']['priority'],32768)
+        self.assertTrue(all(nodes[name]['spanning_tree']['mode']=='stp' for name in ('SW1','SW2')))
+        config={'peer':'SW2','name':'bond1','peer_name':'bond1','members':['eth2','eth3'],'mode':'active','peer_mode':'passive','min_links':2,'strict':None,'switchport':nodes['SW1']['switchports']['bond1'],'operation':'upsert'}
+        self.assertEqual(self.section('SW1','aggregation',config)['status'],200)
+        self.assertTrue(all(n['port_channels']['bond1']['min_links']==2 for n in self.app.spec['nodes'] if n['role']=='switch'))
+        original=self.app.manifest()
+        for invalid in ({**config,'mode':'passive'},{**config,'members':['eth0','eth2']},{**config,'peer':'PC1'},{**config,'strict':'yes'},{**config,'rootfs':'/new'}):
+            self.assertEqual(self.section('SW1','aggregation',invalid)['status'],400)
+            self.assertEqual(self.app.manifest(),original)
+        self.assertEqual(self.section('SW1','aggregation',{**config,'operation':'remove'})['status'],200)
+        self.assertTrue(all(not n['port_channels'] for n in self.app.spec['nodes'] if n['role']=='switch'))
+        self.assertEqual(self.section('SW1','aggregation',config)['status'],200)
+        self.assertEqual(self.app.spec['links'],original['links'])
+
+    def test_lldp_and_static_mac_admission_keep_backend_limits(self):
+        self.assertEqual(self.section('SW1','lldp',{'lldp':{'ports':['eth0','eth1'],'tx_interval':2,'tx_hold':3}})['status'],200)
+        original=self.app.manifest()
+        self.assertEqual(self.section('SW1','lldp',{'lldp':{'ports':['missing'],'tx_interval':2,'tx_hold':3}})['status'],400)
+        self.assertEqual(self.app.manifest(),original)
+        policy={'eth1':{'maximum':1,'mac_addresses':['02:00:00:00:00:11'],'violation':'restrict'}}
+        self.assertEqual(self.section('SW1','portsecurity',{'port_security':policy})['status'],200)
+        original=self.app.manifest()
+        for bad in ({'eth0':policy['eth1']},{'eth1':{**policy['eth1'],'violation':'shutdown'}},{'eth1':{**policy['eth1'],'maximum':2}}):
+            self.assertEqual(self.section('SW1','portsecurity',{'port_security':bad})['status'],400)
+            self.assertEqual(self.app.manifest(),original)
+        from network_labs.appliances.examples import lacp_lab
+        self.app.spec=lacp_lab('/tmp/rootfs');self.app.view_lab=self.app.spec['name']
+        self.assertEqual(self.section('SW1','lldp',{'lldp':None})['status'],400)

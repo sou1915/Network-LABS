@@ -56,6 +56,8 @@ try:
         window.reset_view();root.update()
         # The supplied campus design is a real native template, not sample UI data.
         draft=campus_example(spec['nodes'][0]['rootfs'],spec['name'])
+        for node in draft['nodes']:
+            if node['name'] in ('PC1','PC4'):node['interface_macs']['eth0']='02:00:00:00:00:'+('11' if node['name']=='PC1' else '44')
         window.commit_edit(draft);window.draw(window.graph);root.update()
         assert len(window.node_shapes)==10 and len(window.canvas.find_withtag('link'))==9
         assert not window.states and len(window.manifest()['nodes'])==10
@@ -94,6 +96,10 @@ try:
             {'name':'web-dmz-admin','action':'accept','source':'172.16.0.10/32','destination':'192.168.10.10/32','protocol':'icmp'}],'nat':[]}
         firewall_state=web_request('POST','/api/apply',{'node':'FW1','revision':firewall_state['revision'],'section':'firewall','config':{'firewall':firewall_policy}})
         assert len(firewall_state['node']['firewall']['rules'])==2
+        for switch,port,mac in [('SW1','eth1','02:00:00:00:00:11'),('SW2','eth2','02:00:00:00:00:99')]:
+            switch_state=web_request('GET','/api/state?node='+switch)
+            switch_state=web_request('POST','/api/apply',{'node':switch,'revision':switch_state['revision'],'section':'portsecurity','config':{'port_security':{port:{'maximum':1,'mac_addresses':[mac],'violation':'restrict'}}}})
+            assert switch_state['node']['port_security'][port]['mac_addresses']==[mac]
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
@@ -106,10 +112,19 @@ try:
         assert isolated['data']['probe_commands_attempted']==2
         window.choose_node('PC1');window.destination.set('SRV1');firewall_allowed=drive('verify')
         assert firewall_allowed['data']['status']=='passed',firewall_allowed['data']
+        window.choose_node('PC4');window.destination.set('CLIENT3');mac_blocked=drive('verify')
+        assert mac_blocked['data']['status']=='failed',mac_blocked['data']
+        security_observed={}
+        for switch,port,counter in [('SW1','eth1','accepted_packets'),('SW2','eth2','dropped_packets')]:
+            window.choose_node(switch);security=drive('inspect')['data']['port_security']
+            assert security['available'] and security['fingerprint_matches'],security
+            assert security['ports'][port][counter]>0,security
+            security_observed[switch]=security
+        window.choose_node('PC1')
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==8
+        assert len(window.activity.get_children())==13
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -130,9 +145,9 @@ try:
         window.reset_view();root.update()
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
-        assert set(owners)=={os.geteuid()} and len(owners)==8,owners
+        assert set(owners)=={os.geteuid()} and len(owners)==11,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors

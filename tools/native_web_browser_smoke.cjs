@@ -50,11 +50,15 @@ const {chromium}=require('playwright');
     await page.locator('#switchVlans').fill('1,10,40');await saveSection();
     await page.locator('[data-page="svis"]').click();await page.locator('#logicalName').fill('vlan40');
     await page.locator('#logicalVlan').fill('40');await page.locator('#logicalAddress').fill('192.168.40.1/24');await page.locator('#logicalAdd').click();await saveSection();
+    await page.locator('[data-page="stp"]').click();await page.locator('#treeMode').selectOption('stp');await page.locator('#treePriority').fill('4096');await page.locator('#treeBpdu1').check();await saveSection();
+    await page.screenshot({path:process.env.NATIVE_WEB_SWITCH_SCREENSHOT||'/tmp/native-switch-local.png',fullPage:true});
+    await page.locator('[data-page="lldp"]').click();await page.locator('#lldpEnabled').check();await page.locator('#lldpPort0').check();await saveSection();
+    await page.locator('[data-page="portsecurity"]').click();await page.locator('#secureEnabled0').check();await page.locator('#secureMacs0').fill('02:00:00:00:00:11');await saveSection();
     await visit('SRV1');await page.locator('[data-page="dnsserver"]').click();await page.locator('#serviceEnabled').check();
     await page.locator('#recordName').fill('srv.lab.test');await page.locator('#recordAddress').fill('172.16.0.10');await page.locator('#recordAdd').click();await saveSection();
     await visit('FW1');await page.locator('[data-page="firewall"]').click();
     await page.screenshot({path:process.env.NATIVE_WEB_SCREENSHOT||'/tmp/native-web-local.png',fullPage:true});
     if(errors.length)throw Error(errors.join('\n'));
-    console.log('Browser firewall/NAT/routes, switch VLAN/SVI, server DNS and invalid-write recovery passed');
+    console.log('Browser firewall/NAT/routes, switch VLAN/SVI, server DNS, STP/LLDP/MAC admission and invalid-write recovery passed');
   } finally {await browser.close()}
 })().catch(error=>{console.error(error);process.exit(1)});

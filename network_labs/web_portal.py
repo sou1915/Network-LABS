@@ -33,8 +33,8 @@ class WebPortal:
                 if parsed.path in ('/device_faces.css','/device_faces.js','/fortios_policy.js','/fortios_policy.css'):
                     kind='text/css' if parsed.path.endswith('.css') else 'text/javascript'
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),kind+'; charset=utf-8')
-                if native and parsed.path=='/native_options.js':
-                    return self.respond(200,Path(__file__).with_name('native_options.js').read_bytes(),'text/javascript; charset=utf-8')
+                if native and parsed.path in ('/native_options.js','/native_switch_options.js'):
+                    return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':
                     return self.respond(200,Path(__file__).parent.joinpath('appliances/assets/InterVariable.ttf').read_bytes(),'font/ttf')
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')

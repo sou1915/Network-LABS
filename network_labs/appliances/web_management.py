@@ -3,6 +3,7 @@ import hashlib
 import json
 from ..web_api import Conflict
 from . import topology_edit
+from .management_switching import component,peers
 from .management_options import PUBLIC_FIELDS,sections,configure_section
 
 
@@ -16,7 +17,7 @@ class NativeDeviceAPI:
         if node is None:raise ValueError('Équipement absent du projet natif.')
         revision=hashlib.sha256(json.dumps(spec,sort_keys=True,separators=(',',':')).encode()).hexdigest()
         if action=='state':
-            return {'revision':revision,'project':spec['name'],'equipment':[{'name':n['name'],'role':n['role']} for n in spec['nodes']],'node':{k:node[k] for k in ('name','role','runtime','interfaces','gateway','shutdown','routes','subinterfaces','firewall','dhcp_clients','svis',*PUBLIC_FIELDS) if k in node},'observed':window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé','sections':sections(node),'editable':not window.pending and node['runtime']=='oci'}
+            return {'revision':revision,'project':spec['name'],'equipment':[{'name':n['name'],'role':n['role']} for n in spec['nodes']],'node':{k:node[k] for k in ('name','role','runtime','interfaces','gateway','shutdown','routes','subinterfaces','firewall','dhcp_clients','svis','switch_backend',*PUBLIC_FIELDS) if k in node},'observed':window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé','switch_component':component(spec,name) if node['role']=='switch' else [],'aggregation_peers':peers(spec,name) if node['role']=='switch' else {},'sections':sections(node),'editable':not window.pending and node['runtime']=='oci'}
         if action!='apply':raise ValueError('Action non disponible dans la gestion web native.')
         if payload.get('revision')!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
         if 'section' in payload:

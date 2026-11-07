@@ -639,3 +639,26 @@ passed in [run 42344492330](https://github.com/sou1915/Network-LABS/actions/runs
 128319171720 passed, and [LAN aggregate 128320108768](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128320108768)
 confirms 7/7. This validates the implemented native scope, not complete
 commercial firmware parity. Continue NODE_MANAGEMENT_ROADMAP.md; VXLAN stays later.
+
+
+## Switch management extension
+
+Four additional sections expose STP, paired LACP, LLDP and static MAC admission.
+STP can update common mode/timers across the connected component atomically,
+while preserving other switches' bridge priorities and per-port settings.
+LACP pairs are derived from actual declared cables; both endpoints are changed
+in one whole-lab validated transaction. Removal/restoration refuses an unsafe
+parallel loop without enabled STP. Only Linux LACP is offered; OVS RSTP and
+Linux classic STP retain their distinct capability boundaries.
+
+LLDP and static MAC admission forms use the existing validators. The former
+requires lldpd/lldpcli assets; it is not offered alongside LACP in this profile.
+The latter exposes physical access ports, exact static whitelist/maximum and
+restrict only. No dynamic/sticky/protect/shutdown behavior is invented.
+
+HTTP tests check component/pair atomicity, preserving peer priorities, actual
+peer cables, passive/passive refusal, unsafe member changes, paired removal/
+recreation, and invalid LLDP/MAC policies. Real browser tests cover all four
+forms; a separate LACP example verifies both ends after browser edits. The
+native GUI packet scenario additionally applies access-port MAC policies over
+HTTP and checks real allowed/dropped packet counters and traffic.
