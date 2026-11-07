@@ -22,10 +22,39 @@ const {chromium}=require('playwright');
     await page.goto(process.env.NATIVE_WEB_FIREWALL_URL);
     await page.locator('#identity').filter({hasText:'FW1'}).waitFor();
     await page.locator('[data-page="firewall"]').click();
-    await page.locator('#listing pre').filter({hasText:'drop'}).waitFor();
-    await page.locator('[data-page="interfaces"]').click();
+    async function saveSection() {
+      const response=page.waitForResponse(r=>r.url().endsWith('/api/apply')&&r.request().method()==='POST');
+      await page.locator('#sectionSave').click();
+      const reply=await response;if(reply.status()!==200)throw Error('Section refused: '+await reply.text());
+      await page.locator('#message').filter({hasText:'Section appliquée'}).waitFor();
+    }
+    async function visit(name) {
+      const url=new URL(process.env.NATIVE_WEB_FIREWALL_URL),parameters=new URLSearchParams(url.hash.slice(1));parameters.set('node',name);url.hash=parameters.toString();
+      await page.goto(url.toString());await page.locator('#identity').filter({hasText:name}).waitFor();
+    }
+    await page.locator('#policyDefault').selectOption('drop');
+    for(const [name,source,destination] of [['admin-dmz','192.168.10.10/32','172.16.0.10/32'],['dmz-admin','172.16.0.10/32','192.168.10.10/32']]) {
+      await page.locator('#ruleName').fill(name);await page.locator('#ruleProtocol').selectOption('icmp');
+      await page.locator('#ruleSource').fill(source);await page.locator('#ruleDestination').fill(destination);await page.locator('#stageRule').click();
+    }
+    await saveSection();
+    await page.locator('#rulesTable').filter({hasText:'admin-dmz'}).waitFor();
+    // Reorder and remove real entries, then keep the original order for capture.
+    await page.locator('[data-down="0"]').click();await page.locator('[data-up="1"]').click();await saveSection();
+    await page.locator('[data-page="nat"]').click();
+    await page.locator('#ruleName').fill('lan-masquerade');await page.locator('#ruleOut').selectOption('eth1');
+    await page.locator('#ruleSource').fill('192.168.10.0/24');await page.locator('#stageRule').click();await saveSection();
+    await page.locator('[data-page="routing"]').click();await page.locator('#routeNetwork').fill('192.168.99.0/24');
+    await page.locator('#routeNextHop').fill('10.0.0.1');await page.locator('#routePort').selectOption('eth0');await page.locator('#stageRoute').click();await saveSection();
+    await visit('SW1');await page.locator('[data-page="switching"]').click();
+    await page.locator('#switchVlans').fill('1,10,40');await saveSection();
+    await page.locator('[data-page="svis"]').click();await page.locator('#logicalName').fill('vlan40');
+    await page.locator('#logicalVlan').fill('40');await page.locator('#logicalAddress').fill('192.168.40.1/24');await page.locator('#logicalAdd').click();await saveSection();
+    await visit('SRV1');await page.locator('[data-page="dnsserver"]').click();await page.locator('#serviceEnabled').check();
+    await page.locator('#recordName').fill('srv.lab.test');await page.locator('#recordAddress').fill('172.16.0.10');await page.locator('#recordAdd').click();await saveSection();
+    await visit('FW1');await page.locator('[data-page="firewall"]').click();
     await page.screenshot({path:process.env.NATIVE_WEB_SCREENSHOT||'/tmp/native-web-local.png',fullPage:true});
     if(errors.length)throw Error(errors.join('\n'));
-    console.log('Browser configuration, invalid-write recovery, device navigation and firewall view passed');
+    console.log('Browser firewall/NAT/routes, switch VLAN/SVI, server DNS and invalid-write recovery passed');
   } finally {await browser.close()}
 })().catch(error=>{console.error(error);process.exit(1)});

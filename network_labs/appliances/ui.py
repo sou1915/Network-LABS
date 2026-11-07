@@ -498,8 +498,12 @@ class ApplianceWindow:
         shell=tk.Frame(parent,bg='#f6f8fb');shell.pack(fill='both',expand=True)
         rail_card=SoftPanel(shell,PANEL,face='#253440');rail_card.configure(width=100);rail_card.pack(side='left',fill='y');rail=rail_card.inner
         self.config_scroll=ScrollPanel(shell,PANEL);self.config_scroll.canvas.configure(bd=0,relief='flat');self.config_scroll.scroll.configure(style='Native.Vertical.TScrollbar');self.config_scroll.pack(side='left',fill='both',expand=True)
-        for title,fraction in [('▦ Réseau',0),('  Interfaces',0),('  Passerelle',.65),('  Détails',.3)]:
+        for title,fraction in [('Interfaces',0),('Détails',.3)]:
             ttk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),style='Native.Rail.TButton').pack(fill='x',pady=3)
+        self.web_section_buttons=[]
+        for section,title,roles in [('dashboard','Vue globale',('host','router','switch','firewall')),('firewall','Politiques',('firewall',)),('nat','NAT / VIP',('firewall',)),('routing','Routage',('router','switch','firewall')),('switching','VLAN / ports',('switch',)),('dnsserver','DNS serveur',('host','router','firewall'))]:
+            button=ttk.Button(rail,text=title,command=lambda key=section:self.open_web_management(key),style='Native.Rail.TButton')
+            self.web_section_buttons.append((button,roles))
         form=self.config_scroll.inner
         self.label(form,'Interfaces',TEXT,11,True).pack(anchor='w',padx=9,pady=(9,4))
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
@@ -526,13 +530,13 @@ class ApplianceWindow:
         self.config_message=tk.StringVar()
         tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,font=(self.font,7),justify='left',wraplength=230,anchor='w').pack(fill='x',padx=9,pady=7)
 
-    def open_web_management(self):
+    def open_web_management(self,page='interfaces'):
         selected=self.nodes.selection()
         if not selected:return
         from ..web_portal import WebPortal
         from .web_management import NativeDeviceAPI
         if self.web_portal is None:self.web_portal=WebPortal(self,api=NativeDeviceAPI(self),native=True)
-        self.web_portal.open(selected[0],page='interfaces')
+        self.web_portal.open(selected[0],page=page)
 
     def config_table_selected(self,event=None):
         selected=self.port_table.selection()
@@ -549,6 +553,9 @@ class ApplianceWindow:
             spec=self.manifest()
             if public_topology(spec)!=self.graph:raise ValueError('Valider le JSON avant de charger le formulaire.')
             node=next(n for n in spec['nodes'] if n['name']==selected[0]);self.config_baseline=spec
+            for button,roles in self.web_section_buttons:
+                button.pack_forget()
+                if node['role'] in roles:button.pack(fill='x',pady=2)
             self.device_heading.set(node['name']+' · '+{'host':'Linux','switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}[node['role']])
             self.port_table.delete(*self.port_table.get_children())
             self.port_table.configure(height=max(1,min(3,len(node['interfaces']))))

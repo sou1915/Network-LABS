@@ -585,3 +585,29 @@ Final acceptance for native web source d0e6df1: all ten selected jobs passed in
 52 unrelated profiles were intentionally skipped. Dedicated wired 802.1X
 job 128314605913 passed; [LAN aggregate 128315692374](https://github.com/sou1915/Network-LABS/actions/runs/42342996553/job/128315692374)
 confirms 7/7. LAN remains closed; VXLAN stays a later roadmap item.
+
+
+## Rich per-role native management
+
+The web manager now has a project equipment selector, a configuration dashboard
+and contextual forms for nine validated configuration sections: IPv4 routing,
+IPv4 filtering/NAT, VLAN/switchports, SVIs, 802.1Q subinterfaces, static IPv6
+and routes, DNS resolver/DHCP client, DHCP server and local DNS server.
+Filtering/NAT entries can be added, edited, removed and reordered. The NAT
+subpage preserves the filtering rules and vice versa. Rule order and matching
+fields map to actual nftables generation. Routes, VLAN membership, SVI/subif
+references and service policies use whole-lab validators before a single
+atomic project replacement. Rootfs paths, startup commands, passwords and
+unrelated engine settings are not exposed through section writes.
+
+Tk's device rail now offers contextual shortcuts into these web pages. All
+writes remain offline draft edits shared with Tk, with stale revision and
+pending-operation protection. Full lab validation intentionally rejects
+incompatible IPv6/service combinations. The UI has no generic shell or
+unrestricted manifest-patch endpoint. Browser tests exercise actual rule/NAT/
+route edits, switch VLAN/SVI creation and server DNS configuration.
+
+This does not complete commercial appliance parity. The
+[per-node management roadmap](NODE_MANAGEMENT_ROADMAP.md) records implemented
+editors, existing backend features awaiting GUI, and missing commercial engine
+features. The user still requests more polish and broader real options.

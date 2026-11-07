@@ -25,6 +25,10 @@ class NativeWebBrowserTests(unittest.TestCase):
                 if browser.poll() is None:browser.terminate()
                 output=browser.communicate(timeout=5)[0].decode()
                 self.assertEqual(browser.returncode,0,output)
-            self.assertEqual(window.config_vars['name'].get(),'BROWSER3')
-            self.assertEqual(window.config_vars['address'].get(),'192.168.20.33/24')
+            nodes={n['name']:n for n in window.manifest()['nodes']}
+            self.assertEqual(nodes['BROWSER3']['interfaces']['eth0'],'192.168.20.33/24')
+            self.assertEqual(len(nodes['FW1']['firewall']['rules']),2)
+            self.assertEqual(nodes['FW1']['firewall']['nat'][0]['type'],'masquerade')
+            self.assertEqual(nodes['SW1']['svis']['vlan40']['address'],'192.168.40.1/24')
+            self.assertEqual(nodes['SRV1']['dns_server']['records'],{'srv.lab.test':'172.16.0.10'})
         finally:root.destroy()

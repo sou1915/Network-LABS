@@ -88,6 +88,12 @@ try:
         web_state=web_request('POST','/api/apply',{'node':'CLIENT3','revision':web_state['revision'],'name':'CLIENT3','port':'eth0','address':'192.168.20.33/24','gateway':'192.168.20.1','enabled':True})
         assert web_state['node']['interfaces']['eth0']=='192.168.20.33/24'
         assert window.config_vars['address'].get()=='192.168.20.33/24'
+        firewall_state=web_request('GET','/api/state?node=FW1')
+        firewall_policy={'default':'drop','stateful':True,'rules':[
+            {'name':'web-admin-dmz','action':'accept','source':'192.168.10.10/32','destination':'172.16.0.10/32','protocol':'icmp'},
+            {'name':'web-dmz-admin','action':'accept','source':'172.16.0.10/32','destination':'192.168.10.10/32','protocol':'icmp'}],'nat':[]}
+        firewall_state=web_request('POST','/api/apply',{'node':'FW1','revision':firewall_state['revision'],'section':'firewall','config':{'firewall':firewall_policy}})
+        assert len(firewall_state['node']['firewall']['rules'])==2
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
@@ -95,13 +101,15 @@ try:
         drive('status');window.choose_node('CLIENT3')
         inspected=drive('inspect');assert inspected['data']['name']=='CLIENT3';assert inspected['data']['links']
         assert any(r.get('dst')=='default' and r.get('gateway')=='192.168.20.1' for r in inspected['data']['routes'])
-        window.choose_node('PC1');window.destination.set('SRV1');isolated=drive('verify')
+        window.choose_node('PC2');window.destination.set('SRV1');isolated=drive('verify')
         assert isolated['data']['status']=='failed',isolated['data']
         assert isolated['data']['probe_commands_attempted']==2
+        window.choose_node('PC1');window.destination.set('SRV1');firewall_allowed=drive('verify')
+        assert firewall_allowed['data']['status']=='passed',firewall_allowed['data']
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==6
+        assert len(window.activity.get_children())==8
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -122,9 +130,9 @@ try:
         window.reset_view();root.update()
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
-        assert set(owners)=={os.geteuid()} and len(owners)==7,owners
+        assert set(owners)=={os.geteuid()} and len(owners)==8,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
