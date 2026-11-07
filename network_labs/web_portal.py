@@ -6,8 +6,8 @@ import json,secrets,threading,queue,webbrowser
 from .web_api import DeviceAPI,Conflict
 
 class WebPortal:
-    def __init__(self,app):
-        self.app=app;self.api=DeviceAPI(app);self.token=secrets.token_urlsafe(32)
+    def __init__(self,app,*,api=None,native=False):
+        self.app=app;self.api=api if api is not None else DeviceAPI(app);self.token=secrets.token_urlsafe(32)
         self.jobs=queue.Queue();self.closed=False;self.job=None
         portal=self
         class Handler(BaseHTTPRequestHandler):
@@ -29,10 +29,12 @@ class WebPortal:
                 if not self.allowed_host():return self.respond(403,{'error':'Host refusé.'})
                 parsed=urlsplit(self.path)
                 if parsed.path=='/':
-                    return self.respond(200,Path(__file__).with_name('device_web.html').read_bytes(),'text/html; charset=utf-8')
+                    return self.respond(200,Path(__file__).with_name('native_device_web.html' if native else 'device_web.html').read_bytes(),'text/html; charset=utf-8')
                 if parsed.path in ('/device_faces.css','/device_faces.js','/fortios_policy.js','/fortios_policy.css'):
                     kind='text/css' if parsed.path.endswith('.css') else 'text/javascript'
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),kind+'; charset=utf-8')
+                if native and parsed.path=='/InterVariable.ttf':
+                    return self.respond(200,Path(__file__).parent.joinpath('appliances/assets/InterVariable.ttf').read_bytes(),'font/ttf')
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')
                 if parsed.path!='/api/state':return self.respond(404,{'error':'Page absente.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})

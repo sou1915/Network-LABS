@@ -47,7 +47,7 @@ def apply(root):
     s.map('Native.Toolbutton',foreground=[('selected',BLUE),('disabled','#8a98aa')])
     s.configure('Native.Primary.TButton',background=PANEL,foreground='white',font=(font,9,'bold'),padding=(9,5),borderwidth=0)
     s.map('Native.Primary.TButton',foreground=[('disabled','#71859d')])
-    s.configure('Native.TNotebook',background=BG,borderwidth=0,lightcolor='#e4ebf3',darkcolor='#e4ebf3',bordercolor='#e4ebf3')
+    s.configure('Native.TNotebook',background=BG,borderwidth=0,lightcolor=BG,darkcolor=BG,bordercolor=BG)
     s.configure('Native.TNotebook.Tab',padding=(10,5),font=(font,9),background=BG)
     s.map('Native.TNotebook.Tab',background=[('selected',PANEL)],foreground=[('selected',BLUE)])
     if not hasattr(root,'_native_soft_images'):
@@ -57,17 +57,20 @@ def apply(root):
             s.element_create(name,'image',images[name,'normal'],('disabled',images[name,'disabled']),('pressed',images[name,'pressed']),('selected',images[name,'selected']),('active',images[name,'hover']),('focus',images[name,'hover']),border=8,padding=0,sticky='nswe')
         element('Soft.button',('#f9fbfe','#e0e8f2'),('#eaf3ff','#b9d9fc'),('#ddecff','#9fc8f9'),('#f0f4f8','#e1e8f0'),('#e4f0ff','#9cc9ff'))
         element('Soft.primary',('#087fe9','#087fe9'),('#168df4','#168df4'),('#0067ce','#0067ce'),('#e1ebf7','#e1ebf7'))
+        element('Soft.rail',('#253440','#253440'),('#364f64','#364f64'),('#3c5d79','#3c5d79'),('#253440','#253440'))
         element('Soft.entry',('#ffffff','#dae4ef'),('#ffffff','#8bbcf5'),('#ffffff','#7fb5f1'),('#f3f6fa','#e3eaf2'))
         blank=tk.PhotoImage(master=root,width=1,height=2);blank.put(BG,to=(0,0,1,2))
         active=tk.PhotoImage(master=root,width=1,height=2);active.put(BLUE,to=(0,0,1,2))
         images['tabline']=(blank,active)
         s.element_create('Soft.tabline','image',blank,('selected',active),sticky='ew')
         root._native_soft_images=images
-    for name,element in [('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),('Native.Primary.TButton','Soft.primary')]:
+    for name,element in [('Native.Rail.TButton','Soft.rail'),('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),('Native.Primary.TButton','Soft.primary')]:
         s.layout(name,[(element,{'sticky':'nswe','children':[('Button.padding',{'sticky':'nswe','children':[('Button.label',{'sticky':'nswe'})]})]})])
-    s.layout('Native.TNotebook.Tab',[('Notebook.padding',{'sticky':'nswe','children':[('Notebook.label',{'sticky':'nswe'})]}),('Soft.tabline',{'side':'bottom','sticky':'ew'})])
-    s.layout('Native.Hidden.TNotebook.Tab',[]);s.configure('Native.Hidden.TNotebook',background=PANEL,borderwidth=0)
+    s.configure('Native.Rail.TButton',background='#253440',foreground='#edf4fa',font=(font,8),padding=(4,8),anchor='w')
+    s.layout('Native.TNotebook.Tab',[('Soft.button',{'sticky':'nswe','children':[('Notebook.padding',{'sticky':'nswe','children':[('Notebook.label',{'sticky':'nswe'})]})]})])
+    s.layout('Native.Hidden.TNotebook.Tab',[]);s.configure('Native.Hidden.TNotebook',background=BG,borderwidth=0,lightcolor=BG,darkcolor=BG,bordercolor=BG)
     s.configure('Native.Treeview',background=PANEL,fieldbackground=PANEL,foreground=TEXT,font=(font,9),rowheight=23,borderwidth=0)
+    s.layout('Native.Treeview',[('Treeview.treearea',{'sticky':'nswe'})])
     s.configure('Native.Treeview.Heading',background='#f3f6fa',foreground=TEXT,font=(font,8,'bold'),padding=5,relief='flat')
     s.map('Native.Treeview',background=[('selected','#e4f0ff')],foreground=[('selected',TEXT)])
     s.configure('Native.TEntry',background=PANEL,fieldbackground=PANEL,foreground=TEXT,font=(font,9),padding=5)
@@ -76,4 +79,10 @@ def apply(root):
     s.map('Native.TCombobox',fieldbackground=[('readonly',PANEL)],foreground=[('readonly',TEXT)])
     s.layout('Native.TCombobox',[('Soft.entry',{'sticky':'nswe','children':[('Combobox.downarrow',{'side':'right','sticky':'ns'}),('Combobox.padding',{'sticky':'nswe','children':[('Combobox.textarea',{'sticky':'nswe'})]})]})])
     s.configure('Native.TCheckbutton',background=PANEL,foreground=TEXT,font=(font,9))
+    for orient in ('Vertical','Horizontal'):
+        if 'Soft.'+orient+'.Scrollbar.thumb' not in s.element_names():
+            thumb=surface(root,'#c4d4e6','#c4d4e6',radius=6,size=12);root._native_soft_images['thumb',orient]=thumb
+            s.element_create('Soft.'+orient+'.Scrollbar.thumb','image',thumb,border=5,sticky='nswe',width=10 if orient=='Vertical' else 24,height=24 if orient=='Vertical' else 10)
+        s.configure('Native.'+orient+'.TScrollbar',background=BG,troughcolor=PANEL,arrowsize=10,borderwidth=0,troughborderwidth=0,bordercolor=PANEL,lightcolor=PANEL,darkcolor=PANEL)
+        s.layout('Native.'+orient+'.TScrollbar',[(orient+'.Scrollbar.trough',{'sticky':'nswe','children':[('Soft.'+orient+'.Scrollbar.thumb',{'sticky':'nswe','expand':1})]})])
     return font

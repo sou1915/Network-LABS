@@ -60,9 +60,34 @@ try:
         assert len(window.node_shapes)==10 and len(window.canvas.find_withtag('link'))==9
         assert not window.states and len(window.manifest()['nodes'])==10
         window.choose_node('PC3');window.load_config(force=True)
-        window.config_vars['name'].set('CLIENT3');window.config_vars['address'].set('192.168.20.33/24');window.config_vars['gateway'].set('192.168.20.1')
+        window.config_vars['name'].set('CLIENT3');window.config_vars['address'].set('192.168.20.32/24');window.config_vars['gateway'].set('192.168.20.1')
         assert window.apply_config(),window.config_message.get()
         assert 'CLIENT3' in window.node_shapes and 'PC3' not in window.node_shapes
+        # Actual HTTP management edits the same native draft, then the kernel
+        # probe below must reach the address configured from the web API.
+        from network_labs.web_portal import WebPortal
+        from network_labs.appliances.web_management import NativeDeviceAPI
+        import http.client,threading
+        window.web_portal=WebPortal(window,api=NativeDeviceAPI(window),native=True)
+        portal=window.web_portal
+        def web_request(method,path,payload=None):
+            reply={}
+            def worker():
+                try:
+                    connection=http.client.HTTPConnection('127.0.0.1',portal.server.server_port,timeout=4)
+                    headers={'Authorization':'Bearer '+portal.token,'Content-Type':'application/json'}
+                    connection.request(method,path,json.dumps(payload) if payload else None,headers)
+                    response=connection.getresponse();reply.update(status=response.status,data=json.loads(response.read()));connection.close()
+                except Exception as error:reply['error']=str(error)
+            thread=threading.Thread(target=worker);thread.start();deadline=time.monotonic()+6
+            while thread.is_alive() and time.monotonic()<deadline:root.update();time.sleep(.01)
+            thread.join(.1);assert not thread.is_alive() and 'error' not in reply,reply
+            assert reply['status']==200,reply
+            return reply['data']
+        web_state=web_request('GET','/api/state?node=CLIENT3')
+        web_state=web_request('POST','/api/apply',{'node':'CLIENT3','revision':web_state['revision'],'name':'CLIENT3','port':'eth0','address':'192.168.20.33/24','gateway':'192.168.20.1','enabled':True})
+        assert web_state['node']['interfaces']['eth0']=='192.168.20.33/24'
+        assert window.config_vars['address'].get()=='192.168.20.33/24'
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
@@ -76,7 +101,7 @@ try:
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==5
+        assert len(window.activity.get_children())==6
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -99,7 +124,7 @@ try:
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
         assert set(owners)=={os.geteuid()} and len(owners)==7,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors

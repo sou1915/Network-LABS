@@ -33,7 +33,7 @@ def launch_terminal(command):
 
 class ApplianceWindow:
     def __init__(self,app,*,embedded=False):
-        self.app=app;self.path=None;self.pending=None;self.poll_id=None;self.closed=False;self.last_response=None
+        self.app=app;self.path=None;self.pending=None;self.poll_id=None;self.closed=False;self.last_response=None;self.web_portal=None
         # Use the established desktop's theme and device artwork. Native state
         # stays separate from the pedagogical Session/model behind that desktop.
         from ..__main__ import App
@@ -54,7 +54,7 @@ class ApplianceWindow:
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(3,weight=1)
         self.layout_id=None;self.config_key=None;self.config_baseline=None;self.positions={};self.zoom=1.;self.panning=False;self.drag_moved=False;self.edit_mode=None;self.cable_source=None;self.dragging=None
         self.tool_mode=tk.StringVar(value='select');self.buttons=[]
-        header=tk.Frame(self.window,bg='#223344',padx=7,pady=1);header.grid(row=0,column=0,sticky='ew')
+        header_card=SoftCard(self.window,BG,face='#223344',border='#223344');header_card.grid(row=0,column=0,sticky='ew',padx=4,pady=(3,1));header=header_card.inner
         self.label(header,'◉  Network LABS','#ffffff',9,True).pack(side='left')
         self.project_title=tk.StringVar(value='Projet LAN')
         tk.Label(header,textvariable=self.project_title,bg='#223344',fg='#d6e2ee',font=(self.font,8)).pack(side='left',padx=18)
@@ -85,13 +85,13 @@ class ApplianceWindow:
             line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2);line.pack(fill='x')
             self.nav_items[label]=(button,line)
         body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
-        library=tk.Frame(body,bg=SIDEBAR,width=190);library.pack_propagate(False);body.add(library,weight=0)
+        library_card=SoftPanel(body,BG,SIDEBAR);library_card.configure(width=196);body.add(library_card,weight=0);library=library_card.inner
         content=self.content=ttk.Panedwindow(body,orient='vertical');body.add(content,weight=1)
         workspace=ttk.Panedwindow(content,orient='horizontal');content.add(workspace,weight=3)
         lower=self.lower=ttk.Panedwindow(content,orient='horizontal');content.add(lower,weight=1)
         self.dock=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.dock,weight=3)
         self.activity_book=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.activity_book,weight=2)
-        activity=ttk.Frame(self.activity_book);self.activity_book.add(activity,text='Événements')
+        activity_card=SoftPanel(self.activity_book,BG);self.activity_book.add(activity_card,text='Événements');activity=activity_card.inner
         self.activity=ttk.Treeview(activity,columns=('time','action','result'),show='headings',height=5,style='Native.Treeview')
         for key,title,width in [('time','Heure',75),('action','Opération',85),('result','Résultat observé',280)]:
             self.activity.heading(key,text=title);self.activity.column(key,width=width,minwidth=60)
@@ -110,7 +110,7 @@ class ApplianceWindow:
         self.project_list_open=False
         self.project_toggle=ttk.Button(library,text='▸ Équipements du projet',command=self.toggle_project_list,style='Native.TButton');self.project_toggle.pack(fill='x',padx=7,pady=8)
         self.library=ttk.Treeview(self.project_list,show='tree',selectmode='browse',height=4,style='Native.Treeview');self.library.pack(fill='both',expand=True,side='left')
-        project_scroll=ttk.Scrollbar(self.project_list,command=self.library.yview);project_scroll.pack(side='right',fill='y');self.library.configure(yscrollcommand=project_scroll.set)
+        project_scroll=ttk.Scrollbar(self.project_list,style='Native.Vertical.TScrollbar',command=self.library.yview);project_scroll.pack(side='right',fill='y');self.library.configure(yscrollcommand=project_scroll.set)
         self.library.bind('<<TreeviewSelect>>',self.library_selected)
         self.tabs=ttk.Notebook(workspace,style='Native.Hidden.TNotebook');workspace.add(self.tabs,weight=1)
         self.topology_tab=tk.Frame(self.tabs,bg=BG);self.editor_tab=ttk.Frame(self.tabs)
@@ -121,9 +121,9 @@ class ApplianceWindow:
         self.tabs.bind('<<NotebookTabChanged>>',self.sync_navigation)
         self.topology_tab.columnconfigure(0,weight=1);self.topology_tab.rowconfigure(1,weight=1)
         self.observation=tk.StringVar(value='Aucun état runtime observé.')
-        diagram=ttk.Frame(self.topology_tab);diagram.grid(row=1,column=0,sticky='nsew')
+        diagram_card=SoftPanel(self.topology_tab,BG);diagram_card.grid(row=1,column=0,sticky='nsew');diagram=diagram_card.inner
         diagram.columnconfigure(0,weight=1);diagram.rowconfigure(0,weight=1)
-        self.canvas=tk.Canvas(diagram,background='#ffffff',highlightthickness=0)
+        self.canvas=tk.Canvas(diagram,background='#ffffff',highlightthickness=0,bd=0,relief='flat')
         self.canvas.grid(row=0,column=0,sticky='nsew');self.canvas.bind('<Configure>',self.resize_graph)
         self.canvas.bind('<B1-Motion>',self.drag_node);self.canvas.bind('<ButtonRelease-1>',self.drop_node)
         self.canvas.bind('<Escape>',lambda event:self.set_edit_mode(None))
@@ -137,7 +137,7 @@ class ApplianceWindow:
         self.canvas.bind('<minus>',lambda event:self.set_zoom(self.zoom/1.15))
         self.canvas.bind('<Key-0>',lambda event:self.reset_view())
         for orient,row,col in (('vertical',0,1),('horizontal',1,0)):
-            scrollbar=ttk.Scrollbar(diagram,orient=orient,command=self.canvas.yview if orient=='vertical' else self.canvas.xview)
+            scrollbar=ttk.Scrollbar(diagram,orient=orient,style='Native.'+orient.title()+'.TScrollbar',command=self.canvas.yview if orient=='vertical' else self.canvas.xview)
             scrollbar.grid(row=row,column=col,sticky='ns' if orient=='vertical' else 'ew')
             self.canvas.configure(**({'yscrollcommand':scrollbar.set} if orient=='vertical' else {'xscrollcommand':scrollbar.set}))
         viewbar=tk.Frame(diagram,bg=PANEL,padx=3,pady=3);viewbar.place(x=10,y=8,anchor='nw')
@@ -150,7 +150,7 @@ class ApplianceWindow:
         self.label(legend,'VLAN / adresses : configuration',MUTED,8).pack(side='right')
         device=tk.Frame(workspace,bg=PANEL,width=354);device.pack_propagate(False);workspace.add(device,weight=0)
         self.device_tabs=ttk.Notebook(device,style='Native.TNotebook');self.device_tabs.pack(fill='both',expand=True)
-        details=tk.Frame(self.device_tabs,bg=PANEL);self.device_tabs.add(details,text='État / test')
+        details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='État / test');details=details_card.inner
         self.config_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.config_panel,text='GUI')
         self.build_config_form(self.config_panel.inner)
         self.label(details,'État de l’équipement',TEXT,9,True).pack(anchor='w',padx=14,pady=8)
@@ -169,7 +169,7 @@ class ApplianceWindow:
         self.note=tk.StringVar(value='Ouvrir un projet natif ou créer un LAN pour commencer.')
         tk.Label(details,textvariable=self.note,bg=PANEL,fg=BLUE,font=(self.font,8),justify='left',anchor='nw',wraplength=265).pack(fill='x',padx=14,pady=4)
         self.label(details,'Vert : processus actif. Tester le réseau.',MUTED,7).pack(side='bottom',padx=12,pady=6)
-        self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0b0f15',foreground='#edf1f7',insertbackground='white')
+        self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0b0f15',foreground='#edf1f7',insertbackground='white');self.output.master.configure(bg='#0b0f15');self.output.master.master.face='#0b0f15'
         self.raw_output=self.text_area(self.raw_tab);self.raw_output.configure(state='disabled')
         validate_button=ttk.Button(self.editor_tab,text='Valider / plan',command=self.preview);validate_button.grid(row=2,column=0,sticky='e',pady=4);self.buttons.append(validate_button)
         self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings')
@@ -275,8 +275,10 @@ class ApplianceWindow:
 
     def text_area(self,parent):
         parent.rowconfigure(0,weight=1);parent.columnconfigure(0,weight=1)
-        text=tk.Text(parent,wrap='none',font=('DejaVu Sans Mono',9),undo=True)
-        vertical=ttk.Scrollbar(parent,command=text.yview);horizontal=ttk.Scrollbar(parent,orient='horizontal',command=text.xview)
+        card=SoftPanel(parent,BG);card.grid(row=0,column=0,sticky='nsew');area=card.inner
+        area.rowconfigure(0,weight=1);area.columnconfigure(0,weight=1)
+        text=tk.Text(area,wrap='none',font=('DejaVu Sans Mono',9),undo=True,bd=0,highlightthickness=0)
+        vertical=ttk.Scrollbar(area,command=text.yview,style='Native.Vertical.TScrollbar');horizontal=ttk.Scrollbar(area,orient='horizontal',command=text.xview,style='Native.Horizontal.TScrollbar')
         text.configure(yscrollcommand=vertical.set,xscrollcommand=horizontal.set)
         text.grid(row=0,column=0,sticky='nsew');vertical.grid(row=0,column=1,sticky='ns');horizontal.grid(row=1,column=0,sticky='ew')
         return text
@@ -315,7 +317,7 @@ class ApplianceWindow:
         validate_topology(graph)
         selected=self.nodes.selection();previous=selected[0] if selected else None;destination=self.destination.get()
         self.graph=graph;self.view_lab=graph['name'];self.states=states or {};self.node_shapes={};self.link_shapes={}
-        from ..__main__ import App,roundrect
+        from ..__main__ import App
         self.canvas.delete('all');self.nodes.delete(*self.nodes.get_children());self.library.delete(*[n['name'] for n in getattr(self,'library_graph',{}).get('nodes',[]) if self.library.exists(n['name'])]);self.library_graph=graph
         width=max(600,self.canvas.winfo_width());height=max(360,self.canvas.winfo_height())
         spec=None;members={}
@@ -338,12 +340,12 @@ class ApplianceWindow:
             x1=middle-span/2;x2=middle+span/2
             y1=min(y for x,y in points)-82;y2=max(y for x,y in points)+64
             bg,border,ink=palette[index%len(palette)]
-            roundrect(self.canvas,x1,y1,x2,y2,r=10,fill=bg,outline=border,dash=(3,2),tags=('vlan-group',))
+            rounded_box(self.canvas,x1,y1,x2,y2,r=16,fill=bg,outline=border,dash=(3,2),tags=('vlan-group',))
             captions.append((x1,y1,x2,bg,ink,vid,networks(graph,names,spec,vid)))
         dmz=firewall_hosts(graph)
         for name in dmz:
             xx,yy=positions[name]
-            roundrect(self.canvas,xx-43,yy-52,xx+43,yy+76,r=7,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
+            rounded_box(self.canvas,xx-43,yy-52,xx+43,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
             self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(self.font,7,'bold'))
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
         for index,(a,b) in enumerate(graph['links']):
@@ -372,7 +374,7 @@ class ApplianceWindow:
                 lx=(ax+bx)/2;ly=((ay+by)/2 if abs(y-yy)<45 else mid)-12
                 self.canvas.create_text(lx,ly,text=caption,fill='#315b7d',font=(self.font,7))
         for x1,y1,x2,bg,ink,vid,subnets in captions:
-            self.canvas.create_rectangle(x1+3,y1+3,x2-3,y1+41,fill=bg,outline='')
+            rounded_box(self.canvas,x1+3,y1+3,x2-3,y1+41,r=9,fill=bg,outline='')
             self.canvas.create_text((x1+x2)/2,y1+14,text=f'VLAN {vid}',fill=ink,font=(self.font,8,'bold'),tags=('vlan-label',))
             self.canvas.create_text((x1+x2)/2,y1+30,text=subnets,fill=MUTED,font=(self.font,7))
         for node in graph['nodes']:
@@ -484,27 +486,30 @@ class ApplianceWindow:
 
     def build_config_form(self,parent):
         self.device_heading=tk.StringVar(value='Équipement · GUI')
+        webbar=tk.Frame(parent,bg=PANEL);webbar.pack(fill='x',pady=3)
+        ttk.Button(webbar,text='↗ Gestion web',command=self.open_web_management,style='Native.TButton').pack(side='right',padx=5)
         tk.Label(parent,textvariable=self.device_heading,bg='#f5f8fc',fg=TEXT,font=(self.font,9,'bold'),anchor='w',padx=9,pady=5).pack(fill='x')
-        brand=tk.Frame(parent,bg='#df1723',height=31);brand.pack(fill='x')
+        brand_card=SoftCard(parent,PANEL,face='#df1723',border='#df1723');brand_card.pack(fill='x',pady=3);brand=brand_card.inner
         tk.Label(brand,text='NETWORK LABS',bg='#df1723',fg='white',font=(self.font,12,'bold'),padx=9,pady=6).pack(side='left')
         tk.Label(brand,text='Linux · GUI',bg='#df1723',fg='white',font=(self.font,8),padx=6).pack(side='right')
-        action_footer=tk.Frame(parent,bg='#253440');action_footer.pack(side='bottom',fill='x')
-        tk.Frame(action_footer,bg='#253440',width=96).pack(side='left',fill='y')
+        action_footer=tk.Frame(parent,bg=PANEL);action_footer.pack(side='bottom',fill='x')
+        tk.Frame(action_footer,bg=PANEL,width=96).pack(side='left',fill='y')
         self.config_actions=tk.Frame(action_footer,bg=PANEL,padx=8,pady=6);self.config_actions.pack(side='left',fill='x',expand=True)
         shell=tk.Frame(parent,bg='#f6f8fb');shell.pack(fill='both',expand=True)
-        rail=tk.Frame(shell,bg='#253440',width=96);rail.pack(side='left',fill='y');rail.pack_propagate(False)
-        self.config_scroll=ScrollPanel(shell,PANEL);self.config_scroll.pack(side='left',fill='both',expand=True)
+        rail_card=SoftPanel(shell,PANEL,face='#253440');rail_card.configure(width=100);rail_card.pack(side='left',fill='y');rail=rail_card.inner
+        self.config_scroll=ScrollPanel(shell,PANEL);self.config_scroll.canvas.configure(bd=0,relief='flat');self.config_scroll.scroll.configure(style='Native.Vertical.TScrollbar');self.config_scroll.pack(side='left',fill='both',expand=True)
         for title,fraction in [('▦ Réseau',0),('  Interfaces',0),('  Passerelle',.65),('  Détails',.3)]:
-            tk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),bg='#253440',fg='#edf4fa',activebackground='#364f64',activeforeground='white',relief='flat',font=(self.font,8),anchor='w',padx=6,pady=8).pack(fill='x')
+            ttk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),style='Native.Rail.TButton').pack(fill='x',pady=3)
         form=self.config_scroll.inner
         self.label(form,'Interfaces',TEXT,11,True).pack(anchor='w',padx=9,pady=(9,4))
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
-        self.port_table=ttk.Treeview(form,columns=('address','admin'),show='tree headings',height=3,style='Native.Treeview')
+        ports_card=SoftCard(form,PANEL);ports_card.pack(fill='x',padx=7)
+        self.port_table=ttk.Treeview(ports_card.inner,columns=('address','admin'),show='tree headings',height=3,style='Native.Treeview')
         for key,label,width in [('#0','Nom',45),('address','Adresse IPv4',130),('admin','Admin',48)]:
             self.port_table.heading(key,text=label);self.port_table.column(key,width=width,minwidth=35)
         self.port_table.tag_configure('enabled',foreground='#168942');self.port_table.tag_configure('disabled',foreground='#bb3646')
-        self.port_table.pack(fill='x',padx=7);self.port_table.bind('<<TreeviewSelect>>',self.config_table_selected)
-        detail=tk.Frame(form,bg='#edf2f7');detail.pack(fill='x',padx=7,pady=(10,5))
+        self.port_table.pack(fill='x');self.port_table.bind('<<TreeviewSelect>>',self.config_table_selected)
+        detail_card=SoftCard(form,PANEL,face='#edf2f7',border='#edf2f7');detail_card.pack(fill='x',padx=7,pady=(10,5));detail=detail_card.inner
         self.label(detail,'Détails de l’interface',TEXT,8,True).pack(anchor='w',padx=7,pady=5)
         fields=tk.Frame(form,bg=PANEL);fields.pack(fill='x',padx=9)
         fields.columnconfigure(1,weight=1)
@@ -520,6 +525,14 @@ class ApplianceWindow:
         ttk.Button(self.config_actions,text='Recharger',command=lambda:self.load_config(force=True),style='Native.TButton').pack(side='right')
         self.config_message=tk.StringVar()
         tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,font=(self.font,7),justify='left',wraplength=230,anchor='w').pack(fill='x',padx=9,pady=7)
+
+    def open_web_management(self):
+        selected=self.nodes.selection()
+        if not selected:return
+        from ..web_portal import WebPortal
+        from .web_management import NativeDeviceAPI
+        if self.web_portal is None:self.web_portal=WebPortal(self,api=NativeDeviceAPI(self),native=True)
+        self.web_portal.open(selected[0],page='interfaces')
 
     def config_table_selected(self,event=None):
         selected=self.port_table.selection()
@@ -799,6 +812,7 @@ class ApplianceWindow:
     def destroyed(self,event):
         if event.widget is self.window:
             self.closed=True
+            if self.web_portal is not None:self.web_portal.close();self.web_portal=None
             if self.layout_id is not None:
                 try:self.window.after_cancel(self.layout_id)
                 except tk.TclError:pass

@@ -516,3 +516,36 @@ jobs passed in [run 42316748403](https://github.com/sou1915/Network-LABS/actions
 and the [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128233042144).
 LAN core remains accepted; advanced LAN, native interactive consoles/capture
 and static VXLAN retain their existing roadmap boundaries.
+
+
+## Rounded panels and actual native web management
+
+Rounded surfaces now surround the library, topology, device state/GUI,
+diagnostics, event table, interface table, tabs, header and management sections;
+scrollbar thumbs are rounded. The device GUI offers **Gestion web**, opening
+an actual loopback HTTP page in the external browser. This is native project
+management, not a vendor firmware screen or an HTTP service inside a guest.
+The existing pedagogical web portal stays separate.
+
+The native web page edits identity, physical-port IPv4, gateway and admin state
+through the same validated draft operations as Tk. Changes appear in the native
+GUI immediately. They require save/stop/start before taking effect in Linux.
+Routes and firewall policy are read-only declared configuration. Runtime state
+is explicitly a requested snapshot, not continuous monitoring. Switch and
+DHCP-managed address restrictions mirror the GUI. Unknown operations, invalid
+edits, stale revision hashes, pending operations and unvalidated JSON conflicts
+are refused. The web path never launches sudo or arbitrary commands.
+
+The HTTP transport reuses loopback-only binding, exact Host/origin checks,
+fragment-session bearer authentication and Tk-thread dispatch. The native
+adapter returns an allowlist of configuration fields, never rootfs paths or
+private runtime state. Closing the native workbench closes its portal.
+
+`test_native_web_management.py` covers real HTTP edits, invalid/stale requests,
+auth/origin/pending-operation boundaries and native-only state/assets. The
+opt-in `NETWORK_LABS_BROWSER_TESTS=1` check uses Playwright and Chromium to edit
+a client, recover from invalid IP input, navigate to the firewall in the same
+tab, and save a real browser screenshot. It requires a DISPLAY and Playwright
+available to Node; `CHROMIUM_PATH` and `NATIVE_WEB_SCREENSHOT` are optional.
+The dedicated native test now changes CLIENT3's address through actual HTTP
+before verifying that address with real OCI packets.

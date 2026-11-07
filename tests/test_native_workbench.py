@@ -216,3 +216,13 @@ class WorkbenchGUITests(unittest.TestCase):
             window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp);self.root.update()
         self.assertEqual(window.device_tabs.select(),str(window.config_panel))
         self.assertEqual(window.nodes.selection(),('PC1',));self.assertEqual(window.manifest(),original)
+
+
+    def test_web_apply_synchronizes_real_native_form_without_backend_launch(self):
+        from network_labs.appliances.web_management import NativeDeviceAPI
+        window=self.window;api=NativeDeviceAPI(window);state=api.dispatch('state',{'node':'PC1'})
+        with patch('network_labs.appliances.ui.launch_terminal') as launch:
+            api.dispatch('apply',{'node':'PC1','revision':state['revision'],'name':'BROWSER1','port':'eth0','address':'192.168.10.44/24','gateway':'192.168.10.1','enabled':True})
+            self.root.update();self.assertEqual(window.nodes.selection(),('BROWSER1',))
+            self.assertEqual(window.config_vars['address'].get(),'192.168.10.44/24')
+            self.assertEqual(window.config_vars['name'].get(),'BROWSER1');launch.assert_not_called()
