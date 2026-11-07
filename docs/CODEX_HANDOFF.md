@@ -21,7 +21,40 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current rounded-panel and native web checkpoint
+## Current rich native node management checkpoint
+
+The latest user rejects minimal web management, requests more GUI polish and
+all real options for every node. The supplied FortiGate-style reference remains
+the current visual direction; no new vendor/version was selected. Do not call
+basic identity/IP editing complete, and do not claim full commercial firmware
+parity. [NODE_MANAGEMENT_ROADMAP.md](NODE_MANAGEMENT_ROADMAP.md) records the
+per-role implemented editors, existing backend modules still awaiting GUI,
+and commercial features without an engine implementation.
+
+Source `0328316604b54d108c18b8469c7aa97c35b398eb` adds nine allowlisted
+configuration sections: filtering/NAT, IPv4 routes/forwarding, VLAN/ports,
+SVIs, 802.1Q subinterfaces, static IPv6/routes, resolvers/DHCP client,
+DHCP server/reservations, and local DNS server/A/AAAA records. Rules/NAT can
+be added, edited, deleted and reordered. Full-lab validation plus revision and
+pending-operation guards protect atomic offline draft writes. Rootfs, startup,
+private credentials and arbitrary commands are excluded from section writes.
+The browser has an equipment selector and per-role navigation/dashboard;
+Tk's rail opens appropriate management pages directly. Later style source
+c853fab fixes selector contrast and compacts the rail, with actual browser
+revalidation. No backend protocol or privilege implementation changed.
+
+Full local regression with real Chromium passed 1058 cases (68.374 s,
+141 skips). Browser acceptance covers client edits, invalid-write recovery,
+rule ordering, NAT, static routes, switch VLAN/SVI and server DNS. Seven HTTP
+checks cover atomicity, stale edits, unknown fields, roles and incompatible
+whole-lab compositions. IPv6 profiles intentionally reject unsupported mixed
+combinations; DNS requires dnsmasq in the rootfs. The retained browser image
+is an actual local draft session, not a running guest service.
+The dedicated native test now applies two firewall rules through HTTP and
+checks a permitted PC1↔SRV1 pair, a blocked PC2↔SRV1 pair and routed PC1↔CLIENT3.
+LAN core remains frozen; VXLAN stays after LAN/GUI.
+
+## Previous rounded-panel and native web checkpoint
 
 User explicitly requires rounded edges throughout the GUI and better web
 virtualisation/management. Source `d0e6df1e507e568aec406d4755b76e13a35fdc90` expands rounded surfaces to

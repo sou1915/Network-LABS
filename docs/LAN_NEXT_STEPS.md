@@ -2496,3 +2496,10 @@ the shared project draft (name/physical IPv4/gateway/admin); routes/firewall
 policy are readable. It does not provide vendor firmware or a guest web
 service. Retain the real web → draft → start → kernel-probe validation while
 continuing the GUI; no new LAN-core prerequisite is added.
+
+
+Current user priority is rich, functional management for every node, not just
+minimal IP forms. Native editors now cover nine validated configuration
+sections with role-based navigation. Continue the
+[per-node management roadmap](NODE_MANAGEMENT_ROADMAP.md), expose only real
+backend behavior, and preserve the accepted LAN core/VXLAN ordering.

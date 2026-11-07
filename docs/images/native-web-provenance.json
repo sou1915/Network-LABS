@@ -1,15 +1,19 @@
 {
-  "source_commit": "d0e6df1e507e568aec406d4755b76e13a35fdc90",
-  "capture": "actual local Chromium screenshot of native project management",
+  "source_commit": "c853fab541aa764dff55777f98c24527368d7b13",
+  "capture": "actual local Chromium screenshot of native role-specific management",
   "native_lab_started_locally": false,
   "ui_runtime_state": "non observ\u00e9",
   "browser_acceptance": [
-    "client name and IPv4 applied through browser",
-    "Tk form synchronized",
-    "invalid IPv4 refused and reload recovered previous address",
-    "same-tab device navigation",
-    "firewall default-drop policy displayed"
+    "client name and IPv4 applied and Tk synchronized",
+    "invalid IPv4 refused",
+    "firewall rules added and reordered",
+    "masquerade NAT policy applied",
+    "IPv4 static route applied",
+    "switch VLAN and SVI created",
+    "server local DNS record applied",
+    "same-tab node switching",
+    "equipment selector and contextual menus rendered"
   ],
-  "screenshot_sha256": "9a6a4d8dfb093650dcd66fd50e737fcd1d34b182875efaa2e29831d1cc429374",
+  "screenshot_sha256": "89e11aee7312feebfc8f41b11c126a93ecb258f723cf9d895bd80d02fa45e51b",
   "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
 }
