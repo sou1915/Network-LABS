@@ -10,8 +10,9 @@ toward the actual user-supplied mockup. The ten-node routed campus, generic
 device artwork, VLAN groups, basic native device forms, rounded Inter UI and
 interactive topology viewport are implemented. Rounded main panels and an
 authenticated browser-based native draft manager now share the Tk settings.
-Nine configuration modules now cover filtering/NAT, routing, switch VLAN/SVI,
-802.1Q, IPv6, and client/server DHCP/DNS according to the node role.
+Thirteen configuration modules now cover filtering/NAT, routing, switch
+VLAN/SVI, STP, paired LACP, LLDP, static MAC admission, 802.1Q, IPv6 and
+client/server DHCP/DNS according to the node role.
 [Per-node coverage and remaining commercial parity](NODE_MANAGEMENT_ROADMAP.md)
 remain explicit; this is not a completed vendor firmware implementation. Richer forms, interactive native
 consoles and packet views remain pending.

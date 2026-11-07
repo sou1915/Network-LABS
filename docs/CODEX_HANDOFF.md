@@ -46,6 +46,15 @@ allowed PC1 traffic plus blocked PC4 traffic on the same VLAN and real
 accepted/dropped nftables counters. LAN core stays frozen; VXLAN remains later.
 See NATIVE_GUI_FLOW.md and NODE_MANAGEMENT_ROADMAP.md for remaining scope.
 
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42345881332/job/128323399976)
+passed 1061 general cases (70.760 s, 118 skips) and the real native scenario
+(22.182 s). HTTP-configured MAC admission allowed PC1 and blocked PC4↔CLIENT3
+within VLAN 20. Kernel nftables fingerprints matched; snapshots showed 14
+accepted frames on SW1/eth1 and 14 dropped frames on SW2/eth2. Existing firewall
+allow/deny and routed traffic passed. Eleven results remained UID 1001;
+root-state refusal, stop and callback/host cleanup checks passed. Current native
+captures/report/provenance bind to artifact 13563132530 at source 8a4af12.
+
 ## Previous rich native node management checkpoint
 
 The latest user rejects minimal web management, requests more GUI polish and

@@ -5,7 +5,27 @@ Open it from the desktop's existing native-lab entry. It uses the agreed
 main-window layout while keeping native state separate from the educational
 canvas and Wasm backend. Returning restores their existing project and engine.
 
-## Latest retained evidence
+## Latest retained switching evidence
+
+Switch-management source 8a4af12 passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42345881332/job/128323399976):
+1061 general cases (70.760 s, 118 skips) and the actual native scenario
+(22.182 s). Web-configured static MAC policies allowed PC1 traffic and blocked
+PC4↔CLIENT3 within the same VLAN. Actual kernel nftables policy fingerprints
+matched; the inspected snapshots counted 14 accepted frames on SW1/eth1 and
+14 dropped frames on SW2/eth2. Existing firewall permit/block and routed
+PC1↔CLIENT3 checks passed. Eleven results remained owned by UID 1001;
+root-state refusal, confirmed stop and callback/host cleanup checks passed.
+
+Normal/zoomed captures and operation report now bind to source
+8a4af125c25868ce7fd2d29e7dd94f4fce7b9f07, run 42345881332, job 128323399976,
+artifact 13563132530. Verified ZIP SHA-256:
+`31fff514219bd397a7d4e405026376b35b24c44e2dda4a4f61eb5d0c6af8d49d`.
+The report records `native_web_port_security_verified: true` and the actual
+policy/counter observations plus MAC-blocked traffic. Browser STP/LACP captures
+remain separate local draft sessions with their own provenance.
+
+## Previous retained rich-management evidence
 
 Rich management source 0328316 passed the
 [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128319171847):
@@ -16,7 +36,7 @@ remained UID 1001; direct root-state read was refused, stop confirmed, and
 callback/host-network cleanup checks passed. The JSON report records
 `native_web_firewall_policy_verified: true` and the allowed/blocked probe data.
 
-Current normal/zoomed captures and report bind to source
+At that checkpoint, normal/zoomed captures and report bound to source
 0328316604b54d108c18b8469c7aa97c35b398eb, run 42344492330, job 128319171847,
 artifact 13563065883; verified ZIP SHA-256:
 `2827d79b9f2a31e9de1766099e62cf3ba83b96bdea2b39c7bade79b7f5b4c484`.
@@ -114,7 +134,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both screenshots and the report to
-artifact 13563065883, source commit and run/job, with the verified original ZIP
+artifact 13563132530, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
