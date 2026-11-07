@@ -5,6 +5,26 @@ Open it from the desktop's existing native-lab entry. It uses the agreed
 main-window layout while keeping native state separate from the educational
 canvas and Wasm backend. Returning restores their existing project and engine.
 
+## Latest retained evidence
+
+Rich management source 0328316 passed the
+[desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128319171847):
+1058 general cases (56.726 s, 117 skips) and a real campus scenario (14.389 s).
+Two firewall rules configured over HTTP allowed PC1 ↔ SRV1 while PC2 ↔ SRV1
+remained blocked; PC1 ↔ CLIENT3 routed traffic also passed. Eight result files
+remained UID 1001; direct root-state read was refused, stop confirmed, and
+callback/host-network cleanup checks passed. The JSON report records
+`native_web_firewall_policy_verified: true` and the allowed/blocked probe data.
+
+Current normal/zoomed captures and report bind to source
+0328316604b54d108c18b8469c7aa97c35b398eb, run 42344492330, job 128319171847,
+artifact 13563065883; verified ZIP SHA-256:
+`2827d79b9f2a31e9de1766099e62cf3ba83b96bdea2b39c7bade79b7f5b4c484`.
+The browser capture separately binds to style source c853fab, after selector
+contrast/compact-rail polish and actual browser revalidation. Its richer
+filtering/NAT/routing/switch/server workflows passed locally. Full local
+regression passed 1058 cases (68.374 s, 141 skips).
+
 ## First usable flow
 
 1. Prepare a native BusyBox rootfs using the existing appliance guide, then
@@ -94,7 +114,7 @@ This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
 [provenance record](images/native-gui-provenance.json) binds both screenshots and the report to
-artifact 13562216866, source commit and run/job, with the verified original ZIP
+artifact 13563065883, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -570,7 +590,7 @@ Default-drop firewall-path failure, seven UID-1001 results, root-state refusal,
 confirmed stop and callback/host-network cleanup invariants passed.
 `native_web_http_apply_verified: true` is retained in the report.
 
-Current normal/zoomed screenshots and report bind to artifact 13562216866,
+At that checkpoint, normal/zoomed screenshots and report bound to artifact 13562216866,
 source d0e6df1, run 42342996553/job 128314605964. ZIP SHA-256 is
 `c0b6676b4313715f65810a58bcd668c39583eed0e16155786776cb251423fbd2`.
 The browser screenshot separately records actual local Chromium interactions;

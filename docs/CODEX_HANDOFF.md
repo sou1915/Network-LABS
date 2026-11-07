@@ -54,6 +54,13 @@ The dedicated native test now applies two firewall rules through HTTP and
 checks a permitted PC1↔SRV1 pair, a blocked PC2↔SRV1 pair and routed PC1↔CLIENT3.
 LAN core remains frozen; VXLAN stays after LAN/GUI.
 
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128319171847)
+passed 1058 cases (56.726 s, 117 skips) and the actual HTTP firewall
+allow/block/routing scenario (14.389 s). Eight UID-1001 result files,
+root-state refusal, confirmed stop and callback/host cleanup passed.
+Retained normal/zoomed captures/report/provenance bind to artifact 13563065883
+at source 0328316. See NATIVE_GUI_FLOW.md for hashes and exact scope.
+
 ## Previous rounded-panel and native web checkpoint
 
 User explicitly requires rounded edges throughout the GUI and better web

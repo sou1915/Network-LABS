@@ -2,289 +2,12 @@
   "ui_font": "Inter Variable",
   "viewport_zoom_verified": true,
   "native_web_http_apply_verified": true,
-  "gui_uid": 1001,
-  "result_owner_uids": [
-    1001,
-    1001,
-    1001,
-    1001,
-    1001,
-    1001,
-    1001
-  ],
-  "root_state_denied": true,
-  "node_count": 10,
-  "link_count": 9,
-  "verified": {
-    "lab": "Campus-entreprise-3477",
-    "started_at": "2026-11-07T05:31:53.749780+00:00",
+  "native_web_firewall_policy_verified": true,
+  "firewall_allowed": {
+    "lab": "Campus-entreprise-3561",
+    "started_at": "2026-11-07T05:53:17.334426+00:00",
     "revision": 0,
     "status": "passed",
-    "directions": [
-      {
-        "source": "PC1",
-        "destination": "CLIENT3",
-        "destination_address": "192.168.20.33",
-        "route": {
-          "status": "observed",
-          "records": [
-            {
-              "dst": "192.168.20.33",
-              "gateway": "192.168.10.1",
-              "dev": "eth0",
-              "prefsrc": "192.168.10.10",
-              "flags": [],
-              "uid": 0,
-              "cache": []
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "status": "passed",
-        "command": [
-          "/bin/ping",
-          "-n",
-          "-I",
-          "eth0",
-          "-c",
-          "2",
-          "-W",
-          "1",
-          "-w",
-          "4",
-          "192.168.20.33"
-        ],
-        "requested_packets": 2,
-        "transmitted": 2,
-        "received": 2,
-        "loss_percent": 0.0,
-        "reply_ttls": [
-          63,
-          63
-        ],
-        "reply_hop_limits": [],
-        "address_family": "ipv4",
-        "source_address": "192.168.10.10",
-        "returncode": 0,
-        "stdout": "PING 192.168.20.33 (192.168.20.33): 56 data bytes\n64 bytes from 192.168.20.33: seq=0 ttl=63 time=0.088 ms\n64 bytes from 192.168.20.33: seq=1 ttl=63 time=0.084 ms\n\n--- 192.168.20.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.084/0.086/0.088 ms\n",
-        "stderr": "",
-        "attempted": true
-      },
-      {
-        "source": "CLIENT3",
-        "destination": "PC1",
-        "destination_address": "192.168.10.10",
-        "route": {
-          "status": "observed",
-          "records": [
-            {
-              "dst": "192.168.10.10",
-              "gateway": "192.168.20.1",
-              "dev": "eth0",
-              "prefsrc": "192.168.20.33",
-              "flags": [],
-              "uid": 0,
-              "cache": []
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "status": "passed",
-        "command": [
-          "/bin/ping",
-          "-n",
-          "-I",
-          "eth0",
-          "-c",
-          "2",
-          "-W",
-          "1",
-          "-w",
-          "4",
-          "192.168.10.10"
-        ],
-        "requested_packets": 2,
-        "transmitted": 2,
-        "received": 2,
-        "loss_percent": 0.0,
-        "reply_ttls": [
-          63,
-          63
-        ],
-        "reply_hop_limits": [],
-        "address_family": "ipv4",
-        "source_address": "192.168.20.33",
-        "returncode": 0,
-        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=63 time=0.062 ms\n64 bytes from 192.168.10.10: seq=1 ttl=63 time=0.085 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.062/0.073/0.085 ms\n",
-        "stderr": "",
-        "attempted": true
-      }
-    ],
-    "address_family": "ipv4",
-    "endpoints": [
-      {
-        "node": "PC1",
-        "interface": "eth0",
-        "status": "ready",
-        "address": "192.168.10.10",
-        "dhcp_client_configured": false,
-        "reasons": [],
-        "container": "running",
-        "link": {
-          "status": "observed",
-          "records": [
-            {
-              "ifindex": 11,
-              "link_index": 12,
-              "ifname": "eth0",
-              "flags": [
-                "BROADCAST",
-                "MULTICAST",
-                "UP",
-                "LOWER_UP"
-              ],
-              "mtu": 1500,
-              "qdisc": "noqueue",
-              "operstate": "UP",
-              "linkmode": "DEFAULT",
-              "group": "default",
-              "txqlen": 1000,
-              "link_type": "ether",
-              "address": "de:1f:0f:2f:67:23",
-              "broadcast": "ff:ff:ff:ff:ff:ff",
-              "link_netnsid": 0
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "kernel": {
-          "status": "observed",
-          "records": [
-            {
-              "ifindex": 11,
-              "link_index": 12,
-              "ifname": "eth0",
-              "flags": [
-                "BROADCAST",
-                "MULTICAST",
-                "UP",
-                "LOWER_UP"
-              ],
-              "mtu": 1500,
-              "qdisc": "noqueue",
-              "operstate": "UP",
-              "group": "default",
-              "txqlen": 1000,
-              "link_netnsid": 0,
-              "addr_info": [
-                {
-                  "family": "inet",
-                  "local": "192.168.10.10",
-                  "prefixlen": 24,
-                  "scope": "global",
-                  "label": "eth0",
-                  "valid_life_time": 4294967295,
-                  "preferred_life_time": 4294967295
-                }
-              ]
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "address_family": "ipv4",
-        "slaac_client_configured": false,
-        "dhcpv6_client_configured": false
-      },
-      {
-        "node": "CLIENT3",
-        "interface": "eth0",
-        "status": "ready",
-        "address": "192.168.20.33",
-        "dhcp_client_configured": false,
-        "reasons": [],
-        "container": "running",
-        "link": {
-          "status": "observed",
-          "records": [
-            {
-              "ifindex": 15,
-              "link_index": 16,
-              "ifname": "eth0",
-              "flags": [
-                "BROADCAST",
-                "MULTICAST",
-                "UP",
-                "LOWER_UP"
-              ],
-              "mtu": 1500,
-              "qdisc": "noqueue",
-              "operstate": "UP",
-              "linkmode": "DEFAULT",
-              "group": "default",
-              "txqlen": 1000,
-              "link_type": "ether",
-              "address": "12:5d:7b:ba:f0:55",
-              "broadcast": "ff:ff:ff:ff:ff:ff",
-              "link_netnsid": 0
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "kernel": {
-          "status": "observed",
-          "records": [
-            {
-              "ifindex": 15,
-              "link_index": 16,
-              "ifname": "eth0",
-              "flags": [
-                "BROADCAST",
-                "MULTICAST",
-                "UP",
-                "LOWER_UP"
-              ],
-              "mtu": 1500,
-              "qdisc": "noqueue",
-              "operstate": "UP",
-              "group": "default",
-              "txqlen": 1000,
-              "link_netnsid": 0,
-              "addr_info": [
-                {
-                  "family": "inet",
-                  "local": "192.168.20.33",
-                  "prefixlen": 24,
-                  "scope": "global",
-                  "label": "eth0",
-                  "valid_life_time": 4294967295,
-                  "preferred_life_time": 4294967295
-                }
-              ]
-            }
-          ],
-          "returncode": 0,
-          "error": null
-        },
-        "address_family": "ipv4",
-        "slaac_client_configured": false,
-        "dhcpv6_client_configured": false
-      }
-    ],
-    "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
-    "configuration_changed": false,
-    "probe_commands_attempted": 2,
-    "finished_at": "2026-11-07T05:31:55.780741+00:00"
-  },
-  "isolated": {
-    "lab": "Campus-entreprise-3477",
-    "started_at": "2026-11-07T05:31:49.328917+00:00",
-    "revision": 0,
-    "status": "failed",
     "directions": [
       {
         "source": "PC1",
@@ -306,7 +29,7 @@
           "returncode": 0,
           "error": null
         },
-        "status": "failed",
+        "status": "passed",
         "command": [
           "/bin/ping",
           "-n",
@@ -322,14 +45,17 @@
         ],
         "requested_packets": 2,
         "transmitted": 2,
-        "received": 0,
-        "loss_percent": 100.0,
-        "reply_ttls": [],
+        "received": 2,
+        "loss_percent": 0.0,
+        "reply_ttls": [
+          62,
+          62
+        ],
         "reply_hop_limits": [],
         "address_family": "ipv4",
         "source_address": "192.168.10.10",
-        "returncode": 1,
-        "stdout": "PING 172.16.0.10 (172.16.0.10): 56 data bytes\n\n--- 172.16.0.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "returncode": 0,
+        "stdout": "PING 172.16.0.10 (172.16.0.10): 56 data bytes\n64 bytes from 172.16.0.10: seq=0 ttl=62 time=0.096 ms\n64 bytes from 172.16.0.10: seq=1 ttl=62 time=0.085 ms\n\n--- 172.16.0.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.085/0.090/0.096 ms\n",
         "stderr": "",
         "attempted": true
       },
@@ -353,7 +79,7 @@
           "returncode": 0,
           "error": null
         },
-        "status": "failed",
+        "status": "passed",
         "command": [
           "/bin/ping",
           "-n",
@@ -369,14 +95,17 @@
         ],
         "requested_packets": 2,
         "transmitted": 2,
-        "received": 0,
-        "loss_percent": 100.0,
-        "reply_ttls": [],
+        "received": 2,
+        "loss_percent": 0.0,
+        "reply_ttls": [
+          62,
+          62
+        ],
         "reply_hop_limits": [],
         "address_family": "ipv4",
         "source_address": "172.16.0.10",
-        "returncode": 1,
-        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "returncode": 0,
+        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=62 time=0.044 ms\n64 bytes from 192.168.10.10: seq=1 ttl=62 time=0.080 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.044/0.062/0.080 ms\n",
         "stderr": "",
         "attempted": true
       }
@@ -411,7 +140,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "de:1f:0f:2f:67:23",
+              "address": "f2:39:2e:fb:97:22",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -486,7 +215,7 @@
               "group": "default",
               "txqlen": 1000,
               "link_type": "ether",
-              "address": "8a:d8:e2:56:5b:05",
+              "address": "4e:9d:96:c0:08:02",
               "broadcast": "ff:ff:ff:ff:ff:ff",
               "link_netnsid": 0
             }
@@ -537,7 +266,545 @@
     "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
     "configuration_changed": false,
     "probe_commands_attempted": 2,
-    "finished_at": "2026-11-07T05:31:53.359914+00:00"
+    "finished_at": "2026-11-07T05:53:19.363180+00:00"
+  },
+  "gui_uid": 1001,
+  "result_owner_uids": [
+    1001,
+    1001,
+    1001,
+    1001,
+    1001,
+    1001,
+    1001,
+    1001
+  ],
+  "root_state_denied": true,
+  "node_count": 10,
+  "link_count": 9,
+  "verified": {
+    "lab": "Campus-entreprise-3561",
+    "started_at": "2026-11-07T05:53:19.672469+00:00",
+    "revision": 0,
+    "status": "passed",
+    "directions": [
+      {
+        "source": "PC1",
+        "destination": "CLIENT3",
+        "destination_address": "192.168.20.33",
+        "route": {
+          "status": "observed",
+          "records": [
+            {
+              "dst": "192.168.20.33",
+              "gateway": "192.168.10.1",
+              "dev": "eth0",
+              "prefsrc": "192.168.10.10",
+              "flags": [],
+              "uid": 0,
+              "cache": []
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "status": "passed",
+        "command": [
+          "/bin/ping",
+          "-n",
+          "-I",
+          "eth0",
+          "-c",
+          "2",
+          "-W",
+          "1",
+          "-w",
+          "4",
+          "192.168.20.33"
+        ],
+        "requested_packets": 2,
+        "transmitted": 2,
+        "received": 2,
+        "loss_percent": 0.0,
+        "reply_ttls": [
+          63,
+          63
+        ],
+        "reply_hop_limits": [],
+        "address_family": "ipv4",
+        "source_address": "192.168.10.10",
+        "returncode": 0,
+        "stdout": "PING 192.168.20.33 (192.168.20.33): 56 data bytes\n64 bytes from 192.168.20.33: seq=0 ttl=63 time=0.075 ms\n64 bytes from 192.168.20.33: seq=1 ttl=63 time=0.075 ms\n\n--- 192.168.20.33 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.075/0.075/0.075 ms\n",
+        "stderr": "",
+        "attempted": true
+      },
+      {
+        "source": "CLIENT3",
+        "destination": "PC1",
+        "destination_address": "192.168.10.10",
+        "route": {
+          "status": "observed",
+          "records": [
+            {
+              "dst": "192.168.10.10",
+              "gateway": "192.168.20.1",
+              "dev": "eth0",
+              "prefsrc": "192.168.20.33",
+              "flags": [],
+              "uid": 0,
+              "cache": []
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "status": "passed",
+        "command": [
+          "/bin/ping",
+          "-n",
+          "-I",
+          "eth0",
+          "-c",
+          "2",
+          "-W",
+          "1",
+          "-w",
+          "4",
+          "192.168.10.10"
+        ],
+        "requested_packets": 2,
+        "transmitted": 2,
+        "received": 2,
+        "loss_percent": 0.0,
+        "reply_ttls": [
+          63,
+          63
+        ],
+        "reply_hop_limits": [],
+        "address_family": "ipv4",
+        "source_address": "192.168.20.33",
+        "returncode": 0,
+        "stdout": "PING 192.168.10.10 (192.168.10.10): 56 data bytes\n64 bytes from 192.168.10.10: seq=0 ttl=63 time=0.032 ms\n64 bytes from 192.168.10.10: seq=1 ttl=63 time=0.088 ms\n\n--- 192.168.10.10 ping statistics ---\n2 packets transmitted, 2 packets received, 0% packet loss\nround-trip min/avg/max = 0.032/0.060/0.088 ms\n",
+        "stderr": "",
+        "attempted": true
+      }
+    ],
+    "address_family": "ipv4",
+    "endpoints": [
+      {
+        "node": "PC1",
+        "interface": "eth0",
+        "status": "ready",
+        "address": "192.168.10.10",
+        "dhcp_client_configured": false,
+        "reasons": [],
+        "container": "running",
+        "link": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 11,
+              "link_index": 12,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "linkmode": "DEFAULT",
+              "group": "default",
+              "txqlen": 1000,
+              "link_type": "ether",
+              "address": "f2:39:2e:fb:97:22",
+              "broadcast": "ff:ff:ff:ff:ff:ff",
+              "link_netnsid": 0
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "kernel": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 11,
+              "link_index": 12,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "group": "default",
+              "txqlen": 1000,
+              "link_netnsid": 0,
+              "addr_info": [
+                {
+                  "family": "inet",
+                  "local": "192.168.10.10",
+                  "prefixlen": 24,
+                  "scope": "global",
+                  "label": "eth0",
+                  "valid_life_time": 4294967295,
+                  "preferred_life_time": 4294967295
+                }
+              ]
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "address_family": "ipv4",
+        "slaac_client_configured": false,
+        "dhcpv6_client_configured": false
+      },
+      {
+        "node": "CLIENT3",
+        "interface": "eth0",
+        "status": "ready",
+        "address": "192.168.20.33",
+        "dhcp_client_configured": false,
+        "reasons": [],
+        "container": "running",
+        "link": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 15,
+              "link_index": 16,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "linkmode": "DEFAULT",
+              "group": "default",
+              "txqlen": 1000,
+              "link_type": "ether",
+              "address": "42:97:4f:46:1d:66",
+              "broadcast": "ff:ff:ff:ff:ff:ff",
+              "link_netnsid": 0
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "kernel": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 15,
+              "link_index": 16,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "group": "default",
+              "txqlen": 1000,
+              "link_netnsid": 0,
+              "addr_info": [
+                {
+                  "family": "inet",
+                  "local": "192.168.20.33",
+                  "prefixlen": 24,
+                  "scope": "global",
+                  "label": "eth0",
+                  "valid_life_time": 4294967295,
+                  "preferred_life_time": 4294967295
+                }
+              ]
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "address_family": "ipv4",
+        "slaac_client_configured": false,
+        "dhcpv6_client_configured": false
+      }
+    ],
+    "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
+    "configuration_changed": false,
+    "probe_commands_attempted": 2,
+    "finished_at": "2026-11-07T05:53:21.701787+00:00"
+  },
+  "isolated": {
+    "lab": "Campus-entreprise-3561",
+    "started_at": "2026-11-07T05:53:12.915548+00:00",
+    "revision": 0,
+    "status": "failed",
+    "directions": [
+      {
+        "source": "PC2",
+        "destination": "SRV1",
+        "destination_address": "172.16.0.10",
+        "route": {
+          "status": "observed",
+          "records": [
+            {
+              "dst": "172.16.0.10",
+              "gateway": "192.168.10.1",
+              "dev": "eth0",
+              "prefsrc": "192.168.10.11",
+              "flags": [],
+              "uid": 0,
+              "cache": []
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "status": "failed",
+        "command": [
+          "/bin/ping",
+          "-n",
+          "-I",
+          "eth0",
+          "-c",
+          "2",
+          "-W",
+          "1",
+          "-w",
+          "4",
+          "172.16.0.10"
+        ],
+        "requested_packets": 2,
+        "transmitted": 2,
+        "received": 0,
+        "loss_percent": 100.0,
+        "reply_ttls": [],
+        "reply_hop_limits": [],
+        "address_family": "ipv4",
+        "source_address": "192.168.10.11",
+        "returncode": 1,
+        "stdout": "PING 172.16.0.10 (172.16.0.10): 56 data bytes\n\n--- 172.16.0.10 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "stderr": "",
+        "attempted": true
+      },
+      {
+        "source": "SRV1",
+        "destination": "PC2",
+        "destination_address": "192.168.10.11",
+        "route": {
+          "status": "observed",
+          "records": [
+            {
+              "dst": "192.168.10.11",
+              "gateway": "172.16.0.1",
+              "dev": "eth0",
+              "prefsrc": "172.16.0.10",
+              "flags": [],
+              "uid": 0,
+              "cache": []
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "status": "failed",
+        "command": [
+          "/bin/ping",
+          "-n",
+          "-I",
+          "eth0",
+          "-c",
+          "2",
+          "-W",
+          "1",
+          "-w",
+          "4",
+          "192.168.10.11"
+        ],
+        "requested_packets": 2,
+        "transmitted": 2,
+        "received": 0,
+        "loss_percent": 100.0,
+        "reply_ttls": [],
+        "reply_hop_limits": [],
+        "address_family": "ipv4",
+        "source_address": "172.16.0.10",
+        "returncode": 1,
+        "stdout": "PING 192.168.10.11 (192.168.10.11): 56 data bytes\n\n--- 192.168.10.11 ping statistics ---\n2 packets transmitted, 0 packets received, 100% packet loss\n",
+        "stderr": "",
+        "attempted": true
+      }
+    ],
+    "address_family": "ipv4",
+    "endpoints": [
+      {
+        "node": "PC2",
+        "interface": "eth0",
+        "status": "ready",
+        "address": "192.168.10.11",
+        "dhcp_client_configured": false,
+        "reasons": [],
+        "container": "running",
+        "link": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 13,
+              "link_index": 14,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "linkmode": "DEFAULT",
+              "group": "default",
+              "txqlen": 1000,
+              "link_type": "ether",
+              "address": "52:d3:ce:18:c0:48",
+              "broadcast": "ff:ff:ff:ff:ff:ff",
+              "link_netnsid": 0
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "kernel": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 13,
+              "link_index": 14,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "group": "default",
+              "txqlen": 1000,
+              "link_netnsid": 0,
+              "addr_info": [
+                {
+                  "family": "inet",
+                  "local": "192.168.10.11",
+                  "prefixlen": 24,
+                  "scope": "global",
+                  "label": "eth0",
+                  "valid_life_time": 4294967295,
+                  "preferred_life_time": 4294967295
+                }
+              ]
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "address_family": "ipv4",
+        "slaac_client_configured": false,
+        "dhcpv6_client_configured": false
+      },
+      {
+        "node": "SRV1",
+        "interface": "eth0",
+        "status": "ready",
+        "address": "172.16.0.10",
+        "dhcp_client_configured": false,
+        "reasons": [],
+        "container": "running",
+        "link": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 21,
+              "link_index": 22,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "linkmode": "DEFAULT",
+              "group": "default",
+              "txqlen": 1000,
+              "link_type": "ether",
+              "address": "4e:9d:96:c0:08:02",
+              "broadcast": "ff:ff:ff:ff:ff:ff",
+              "link_netnsid": 0
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "kernel": {
+          "status": "observed",
+          "records": [
+            {
+              "ifindex": 21,
+              "link_index": 22,
+              "ifname": "eth0",
+              "flags": [
+                "BROADCAST",
+                "MULTICAST",
+                "UP",
+                "LOWER_UP"
+              ],
+              "mtu": 1500,
+              "qdisc": "noqueue",
+              "operstate": "UP",
+              "group": "default",
+              "txqlen": 1000,
+              "link_netnsid": 0,
+              "addr_info": [
+                {
+                  "family": "inet",
+                  "local": "172.16.0.10",
+                  "prefixlen": 24,
+                  "scope": "global",
+                  "label": "eth0",
+                  "valid_life_time": 4294967295,
+                  "preferred_life_time": 4294967295
+                }
+              ]
+            }
+          ],
+          "returncode": 0,
+          "error": null
+        },
+        "address_family": "ipv4",
+        "slaac_client_configured": false,
+        "dhcpv6_client_configured": false
+      }
+    ],
+    "scope": "Explicit ICMP test between observed host addresses. No inferred topology path, address/lease/RA provenance, VLAN isolation, OSPF convergence or application-service verdict.",
+    "configuration_changed": false,
+    "probe_commands_attempted": 2,
+    "finished_at": "2026-11-07T05:53:16.943547+00:00"
   },
   "stopped": true,
   "callback_errors": []
