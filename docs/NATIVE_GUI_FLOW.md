@@ -701,3 +701,25 @@ confirms 7/7. Switch/STP/LACP native interoperability jobs passed as well.
 The new web-to-native proof covers static MAC admission and observed counters;
 STP/LACP browser captures remain explicitly local configuration sessions.
 Continue the per-node management roadmap; static VXLAN stays after LAN/GUI.
+
+
+## DHCP snooping, DAI and IP Source Guard management
+
+The native manager now exposes three further access-only security sections
+(16 total) and a **Fichier → LAN sécurité access** template. The template has
+four static-IP endpoints and a switch with physical access ports. It does not
+change the campus template or relax trunk/LACP/OVS restrictions. The forms edit
+trusted ports, VLANs, shared static bindings and per-port IP/IP+MAC source
+checks. Snooping shutdown preserves the old policy when dependent protections
+would become invalid; explicit dependent shutdown clears DAI inspection VLANs
+and source-guard ports while preserving the static bindings.
+
+Browser tests configure all three sections and confirm that a refused snooping
+shutdown leaves the active draft intact. HTTP tests cover atomicity, duplicate
+bindings, trusted source-guard clients, wrong VLAN/profile and clear-option
+types. The dedicated native GUI test retains the original campus scenario,
+then stops it and starts a separate five-node access profile on the same owned
+lab name. HTTP-configured rules permit PC1↔SRV1, reject PC2's ARP source and
+reject PC3's IPv4 source. Kernel policy fingerprints and separate deny/accept
+counters distinguish ARP enforcement from IPv4 enforcement. No DHCP leases or
+rogue-DHCP packet outcomes are inferred from these static-IP checks.

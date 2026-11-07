@@ -60,10 +60,12 @@ Les boutons − / + / Centrer règlent aussi la vue sans modifier le manifest.
 locale dans le navigateur : interfaces, nom/IP/passerelle et état administratif
 partagent le même brouillon que la GUI ; routes et politique pare-feu sont
 modifiables dans les éditeurs dédiés : filtrage IPv4 ordonné, NAT, routes,
-VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC,
+VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC, DHCP snooping/DAI/IP Source Guard,
 sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
 Enregistrer puis arrêter / démarrer pour activer les changements.
 [Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
+Le menu **Fichier → LAN sécurité access** crée un profil adapté aux protections
+snooping/DAI/source guard ; le profil actuel exige des ports physiques access.
 Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
 dépendances et plan mémoire restent accessibles par onglets. Le bouton de
 retour restaure le projet pédagogique. Le laboratoire natif garde son propre

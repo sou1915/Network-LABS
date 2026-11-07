@@ -147,3 +147,39 @@ class NativePortalTests(unittest.TestCase):
         from network_labs.appliances.examples import lacp_lab
         self.app.spec=lacp_lab('/tmp/rootfs');self.app.view_lab=self.app.spec['name']
         self.assertEqual(self.section('SW1','lldp',{'lldp':None})['status'],400)
+
+    def test_admission_dependencies_and_explicit_shutdown_are_atomic(self):
+        from network_labs.appliances.access_security import access_security_example
+        self.app.spec=access_security_example('/tmp/rootfs');self.app.view_lab=self.app.spec['name']
+        original=self.app.manifest()
+        self.assertEqual(self.section('SW1','sourceguard',{'ip_source_guard':{'eth0':'ip-mac'},'arp_inspection':None})['status'],400)
+        self.assertEqual(original,self.app.manifest())
+        snooping={'enabled':True,'vlans':[10],'trusted':['eth3']}
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':snooping,'clear_dependents':False})['status'],200)
+        arp={'vlans':[10],'trusted':['eth2','eth3'],'bindings':[{'port':'eth0','vlan':10,'mac':'02:00:00:00:10:11','address':'10.10.0.10'},{'port':'eth1','vlan':10,'mac':'02:00:00:00:10:22','address':'10.10.0.99'}]}
+        self.assertEqual(self.section('SW1','arpinspection',{'arp_inspection':arp})['status'],200)
+        self.assertEqual(self.section('SW1','sourceguard',{'ip_source_guard':{'eth0':'ip-mac'},'arp_inspection':arp})['status'],200)
+        original=self.app.manifest();off={**snooping,'enabled':False}
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':off,'clear_dependents':False})['status'],400)
+        self.assertEqual(original,self.app.manifest())
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':off,'clear_dependents':'yes'})['status'],400)
+        self.assertEqual(original,self.app.manifest())
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':off,'clear_dependents':True})['status'],200)
+        switch=next(n for n in self.app.spec['nodes'] if n['name']=='SW1')
+        self.assertFalse(switch['ip_source_guard']);self.assertFalse(switch['arp_inspection']['vlans'])
+        self.assertEqual(switch['arp_inspection']['bindings'],arp['bindings'])
+        self.assertEqual(self.app.spec['links'],original['links'])
+
+    def test_admission_refuses_trunks_trusted_clients_and_duplicate_bindings(self):
+        original=self.app.manifest()
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':{'enabled':True,'vlans':[10],'trusted':['eth0']},'clear_dependents':False})['status'],400)
+        self.assertEqual(original,self.app.manifest())
+        from network_labs.appliances.access_security import access_security_example
+        self.app.spec=access_security_example('/tmp/rootfs');self.app.view_lab=self.app.spec['name']
+        self.assertEqual(self.section('SW1','snooping',{'dhcp_snooping':{'enabled':True,'vlans':[10],'trusted':['eth3']},'clear_dependents':False})['status'],200)
+        original=self.app.manifest()
+        self.assertEqual(self.section('SW1','sourceguard',{'ip_source_guard':{'eth3':'ip'},'arp_inspection':None})['status'],400)
+        self.assertEqual(original,self.app.manifest())
+        bindings=[{'port':'eth0','vlan':10,'mac':'02:00:00:00:10:11','address':'10.10.0.10'},{'port':'eth1','vlan':10,'mac':'02:00:00:00:10:22','address':'10.10.0.10'}]
+        self.assertEqual(self.section('SW1','arpinspection',{'arp_inspection':{'vlans':[10],'trusted':['eth3'],'bindings':bindings}})['status'],400)
+        self.assertEqual(original,self.app.manifest())

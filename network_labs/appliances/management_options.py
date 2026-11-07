@@ -3,6 +3,9 @@ import copy
 from .spec import validate
 
 SECTIONS={
+    'snooping':{'label':'DHCP snooping / confiance','roles':('switch',),'fields':('dhcp_snooping',)},
+    'arpinspection':{'label':'Inspection ARP / DAI','roles':('switch',),'fields':('arp_inspection',)},
+    'sourceguard':{'label':'IP Source Guard','roles':('switch',),'fields':('ip_source_guard','arp_inspection')},
     'stp':{'label':'Spanning Tree / protections BPDU','roles':('switch',),'fields':('spanning_tree',)},
     'aggregation':{'label':'Agrégation LACP','roles':('switch',),'fields':('port_channels','switchports')},
     'lldp':{'label':'Découverte LLDP','roles':('host','router','switch','firewall'),'fields':('lldp',)},
@@ -22,7 +25,7 @@ PUBLIC_FIELDS=tuple(dict.fromkeys(field for section in SECTIONS.values() for fie
 
 def sections(node):
     if node['runtime']!='oci' or node.get('startup'):return []
-    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if node['role'] in section['roles'] and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
+    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if node['role'] in section['roles'] and not (key in ('snooping','arpinspection','sourceguard') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
 
 
 def configure_section(spec,name,section,config):
@@ -37,6 +40,14 @@ def configure_section(spec,name,section,config):
         return validate(draft)
     if section=='aggregation':
         set_aggregation(draft,node,config)
+        return validate(draft)
+    if section=='snooping':
+        if set(config)!={'dhcp_snooping','clear_dependents'} or type(config['clear_dependents']) is not bool:raise ValueError('Snooping : politique et choix de dépendances booléen requis.')
+        if config['clear_dependents']:
+            if config['dhcp_snooping'] is not None and (not isinstance(config['dhcp_snooping'],dict) or config['dhcp_snooping'].get('enabled')):raise ValueError('La suppression des dépendances exige de désactiver snooping.')
+            node['ip_source_guard']={}
+            if node.get('arp_inspection') is not None:node['arp_inspection']['vlans']=[]
+        node['dhcp_snooping']=copy.deepcopy(config['dhcp_snooping'])
         return validate(draft)
     allowed=SECTIONS[section]['fields']
     if not isinstance(config,dict) or set(config)!=set(allowed):

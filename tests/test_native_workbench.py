@@ -226,3 +226,12 @@ class WorkbenchGUITests(unittest.TestCase):
             self.root.update();self.assertEqual(window.nodes.selection(),('BROWSER1',))
             self.assertEqual(window.config_vars['address'].get(),'192.168.10.44/24')
             self.assertEqual(window.config_vars['name'].get(),'BROWSER1');launch.assert_not_called()
+
+    def test_access_security_template_creates_only_unobserved_access_ports(self):
+        from network_labs.appliances import ui
+        with patch.object(ui.filedialog,'askdirectory',return_value='/tmp/rootfs'),patch.object(ui.simpledialog,'askstring',return_value='Secure-access'),patch.object(ui,'launch_terminal') as launch:
+            self.assertTrue(self.window.new_campus(security=True));self.root.update()
+            spec=self.window.manifest();self.assertEqual(spec['name'],'Secure-access');self.assertEqual(len(spec['nodes']),5)
+            switch=next(n for n in spec['nodes'] if n['role']=='switch')
+            self.assertTrue(all(p=={'mode':'access','vlan':10} for p in switch['switchports'].values()))
+            self.assertFalse(self.window.states);launch.assert_not_called()

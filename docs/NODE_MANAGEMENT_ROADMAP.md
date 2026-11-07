@@ -18,7 +18,7 @@ all native nodes and the navigation adapts to the selected role.
 | --- | --- | --- |
 | Firewall | Physical interfaces/admin, 802.1Q subinterfaces, IPv4 filtering with ordered named rules, default accept/drop, stateful mode, source/destination CIDR and interfaces, TCP/UDP destination ports; masquerade/SNAT/DNAT and DNAT port translation; routes/gateway/forwarding, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | IPv6 firewall/input policy, actual policy counters/conntrack observations, diagnostics/capture; richer supported service/security compositions |
 | Router | Interfaces/admin, 802.1Q, IPv4 routes/gateway/forwarding, static IPv6 /64 and routes, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | OSPF/OSPFv3, RA/SLAAC/DHCPv6 and prefix delegation, relay, richer runtime diagnostics |
-| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP and static MAC admission | DHCP snooping/DAI/IP source guard, wired 802.1X, multicast and runtime tables |
+| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings | Wired 802.1X, multicast and runtime tables |
 | Host / server | Interface/admin, gateway/routes, static IPv6, DNS resolver and DHCP client; DHCP server pools/leases/reservations; local DNS zones, A/AAAA records, TTL and IPv6 listen option; LLDP on compatible nodes | Dedicated HTTPS/TFTP/NTP/SNMP/syslog/SSH service controls and native interactive consoles/traffic views |
 | Firecracker microVM | Read current declared basic configuration | Rich forms remain disabled; current editors target OCI |
 
@@ -65,3 +65,21 @@ contain lldpd/lldpcli, and the current engine disallows LLDP alongside LACP.
 Port security configures static source-MAC admission on physical access ports,
 with exactly the configured maximum addresses and restrict behavior. Dynamic
 learning, sticky MACs and synthetic errdisable modes are not exposed.
+
+
+## Access admission editors
+
+Three sections now expose DHCP snooping, DAI and IP Source Guard. The current
+engine requires physical access ports throughout the switch; trunks/LACP and
+OVS are outside this profile. **Fichier → LAN sécurité access** creates a
+five-node/four-link static-IP template compatible with these controls, without
+enabling any protection or claiming DHCP leases by default.
+
+Snooping controls monitored VLANs and trusted DHCP ports. DAI controls inspected
+VLANs, its separate trusted ports and static IP/MAC/VLAN/port bindings. Source
+guard selects off/IP/IP+MAC per access port and edits the same binding table.
+DAI inspection can be disabled while bindings continue to support source guard.
+Disabling snooping while dependent protections are active is rejected unless
+explicitly opting to disable both; bindings are preserved. Edits are atomic
+and stale revisions, duplicate bindings and trusted-client guard conflicts are
+rejected. Dynamic leases are backend observations, never fabricated web rows.

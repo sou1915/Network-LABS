@@ -59,3 +59,25 @@ class NativeWebBrowserTests(unittest.TestCase):
                 self.assertEqual(nodes[name]['port_channels']['bond1']['min_links'],2)
             self.assertEqual(nodes['SW2']['port_channels']['bond1']['mode'],'passive')
         finally:root.destroy()
+
+    def test_browser_access_security_configuration_and_dependencies(self):
+        import tkinter as tk
+        from network_labs.__main__ import App
+        from network_labs.appliances.access_security import access_security_example
+        from network_labs.appliances.web_management import NativeDeviceAPI
+        from network_labs.web_portal import WebPortal
+        root=tk.Tk()
+        try:
+            app=App(root);root.geometry('1280x720');window=app.open_native_lab();window.load_spec(access_security_example('/tmp/rootfs'))
+            window.web_portal=portal=WebPortal(window,api=NativeDeviceAPI(window),native=True)
+            env={**os.environ,'NATIVE_WEB_ADMISSION_URL':portal.url('SW1')}
+            with subprocess.Popen(['node',str(Path(__file__).resolve().parents[1]/'tools/native_admission_browser_smoke.cjs')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT) as browser:
+                deadline=time.monotonic()+45
+                while browser.poll() is None and time.monotonic()<deadline:root.update();time.sleep(.01)
+                if browser.poll() is None:browser.terminate()
+                output=browser.communicate(timeout=5)[0].decode();self.assertEqual(browser.returncode,0,output)
+            switch=next(n for n in window.manifest()['nodes'] if n['name']=='SW1')
+            self.assertTrue(switch['dhcp_snooping']['enabled'])
+            self.assertEqual(switch['arp_inspection']['vlans'],[10]);self.assertEqual(len(switch['arp_inspection']['bindings']),3)
+            self.assertEqual(switch['ip_source_guard'],{'eth0':'ip-mac','eth2':'ip-mac'})
+        finally:root.destroy()

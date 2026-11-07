@@ -148,6 +148,41 @@ try:
         assert set(owners)=={os.geteuid()} and len(owners)==11,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
         (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        # A separate access-only profile exercises DAI and source guard without
+        # weakening the existing campus/trunk validator or fabricating DHCP leases.
+        from network_labs.appliances.access_security import access_security_example
+        admission=access_security_example(spec['nodes'][0]['rootfs'],spec['name'])
+        window.load_spec(admission,directory/'admission-project.json');root.update()
+        policies=[('snooping',{'dhcp_snooping':{'enabled':True,'vlans':[10],'trusted':['eth3']},'clear_dependents':False}),
+                  ('arpinspection',{'arp_inspection':{'vlans':[10],'trusted':['eth2','eth3'],'bindings':[
+                      {'port':'eth0','vlan':10,'mac':'02:00:00:00:10:11','address':'10.10.0.10'},
+                      {'port':'eth1','vlan':10,'mac':'02:00:00:00:10:22','address':'10.10.0.99'},
+                      {'port':'eth2','vlan':10,'mac':'02:00:00:00:10:33','address':'10.10.0.88'}]}})]
+        for section,config in policies:
+            state=web_request('GET','/api/state?node=SW1')
+            web_request('POST','/api/apply',{'node':'SW1','revision':state['revision'],'section':section,'config':config})
+        state=web_request('GET','/api/state?node=SW1')
+        web_request('POST','/api/apply',{'node':'SW1','revision':state['revision'],'section':'sourceguard','config':{'ip_source_guard':{'eth0':'ip-mac','eth2':'ip-mac'},'arp_inspection':state['node']['arp_inspection']}})
+        drive('start');drive('status')
+        window.choose_node('PC1');window.destination.set('SRV1');admission_allowed=drive('verify')
+        assert admission_allowed['data']['status']=='passed',admission_allowed['data']
+        window.choose_node('PC2');window.destination.set('SRV1');arp_blocked=drive('verify')
+        assert arp_blocked['data']['status']=='failed',arp_blocked['data']
+        window.choose_node('PC3');window.destination.set('SRV1');ip_blocked=drive('verify')
+        assert ip_blocked['data']['status']=='failed',ip_blocked['data']
+        window.choose_node('SW1');admission_observed=drive('inspect')['data']
+        for key in ('dhcp_snooping','arp_inspection','ip_source_guard'):
+            assert admission_observed[key]['policy_verified'],(key,admission_observed[key])
+        assert any(c['rule']=='deny:eth1' and c['packets']>0 for c in admission_observed['arp_inspection']['counters']),admission_observed['arp_inspection']
+        assert any(c['rule']=='deny:eth2' and c['packets']>0 for c in admission_observed['ip_source_guard']['counters']),admission_observed['ip_source_guard']
+        assert any(c['rule']=='static:eth0' and c['packets']>0 for c in admission_observed['ip_source_guard']['counters'])
+        # Keep only public policy/counter evidence; observer snapshots may carry
+        # internal process-correlation tokens and are deliberately not retained.
+        admission_counters={key:{field:value for field,value in admission_observed[key].items() if field in ('source','policy_verified','counters','ports')} for key in ('dhcp_snooping','arp_inspection','ip_source_guard')}
+        root.update();ImageGrab.grab(bbox=box).save(artifacts/'native-admission-running.png')
+        drive('stop');assert all(s['status']=='stopped' for s in window.states.values())
+        assert len(owners)==18 and set(owners)=={os.geteuid()},owners
+        (artifacts/'native-admission-result.json').write_text(json.dumps({'native_web_admission_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'node_count':5,'link_count':4,'allowed':admission_allowed['data'],'arp_blocked':arp_blocked['data'],'ip_blocked':ip_blocked['data'],'observed':admission_counters,'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
@@ -180,6 +215,8 @@ class NativeWorkbenchIntegrationTests(unittest.TestCase):
                 result=json.loads((artifacts/'native-gui-result.json').read_text())
                 self.assertEqual(result['gui_uid'],uid);self.assertTrue(result['root_state_denied']);self.assertTrue(result['stopped'])
                 self.assertEqual(result['callback_errors'],[]);self.assertFalse(manager.directory.exists())
+                admission_result=json.loads((artifacts/'native-admission-result.json').read_text())
+                self.assertTrue(admission_result['native_web_admission_verified']);self.assertTrue(admission_result['stopped']);self.assertEqual(admission_result['callback_errors'],[])
             finally:
                 if manager.directory.exists():
                     with manager.locked():manager.stop()

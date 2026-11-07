@@ -58,7 +58,7 @@ class ApplianceWindow:
         self.label(header,'◉  Network LABS','#ffffff',9,True).pack(side='left')
         self.project_title=tk.StringVar(value='Projet LAN')
         tk.Label(header,textvariable=self.project_title,bg='#223344',fg='#d6e2ee',font=(self.font,8)).pack(side='left',padx=18)
-        for title,commands in [('Fichier',[('Nouveau LAN',self.new),('Campus entreprise',self.new_campus),('Ouvrir',self.open),('Enregistrer',self.save)]),
+        for title,commands in [('Fichier',[('Nouveau LAN',self.new),('Campus entreprise',self.new_campus),('LAN sécurité access',lambda:self.new_campus(security=True)),('Ouvrir',self.open),('Enregistrer',self.save)]),
                                ('Édition',[('Ajouter un équipement',self.add_device_dialog),('Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]),
                                ('Affichage',[('Topologie',lambda:self.tabs.select(self.topology_tab)),('Configuration du projet',lambda:self.tabs.select(self.editor_tab)),('Configuration du dispositif',lambda:self.device_tabs.select(self.config_panel))]),
                                ('Outils',[('Valider / plan',self.preview),('Actualiser l’état',lambda:self.launch('status'))])]:
@@ -708,13 +708,14 @@ class ApplianceWindow:
         try:self.commit_edit(topology_edit.disconnect(self.editing_spec(),a,b))
         except (ValueError,TypeError,KeyError) as error:self.error(error)
 
-    def new_campus(self):
+    def new_campus(self,security=False):
         if self.pending:return False
-        rootfs=filedialog.askdirectory(parent=self.window,title='Rootfs Linux du campus')
+        rootfs=filedialog.askdirectory(parent=self.window,title='Rootfs Linux du laboratoire')
         if not rootfs:return False
-        name=simpledialog.askstring('Campus entreprise','Nom du projet :',initialvalue='Campus-entreprise',parent=self.window)
+        name=simpledialog.askstring('LAN sécurité access' if security else 'Campus entreprise','Nom du projet :',initialvalue='Access-security' if security else 'Campus-entreprise',parent=self.window)
         if not name:return False
-        try:self.load_spec(campus_example(rootfs,name));self.tabs.select(self.topology_tab);return True
+        from .access_security import access_security_example
+        try:self.load_spec((access_security_example if security else campus_example)(rootfs,name));self.tabs.select(self.topology_tab);return True
         except (ValueError,TypeError,KeyError) as error:self.error(error);return False
 
     def new(self):
