@@ -507,3 +507,12 @@ individual hashes and exact source/run/job binding are in the provenance JSON.
 [Actual 135% zoom capture](images/native-gui-zoomed.png) complements the normal
 running capture above. It shows a zoomed viewport, not a changed topology.
 No runtime, protocol, Manager or privilege implementation changed.
+
+
+Final acceptance for GUI typography/interaction source 217be17: all ten selected
+jobs passed in [run 42316748403](https://github.com/sou1915/Network-LABS/actions/runs/42316748403);
+52 unrelated profiles were intentionally skipped. This includes dedicated
+[wired 802.1X](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128231115458)
+and the [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128233042144).
+LAN core remains accepted; advanced LAN, native interactive consoles/capture
+and static VXLAN retain their existing roadmap boundaries.

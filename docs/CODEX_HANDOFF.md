@@ -52,6 +52,10 @@ confirms Inter Variable, zoom, routed success, firewall-path failure, seven
 UID-1001 result files, root-state refusal, confirmed stop and no callback errors.
 Host cleanup invariants passed. See NATIVE_GUI_FLOW.md for remaining scope.
 
+All ten selected jobs in run 42316748403 passed; 52 other profiles were
+intentionally skipped. Wired 802.1X job 128231115458 passed and LAN aggregate
+128233042144 confirms 7/7. No new LAN prerequisite was added.
+
 ## Previous GUI polish checkpoint
 
 Source `f27f49fdd7021200840fcacb5f99636a229eda96` improves the reference-style
