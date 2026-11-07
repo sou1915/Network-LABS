@@ -21,6 +21,7 @@ from network_labs.appliances import ui,topology_edit as edit
 from network_labs.appliances.runtime import Manager
 from network_labs.appliances.campus import campus_example
 from PIL import ImageGrab
+from tkinter import font as tkfont
 assert os.geteuid()!=0,'The GUI must run unprivileged'
 spec=json.loads(Path(sys.argv[2]).read_text());directory=Path(sys.argv[3]);artifacts=Path(sys.argv[4])
 from network_labs.__main__ import App
@@ -47,6 +48,12 @@ def drive(action,ok=True):
 try:
     with patch.object(ui,'launch_terminal',side_effect=direct_terminal),patch.object(ui,'read_result',side_effect=checked_result):
         root.update();assert len(window.node_shapes)==3;assert len(window.canvas.find_withtag('link'))==2
+        ui_font=tkfont.Font(root=root,font=(window.font,10)).actual('family')
+        assert ui_font.casefold().replace(' ','').startswith('inter'),ui_font
+        original_draft=window.manifest()
+        window.canvas.event_generate('<MouseWheel>',x=200,y=140,delta=120);root.update()
+        assert window.zoom>1 and window.manifest()==original_draft
+        window.reset_view();root.update()
         # The supplied campus design is a real native template, not sample UI data.
         draft=campus_example(spec['nodes'][0]['rootfs'],spec['name'])
         window.commit_edit(draft);window.draw(window.graph);root.update()
@@ -81,13 +88,18 @@ try:
         assert window.config_apply.winfo_ismapped()
         assert window.config_apply.winfo_rooty()+window.config_apply.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()
         assert window.nav_current=='Topologie'
+        root.event_generate('<Motion>',warp=True,x=90,y=15);root.update()
         box=(window.window.winfo_rootx(),window.window.winfo_rooty(),window.window.winfo_rootx()+window.window.winfo_width(),window.window.winfo_rooty()+window.window.winfo_height())
         ImageGrab.grab(bbox=box).save(artifacts/'native-gui-running.png')
+        window.set_zoom(1.35);root.update();time.sleep(.1);root.update()
+        ImageGrab.grab(bbox=box).save(artifacts/'native-gui-zoomed.png')
+        assert window.zoom==1.35
+        window.reset_view();root.update()
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
         assert set(owners)=={os.geteuid()} and len(owners)==7,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors

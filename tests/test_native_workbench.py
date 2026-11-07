@@ -181,3 +181,38 @@ class WorkbenchGUITests(unittest.TestCase):
         window.load_config(force=True);window.pending={'test':True}
         try:self.assertFalse(window.apply_config())
         finally:window.pending=None
+
+    def test_viewport_gestures_preserve_draft_and_scale_drag_coordinates(self):
+        window=self.window;original=window.manifest();window.canvas.focus_set();self.root.update()
+        with patch('network_labs.appliances.ui.launch_terminal') as launch:
+            window.canvas.event_generate('<MouseWheel>',x=200,y=150,delta=120);self.root.update()
+            self.assertGreater(window.zoom,1)
+            before=window.canvas.xview()
+            window.canvas.event_generate('<ButtonPress-2>',x=250,y=150)
+            window.canvas.event_generate('<B2-Motion>',x=150,y=120)
+            window.canvas.event_generate('<ButtonRelease-2>',x=150,y=120);self.root.update()
+            self.assertFalse(window.panning);self.assertNotEqual(window.canvas.xview(),before)
+            self.assertEqual(window.manifest(),original);self.assertFalse(window.positions)
+            window.reset_view();self.root.update();self.assertEqual(window.zoom,1.)
+            window.node_pressed(SimpleNamespace(x=100,y=100,state=0),'PC1');window.drop_node(SimpleNamespace())
+            self.assertFalse(window.positions,'A click without dragging must not move a node')
+            window.set_zoom(1.5);self.root.update();before=window.drawn_positions['PC1']
+            window.node_pressed(SimpleNamespace(x=100,y=100,state=0),'PC1')
+            window.drag_node(SimpleNamespace(x=160,y=145));window.drop_node(SimpleNamespace())
+            self.assertAlmostEqual(window.positions['PC1'][0],before[0]+40)
+            self.assertAlmostEqual(window.positions['PC1'][1],before[1]+30)
+            self.assertEqual(window.manifest(),original)
+            launch.assert_not_called()
+
+    def test_hover_and_double_click_open_real_configuration_without_editing(self):
+        window=self.window;original=window.manifest();window.choose_node('SW1');self.root.update()
+        x,y=window.drawn_positions['PC1'];x-=window.canvas.canvasx(0);y-=window.canvas.canvasy(0)
+        window.canvas.event_generate('<Motion>',warp=True,x=round(x),y=round(y));self.root.update()
+        self.assertEqual(window.nodes.selection(),('SW1',),'Hover must not replace the selected form')
+        from network_labs.appliances.reference_theme import BLUE
+        self.assertEqual(window.canvas.itemcget(window.node_shapes['PC1'],'outline'),BLUE)
+        window.device_tabs.select(window.device_tabs.tabs()[0])
+        for kind,stamp in [('<ButtonPress-1>',1000),('<ButtonRelease-1>',1010),('<ButtonPress-1>',1100),('<ButtonRelease-1>',1110)]:
+            window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp);self.root.update()
+        self.assertEqual(window.device_tabs.select(),str(window.config_panel))
+        self.assertEqual(window.nodes.selection(),('PC1',));self.assertEqual(window.manifest(),original)

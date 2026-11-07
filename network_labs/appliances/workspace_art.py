@@ -1,5 +1,6 @@
 """Original generic device artwork and declared access-VLAN presentation."""
 import ipaddress
+from .soft_widgets import rounded_box
 
 
 def draw_device(c,role,x,y,scale=1,tags=(),variant='blue'):
@@ -130,5 +131,5 @@ def draw_port_labels(canvas,labels,obstacles,font,color):
             if best is None or score<best[0]:best=(score,dx,dy,box)
             if score==0:break
         _,dx,dy,box=best;canvas.coords(item,x+dx,y+dy)
-        bg=canvas.create_rectangle(box[0]-2,box[1]-1,box[2]+2,box[3]+1,fill='#ffffff',outline='#e0e9f2',tags=('port-label-bg',label['tag']))
+        bg=rounded_box(canvas,box[0]-3,box[1]-2,box[2]+3,box[3]+2,r=4,fill='#ffffff',outline='#e0e9f2',tags=('port-label-bg',label['tag']))
         canvas.tag_raise(item,bg);occupied.append((box[0]-2,box[1]-1,box[2]+2,box[3]+1))

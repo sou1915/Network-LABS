@@ -464,3 +464,30 @@ including wired 802.1X and the
 [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42313340373/job/128221582556).
 The other 52 profiles were intentionally skipped. No native runtime/protocol
 or privilege assertion was changed to support the visual/usability polish.
+
+
+## Rounded interface and viewport interactions
+
+The native UI now privately registers the bundled Inter font on Linux through
+Fontconfig. The original font and SIL OFL license are under
+`network_labs/appliances/assets/`; no desktop/system font installation is made.
+Other platforms choose an available native sans-serif font. Diagnostic output
+stays monospace. Rounded, antialiased button/entry backgrounds, library cards,
+selection outlines and the device GUI panel soften the reference palette.
+
+The topology accepts mouse-wheel zoom (65–175%), middle-button drag or
+Shift+left drag to pan, and explicit − / + / Centrer controls. With canvas
+focus, + / − / 0 offer the same controls. Hover highlights a device and its
+actual connected wires without changing the selected form. Double-click opens
+that device's existing configuration. Dragging nodes remains a session layout
+operation with coordinates corrected for zoom. These viewport interactions
+neither edit the manifest nor launch privileged operations. Existing offline
+add/cable/configure/save and native start/status/probe/stop actions remain.
+The lower diagnostic pane remains read-only; interactive native consoles and
+capture are still pending.
+
+Actual Tk tests generate wheel/pan/hover/double-click events and verify unchanged
+manifests, correct node movement under zoom, and no backend launch from view
+operations. The dedicated native scenario checks the chosen Inter family and
+zoom behavior before starting the real campus, then captures both normal and
+135% views after actual routed and blocked probes.

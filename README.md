@@ -52,6 +52,10 @@ l’état d’un port OCI ; les modifications sont validées avant application a
 est illustrée et classée ; le canevas affiche les groupes VLAN déclarés et
 les ports/trunks. Les résultats de ping sont lisibles dans un panneau de
 diagnostic en lecture seule, avec JSON séparé.
+La GUI utilise Inter (licence SIL OFL incluse), des contrôles arrondis et un
+canevas interactif : molette pour zoomer, bouton central ou Maj+glisser pour
+déplacer la vue, double-clic sur un équipement pour ouvrir sa configuration.
+Les boutons − / + / Centrer règlent aussi la vue sans modifier le manifest.
 Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
 dépendances et plan mémoire restent accessibles par onglets. Le bouton de
 retour restaure le projet pédagogique. Le laboratoire natif garde son propre
