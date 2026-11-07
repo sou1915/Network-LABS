@@ -8,7 +8,8 @@ GUI integration is in progress: the first native lifecycle/observation/traffic
 flow and basic graphical topology editing are verified. Work continues
 toward the actual user-supplied mockup. The ten-node routed campus, generic
 device artwork, VLAN groups, basic native device forms, rounded Inter UI and
-interactive topology viewport are implemented. Richer forms, interactive native
+interactive topology viewport are implemented. Rounded main panels and an
+authenticated browser-based native draft manager now share the Tk settings. Richer forms, interactive native
 consoles and packet views remain pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.

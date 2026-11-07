@@ -1,0 +1,15 @@
+{
+  "source_commit": "d0e6df1e507e568aec406d4755b76e13a35fdc90",
+  "capture": "actual local Chromium screenshot of native project management",
+  "native_lab_started_locally": false,
+  "ui_runtime_state": "non observ\u00e9",
+  "browser_acceptance": [
+    "client name and IPv4 applied through browser",
+    "Tk form synchronized",
+    "invalid IPv4 refused and reload recovered previous address",
+    "same-tab device navigation",
+    "firewall default-drop policy displayed"
+  ],
+  "screenshot_sha256": "9a6a4d8dfb093650dcd66fd50e737fcd1d34b182875efaa2e29831d1cc429374",
+  "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
+}

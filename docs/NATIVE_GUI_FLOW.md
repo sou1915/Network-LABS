@@ -549,3 +549,12 @@ tab, and save a real browser screenshot. It requires a DISPLAY and Playwright
 available to Node; `CHROMIUM_PATH` and `NATIVE_WEB_SCREENSHOT` are optional.
 The dedicated native test now changes CLIENT3's address through actual HTTP
 before verifying that address with real OCI packets.
+
+
+![Actual local native web manager](images/native-web-management.png)
+
+This browser capture is a real local draft-management session, not a running
+container service. [Browser provenance](images/native-web-provenance.json)
+records its exact source and successful browser interactions. The native OCI
+traffic scenario separately verifies that an HTTP-configured address becomes
+reachable after starting the saved draft.

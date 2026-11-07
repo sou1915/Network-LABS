@@ -21,7 +21,33 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current GUI typography and interaction checkpoint
+## Current rounded-panel and native web checkpoint
+
+User explicitly requires rounded edges throughout the GUI and better web
+virtualisation/management. Source `d0e6df1e507e568aec406d4755b76e13a35fdc90` expands rounded surfaces to
+the header, tabs, library/topology/device panels, diagnostics/events/interface
+tables, management sections and scrollbar thumbs. Preserve the supplied
+reference palette. **Gestion web** now opens an actual native-management page
+in the browser, sharing the validated project draft with Tk. The previous
+pedagogical portal was not wired to native OCI projects.
+
+Web name/IP/gateway/admin edits synchronize with the GUI. Routes/firewall
+policy are read-only declared configuration. Changes remain offline drafts:
+save/stop/start to apply them in Linux. No guest HTTP service or vendor firmware
+is claimed. The native adapter reuses authenticated loopback HTTP and Tk-thread
+dispatch, protects stale edits/pending operations, and returns only selected
+public configuration fields. No sudo/backend command is exposed through HTTP.
+
+Local full regression with actual Chromium acceptance passed 1054 cases
+(55.851 s, 141 skips); an additional switch/DHCP readonly test passed separately.
+Browser-driven edits, invalid-write recovery, same-tab switching and actual Tk
+synchronization passed. The actual local browser screenshot and provenance are
+retained as native-web-management.png / native-web-provenance.json. No native
+lab was started for that local browser capture. The dedicated GitHub native
+scenario now applies CLIENT3's actual address through HTTP before real probes.
+See NATIVE_GUI_FLOW.md. LAN core stays frozen; VXLAN remains later.
+
+## Previous GUI typography and interaction checkpoint
 
 Latest user feedback rejects the old typeface and sharp edges and explicitly
 requests an interactive interface. Source

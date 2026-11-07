@@ -2489,3 +2489,10 @@ double-click configuration. View changes do not alter the manifest or invoke
 sudo. Preserve these interactions and the supplied reference while continuing
 the remaining native console/capture workflow. LAN core remains frozen 7/7;
 static VXLAN is still an explicit later roadmap item.
+
+
+Native device **Gestion web** now opens actual loopback HTTP management of
+the shared project draft (name/physical IPv4/gateway/admin); routes/firewall
+policy are readable. It does not provide vendor firmware or a guest web
+service. Retain the real web → draft → start → kernel-probe validation while
+continuing the GUI; no new LAN-core prerequisite is added.
