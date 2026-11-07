@@ -501,7 +501,7 @@ class ApplianceWindow:
         for title,fraction in [('Interfaces',0),('Détails',.3)]:
             ttk.Button(rail,text=title,command=lambda f=fraction:self.config_scroll.canvas.yview_moveto(f),style='Native.Rail.TButton').pack(fill='x',pady=3)
         self.web_section_buttons=[]
-        for section,title,roles in [('dashboard','Vue globale',('host','router','switch','firewall')),('firewall','Politiques',('firewall',)),('nat','NAT / VIP',('firewall',)),('routing','Routage',('router','switch','firewall')),('switching','VLAN / ports',('switch',)),('dnsserver','DNS serveur',('host','router','firewall'))]:
+        for section,title,roles in [('dashboard','Vue globale',('host','router','switch','firewall')),('firewall','Politiques',('firewall',)),('nat','NAT / VIP',('firewall',)),('routing','Routage',('router','switch','firewall')),('switching','VLAN / ports',('switch',))]:
             button=ttk.Button(rail,text=title,command=lambda key=section:self.open_web_management(key),style='Native.Rail.TButton')
             self.web_section_buttons.append((button,roles))
         form=self.config_scroll.inner
