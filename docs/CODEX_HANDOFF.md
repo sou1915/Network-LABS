@@ -21,7 +21,38 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current GUI polish checkpoint
+## Current GUI typography and interaction checkpoint
+
+Latest user feedback rejects the old typeface and sharp edges and explicitly
+requests an interactive interface. Source
+`217be17f7416eefc0330f70e8e103ae9bb07f0c1` bundles the original SIL-OFL Inter
+font, privately registered through Fontconfig on Linux without installing
+fonts or spawning helpers. Rounded antialiased buttons/fields, library cards,
+selection outlines and management panel retain the supplied reference palette.
+
+Actual wheel zoom, explicit zoom/reset controls, middle-button or Shift-drag
+pan, connected-wire hover highlighting and double-click device configuration
+are implemented. Session node dragging works under zoom. View-only gestures
+preserve the manifest and never invoke sudo. Existing validated offline
+configuration/cabling and real native lifecycle/probes remain. The diagnostic
+pane is read-only: genuine native interactive consoles/capture and richer
+supported forms are still pending. LAN core remains frozen 7/7; static VXLAN
+stays on the later roadmap.
+
+Local Xvfb/system-Tk regression passed 1049 cases (41.476 s, 141 environment
+skips); fourteen focused native workbench checks passed, including actual
+wheel/pan/hover/double-click events and scaled drag coordinates. The dedicated
+GitHub native scenario additionally asserts Inter and saves normal/135% views.
+
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128231116270)
+passed 1049 general cases (47.387 s, 116 skips) plus the real campus scenario
+(10.402 s). Current screenshot/report/provenance bind to source 217be17 and
+artifact 13550324801; the new zoomed screenshot is also retained. The report
+confirms Inter Variable, zoom, routed success, firewall-path failure, seven
+UID-1001 result files, root-state refusal, confirmed stop and no callback errors.
+Host cleanup invariants passed. See NATIVE_GUI_FLOW.md for remaining scope.
+
+## Previous GUI polish checkpoint
 
 Source `f27f49fdd7021200840fcacb5f99636a229eda96` improves the reference-style
 campus: collision-aware port labels, larger host captions, synchronized page

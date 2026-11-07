@@ -93,8 +93,8 @@ preceded this GUI increment. LAN protocol behavior was unchanged.
 This is the actual Xvfb capture after real native verification.
 The public [operation report](images/native-gui-result.json) records the UI UID,
 result-file owners, native probe and stop outcome. The
-[provenance record](images/native-gui-provenance.json) binds both files to
-artifact 13549022791, source commit and run/job, with the verified original ZIP
+[provenance record](images/native-gui-provenance.json) binds both screenshots and the report to
+artifact 13550324801, source commit and run/job, with the verified original ZIP
 SHA-256 and individual file hashes. The desktop/native job passed on the same commit.
 
 ## Previous desktop layout (rejected as the design reference)
@@ -491,3 +491,19 @@ manifests, correct node movement under zoom, and no backend launch from view
 operations. The dedicated native scenario checks the chosen Inter family and
 zoom behavior before starting the real campus, then captures both normal and
 135% views after actual routed and blocked probes.
+
+
+The [desktop/native job](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128231116270)
+passed on source `217be17f7416eefc0330f70e8e103ae9bb07f0c1`: 1049 general
+cases (47.387 s, 116 skips) and the real campus scenario (10.402 s).
+The report confirms `Inter Variable`, verified zoom, ten nodes/nine links,
+successful inter-VLAN traffic, firewall-blocked server traffic, seven UID-1001
+result files, root-state read refusal, confirmed stop and no callback errors.
+Host network cleanup checks passed. Local full Xvfb regression passed 1049
+cases (41.476 s, 141 skips). Artifact 13550324801 has verified ZIP SHA-256
+`e8bd63527057157fd63d546b4e2555c9a6528e95e93eb2f9464c297d6c935da7`;
+individual hashes and exact source/run/job binding are in the provenance JSON.
+
+[Actual 135% zoom capture](images/native-gui-zoomed.png) complements the normal
+running capture above. It shows a zoomed viewport, not a changed topology.
+No runtime, protocol, Manager or privilege implementation changed.

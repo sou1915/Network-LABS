@@ -1,15 +1,17 @@
 {
-  "source_commit": "f27f49fdd7021200840fcacb5f99636a229eda96",
-  "run_id": 42313340373,
-  "job_id": 128219882981,
-  "artifact_id": 13549022791,
-  "artifact_sha256": "3375fa6c64277c803f5ca4f782dc2fb6b7dd9cbfe2cb10abb8e61bfac9136fdc",
+  "source_commit": "217be17f7416eefc0330f70e8e103ae9bb07f0c1",
+  "run_id": 42316748403,
+  "job_id": 128231116270,
+  "artifact_id": 13550324801,
+  "artifact_sha256": "e8bd63527057157fd63d546b4e2555c9a6528e95e93eb2f9464c297d6c935da7",
   "files": [
     "native-gui-running.png",
+    "native-gui-zoomed.png",
     "native-gui-result.json"
   ],
   "file_sha256": {
-    "native-gui-running.png": "7ec51acc8a1effdfc45111cc417c2a914ae7a676b154d226d6378223c9eb20d1",
-    "native-gui-result.json": "d4f032c877e1fb928ebf11d4094e42f83b982f7635f57d1814772a1656dcface"
+    "native-gui-running.png": "43809dddf963edcb9659f2aa734e0bbbbb55958523097050f3586b98b452e2ef",
+    "native-gui-zoomed.png": "06d3003a71d5e83bc7f127fb21ff37227381a590f16310413d4f1eca041a343d",
+    "native-gui-result.json": "ea13701d90286e3d012cf3d81d23399ee70f5f8a4012d2c280a1e1006dc268fc"
   }
 }

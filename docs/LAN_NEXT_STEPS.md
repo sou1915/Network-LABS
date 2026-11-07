@@ -2481,3 +2481,11 @@ automatic peer recovery/persistent NAS supervision, stronger EAP/TLS,
 multi-client/dynamic VLAN/accounting and wider switching remain open. LAN
 precedes native GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked.
 Planning estimates stay LAN about 80%, whole product about 45–50%.
+
+
+The GUI now has privately loaded Inter typography, rounded controls/cards and
+actual topology wheel zoom, middle-button/Shift-drag pan, hover highlighting and
+double-click configuration. View changes do not alter the manifest or invoke
+sudo. Preserve these interactions and the supplied reference while continuing
+the remaining native console/capture workflow. LAN core remains frozen 7/7;
+static VXLAN is still an explicit later roadmap item.

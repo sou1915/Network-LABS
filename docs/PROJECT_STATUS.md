@@ -6,8 +6,10 @@ defer advanced extensions, then integrate the native GUI. The frozen
 It is accepted: **7/7 essential checks passed** on one source revision. Native
 GUI integration is in progress: the first native lifecycle/observation/traffic
 flow and basic graphical topology editing are verified. Work continues
-toward the actual user-supplied mockup, with basic native device forms now implemented; photos, VLAN visual
-groups, richer forms, interactive consoles and packet views remain pending.
+toward the actual user-supplied mockup. The ten-node routed campus, generic
+device artwork, VLAN groups, basic native device forms, rounded Inter UI and
+interactive topology viewport are implemented. Richer forms, interactive native
+consoles and packet views remain pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.
