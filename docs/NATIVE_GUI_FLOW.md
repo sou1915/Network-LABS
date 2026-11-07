@@ -20,7 +20,7 @@ Current normal/zoomed captures and report bind to source
 0328316604b54d108c18b8469c7aa97c35b398eb, run 42344492330, job 128319171847,
 artifact 13563065883; verified ZIP SHA-256:
 `2827d79b9f2a31e9de1766099e62cf3ba83b96bdea2b39c7bade79b7f5b4c484`.
-The browser capture separately binds to style source c853fab, after selector
+The browser capture separately binds to style source 8bf0024, after selector
 contrast/compact-rail polish and actual browser revalidation. Its richer
 filtering/NAT/routing/switch/server workflows passed locally. Full local
 regression passed 1058 cases (68.374 s, 141 skips).
@@ -631,3 +631,11 @@ This does not complete commercial appliance parity. The
 [per-node management roadmap](NODE_MANAGEMENT_ROADMAP.md) records implemented
 editors, existing backend features awaiting GUI, and missing commercial engine
 features. The user still requests more polish and broader real options.
+
+
+Final acceptance for rich-management source 0328316: all ten selected jobs
+passed in [run 42344492330](https://github.com/sou1915/Network-LABS/actions/runs/42344492330);
+52 unrelated profiles were intentionally skipped. Dedicated wired 802.1X
+128319171720 passed, and [LAN aggregate 128320108768](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128320108768)
+confirms 7/7. This validates the implemented native scope, not complete
+commercial firmware parity. Continue NODE_MANAGEMENT_ROADMAP.md; VXLAN stays later.

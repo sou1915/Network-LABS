@@ -498,3 +498,11 @@ Final acceptance for native web source d0e6df1: all ten selected jobs passed in
 52 unrelated profiles were intentionally skipped. Dedicated wired 802.1X
 job 128314605913 passed; [LAN aggregate 128315692374](https://github.com/sou1915/Network-LABS/actions/runs/42342996553/job/128315692374)
 confirms 7/7. LAN remains closed; VXLAN stays a later roadmap item.
+
+
+Final acceptance for rich-management source 0328316: all ten selected jobs
+passed in [run 42344492330](https://github.com/sou1915/Network-LABS/actions/runs/42344492330);
+52 unrelated profiles were intentionally skipped. Dedicated wired 802.1X
+128319171720 passed, and [LAN aggregate 128320108768](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128320108768)
+confirms 7/7. This validates the implemented native scope, not complete
+commercial firmware parity. Continue NODE_MANAGEMENT_ROADMAP.md; VXLAN stays later.

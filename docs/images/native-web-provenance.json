@@ -1,5 +1,5 @@
 {
-  "source_commit": "c853fab541aa764dff55777f98c24527368d7b13",
+  "source_commit": "8bf00242c481691763da5a9f58d18661e5f3d37d",
   "capture": "actual local Chromium screenshot of native role-specific management",
   "native_lab_started_locally": false,
   "ui_runtime_state": "non observ\u00e9",
@@ -14,6 +14,6 @@
     "same-tab node switching",
     "equipment selector and contextual menus rendered"
   ],
-  "screenshot_sha256": "89e11aee7312feebfc8f41b11c126a93ecb258f723cf9d895bd80d02fa45e51b",
+  "screenshot_sha256": "fd7f4214fe5a4d22251b0aa6e2f1a24a7ab66299be0b478bc910bb63e4aa1626",
   "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
 }

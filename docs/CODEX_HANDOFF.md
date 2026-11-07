@@ -40,7 +40,7 @@ pending-operation guards protect atomic offline draft writes. Rootfs, startup,
 private credentials and arbitrary commands are excluded from section writes.
 The browser has an equipment selector and per-role navigation/dashboard;
 Tk's rail opens appropriate management pages directly. Later style source
-c853fab fixes selector contrast and compacts the rail, with actual browser
+8bf0024 fixes selector contrast and compacts the rail, with actual browser
 revalidation. No backend protocol or privilege implementation changed.
 
 Full local regression with real Chromium passed 1058 cases (68.374 s,
@@ -60,6 +60,9 @@ allow/block/routing scenario (14.389 s). Eight UID-1001 result files,
 root-state refusal, confirmed stop and callback/host cleanup passed.
 Retained normal/zoomed captures/report/provenance bind to artifact 13563065883
 at source 0328316. See NATIVE_GUI_FLOW.md for hashes and exact scope.
+
+All ten selected jobs passed in run 42344492330; 52 other profiles skipped.
+Wired 802.1X 128319171720 passed; LAN aggregate 128320108768 confirms 7/7.
 
 ## Previous rounded-panel and native web checkpoint
 
