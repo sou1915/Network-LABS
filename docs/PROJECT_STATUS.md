@@ -487,3 +487,10 @@ jobs passed in [run 42316748403](https://github.com/sou1915/Network-LABS/actions
 and the [7/7 LAN aggregate](https://github.com/sou1915/Network-LABS/actions/runs/42316748403/job/128233042144).
 LAN core remains accepted; advanced LAN, native interactive consoles/capture
 and static VXLAN retain their existing roadmap boundaries.
+
+
+Final acceptance for native web source d0e6df1: all ten selected jobs passed in
+[run 42342996553](https://github.com/sou1915/Network-LABS/actions/runs/42342996553);
+52 unrelated profiles were intentionally skipped. Dedicated wired 802.1X
+job 128314605913 passed; [LAN aggregate 128315692374](https://github.com/sou1915/Network-LABS/actions/runs/42342996553/job/128315692374)
+confirms 7/7. LAN remains closed; VXLAN stays a later roadmap item.
