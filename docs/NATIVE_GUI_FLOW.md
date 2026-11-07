@@ -691,3 +691,13 @@ HTTP and checks real allowed/dropped packet counters and traffic.
 separate real browser scenarios. Both are local draft configuration sessions;
 no native lab/protocol negotiation was started for these captures. Local full
 regression with both browser tests passed 1061 cases (61.184 s, 141 skips).
+
+
+Final acceptance for switch-management source 8a4af12: all ten selected jobs
+passed in [run 42345881332](https://github.com/sou1915/Network-LABS/actions/runs/42345881332);
+52 unrelated profiles were intentionally skipped. Wired 802.1X job
+128323400065 passed; [LAN aggregate 128324543596](https://github.com/sou1915/Network-LABS/actions/runs/42345881332/job/128324543596)
+confirms 7/7. Switch/STP/LACP native interoperability jobs passed as well.
+The new web-to-native proof covers static MAC admission and observed counters;
+STP/LACP browser captures remain explicitly local configuration sessions.
+Continue the per-node management roadmap; static VXLAN stays after LAN/GUI.

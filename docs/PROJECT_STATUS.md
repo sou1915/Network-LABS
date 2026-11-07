@@ -507,3 +507,13 @@ passed in [run 42344492330](https://github.com/sou1915/Network-LABS/actions/runs
 128319171720 passed, and [LAN aggregate 128320108768](https://github.com/sou1915/Network-LABS/actions/runs/42344492330/job/128320108768)
 confirms 7/7. This validates the implemented native scope, not complete
 commercial firmware parity. Continue NODE_MANAGEMENT_ROADMAP.md; VXLAN stays later.
+
+
+Final acceptance for switch-management source 8a4af12: all ten selected jobs
+passed in [run 42345881332](https://github.com/sou1915/Network-LABS/actions/runs/42345881332);
+52 unrelated profiles were intentionally skipped. Wired 802.1X job
+128323400065 passed; [LAN aggregate 128324543596](https://github.com/sou1915/Network-LABS/actions/runs/42345881332/job/128324543596)
+confirms 7/7. Switch/STP/LACP native interoperability jobs passed as well.
+The new web-to-native proof covers static MAC admission and observed counters;
+STP/LACP browser captures remain explicitly local configuration sessions.
+Continue the per-node management roadmap; static VXLAN stays after LAN/GUI.

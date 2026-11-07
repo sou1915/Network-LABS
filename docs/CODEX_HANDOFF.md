@@ -55,6 +55,9 @@ allow/deny and routed traffic passed. Eleven results remained UID 1001;
 root-state refusal, stop and callback/host cleanup checks passed. Current native
 captures/report/provenance bind to artifact 13563132530 at source 8a4af12.
 
+All ten selected jobs in run 42345881332 passed; 52 other profiles skipped.
+Wired 802.1X 128323400065 passed; LAN aggregate 128324543596 confirms 7/7.
+
 ## Previous rich native node management checkpoint
 
 The latest user rejects minimal web management, requests more GUI polish and
