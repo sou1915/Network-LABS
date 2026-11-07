@@ -2503,3 +2503,8 @@ minimal IP forms. Native editors now cover nine validated configuration
 sections with role-based navigation. Continue the
 [per-node management roadmap](NODE_MANAGEMENT_ROADMAP.md), expose only real
 backend behavior, and preserve the accepted LAN core/VXLAN ordering.
+
+
+The switch web manager now includes STP/component edits, paired LACP, LLDP and
+static MAC admission, using existing engine validators. Continue exposing the
+remaining security/observation modules without expanding the accepted LAN gate.

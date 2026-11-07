@@ -1,5 +1,5 @@
 {
-  "source_commit": "8bf00242c481691763da5a9f58d18661e5f3d37d",
+  "source_commit": "8a4af125c25868ce7fd2d29e7dd94f4fce7b9f07",
   "capture": "actual local Chromium screenshot of native role-specific management",
   "native_lab_started_locally": false,
   "ui_runtime_state": "non observ\u00e9",
@@ -12,8 +12,9 @@
     "switch VLAN and SVI created",
     "server local DNS record applied",
     "same-tab node switching",
-    "equipment selector and contextual menus rendered"
+    "equipment selector and contextual menus rendered",
+    "STP / LLDP / static MAC admission panels"
   ],
-  "screenshot_sha256": "fd7f4214fe5a4d22251b0aa6e2f1a24a7ab66299be0b478bc910bb63e4aa1626",
+  "screenshot_sha256": "e61ec3ba50d0383a55585952a1c8aa9f2dcd06cf2988588411be410b2f6684c0",
   "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
 }

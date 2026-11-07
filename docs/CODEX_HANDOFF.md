@@ -21,7 +21,32 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current rich native node management checkpoint
+## Current switch management checkpoint
+
+Continue expanding functional node management, preserving the supplied GUI
+reference and honest capability boundaries. Source `8a4af125c25868ce7fd2d29e7dd94f4fce7b9f07`
+adds four sections (13 total): STP/component settings with BPDU/Root Guard,
+paired LACP, LLDP, and static access-port MAC admission. STP common mode/timers
+can be applied atomically to the actual connected switch component while
+preserving peer bridge priorities/per-port policies. LACP changes both endpoints
+in one validated transaction derived from existing physical cables; unsafe
+parallel-loop restoration, passive/passive, wrong peers and invalid memberships
+are refused. RSTP is limited to existing OVS, LACP to Linux; LLDP requires
+lldpd/lldpcli assets and is omitted alongside LACP in the current profile.
+Static MAC admission is restrict-only, with exactly maximum whitelist entries.
+No dynamic/sticky MAC or fake protocol state is exposed.
+
+Full local regression with both actual Chromium workflows passed 1061 cases
+(61.184 s, 141 skips). Nine HTTP tests include atomic component/pair semantics,
+creation/removal/recreation and invalid policy rejection. Real browser captures
+native-switch-management.png and native-lacp-management.png retain draft-only
+sessions with provenance; they do not claim running protocol convergence.
+The dedicated native GUI test now applies MAC admission over HTTP and checks
+allowed PC1 traffic plus blocked PC4 traffic on the same VLAN and real
+accepted/dropped nftables counters. LAN core stays frozen; VXLAN remains later.
+See NATIVE_GUI_FLOW.md and NODE_MANAGEMENT_ROADMAP.md for remaining scope.
+
+## Previous rich native node management checkpoint
 
 The latest user rejects minimal web management, requests more GUI polish and
 all real options for every node. The supplied FortiGate-style reference remains

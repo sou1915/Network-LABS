@@ -662,3 +662,12 @@ recreation, and invalid LLDP/MAC policies. Real browser tests cover all four
 forms; a separate LACP example verifies both ends after browser edits. The
 native GUI packet scenario additionally applies access-port MAC policies over
 HTTP and checks real allowed/dropped packet counters and traffic.
+
+
+![Actual local STP management](images/native-switch-management.png)
+
+[Actual paired LACP manager](images/native-lacp-management.png) and
+[browser capture provenance](images/native-switch-provenance.json) retain the
+separate real browser scenarios. Both are local draft configuration sessions;
+no native lab/protocol negotiation was started for these captures. Local full
+regression with both browser tests passed 1061 cases (61.184 s, 141 skips).
