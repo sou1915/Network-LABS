@@ -171,6 +171,10 @@ try:
         window.choose_node('PC3');window.destination.set('SRV1');ip_blocked=drive('verify')
         assert ip_blocked['data']['status']=='failed',ip_blocked['data']
         window.choose_node('SW1');admission_observed=drive('inspect')['data']
+        web_observed=web_request('GET','/api/state?node=SW1')['inspection']
+        assert web_observed and web_observed['captured_at']
+        assert any(p['module']=='ip_source_guard' and p['verified'] and any(c.get('rule')=='deny:eth2' and c.get('packets',0)>0 for c in p['counters']) for p in web_observed['policies'])
+        assert 'token' not in json.dumps(web_observed)
         for key in ('dhcp_snooping','arp_inspection','ip_source_guard'):
             assert admission_observed[key]['policy_verified'],(key,admission_observed[key])
         assert any(c['rule']=='deny:eth1' and c['packets']>0 for c in admission_observed['arp_inspection']['counters']),admission_observed['arp_inspection']

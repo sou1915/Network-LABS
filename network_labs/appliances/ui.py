@@ -805,6 +805,10 @@ class ApplianceWindow:
             raise ValueError('Le résultat ne correspond pas au lab demandé.')
         self.last_response=response
         action=request['action'];data=response['data'];graph=response['topology']
+        if action=='inspect':
+            from .web_observations import revision
+            self.web_inspection_revision=revision(self.manifest())
+            self.web_inspection_time=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
         states=self.states if self.view_lab==request['lab'] else {}
         if action in ('start','status'):
             states={n['name']:{'status':(n.get('state') or {}).get('status','invité non vérifié'),'memory':n.get('memory_current_bytes')} for n in data['nodes']}

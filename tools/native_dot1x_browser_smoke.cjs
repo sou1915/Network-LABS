@@ -9,6 +9,9 @@ const {chromium}=require('playwright');
   await page.locator('#dot1xUsers').fill('learner, guest');await page.locator('#dot1xSeconds').fill('4');await page.locator('#dot1xRenewals').fill('1');await save();
   await page.locator('#dot1xSeconds').fill('31');await save(400);await page.locator('#sectionReload').click();await page.waitForFunction(()=>document.getElementById('dot1xSeconds')?.value==='4');
   await page.screenshot({path:'/tmp/native-dot1x-local.png',fullPage:true});
+  await page.locator('[data-page="observations"]').click();await page.getByText('Aucune inspection disponible pour cet équipement et ce brouillon.').waitFor();
+  if(await page.locator('#sectionSave').count())throw Error('Observation page unexpectedly allows configuration');
+  await page.screenshot({path:'/tmp/native-observations-local.png',fullPage:true});
   if(errors.length)throw Error(errors.join('\n'));console.log('Browser wired policy save and invalid duration recovery passed');
  }finally{await browser.close()}
 })().catch(error=>{console.error(error);process.exit(1)});

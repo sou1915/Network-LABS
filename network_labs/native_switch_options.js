@@ -76,3 +76,15 @@ function dot1xPanel(){
 const dot1xBaseRender=render;
 render=function(){dot1xBaseRender();if(page==='dot1x')dot1xPanel()};
 if(state)render();
+
+function observationsPanel(){
+ const observed=state.inspection;
+ $('listing').innerHTML=observed?table(['Lecture du logiciel · UTC','Nature'],[[esc(observed.captured_at||'Date indisponible'),'Instantané Linux · lecture seule']]):'<p>Aucune inspection disponible pour cet équipement et ce brouillon.</p>';
+ panel.innerHTML='<h2>Observations réseau</h2><p class="muted">Dans le logiciel, sélectionner cet équipement puis Inspecter le réseau. Revenir ici et cliquer Actualiser. Cette page relit le résultat reçu ; elle ne lance aucune commande privilégiée. Une inspection est un instantané, pas une surveillance continue ni une preuve que le brouillon est appliqué.</p>';
+ if(!observed)return;
+ panel.insertAdjacentHTML('beforeend','<h2>Interfaces observées</h2>'+table(['Interface','État','MTU','MAC'],observed.links.map(r=>[r.ifname,r.operstate,r.mtu,r.address].map(v=>esc(v??'Non disponible'))))+'<h2>Routes IPv4 observées</h2>'+table(['Destination','Passerelle','Interface','Protocole'],observed.routes.map(r=>[r.dst??'default',r.gateway??'—',r.dev??'—',r.protocol??'—'].map(esc))));
+ for(const policy of observed.policies){const label=({port_security:'Admission MAC',dhcp_snooping:'DHCP snooping',arp_inspection:'Inspection ARP / DAI',ip_source_guard:'IP Source Guard'})[policy.module];panel.insertAdjacentHTML('beforeend','<h2>'+esc(label)+'</h2><p>Politique vérifiée : '+(policy.verified===true?'oui':policy.verified===false?'non':'non disponible')+'</p>'+ (policy.counters.length?table(['Règle','Paquets','Octets'],policy.counters.map(r=>[r.rule,r.packets,r.bytes].map(v=>esc(v??'Non disponible')))):'<p class="muted">Compteurs non disponibles.</p>'))}
+}
+const observationsBaseRender=render;
+render=function(){observationsBaseRender();if(page==='observations')observationsPanel()};
+if(state)render();

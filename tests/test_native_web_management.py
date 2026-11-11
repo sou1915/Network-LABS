@@ -222,3 +222,25 @@ class NativePortalTests(unittest.TestCase):
         for bad in ({**config,'seconds':31},{**config,'reauthentications':4},{**config,'users':[]},{**config,'users':['learner','learner']},{**config,'server':'192.0.2.99'}):
             self.assertEqual(self.section('SW1','dot1x',bad)['status'],400)
             self.assertEqual(self.app.manifest(),original)
+
+    def test_observation_projection_redacts_and_invalidates_stale_inspections(self):
+        from network_labs.appliances.web_observations import revision
+        self.app.web_inspection_revision=revision(self.app.spec)
+        self.app.web_inspection_time='2026-11-11T16:00:00Z'
+        self.app.last_response={'ok':True,'action':'inspect','lab':self.app.spec['name'],'data':{
+            'name':'PC1','links':[{'ifname':'eth0','operstate':'UP','mtu':1500,'private':'hidden'}],
+            'routes':[{'dst':'default','gateway':'192.168.10.1','dev':'eth0'}],
+            'ip_source_guard':{'policy_verified':True,'token':'private-token','counters':[{'rule':'deny:eth0','packets':4,'bytes':336,'secret':'hidden'},{'rule':'unknown'}]},
+            'dot1x_supplicant':{'password_file':'private-file'}}}
+        response=self.state();inspection=response['inspection']
+        self.assertEqual(inspection['links'],[{'ifname':'eth0','operstate':'UP','mtu':1500}])
+        self.assertEqual(inspection['policies'][0]['counters'][0],{'rule':'deny:eth0','packets':4,'bytes':336})
+        self.assertNotIn('packets',inspection['policies'][0]['counters'][1])
+        self.assertNotIn('private',json.dumps(inspection));self.assertNotIn('secret',json.dumps(inspection))
+        self.app.pending={'action':'stop'};self.assertIsNone(self.state()['inspection']);self.app.pending=None
+        self.app.spec['nodes'][0]['interfaces']['eth0']='192.168.10.55/24'
+        self.assertIsNone(self.state()['inspection'])
+        self.app.web_inspection_revision=revision(self.app.spec)
+        self.app.last_response['data']['name']='SW1';self.assertIsNone(self.state()['inspection'])
+        self.app.last_response['data']['name']='PC1';self.app.last_response['ok']=False
+        self.assertIsNone(self.state()['inspection'])
