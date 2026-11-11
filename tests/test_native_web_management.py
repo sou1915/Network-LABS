@@ -244,3 +244,22 @@ class NativePortalTests(unittest.TestCase):
         self.app.last_response['data']['name']='SW1';self.assertIsNone(self.state()['inspection'])
         self.app.last_response['data']['name']='PC1';self.app.last_response['ok']=False
         self.assertIsNone(self.state()['inspection'])
+
+    def test_firewall_and_mac_observations_use_actual_engine_shapes(self):
+        from network_labs.appliances.web_observations import revision
+        self.app.web_inspection_revision=revision(self.app.spec)
+        self.app.last_response={'ok':True,'action':'inspect','lab':self.app.spec['name'],'data':{'name':'PC1',
+            'port_security':{'available':True,'fingerprint_matches':False,'ports':{'eth0':{'accepted_packets':14,'accepted_bytes':980,'dropped_packets':None,'dropped_bytes':-1,'configured':{'secret':'hidden'}}},'ruleset':{'private':'hidden'}},
+            'firewall':{'nftables':[
+                {'chain':{'family':'ip','table':'network_labs','name':'forward','hook':'forward','policy':'drop','private':'hidden'}},
+                {'rule':{'family':'ip','table':'network_labs','chain':'forward','comment':'rule:admin','expr':[{'counter':{'packets':12,'bytes':840}},{'accept':None}]}},
+                {'rule':{'family':'ip','table':'network_labs','chain':'postrouting','comment':'nat:out','expr':[{'counter':{'packets':True,'bytes':-1}},{'snat':{'addr':'private-value'}}]}},
+                {'rule':{'family':'ip','table':'foreign','comment':'foreign-secret','expr':[{'counter':{'packets':99}}]}},
+                {'rule':{'family':'ip6','table':'network_labs','comment':'ipv6-foreign','expr':[{'counter':{'packets':99}}]}}]}}}
+        result=self.state()['inspection'];mac=result['policies'][0]
+        self.assertFalse(mac['verified']);self.assertEqual(mac['counters'][0]['packets'],14)
+        self.assertIsNone(mac['counters'][1]['packets']);self.assertIsNone(mac['counters'][1]['bytes'])
+        fw=result['firewall'];self.assertEqual(fw['chains'],[{'name':'forward','hook':'forward','policy':'drop'}])
+        self.assertEqual(len(fw['counters']),2);self.assertEqual(fw['counters'][0]['packets'],12)
+        self.assertIsNone(fw['counters'][1]['packets']);self.assertIsNone(fw['counters'][1]['bytes'])
+        for word in ('secret','private','foreign','expr','ruleset'):self.assertNotIn(word,json.dumps(result))

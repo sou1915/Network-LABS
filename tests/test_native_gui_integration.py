@@ -114,17 +114,24 @@ try:
         assert firewall_allowed['data']['status']=='passed',firewall_allowed['data']
         window.choose_node('PC4');window.destination.set('CLIENT3');mac_blocked=drive('verify')
         assert mac_blocked['data']['status']=='failed',mac_blocked['data']
+        window.choose_node('FW1');drive('inspect')
+        firewall_observed=web_request('GET','/api/state?node=FW1')['inspection']['firewall']
+        assert any(c['rule']=='default' and c['packets']>0 for c in firewall_observed['counters']),firewall_observed
+        assert any(c['rule']=='rule:web-admin-dmz' and c['packets']>0 for c in firewall_observed['counters']),firewall_observed
         security_observed={}
         for switch,port,counter in [('SW1','eth1','accepted_packets'),('SW2','eth2','dropped_packets')]:
             window.choose_node(switch);security=drive('inspect')['data']['port_security']
             assert security['available'] and security['fingerprint_matches'],security
             assert security['ports'][port][counter]>0,security
             security_observed[switch]=security
+            web_mac=next(p for p in web_request('GET','/api/state?node='+switch)['inspection']['policies'] if p['module']=='port_security')
+            assert web_mac['verified']
+            assert any(c['rule']==('allow:' if counter=='accepted_packets' else 'deny:')+port and c['packets']>0 for c in web_mac['counters'])
         window.choose_node('PC1')
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==13
+        assert len(window.activity.get_children())==14
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -145,9 +152,9 @@ try:
         window.reset_view();root.update()
         drive('stop');assert {v['status'] for v in window.states.values()}=={'stopped'}
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
-        assert set(owners)=={os.geteuid()} and len(owners)==11,owners
+        assert set(owners)=={os.geteuid()} and len(owners)==12,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'firewall_observed':firewall_observed,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         # A separate access-only profile exercises DAI and source guard without
         # weakening the existing campus/trunk validator or fabricating DHCP leases.
         from network_labs.appliances.access_security import access_security_example
@@ -185,7 +192,7 @@ try:
         admission_counters={key:{field:value for field,value in admission_observed[key].items() if field in ('source','policy_verified','counters','ports')} for key in ('dhcp_snooping','arp_inspection','ip_source_guard')}
         root.update();ImageGrab.grab(bbox=box).save(artifacts/'native-admission-running.png')
         drive('stop');assert all(s['status']=='stopped' for s in window.states.values())
-        assert len(owners)==18 and set(owners)=={os.geteuid()},owners
+        assert len(owners)==19 and set(owners)=={os.geteuid()},owners
         (artifacts/'native-admission-result.json').write_text(json.dumps({'native_web_admission_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'node_count':5,'link_count':4,'allowed':admission_allowed['data'],'arp_blocked':arp_blocked['data'],'ip_blocked':ip_blocked['data'],'observed':admission_counters,'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
         assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'

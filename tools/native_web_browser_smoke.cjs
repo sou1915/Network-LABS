@@ -58,6 +58,13 @@ const {chromium}=require('playwright');
     await page.locator('#recordName').fill('srv.lab.test');await page.locator('#recordAddress').fill('172.16.0.10');await page.locator('#recordAdd').click();await saveSection();
     await visit('FW1');await page.locator('[data-page="firewall"]').click();
     await page.screenshot({path:process.env.NATIVE_WEB_SCREENSHOT||'/tmp/native-web-local.png',fullPage:true});
+    await page.locator('[data-page="observations"]').click();await page.getByText('Chaînes, politiques et compteurs de règles : non disponibles avant inspection.').waitFor();
+    await page.screenshot({path:'/tmp/native-firewall-observations-local.png',fullPage:true});
+    // Explicit rendering fixture only; never retained as a live screenshot.
+    await page.evaluate(()=>{state.inspection={captured_at:'2026-11-11T00:00:00Z',links:[],routes:[],policies:[{module:'port_security',verified:false,counters:[{rule:'deny:eth0',packets:14,bytes:null}]}],firewall:{chains:[{name:'forward',hook:'forward',policy:'drop'}],counters:[{chain:'forward',rule:'<script>fixture</script>',packets:12,bytes:840}]}};render()});
+    await page.getByText('<script>fixture</script>',{exact:true}).waitFor();await page.getByText('deny:eth0',{exact:true}).waitFor();await page.getByText('Politique vérifiée : non',{exact:true}).waitFor();
+    if(await page.locator('#optionsPanel script').count())throw Error('Unescaped observed rule');
+    await page.locator('#refresh').click();await page.getByText('Aucune inspection disponible pour cet équipement et ce brouillon.').waitFor();
     if(errors.length)throw Error(errors.join('\n'));
     console.log('Browser firewall/NAT/routes, switch VLAN/SVI, server DNS, STP/LLDP/MAC admission and invalid-write recovery passed');
   } finally {await browser.close()}
