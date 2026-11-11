@@ -21,7 +21,41 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Latest firewall/MAC observation checkpoint
+## Latest external native console checkpoint
+
+Source `09ce90e97b4443443a563b6b62513baed1850ade` adds a desktop CLI tab
+that opens the selected running OCI node's real /bin/sh through the existing
+native exec --tty path. Sudo authentication and guest I/O stay in the external
+terminal. No browser command endpoint or embedded terminal is introduced.
+Unknown/stopped/non-OCI selections, pending operations and mismatched labs
+are refused. Terminal launch is recorded as requested, not connected. Close
+with exit before another native operation because the CLI holds the lab lock.
+Active shell changes do not rewrite the draft.
+
+Local full regression passed 1074 tests in 73.795 s (141 skips), including
+four actual Chromium workflows. Console tests verify typed arguments, inherited
+stdio, auth-denial short-circuit and GUI selection/busy guards. The actual
+[CLI screenshot](images/native-console-management.png) shows the disabled
+unobserved state; its [provenance](images/native-console-provenance.json) records
+test-only correction 5bada44 clearing mocked event history before capture.
+The focused capture/guard test passed again in 1.747 s.
+
+Run 43097993685 ended with startup_failure and no jobs; it did not validate
+any counter or console behavior. New [native run 43099192111](https://github.com/sou1915/Network-LABS/actions/runs/43099192111)
+is queued at 09ce90e. Its GUI scenario opens a real PTY via the same unprivileged
+wrapper/sudo/native CLI, checks a guest-shell marker and a network namespace
+different from the host, exits and captures native-console-running.png.
+The native CHILD compiled, but actual PTY success remains pending. Its event
+expectation is now 15; result ownership remains 12/19. A successful artifact
+will contain six files (the previous five plus native-console-running.png).
+Do not substitute local screenshots for native evidence.
+
+Previous wired interoperability passed at d05ad41; current full native GUI
+validation remains unresolved. LAN's earlier 7/7 acceptance is unchanged;
+VXLAN stays later. Embedded console, packet capture, supervised sessions,
+continuous observations and wired provisioning/actions remain open.
+
+## Previous firewall/MAC observation checkpoint
 
 Source `294decee4e49f37117885aebde1b5b0c42f7c83e` fixes MAC admission
 projection to use actual per-port accepted/dropped counts and the engine's
@@ -52,7 +86,7 @@ includes native GUI install/test/artifact steps in suite=dot1x. YAML and all
 three step conditions were checked. No protocol assertions were weakened.
 
 Corrected [run 43097993685](https://github.com/sou1915/Network-LABS/actions/runs/43097993685)
-is queued at a33546c. Check it before dispatching more work. Current native
+ended with startup_failure and no jobs at a33546c. Current native
 counter assertions are not yet certified; retained native screenshots still
 belong to 271303a. LAN's previous 7/7 gate stays accepted; VXLAN remains later.
 Remaining work includes native console/capture, continuous observations,

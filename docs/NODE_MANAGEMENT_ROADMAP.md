@@ -147,3 +147,16 @@ and available/fingerprint_matches fields. Its prior generic projection did
 not match that schema and displayed no counters. Static bindings and raw
 rulesets are not exported by this observation page. A failed fingerprint is
 shown explicitly rather than interpreted as a verified policy.
+
+## Native console entry
+
+The desktop device panel now has a CLI tab and a real external-terminal shell
+entry for OCI nodes observed running. It uses the existing native `exec --tty`
+path with a fixed `/bin/sh`; sudo authentication and all guest I/O stay on the
+terminal descriptors. The browser cannot launch it. Missing/stopped/non-OCI
+selection, pending operations and mismatched lab names are refused. Terminal
+launch is recorded as requested, never as a confirmed guest connection.
+
+Close the shell with exit before another native operation: the existing CLI
+holds its lab lock for the session. Active shell changes do not edit the draft.
+An embedded terminal, shell session supervision and packet capture remain open.
