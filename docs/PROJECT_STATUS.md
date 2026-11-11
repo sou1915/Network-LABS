@@ -10,9 +10,9 @@ toward the actual user-supplied mockup. The ten-node routed campus, generic
 device artwork, VLAN groups, basic native device forms, rounded Inter UI and
 interactive topology viewport are implemented. Rounded main panels and an
 authenticated browser-based native draft manager now share the Tk settings.
-Sixteen configuration modules now cover filtering/NAT, routing, switch
+Seventeen configuration modules now cover filtering/NAT, routing, switch
 VLAN/SVI, STP, paired LACP, LLDP, static MAC admission, 802.1Q, IPv6 and
-client/server DHCP/DNS, DHCP snooping, DAI and IP Source Guard according to the node role.
+client/server DHCP/DNS, DHCP snooping, DAI, IP Source Guard and multicast policy according to the node role.
 The five-node access-security template and HTTP-configured packet admission
 passed native CI run 42364702892; LAN remains 7/7.
 [Per-node coverage and remaining commercial parity](NODE_MANAGEMENT_ROADMAP.md)

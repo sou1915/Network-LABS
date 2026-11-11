@@ -21,7 +21,28 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Current access-security management checkpoint
+## Latest multicast web checkpoint
+
+Source `f039c067b893a76b2a1991e0aa78be09d9e9332b` adds the seventeenth
+management section: Linux IGMPv2 snooping/querier and per-port multicast
+router mode, unknown flooding and fast leave. Existing whole-lab validation
+requires one common access VLAN; OVS is hidden. Removing the explicit policy
+restores engine defaults, not an implied snooping shutdown.
+
+Local regression passed 1066 tests in 75.146 seconds (141 environment/opt-in
+skips), including all three real Chromium workflows. HTTP tests verify policy
+roundtrip/removal, invalid querier rejection, wrong role and incompatible
+campus refusal without mutation. Browser tests verify Tk draft synchronization
+and rejected-edit recovery. The actual [browser screenshot](images/native-multicast-management.png)
+has [source-bound provenance](images/native-multicast-provenance.json).
+No new native multicast packet scenario was run for this editor increment;
+the previous native admission/campus evidence remains bound to source 271303a.
+Do not interpret this draft screenshot as observed MDB membership or delivery.
+LAN core stays accepted 7/7; VXLAN remains later. Next work includes wired
+802.1X controls, runtime observations, interactive console/capture and further
+per-role service forms; see [coverage roadmap](NODE_MANAGEMENT_ROADMAP.md).
+
+## Previous access-security management checkpoint
 
 Source `271303a989bf8a39cf039b123b6b93939b9e6319` adds DHCP snooping,
 Dynamic ARP Inspection and IP Source Guard web editors (16 sections total).

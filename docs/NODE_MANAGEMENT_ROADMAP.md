@@ -18,7 +18,7 @@ all native nodes and the navigation adapts to the selected role.
 | --- | --- | --- |
 | Firewall | Physical interfaces/admin, 802.1Q subinterfaces, IPv4 filtering with ordered named rules, default accept/drop, stateful mode, source/destination CIDR and interfaces, TCP/UDP destination ports; masquerade/SNAT/DNAT and DNAT port translation; routes/gateway/forwarding, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | IPv6 firewall/input policy, actual policy counters/conntrack observations, diagnostics/capture; richer supported service/security compositions |
 | Router | Interfaces/admin, 802.1Q, IPv4 routes/gateway/forwarding, static IPv6 /64 and routes, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | OSPF/OSPFv3, RA/SLAAC/DHCPv6 and prefix delegation, relay, richer runtime diagnostics |
-| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings | Wired 802.1X, multicast and runtime tables |
+| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings, IGMPv2 snooping/querier and per-port multicast policy | Wired 802.1X and runtime tables |
 | Host / server | Interface/admin, gateway/routes, static IPv6, DNS resolver and DHCP client; DHCP server pools/leases/reservations; local DNS zones, A/AAAA records, TTL and IPv6 listen option; LLDP on compatible nodes | Dedicated HTTPS/TFTP/NTP/SNMP/syslog/SSH service controls and native interactive consoles/traffic views |
 | Firecracker microVM | Read current declared basic configuration | Rich forms remain disabled; current editors target OCI |
 
@@ -91,3 +91,14 @@ Guard rejected the intended peers while the valid static binding passed.
 Linux policy fingerprints and actual accept/drop counters were checked.
 Snooping policy installation was verified; this static-IP fixture does not
 exercise DHCP lease acquisition. See [native evidence](NATIVE_GUI_FLOW.md).
+
+## Multicast web management
+
+The seventeenth section exposes the existing Linux bridge IGMPv2 policy:
+snooping, querier, router-port off/auto/permanent, unknown multicast flooding
+and fast leave. It requires physical access ports in one VLAN and is hidden
+for OVS. The LAN sécurité access template is compatible. Querier without
+snooping and incompatible topology edits are rejected atomically. Removing the
+explicit policy restores engine defaults; it does not mean disabling snooping.
+Fast leave is intended for a single receiver per port. Actual MDB membership,
+packet delivery and query observations remain runtime data, not draft rows.
