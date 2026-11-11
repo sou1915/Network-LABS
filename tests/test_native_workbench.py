@@ -246,7 +246,8 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertEqual(window.manifest(),original)
             window.pending={'action':'stop'};self.assertFalse(window.open_console());window.pending=None
             window.view_lab='foreign';self.assertFalse(window.open_console())
-        window.load_spec(original);window.choose_node('PC1');window.device_tabs.select(window.console_panel);self.root.update()
+        window.load_spec(original);window.choose_node('PC1');window.device_tabs.select(window.console_panel)
+        window.activity.delete(*window.activity.get_children());self.root.update()
         self.assertIn('disabled',window.console_button.state())
         from PIL import ImageGrab
         w=window.window
