@@ -708,11 +708,11 @@ jobs:
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   tests:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'dual-stack-ssh-host-key' || inputs.suite == 'benchmark-kernel-peak'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install native desktop test dependencies
-        run: sudo apt-get update && sudo apt-get install -y python3-tk python3-venv xvfb chrony
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh python3-tk python3-venv xvfb chrony
       - name: Install optional executable-appliance test runtime
         run: |
           /usr/bin/python3 -m venv .venv-ci
@@ -720,13 +720,13 @@ jobs:
       - name: Engine, CLI, desktop and executable appliance tests
         run: xvfb-run -a .venv-ci/bin/python -m unittest discover -s tests -v
       - name: Install real native GUI integration prerequisites
-        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'lan-readiness-retry'
         run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables conntrack tcpdump python3-pil
       - name: Verify unprivileged GUI to sudo backend, real OCI traffic and cleanup
-        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'lan-readiness-retry'
         run: sudo env NETWORK_LABS_NATIVE_GUI_TESTS=1 NETWORK_LABS_NATIVE_GUI_ARTIFACT_DIR="$RUNNER_TEMP/native-gui" /usr/bin/python3 -m unittest discover -s tests -p test_native_gui_integration.py -v
       - name: Retain native GUI screenshot and operation evidence
-        if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry')
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'lan-readiness-retry')
         uses: actions/upload-artifact@v4
         with:
           name: native-gui-flow
