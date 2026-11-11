@@ -21,7 +21,44 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Latest Linux observation page checkpoint
+## Latest firewall/MAC observation checkpoint
+
+Source `294decee4e49f37117885aebde1b5b0c42f7c83e` fixes MAC admission
+projection to use actual per-port accepted/dropped counts and the engine's
+available/fingerprint_matches fields. The previous generic shape displayed no
+MAC counters. It also exposes only the managed IPv4 firewall table's chains,
+policies and rule/NAT counters, excluding raw expressions and unrelated tables.
+Missing, negative or boolean counts remain unavailable. No throughput, session
+count or equality with draft policy is inferred.
+
+Local regression passed 1070 cases in 81.700 s (141 skips), including all four
+actual Chromium workflows. HTTP tests use actual engine field shapes; browser
+rendering tests check escaped rule labels and MAC counts with a deliberately
+injected fixture that is never retained as live evidence. The actual
+[firewall screenshot](images/native-firewall-observations.png) and
+[provenance](images/native-firewall-observations-provenance.json) show the
+unobserved state. Native GUI assertions now require real firewall permit/drop
+counts and MAC admission counts through HTTP; result ownership expectations
+are 12 for campus and 19 cumulatively after access-security validation.
+
+Run 43051762126 at d05ad41 finished: wired interoperability check 130630504821
+**passed**, general tests check 130630504969 **failed** with exit code 100.
+Detailed job/log requests returned HTTP 502/timeouts; do not invent a precise
+package failure. Workflow review found suite=dot1x excluded native GUI steps,
+so earlier handoff language claiming that run covered GUI was incorrect.
+CI correction `a33546cee8c8944426c20089e802076b752f9ed9` pins the desktop
+job to Ubuntu 24.04, uses the existing bounded official-mirror APT helper and
+includes native GUI install/test/artifact steps in suite=dot1x. YAML and all
+three step conditions were checked. No protocol assertions were weakened.
+
+Corrected [run 43097993685](https://github.com/sou1915/Network-LABS/actions/runs/43097993685)
+is queued at a33546c. Check it before dispatching more work. Current native
+counter assertions are not yet certified; retained native screenshots still
+belong to 271303a. LAN's previous 7/7 gate stays accepted; VXLAN remains later.
+Remaining work includes native console/capture, continuous observations,
+conntrack/session views and wired provisioning/authentication actions.
+
+## Previous Linux observation page checkpoint
 
 Source `d05ad41d3389568b00d40ddd02fd2db58c5c08eb` adds a read-only
 Observations Linux page for the latest successful desktop inspection. It shows
@@ -39,9 +76,10 @@ and [provenance](images/native-observations-provenance.json) show no inspection,
 not simulated live counters. No native lab was started locally.
 
 The dedicated native GUI test now checks that a real IP Source Guard drop
-counter is returned by the HTTP observation projection. Validation is pending
+counter is returned by the HTTP observation projection. Validation was requested
 in [run 43051762126](https://github.com/sou1915/Network-LABS/actions/runs/43051762126)
-(suite dot1x: wired interoperability plus general/native GUI job). Earlier run
+(suite dot1x: wired interoperability plus general tests; GUI steps were excluded,
+corrected in a33546c as noted above). Earlier run
 43049668368 never obtained a runner and was cancelled in favor of this source;
 no failure or native success is claimed. Do not dispatch a duplicate; inspect
 this run first. Retained native evidence still belongs to source 271303a.

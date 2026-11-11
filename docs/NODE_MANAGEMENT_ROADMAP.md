@@ -16,7 +16,7 @@ all native nodes and the navigation adapts to the selected role.
 
 | Role | Current native management editors | Existing backend capabilities still needing dedicated web controls |
 | --- | --- | --- |
-| Firewall | Physical interfaces/admin, 802.1Q subinterfaces, IPv4 filtering with ordered named rules, default accept/drop, stateful mode, source/destination CIDR and interfaces, TCP/UDP destination ports; masquerade/SNAT/DNAT and DNAT port translation; routes/gateway/forwarding, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | IPv6 firewall/input policy, actual policy counters/conntrack observations, diagnostics/capture; richer supported service/security compositions |
+| Firewall | Physical interfaces/admin, 802.1Q subinterfaces, IPv4 filtering with ordered named rules, default accept/drop, stateful mode, source/destination CIDR and interfaces, TCP/UDP destination ports; masquerade/SNAT/DNAT and DNAT port translation; routes/gateway/forwarding, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | IPv6 firewall/input policy, conntrack observations, diagnostics/capture; richer supported service/security compositions |
 | Router | Interfaces/admin, 802.1Q, IPv4 routes/gateway/forwarding, static IPv6 /64 and routes, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | OSPF/OSPFv3, RA/SLAAC/DHCPv6 and prefix delegation, relay, richer runtime diagnostics |
 | Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings, IGMPv2 snooping/querier and per-port multicast policy; existing wired 802.1X identity/lease/renewal policy | Wired profile provisioning/authentication actions and runtime tables |
 | Host / server | Interface/admin, gateway/routes, static IPv6, DNS resolver and DHCP client; DHCP server pools/leases/reservations; local DNS zones, A/AAAA records, TTL and IPv6 listen option; LLDP on compatible nodes | Dedicated HTTPS/TFTP/NTP/SNMP/syslog/SSH service controls and native interactive consoles/traffic views |
@@ -130,5 +130,20 @@ backend-command endpoint is added.
 Missing counters remain unavailable. Tokens and arbitrary inspection fields
 are omitted. An operation in progress, another result/device/lab or a changed
 draft invalidates the displayed snapshot. Draft equality is not proof that
-saved settings are active in Linux. Live tables, firewall/session counters and
+saved settings are active in Linux. Live tables, session counters and
 authentication status remain further work; configuration-section count stays 18.
+
+## Firewall and MAC snapshot counters
+
+The observation page now projects the managed IPv4 nftables table only:
+chain/hook/default policy and rule/NAT comment, packet and byte counters.
+Other tables, IPv6 rulesets and raw nft expressions are excluded. Missing,
+negative or boolean counters remain unavailable, not zero. These cumulative
+counters do not establish throughput, session totals or draft-policy equality;
+NAT counters normally count only packets traversing its connection setup path.
+
+MAC admission now reads the engine's actual per-port accepted/dropped metrics
+and available/fingerprint_matches fields. Its prior generic projection did
+not match that schema and displayed no counters. Static bindings and raw
+rulesets are not exported by this observation page. A failed fingerprint is
+shown explicitly rather than interpreted as a verified policy.
