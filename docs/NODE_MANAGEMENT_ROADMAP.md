@@ -18,7 +18,7 @@ all native nodes and the navigation adapts to the selected role.
 | --- | --- | --- |
 | Firewall | Physical interfaces/admin, 802.1Q subinterfaces, IPv4 filtering with ordered named rules, default accept/drop, stateful mode, source/destination CIDR and interfaces, TCP/UDP destination ports; masquerade/SNAT/DNAT and DNAT port translation; routes/gateway/forwarding, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | IPv6 firewall/input policy, actual policy counters/conntrack observations, diagnostics/capture; richer supported service/security compositions |
 | Router | Interfaces/admin, 802.1Q, IPv4 routes/gateway/forwarding, static IPv6 /64 and routes, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | OSPF/OSPFv3, RA/SLAAC/DHCPv6 and prefix delegation, relay, richer runtime diagnostics |
-| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings, IGMPv2 snooping/querier and per-port multicast policy | Wired 802.1X and runtime tables |
+| Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings, IGMPv2 snooping/querier and per-port multicast policy; existing wired 802.1X identity/lease/renewal policy | Wired profile provisioning/authentication actions and runtime tables |
 | Host / server | Interface/admin, gateway/routes, static IPv6, DNS resolver and DHCP client; DHCP server pools/leases/reservations; local DNS zones, A/AAAA records, TTL and IPv6 listen option; LLDP on compatible nodes | Dedicated HTTPS/TFTP/NTP/SNMP/syslog/SSH service controls and native interactive consoles/traffic views |
 | Firecracker microVM | Read current declared basic configuration | Rich forms remain disabled; current editors target OCI |
 
@@ -102,3 +102,18 @@ snooping and incompatible topology edits are rejected atomically. Removing the
 explicit policy restores engine defaults; it does not mean disabling snooping.
 Fast leave is intended for a single receiver per port. Actual MDB membership,
 packet delivery and query observations remain runtime data, not draft rows.
+
+## Wired admission web scope
+
+The eighteenth section is available only on an existing validated wired 802.1X
+NAS. It edits allowed identities, the 1..30-second local authorization ceiling
+and the 0..3 renewal budget. Controlled port, peer, backend address and NAS SVI
+are readable and preserved; private RADIUS and supplicant assets are neither
+returned nor editable. Adding an allowed identity does not create a RADIUS
+account. Whole-lab validation protects the existing managed peer identity.
+
+This is the finite Linux EAP-MD5 profile, not arbitrary switch 802.1X, TLS or
+multi-client admission. Import/provision the dedicated native profile first.
+Applying edits changes the draft; save/stop/start applies policy, while native
+authentication remains explicit. No browser login, background authentication,
+credential editor or observed authorization status is introduced.

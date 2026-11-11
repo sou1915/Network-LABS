@@ -1,6 +1,32 @@
 # LAN work order
 
-## Latest multicast web checkpoint
+## Latest wired-policy web checkpoint
+
+Source `f6c6172628998280823228ef95bfd07b99e1fe5e` adds section 18 for an
+existing wired 802.1X NAS: allowed identities, 1..30-second authorization
+ceiling and 0..3 additional authentications. Port/peer/backend/SVI are displayed
+but preserved; no RADIUS secret, password asset or hash is returned by the API.
+This remains the dedicated finite EAP-MD5 profile. Provisioning accounts and
+launching authentication remain native operations, not web draft actions.
+
+Local regression passed 1068 tests in 81.724 s (141 environment/opt-in skips),
+including four real Chromium workflows. Thirteen HTTP tests passed separately;
+new checks cover unchanged private backend, rejected invalid policy/topology
+fields and secret redaction. The first local run used an undersized dummy
+RADIUS secret in two new fixtures; corrected fixtures passed the full rerun.
+The actual [browser screenshot](images/native-dot1x-management.png) has
+[source-bound provenance](images/native-dot1x-provenance.json); no native lab
+was started for this local capture.
+
+Dedicated [wired CI run 43049668368](https://github.com/sou1915/Network-LABS/actions/runs/43049668368)
+was dispatched on this source. The managed-peer integration now obtains its
+lease/renewal settings through the same configure_section path as the web API.
+Its native result is pending; previous LAN 7/7 acceptance remains historical,
+not a claim about this revision. VXLAN remains after LAN/GUI. Remaining work:
+wired provisioning/authentication actions, runtime tables, interactive native
+consoles/capture and richer per-role service controls.
+
+## Previous multicast web checkpoint
 
 Source `f039c067b893a76b2a1991e0aa78be09d9e9332b` adds the seventeenth
 management section: Linux IGMPv2 snooping/querier and per-port multicast
