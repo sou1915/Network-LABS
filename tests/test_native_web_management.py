@@ -183,3 +183,22 @@ class NativePortalTests(unittest.TestCase):
         bindings=[{'port':'eth0','vlan':10,'mac':'02:00:00:00:10:11','address':'10.10.0.10'},{'port':'eth1','vlan':10,'mac':'02:00:00:00:10:22','address':'10.10.0.10'}]
         self.assertEqual(self.section('SW1','arpinspection',{'arp_inspection':{'vlans':[10],'trusted':['eth3'],'bindings':bindings}})['status'],400)
         self.assertEqual(original,self.app.manifest())
+
+    def test_multicast_policy_roundtrip_and_atomic_profile_rejection(self):
+        from network_labs.appliances.access_security import access_security_example
+        self.app.spec=access_security_example('/tmp/rootfs')
+        policy={'snooping':True,'querier':True,'ports':{'eth0':{'router':'permanent','flood':False,'fast_leave':True}}}
+        response=self.section('SW1','multicast',{'multicast':policy})
+        self.assertEqual(response['status'],200,response['body'])
+        sw=next(n for n in self.app.spec['nodes'] if n['name']=='SW1')
+        self.assertEqual(sw['multicast']['ports']['eth0'],policy['ports']['eth0'])
+        self.assertEqual(len(sw['multicast']['ports']),4)
+        original=self.app.manifest()
+        policy['snooping']=False
+        self.assertEqual(self.section('SW1','multicast',{'multicast':policy})['status'],400)
+        self.assertEqual(self.app.manifest(),original)
+        self.assertEqual(self.section('PC1','multicast',{'multicast':None})['status'],400)
+        self.assertEqual(self.section('SW1','multicast',{'multicast':None})['status'],200)
+        self.app.spec=campus_example('/tmp/rootfs');original=self.app.manifest()
+        self.assertEqual(self.section('SW1','multicast',{'multicast':{'snooping':True}})['status'],400)
+        self.assertEqual(self.app.manifest(),original)

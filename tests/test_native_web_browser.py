@@ -80,4 +80,8 @@ class NativeWebBrowserTests(unittest.TestCase):
             self.assertTrue(switch['dhcp_snooping']['enabled'])
             self.assertEqual(switch['arp_inspection']['vlans'],[10]);self.assertEqual(len(switch['arp_inspection']['bindings']),3)
             self.assertEqual(switch['ip_source_guard'],{'eth0':'ip-mac','eth2':'ip-mac'})
+            self.assertTrue(switch['multicast']['querier'])
+            self.assertEqual(switch['multicast']['ports']['eth3']['router'],'permanent')
+            self.assertFalse(switch['multicast']['ports']['eth0']['flood'])
+            self.assertTrue(switch['multicast']['ports']['eth0']['fast_leave'])
         finally:root.destroy()

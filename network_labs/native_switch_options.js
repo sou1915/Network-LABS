@@ -48,3 +48,21 @@ function sourcePanel(){const modes=state.node.ip_source_guard||{},arp=state.node
 const admissionBaseRender=render;
 render=function(){admissionBaseRender();if(page==='snooping')snoopingPanel();else if(page==='arpinspection')arpPanel();else if(page==='sourceguard')sourcePanel()};
 if(state)render();
+
+// Linux IGMPv2 policy; membership remains an actual runtime observation.
+function multicastPanel(){
+ const policy=state.node.multicast, ports=Object.keys(state.node.switchports||{});
+ const compatible=accessOnly()&&ports.length>0&&new Set(ports.map(p=>state.node.switchports[p].vlan)).size===1;
+ $('listing').innerHTML=table(['Politique déclarée','Snooping IGMPv2','Querier'],[[policy?'Gérée':'Valeurs du moteur',policy?(policy.snooping?'Activé':'Désactivé'):'—',policy?(policy.querier?'Activé':'Désactivé'):'—']]);
+ panel.innerHTML='<h2>Multicast / IGMPv2</h2>'+(!compatible?'<div class="notice error">Ce profil exige des ports physiques access dans un seul VLAN, sans trunk ni LACP. Utiliser le modèle LAN sécurité access.</div>':'')+
+ switchCheckbox('multicastManaged','Configurer explicitement la politique multicast',Boolean(policy))+
+ '<div class="options-grid">'+switchCheckbox('multicastSnooping','Activer IGMP snooping',policy?.snooping??true)+switchCheckbox('multicastQuerier','Activer le querier IGMPv2',policy?.querier??false)+'</div>'+
+ '<p class="muted">Le querier exige snooping et utilise la source 0.0.0.0. Les groupes et abonnements sont observés dans Linux ; cette page configure uniquement la politique.</p><div class="table">'+
+ table(['Port','Port routeur multicast','Diffusion inconnue','Fast leave'],ports.map((port,i)=>{const p=policy?.ports?.[port]||{router:'auto',flood:true,fast_leave:false};return [esc(port),selectField('multicastRouter'+i,'Mode '+port,p.router,['off','auto','permanent']),switchCheckbox('multicastFlood'+i,'Diffuser sur '+port,p.flood),switchCheckbox('multicastLeave'+i,'Fast leave '+port,p.fast_leave)]}))+
+ '</div><p class="muted">Fast leave convient à un seul récepteur par port ; un port partagé peut perdre des abonnés. Retirer la politique explicite restaure les valeurs du moteur (snooping actif, querier inactif), sans certifier la livraison multicast.</p>'+saveButton();
+ if(!compatible&&!policy)$('multicastManaged').disabled=true;
+ bindSave(()=>({multicast:$('multicastManaged').checked?{snooping:$('multicastSnooping').checked,querier:$('multicastQuerier').checked,ports:Object.fromEntries(ports.map((port,i)=>[port,{router:$('multicastRouter'+i).value,flood:$('multicastFlood'+i).checked,fast_leave:$('multicastLeave'+i).checked}]))}:null}));
+}
+const multicastBaseRender=render;
+render=function(){multicastBaseRender();if(page==='multicast')multicastPanel()};
+if(state)render();

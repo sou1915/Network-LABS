@@ -3,6 +3,7 @@ import copy
 from .spec import validate
 
 SECTIONS={
+    'multicast':{'label':'Multicast / IGMP','roles':('switch',),'fields':('multicast',)},
     'snooping':{'label':'DHCP snooping / confiance','roles':('switch',),'fields':('dhcp_snooping',)},
     'arpinspection':{'label':'Inspection ARP / DAI','roles':('switch',),'fields':('arp_inspection',)},
     'sourceguard':{'label':'IP Source Guard','roles':('switch',),'fields':('ip_source_guard','arp_inspection')},
@@ -25,7 +26,7 @@ PUBLIC_FIELDS=tuple(dict.fromkeys(field for section in SECTIONS.values() for fie
 
 def sections(node):
     if node['runtime']!='oci' or node.get('startup'):return []
-    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if node['role'] in section['roles'] and not (key in ('snooping','arpinspection','sourceguard') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
+    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if node['role'] in section['roles'] and not (key in ('snooping','arpinspection','sourceguard','multicast') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
 
 
 def configure_section(spec,name,section,config):
