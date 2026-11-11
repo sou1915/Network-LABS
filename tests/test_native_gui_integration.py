@@ -101,6 +101,43 @@ try:
             switch_state=web_request('POST','/api/apply',{'node':switch,'revision':switch_state['revision'],'section':'portsecurity','config':{'port_security':{port:{'maximum':1,'mac_addresses':[mac],'violation':'restrict'}}}})
             assert switch_state['node']['port_security'][port]['mac_addresses']==[mac]
         drive('start');assert {v['status'] for v in window.states.values()}=={'running'}
+        # Replace terminal presentation only: the same unprivileged wrapper,
+        # sudo authentication, typed CLI and real OCI PTY execute unchanged.
+        import pty,select,re,signal
+        console={}
+        def pty_terminal(command):
+            pid,fd=pty.fork()
+            if pid==0:os.execv(command[0],command)
+            console.update(pid=pid,fd=fd)
+        window.choose_node('PC1')
+        with patch.object(ui,'launch_terminal',side_effect=pty_terminal):assert window.open_console()
+        output=b'';console_exit=None
+        try:
+            # Octal escapes keep the success marker out of terminal input echo.
+            os.write(console['fd'],b"/bin/busybox printf '\\116\\114\\101\\102\\137\\103\\117\\116\\123\\117\\114\\105\\137\\117\\113\\n'; /bin/busybox readlink /proc/self/ns/net; exit\n")
+            deadline=time.monotonic()+15
+            while time.monotonic()<deadline:
+                root.update()
+                if select.select([console['fd']],[],[],.05)[0]:
+                    try:chunk=os.read(console['fd'],4096)
+                    except OSError:chunk=b''
+                    output+=chunk
+                child,status=os.waitpid(console['pid'],os.WNOHANG)
+                if child:console_exit=os.waitstatus_to_exitcode(status);break
+            assert console_exit==0,(console_exit,output[-2000:])
+            assert b'NLAB_CONSOLE_OK' in output,output[-2000:]
+            namespaces=re.findall(rb'net:\[\d+\]',output)
+            assert namespaces and namespaces[-1].decode()!=os.readlink('/proc/self/ns/net'),output[-2000:]
+        finally:
+            os.close(console['fd'])
+            if console_exit is None:
+                ui.subprocess.run(['sudo','-n','kill','-TERM','--','-'+str(console['pid'])],check=False,timeout=5)
+                os.waitpid(console['pid'],0)
+        window.device_tabs.select(window.console_panel);root.update()
+        console_box=(root.winfo_rootx(),root.winfo_rooty(),root.winfo_rootx()+root.winfo_width(),root.winfo_rooty()+root.winfo_height())
+        ImageGrab.grab(bbox=console_box).save(artifacts/'native-console-running.png')
+        window.device_tabs.select(window.config_panel)
+
         try:Manager(spec['name']).read()
         except PermissionError:root_state_denied=True
         else:raise AssertionError('GUI could directly read root-owned runtime state')
@@ -131,7 +168,7 @@ try:
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==14
+        assert len(window.activity.get_children())==15
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -154,7 +191,7 @@ try:
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
         assert set(owners)=={os.geteuid()} and len(owners)==12,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_web_firewall_policy_verified':True,'firewall_observed':firewall_observed,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_console_pty_verified':True,'native_web_firewall_policy_verified':True,'firewall_observed':firewall_observed,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         # A separate access-only profile exercises DAI and source guard without
         # weakening the existing campus/trunk validator or fabricating DHCP leases.
         from network_labs.appliances.access_security import access_security_example

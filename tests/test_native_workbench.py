@@ -235,3 +235,19 @@ class WorkbenchGUITests(unittest.TestCase):
             switch=next(n for n in spec['nodes'] if n['role']=='switch')
             self.assertTrue(all(p=={'mode':'access','vlan':10} for p in switch['switchports'].values()))
             self.assertFalse(self.window.states);launch.assert_not_called()
+
+    def test_native_console_requires_observed_oci_and_keeps_draft(self):
+        from network_labs.appliances import ui
+        window=self.window;window.choose_node('PC1');original=window.manifest()
+        with patch.object(ui,'launch_terminal') as launch,patch.object(window,'error'):
+            self.assertFalse(window.open_console());launch.assert_not_called()
+            window.states={'PC1':{'status':'running'}};window.select_node()
+            self.assertTrue(window.open_console());self.assertEqual(launch.call_args.args[0][-2:],[window.view_lab,'PC1'])
+            self.assertEqual(window.manifest(),original)
+            window.pending={'action':'stop'};self.assertFalse(window.open_console());window.pending=None
+            window.view_lab='foreign';self.assertFalse(window.open_console())
+        window.load_spec(original);window.choose_node('PC1');window.device_tabs.select(window.console_panel);self.root.update()
+        self.assertIn('disabled',window.console_button.state())
+        from PIL import ImageGrab
+        w=window.window
+        ImageGrab.grab(bbox=(w.winfo_rootx(),w.winfo_rooty(),w.winfo_rootx()+w.winfo_width(),w.winfo_rooty()+w.winfo_height())).save('/tmp/native-console-local.png')

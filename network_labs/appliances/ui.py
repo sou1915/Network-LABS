@@ -153,6 +153,11 @@ class ApplianceWindow:
         details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='État / test');details=details_card.inner
         self.config_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.config_panel,text='GUI')
         self.build_config_form(self.config_panel.inner)
+        self.console_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.console_panel,text='CLI')
+        self.label(self.console_panel.inner,'Console Linux native',TEXT,11,True).pack(anchor='w',padx=14,pady=16)
+        tk.Label(self.console_panel.inner,text='Ouvrir un terminal interactif dans le nœud OCI sélectionné.\n\nLe laboratoire doit être démarré et son état actualisé.\n\nAuthentification sudo dans le terminal, puis shell Linux du nœud. Taper exit pour fermer avant une autre opération sur le lab.\n\nLes commandes modifient le système actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
+        self.console_button=ttk.Button(self.console_panel.inner,text='Ouvrir la console Linux',command=self.open_console,style='Native.Primary.TButton');self.console_button.pack(fill='x',padx=14,pady=12)
+
         self.label(details,'État de l’équipement',TEXT,9,True).pack(anchor='w',padx=14,pady=8)
         self.selected_title=tk.StringVar();self.selected_details=tk.StringVar()
         tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=(self.font,10,'bold'),anchor='w').pack(fill='x',padx=14)
@@ -433,6 +438,8 @@ class ApplianceWindow:
             if self.library.selection()!=(name,):self.library.selection_set(name)
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else '',width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
+        ready=node and node['runtime']=='oci' and self.states.get(node['name'],{}).get('status')=='running' and not self.pending
+        self.console_button.state(['!disabled'] if ready else ['disabled'])
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
         if node:self.load_config()
         self.config_apply.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending and self.config_baseline is not None else ['disabled'])
@@ -752,6 +759,23 @@ class ApplianceWindow:
     def busy(self,enabled):
         for button in self.buttons:button.state(['disabled'] if enabled else ['!disabled'])
         self.editor.configure(state='disabled' if enabled else 'normal');self.select_node()
+
+    def open_console(self):
+        if self.pending:return False
+        try:
+            selected=self.nodes.selection()
+            node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
+            if not node or node['runtime']!='oci' or self.states.get(node['name'],{}).get('status')!='running':
+                raise ValueError('Démarrer le nœud OCI puis actualiser son état avant la console.')
+            if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
+            from .ui_console import terminal_args
+            launch_terminal(terminal_args(self.view_lab,node['name']))
+            self.last_response=None
+            self.note.set('Terminal demandé pour '+node['name']+' ; connexion à confirmer dans le terminal.')
+            self.record_event('console','Terminal demandé : '+node['name'])
+            return True
+        except (OSError,ValueError,TypeError,KeyError) as error:
+            self.error(error);return False
 
     def launch(self,action):
         if self.pending:return False
