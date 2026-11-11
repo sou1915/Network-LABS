@@ -66,3 +66,13 @@ function multicastPanel(){
 const multicastBaseRender=render;
 render=function(){multicastBaseRender();if(page==='multicast')multicastPanel()};
 if(state)render();
+
+function dot1xPanel(){
+ const p=state.node.dot1x;
+ $('listing').innerHTML=table(['Port contrôlé','Pair','Serveur RADIUS','Interface NAS'],[[esc(p.port),esc(p.peer),esc(p.server),esc(p.svi)]]);
+ panel.innerHTML='<h2>Admission filaire 802.1X</h2><p class="muted">Profil Linux EAP-MD5 : un pair directement connecté, VLAN 1 et serveur RADIUS géré. Le port démarre fermé. Une configuration enregistrée ne prouve pas une authentification réussie.</p><div class="options-grid">'+inputField('dot1xUsers','Identités autorisées · séparées par virgules',p.users.join(', '))+inputField('dot1xSeconds','Durée maximale d’autorisation · 1 à 30 s',p.seconds,'number')+inputField('dot1xRenewals','Réauthentifications supplémentaires · 0 à 3',p.reauthentications||0,'number')+'</div><p class="muted">Le serveur peut raccourcir la durée. Chaque renouvellement exige une nouvelle authentification, dans le budget déclaré. Les comptes RADIUS et les secrets se préparent dans le projet sécurisé ; ajouter une identité ici ne crée pas un compte.</p><p class="muted">Le pair, le câblage et le backend existants sont conservés. Le lancement de l’authentification reste une opération native explicite ; cette page modifie le brouillon.</p>'+saveButton();
+ bindSave(()=>({users:splitList($('dot1xUsers').value),seconds:Number($('dot1xSeconds').value),reauthentications:Number($('dot1xRenewals').value)}));
+}
+const dot1xBaseRender=render;
+render=function(){dot1xBaseRender();if(page==='dot1x')dot1xPanel()};
+if(state)render();

@@ -45,7 +45,9 @@ class NativeManagedWiredPeerTests(unittest.TestCase):
                 freeradius_dictionaries='/usr/share/freeradius',freeradius_eap_md5=True)
             spec=dot1x_lab(rootfs,secret,digest,backend);spec['name']='owned-peer-'+str(os.getpid())
             spec['nodes'][0]['dot1x_supplicant']={'interface':'eth0','username':'learner','password_file':str(asset),'password_sha256':digest}
-            spec['nodes'][1]['dot1x'].update(seconds=3,reauthentications=1);manager=Manager(spec['name'])
+            from network_labs.appliances.management_options import configure_section
+            spec=configure_section(spec,'SW1','dot1x',{'users':spec['nodes'][1]['dot1x']['users'],'seconds':3,'reauthentications':1})
+            manager=Manager(spec['name'])
             def service():return Manager(spec['name']).inspect('PC1')['dot1x_supplicant']
             def gate():
                 fresh=Manager(spec['name']);return observe(fresh,1,fresh.read()['spec']['nodes'][1])

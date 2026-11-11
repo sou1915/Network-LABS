@@ -85,3 +85,25 @@ class NativeWebBrowserTests(unittest.TestCase):
             self.assertFalse(switch['multicast']['ports']['eth0']['flood'])
             self.assertTrue(switch['multicast']['ports']['eth0']['fast_leave'])
         finally:root.destroy()
+
+    def test_browser_wired_admission_policy(self):
+        import tkinter as tk
+        from network_labs.__main__ import App
+        from network_labs.appliances.examples import dot1x_lab
+        from network_labs.appliances.web_management import NativeDeviceAPI
+        from network_labs.web_portal import WebPortal
+        root=tk.Tk()
+        try:
+            app=App(root);root.geometry('1280x720');window=app.open_native_lab()
+            window.load_spec(dot1x_lab('/tmp/rootfs','fixture-secret-123456','a'*64,'/tmp/private-password'))
+            window.web_portal=portal=WebPortal(window,api=NativeDeviceAPI(window),native=True)
+            env={**os.environ,'NATIVE_WEB_DOT1X_URL':portal.url('SW1')}
+            with subprocess.Popen(['node',str(Path(__file__).resolve().parents[1]/'tools/native_dot1x_browser_smoke.cjs')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT) as browser:
+                deadline=time.monotonic()+45
+                while browser.poll() is None and time.monotonic()<deadline:root.update();time.sleep(.01)
+                if browser.poll() is None:browser.terminate()
+                output=browser.communicate(timeout=5)[0].decode();self.assertEqual(browser.returncode,0,output)
+            policy=next(n for n in window.manifest()['nodes'] if n['name']=='SW1')['dot1x']
+            self.assertEqual(policy['seconds'],4);self.assertEqual(policy['reauthentications'],1)
+            self.assertEqual(policy['users'],['guest','learner'])
+        finally:root.destroy()

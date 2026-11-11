@@ -202,3 +202,23 @@ class NativePortalTests(unittest.TestCase):
         self.app.spec=campus_example('/tmp/rootfs');original=self.app.manifest()
         self.assertEqual(self.section('SW1','multicast',{'multicast':{'snooping':True}})['status'],400)
         self.assertEqual(self.app.manifest(),original)
+
+    def test_dot1x_edits_preserve_private_backend_and_refuse_invalid_policy(self):
+        from network_labs.appliances.examples import dot1x_lab
+        self.assertEqual(self.section('SW1','dot1x',{'users':['learner'],'seconds':4,'reauthentications':1})['status'],400)
+        self.app.spec=dot1x_lab('/tmp/rootfs','fixture-secret-123456','a'*64,'/tmp/private-password')
+        original=self.app.manifest()
+        config={'users':['learner','guest'],'seconds':4,'reauthentications':1}
+        response=self.section('SW1','dot1x',config)
+        self.assertEqual(response['status'],200,response['body'])
+        self.assertEqual(self.app.spec['nodes'][2],original['nodes'][2])
+        self.assertEqual(self.app.spec['links'],original['links'])
+        for name in ('SW1','PC2'):
+            response=self.request('GET','/api/state?node='+name,headers=self.headers)
+            self.assertNotIn(b'fixture-secret-123456',response['body'])
+            self.assertNotIn(b'private-password',response['body'])
+            self.assertNotIn(('a'*64).encode(),response['body'])
+        original=self.app.manifest()
+        for bad in ({**config,'seconds':31},{**config,'reauthentications':4},{**config,'users':[]},{**config,'users':['learner','learner']},{**config,'server':'192.0.2.99'}):
+            self.assertEqual(self.section('SW1','dot1x',bad)['status'],400)
+            self.assertEqual(self.app.manifest(),original)
