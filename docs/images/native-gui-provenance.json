@@ -1,17 +1,21 @@
 {
-  "source_commit": "8a4af125c25868ce7fd2d29e7dd94f4fce7b9f07",
-  "run_id": 42345881332,
-  "job_id": 128323399976,
-  "artifact_id": 13563132530,
-  "artifact_sha256": "31fff514219bd397a7d4e405026376b35b24c44e2dda4a4f61eb5d0c6af8d49d",
+  "source_commit": "271303a989bf8a39cf039b123b6b93939b9e6319",
+  "run_id": 42364702892,
+  "job_id": 128380204270,
+  "artifact_id": 13570754205,
+  "artifact_sha256": "f0ffdc6400c4cc608055324d33f95ff51e27c47ada7976d79e1b881da35a514c",
   "files": [
     "native-gui-running.png",
     "native-gui-zoomed.png",
-    "native-gui-result.json"
+    "native-gui-result.json",
+    "native-admission-running.png",
+    "native-admission-result.json"
   ],
   "file_sha256": {
-    "native-gui-running.png": "a5d7c7bac2ffd0952541b7f76c3abdc2fa2e63befdaab3fba5857e7b7963847a",
-    "native-gui-zoomed.png": "99d5731c82cac439e0922c800dc6d83416f6ae36c8a92b29a24fc1c65d7cf552",
-    "native-gui-result.json": "eb8ad0c137d7a902dcae1f08e70c8b8140cd22c2d77ff277dcc17d2570008a28"
+    "native-gui-running.png": "cbf63ea29175c281c073a487ecaf7c97cd9569062cc222d17fc5dafd6043568c",
+    "native-gui-zoomed.png": "0687ac6de742233ef74beb4ac12e68aaf6e19b9bec84c7b38b79d151303b2004",
+    "native-gui-result.json": "3fb4cc5feda51ec0ee599535432205dd0baf5b1484ceb6efbb7f6ae5b08450ac",
+    "native-admission-running.png": "fd5a1d41e68ba13582a5934a5e13b3f3f4cad7e139fa9bac2d494843c6e9afc9",
+    "native-admission-result.json": "c4019677e465c9796fc272b7eb3a54219c044204c2316cad342698d72f145314"
   }
 }

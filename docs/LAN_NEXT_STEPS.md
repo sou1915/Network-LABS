@@ -1,5 +1,43 @@
 # LAN work order
 
+## Current access-security management checkpoint
+
+Source `271303a989bf8a39cf039b123b6b93939b9e6319` adds DHCP snooping,
+Dynamic ARP Inspection and IP Source Guard web editors (16 sections total).
+Shared static bindings have add/edit/delete controls; snooping shutdown refuses
+active dependents unless explicitly cleared atomically, preserving bindings.
+The native access-only profile is enforced; OVS/trunk/bond combinations are
+not advertised as supported. Fichier → LAN sécurité access creates a five-node,
+four-link VLAN-10 template, with no security or fake DHCP enabled by default.
+
+The [native CI job](https://github.com/sou1915/Network-LABS/actions/runs/42364702892/job/128380204270)
+passed 1065 general cases (70.595 s, 119 skips) and the real native scenario
+(36.418 s). HTTP-configured policies allowed PC1 ↔ SRV1, blocked PC2 through
+DAI (7 denied ARP packets), and blocked PC3 through IP Source Guard (4 denied
+IPv4 packets). The allowed source-guard rule counted 4 packets. All three
+installed security policies verified against Linux. This static-IP scenario
+does not claim dynamic DHCP lease acquisition or rogue-DHCP packet testing.
+The preceding ten-node campus firewall/routing/MAC-admission checks also passed.
+Eighteen result files remained UID 1001; stop and callback/host cleanup passed.
+
+All ten selected jobs in run 42364702892 succeeded; 52 profiles skipped.
+Wired 802.1X job 128380203970 passed, and LAN aggregate 128381244933 confirms
+7/7. Local regression passed 1065 cases (71.690 s, 141 skips), including three
+actual Chromium workflows. LAN core remains frozen; VXLAN remains after LAN/GUI.
+
+Current native screenshots/reports are bound by
+[provenance](images/native-gui-provenance.json) to artifact 13570754205;
+ZIP SHA-256 `f0ffdc6400c4cc608055324d33f95ff51e27c47ada7976d79e1b881da35a514c`.
+The [IP Source Guard](images/native-admission-management.png) and
+[DAI](images/native-arp-management.png) browser captures are actual local draft
+sessions, not live guest observations; see their
+[separate provenance](images/native-admission-browser-provenance.json).
+Remaining work includes wired-802.1X/multicast web controls, actual runtime
+tables, native interactive consoles/capture and richer per-role service forms.
+Full commercial firewall firmware parity remains unimplemented; see
+[NODE_MANAGEMENT_ROADMAP.md](NODE_MANAGEMENT_ROADMAP.md).
+
+
 Current user direction: finish the essentials quickly, defer optional detail
 and advanced extensions, then start native GUI integration. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) is now the authoritative

@@ -83,3 +83,11 @@ Disabling snooping while dependent protections are active is rejected unless
 explicitly opting to disable both; bindings are preserved. Edits are atomic
 and stale revisions, duplicate bindings and trusted-client guard conflicts are
 rejected. Dynamic leases are backend observations, never fabricated web rows.
+
+## Access-security acceptance
+
+Source 271303a passed native run 42364702892: HTTP-configured DAI and IP Source
+Guard rejected the intended peers while the valid static binding passed.
+Linux policy fingerprints and actual accept/drop counters were checked.
+Snooping policy installation was verified; this static-IP fixture does not
+exercise DHCP lease acquisition. See [native evidence](NATIVE_GUI_FLOW.md).

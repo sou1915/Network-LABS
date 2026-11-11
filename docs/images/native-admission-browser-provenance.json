@@ -1,0 +1,20 @@
+{
+  "source_commit": "271303a989bf8a39cf039b123b6b93939b9e6319",
+  "capture": "actual local Chromium native-management sessions",
+  "native_lab_started_locally": false,
+  "files": [
+    "native-admission-management.png",
+    "native-arp-management.png"
+  ],
+  "file_sha256": {
+    "native-admission-management.png": "67d693d0a89e8ff61eeab8c034df819f85ff2969dbdf14aa0ba45711c2283b93",
+    "native-arp-management.png": "94de5473f6d0dec3297b6155ab66db80ebd5bbcea8b6b2dd58ddfb8cea5b2899"
+  },
+  "browser_acceptance": [
+    "DHCP snooping VLAN/trusted ports",
+    "DAI shared static bindings",
+    "IP Source Guard per-port mode",
+    "atomic refusal of snooping shutdown with active dependents"
+  ],
+  "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
+}
