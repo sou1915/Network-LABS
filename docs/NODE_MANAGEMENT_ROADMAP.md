@@ -117,3 +117,18 @@ multi-client admission. Import/provision the dedicated native profile first.
 Applying edits changes the draft; save/stop/start applies policy, while native
 authentication remains explicit. No browser login, background authentication,
 credential editor or observed authorization status is introduced.
+
+## Read-only Linux observations
+
+Observations Linux displays the desktop's most recent successful inspection:
+physical/logical link state, MAC/MTU, IPv4 routes and allowlisted MAC-admission,
+DHCP snooping, DAI and IP Source Guard policy verification/counters. Read the
+UTC timestamp as snapshot time, not continuous monitoring. Select the device
+in the desktop, use Inspecter le réseau, then refresh the browser. No HTTP
+backend-command endpoint is added.
+
+Missing counters remain unavailable. Tokens and arbitrary inspection fields
+are omitted. An operation in progress, another result/device/lab or a changed
+draft invalidates the displayed snapshot. Draft equality is not proof that
+saved settings are active in Linux. Live tables, firewall/session counters and
+authentication status remain further work; configuration-section count stays 18.

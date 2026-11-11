@@ -16,7 +16,8 @@ client/server DHCP/DNS, DHCP snooping, DAI, IP Source Guard, multicast policy an
 The five-node access-security template and HTTP-configured packet admission
 passed native CI run 42364702892; LAN remains 7/7.
 [Per-node coverage and remaining commercial parity](NODE_MANAGEMENT_ROADMAP.md)
-remain explicit; this is not a completed vendor firmware implementation. Richer forms, interactive native
+remain explicit; this is not a completed vendor firmware implementation. Read-only dated Linux inspections are now available in web management, with
+link/route and access-policy counters from the desktop result. Richer forms, interactive native
 consoles and packet views remain pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.

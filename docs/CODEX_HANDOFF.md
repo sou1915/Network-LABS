@@ -21,7 +21,35 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Latest wired-policy web checkpoint
+## Latest Linux observation page checkpoint
+
+Source `d05ad41d3389568b00d40ddd02fd2db58c5c08eb` adds a read-only
+Observations Linux page for the latest successful desktop inspection. It shows
+UTC capture time, links/MAC/MTU, IPv4 routes and allowlisted admission-policy
+verification/counters. Missing counts remain unavailable. Tokens, secrets and
+arbitrary nested runtime data are not returned. Different nodes/labs, changed
+drafts, pending operations and later non-inspection results hide the snapshot.
+This is not continuous monitoring or proof that the draft is active in Linux.
+
+Local regression passed 1069 tests in 81.661 seconds (141 skips), including
+four real Chromium workflows. HTTP fixtures cover counter projection, missing
+values, redaction and invalidation; browser coverage checks the honest empty
+state and read-only controls. The actual [local screenshot](images/native-observations-management.png)
+and [provenance](images/native-observations-provenance.json) show no inspection,
+not simulated live counters. No native lab was started locally.
+
+The dedicated native GUI test now checks that a real IP Source Guard drop
+counter is returned by the HTTP observation projection. Validation is pending
+in [run 43051762126](https://github.com/sou1915/Network-LABS/actions/runs/43051762126)
+(suite dot1x: wired interoperability plus general/native GUI job). Earlier run
+43049668368 never obtained a runner and was cancelled in favor of this source;
+no failure or native success is claimed. Do not dispatch a duplicate; inspect
+this run first. Retained native evidence still belongs to source 271303a.
+There remain 18 configuration sections plus this read-only page. LAN acceptance
+remains the previous 7/7; VXLAN stays later. Native consoles/capture, continuous
+observations, firewall/session counters and wired provisioning/actions remain.
+
+## Previous wired-policy web checkpoint
 
 Source `f6c6172628998280823228ef95bfd07b99e1fe5e` adds section 18 for an
 existing wired 802.1X NAS: allowed identities, 1..30-second authorization
@@ -42,7 +70,7 @@ was started for this local capture.
 Dedicated [wired CI run 43049668368](https://github.com/sou1915/Network-LABS/actions/runs/43049668368)
 was dispatched on this source. The managed-peer integration now obtains its
 lease/renewal settings through the same configure_section path as the web API.
-Its native result is pending; previous LAN 7/7 acceptance remains historical,
+This queued run was superseded by run 43051762126; previous LAN 7/7 acceptance remains historical,
 not a claim about this revision. VXLAN remains after LAN/GUI. Remaining work:
 wired provisioning/authentication actions, runtime tables, interactive native
 consoles/capture and richer per-role service controls.
