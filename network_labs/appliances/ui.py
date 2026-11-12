@@ -158,6 +158,19 @@ class ApplianceWindow:
         tk.Label(self.console_panel.inner,text='Ouvrir un terminal interactif dans le nœud OCI sélectionné.\n\nLe laboratoire doit être démarré et son état actualisé.\n\nAuthentification sudo dans le terminal, puis shell Linux du nœud. Taper exit pour fermer avant une autre opération sur le lab.\n\nLes commandes modifient le système actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
         self.console_button=ttk.Button(self.console_panel.inner,text='Ouvrir la console Linux',command=self.open_console,style='Native.Primary.TButton');self.console_button.pack(fill='x',padx=14,pady=12)
 
+        self.capture_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.capture_panel,text='PCAP')
+        self.capture_scroll=ScrollPanel(self.capture_panel.inner,PANEL);self.capture_scroll.canvas.configure(bd=0,relief='flat');self.capture_scroll.scroll.configure(style='Native.Vertical.TScrollbar');self.capture_scroll.pack(fill='both',expand=True)
+        capture_form=self.capture_scroll.inner
+        self.label(capture_form,'Capture réseau native',TEXT,11,True).pack(anchor='w',padx=14,pady=12)
+        self.label(capture_form,'Interface du nœud sélectionné',MUTED,9).pack(anchor='w',padx=14)
+        self.capture_interface=tk.StringVar();self.capture_ports=ttk.Combobox(capture_form,textvariable=self.capture_interface,state='readonly',style='Native.TCombobox');self.capture_ports.pack(fill='x',padx=14,pady=4)
+        self.capture_seconds=tk.StringVar(value='10');self.capture_packets=tk.StringVar(value='1000');self.capture_filter=tk.StringVar(value='')
+        for label,variable in [('Durée maximale · 1 à 60 secondes',self.capture_seconds),('Limite de paquets · budget 16 Mio',self.capture_packets),('Filtre BPF · vide = tout le trafic visible',self.capture_filter)]:
+            self.label(capture_form,label,MUTED,9).pack(anchor='w',padx=14,pady=(8,0))
+            ttk.Entry(capture_form,textvariable=variable,style='Native.TEntry').pack(fill='x',padx=14,pady=4)
+        self.capture_button=ttk.Button(capture_form,text='Enregistrer une capture PCAP…',command=self.open_capture,style='Native.Primary.TButton');self.capture_button.pack(fill='x',padx=14,pady=12)
+        tk.Label(capture_form,text='Choisir un nouveau fichier. La capture se déroule dans le namespace du nœud, sans interface hôte.\n\nAuthentification, progression et résultat dans le terminal. Vous pouvez générer du trafic depuis le logiciel pendant la capture.\n\nSnapshot : 2048 octets par paquet. Un fichier vide ne prouve pas une absence de trafic.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=6)
+
         self.label(details,'État de l’équipement',TEXT,9,True).pack(anchor='w',padx=14,pady=8)
         self.selected_title=tk.StringVar();self.selected_details=tk.StringVar()
         tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=(self.font,10,'bold'),anchor='w').pack(fill='x',padx=14)
@@ -440,6 +453,16 @@ class ApplianceWindow:
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
         ready=node and node['runtime']=='oci' and self.states.get(node['name'],{}).get('status')=='running' and not self.pending
         self.console_button.state(['!disabled'] if ready else ['disabled'])
+        self.capture_button.state(['!disabled'] if ready else ['disabled'])
+        capture_ports=list(node['interfaces']) if node else []
+        if node and node['runtime']=='oci':
+            try:configured=next(n for n in self.manifest()['nodes'] if n['name']==node['name'])
+            except (ValueError,KeyError,StopIteration):configured={}
+            capture_ports+=list(configured.get('port_channels',{}))+list(configured.get('svis',{}))+[p for p,sub in configured.get('subinterfaces',{}).items() if sub.get('vlan') is not None]
+            capture_ports+=['lo']+(['br0'] if node['role']=='switch' else [])
+        self.capture_ports.configure(values=list(dict.fromkeys(capture_ports)))
+        if self.capture_interface.get() not in capture_ports:self.capture_interface.set(capture_ports[0] if capture_ports else '')
+
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
         if node:self.load_config()
         self.config_apply.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending and self.config_baseline is not None else ['disabled'])
@@ -759,6 +782,29 @@ class ApplianceWindow:
     def busy(self,enabled):
         for button in self.buttons:button.state(['disabled'] if enabled else ['!disabled'])
         self.editor.configure(state='disabled' if enabled else 'normal');self.select_node()
+
+    def open_capture(self):
+        if self.pending:return False
+        try:
+            selected=self.nodes.selection()
+            node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
+            if not node or node['runtime']!='oci' or self.states.get(node['name'],{}).get('status')!='running':raise ValueError('Démarrer le nœud OCI puis actualiser son état avant la capture.')
+            if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
+            interface=self.capture_interface.get()
+            if interface not in self.capture_ports.cget('values'):raise ValueError('Choisir une interface du nœud.')
+            seconds=int(self.capture_seconds.get());packets=int(self.capture_packets.get());expression=self.capture_filter.get()
+            from .capture import limits
+            limits(seconds,packets,2048,expression)
+            output=filedialog.asksaveasfilename(parent=self.window,defaultextension='.pcap',filetypes=[('Capture PCAP','*.pcap')],title='Nouveau fichier PCAP (sans écrasement)')
+            if not output:return False
+            from .ui_capture import terminal_args
+            launch_terminal(terminal_args(self.view_lab,node['name'],interface,output,seconds,packets,expression))
+            self.last_response=None
+            self.note.set('Capture demandée pour '+node['name']+'/'+interface+' ; résultat dans le terminal.')
+            self.record_event('capture','Terminal demandé : '+node['name']+'/'+interface)
+            return True
+        except (OSError,ValueError,TypeError,KeyError) as error:
+            self.error(error);return False
 
     def open_console(self):
         if self.pending:return False

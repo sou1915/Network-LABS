@@ -249,6 +249,27 @@ class WorkbenchGUITests(unittest.TestCase):
         window.load_spec(original);window.choose_node('PC1');window.device_tabs.select(window.console_panel)
         window.activity.delete(*window.activity.get_children());self.root.update()
         self.assertIn('disabled',window.console_button.state())
-        from PIL import ImageGrab
-        w=window.window
-        ImageGrab.grab(bbox=(w.winfo_rootx(),w.winfo_rooty(),w.winfo_rootx()+w.winfo_width(),w.winfo_rooty()+w.winfo_height())).save('/tmp/native-console-local.png')
+        if os.environ.get('NETWORK_LABS_GUI_SCREENSHOTS')=='1':
+            from PIL import ImageGrab
+            w=window.window
+            ImageGrab.grab(bbox=(w.winfo_rootx(),w.winfo_rooty(),w.winfo_rootx()+w.winfo_width(),w.winfo_rooty()+w.winfo_height())).save('/tmp/native-console-local.png')
+
+    def test_native_capture_form_bounds_selection_and_clean_preview(self):
+        from network_labs.appliances import ui
+        window=self.window;window.choose_node('PC1');original=window.manifest()
+        with tempfile.TemporaryDirectory() as folder,patch.object(ui,'launch_terminal') as launch,patch.object(window,'error'),patch.object(ui.filedialog,'asksaveasfilename',return_value=str(Path(folder)/'capture.pcap')) as choose:
+            self.assertFalse(window.open_capture());choose.assert_not_called()
+            window.states={'PC1':{'status':'running'}};window.select_node()
+            window.capture_seconds.set('61');self.assertFalse(window.open_capture());choose.assert_not_called()
+            window.capture_seconds.set('3');window.capture_filter.set('icmp')
+            self.assertTrue(window.open_capture());self.assertEqual(launch.call_args.args[0][-7:],[window.view_lab,'PC1','eth0',str(Path(folder)/'capture.pcap'),'3','1000','icmp'])
+            self.assertEqual(window.manifest(),original)
+            window.capture_interface.set('host0');self.assertFalse(window.open_capture())
+            window.pending={'action':'stop'};self.assertFalse(window.open_capture());window.pending=None
+        window.load_spec(original);window.choose_node('PC1');window.device_tabs.select(window.capture_panel)
+        window.activity.delete(*window.activity.get_children());self.root.update()
+        self.assertIn('disabled',window.capture_button.state())
+        if os.environ.get('NETWORK_LABS_GUI_SCREENSHOTS')=='1':
+            from PIL import ImageGrab
+            w=window.window
+            ImageGrab.grab(bbox=(w.winfo_rootx(),w.winfo_rooty(),w.winfo_rootx()+w.winfo_width(),w.winfo_rooty()+w.winfo_height())).save('/tmp/native-capture-local.png')

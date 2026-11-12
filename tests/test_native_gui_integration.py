@@ -147,7 +147,28 @@ try:
         window.choose_node('PC2');window.destination.set('SRV1');isolated=drive('verify')
         assert isolated['data']['status']=='failed',isolated['data']
         assert isolated['data']['probe_commands_attempted']==2
-        window.choose_node('PC1');window.destination.set('SRV1');firewall_allowed=drive('verify')
+        window.choose_node('PC1');window.destination.set('SRV1')
+        capture_path=directory/'gui-icmp.pcap';capture_process=[]
+        def capture_terminal(command):
+            process=direct_terminal(command);capture_process.append(process);return process
+        window.capture_interface.set('eth0');window.capture_seconds.set('8');window.capture_packets.set('100');window.capture_filter.set('icmp')
+        with patch.object(ui,'launch_terminal',side_effect=capture_terminal),patch.object(ui.filedialog,'asksaveasfilename',return_value=str(capture_path)):
+            assert window.open_capture(),window.note.get()
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline and (not capture_path.exists() or capture_path.stat().st_size<24):
+            assert capture_process[0].poll() is None,'Capture exited before PCAP header'
+            root.update();time.sleep(.03)
+        assert capture_path.exists() and capture_path.stat().st_size>=24
+        firewall_allowed=drive('verify')
+        assert capture_process[0].wait(timeout=12)==0
+        from network_labs.appliances.capture import pcap_summary
+        with capture_path.open('r+b') as captured:capture_summary=pcap_summary(captured)
+        assert 0<capture_summary['captured_packets']<=100,capture_summary
+        assert capture_path.stat().st_uid==os.geteuid() and capture_path.stat().st_mode&0o777==0o600
+        window.device_tabs.select(window.capture_panel);root.update()
+        capture_box=(root.winfo_rootx(),root.winfo_rooty(),root.winfo_rootx()+root.winfo_width(),root.winfo_rooty()+root.winfo_height())
+        ImageGrab.grab(bbox=capture_box).save(artifacts/'native-capture-running.png')
+        window.device_tabs.select(window.config_panel)
         assert firewall_allowed['data']['status']=='passed',firewall_allowed['data']
         window.choose_node('PC4');window.destination.set('CLIENT3');mac_blocked=drive('verify')
         assert mac_blocked['data']['status']=='failed',mac_blocked['data']
@@ -168,7 +189,7 @@ try:
         window.destination.set('CLIENT3');verified=drive('verify')
         assert verified['data']['status']=='passed',verified['data']
         assert verified['data']['directions'][0]['destination_address']=='192.168.20.33'
-        assert len(window.activity.get_children())==15
+        assert len(window.activity.get_children())==16
         assert window.vlan_members=={'PC1':10,'PC2':10,'CLIENT3':20,'PC4':20,'PC5':30}
         assert len(window.canvas.find_withtag('vlan-group'))==3
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
@@ -191,7 +212,7 @@ try:
         drive('status',ok=False);assert all(v['values'][1]=='non observé' for v in (window.nodes.item(i) for i in window.nodes.get_children()))
         assert set(owners)=={os.geteuid()} and len(owners)==12,owners
         assert (directory/'project.json').stat().st_mode&0o777==0o600
-        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_console_pty_verified':True,'native_web_firewall_policy_verified':True,'firewall_observed':firewall_observed,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
+        (artifacts/'native-gui-result.json').write_text(json.dumps({'ui_font':ui_font,'viewport_zoom_verified':True,'native_web_http_apply_verified':True,'native_console_pty_verified':True,'native_gui_capture_verified':True,'capture_summary':capture_summary,'native_web_firewall_policy_verified':True,'firewall_observed':firewall_observed,'native_web_port_security_verified':True,'mac_blocked':mac_blocked['data'],'port_security':security_observed,'firewall_allowed':firewall_allowed['data'],'gui_uid':os.geteuid(),'result_owner_uids':owners,'root_state_denied':root_state_denied,'node_count':10,'link_count':9,'verified':verified['data'],'isolated':isolated['data'],'stopped':True,'callback_errors':errors},indent=2))
         # A separate access-only profile exercises DAI and source guard without
         # weakening the existing campus/trunk validator or fabricating DHCP leases.
         from network_labs.appliances.access_security import access_security_example
