@@ -18,6 +18,11 @@ def main(arguments=None):
     labs.add_argument('--json', action='store_true')
     manifests = commands.add_parser('manifests', help='List native JSON manifests in the current directory; no lab changes.')
     manifests.add_argument('--json', action='store_true')
+    vm_sample=commands.add_parser('microvm-example',help='Print two independent Linux micro-VM nodes; no host changes or firmware download.')
+    vm_sample.add_argument('--kernel',type=Path,required=True)
+    vm_sample.add_argument('--disk',type=Path,required=True)
+    vm_sample.add_argument('--memory-mib',type=int,default=128)
+    vm_sample.add_argument('--vcpus',type=int,default=1)
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -324,6 +329,9 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-example':
+            from .microvm import example as microvm_example
+            result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
         elif args.command == 'example':
             pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
             if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):

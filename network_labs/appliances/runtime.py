@@ -119,7 +119,7 @@ def firecracker_config(node, kernel, disk):
         'boot-source': {'kernel_image_path': str(kernel),
                         'boot_args': f'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ip={interface.ip}::{gateway}:{interface.netmask}:{node["name"]}:eth0:off'},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
-        'machine-config': {'vcpu_count': 1, 'mem_size_mib': node['memory_mib']},
+        'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
         'network-interfaces': [{'iface_id': 'eth0', 'host_dev_name': 'tap0'}],
     }
 
@@ -128,11 +128,12 @@ def plan(data):
     spec = validate(data)
     return {'name': spec['name'], 'budget_mib': spec['budget_mib'],
             'allocated_node_mib': sum(n['memory_mib'] for n in spec['nodes']),
+            'allocated_vm_vcpus': sum(n.get('vcpus',1) for n in spec['nodes'] if n['runtime']=='firecracker'),
             'reserve_mib': spec['reserve_mib'],
             'note': 'Allocation check, not measured total RAM. VM host overhead and GUI are not hard capped.',
             'nodes': [{'name': n['name'], 'runtime': n['runtime'], 'role': n['role'],
                        'namespace': namespace(spec, i), 'memory_mib': n['memory_mib'],
-                       'interfaces': n['interfaces'], 'exec': n['runtime'] == 'oci'}
+                       'interfaces': n['interfaces'], 'vcpus': n.get('vcpus') if n['runtime']=='firecracker' else None, 'exec': n['runtime'] == 'oci'}
                       for i, n in enumerate(spec['nodes'])],
             'links': spec['links'],
             'limits': ['Native lab is separate from the model/Wasm canvas.',
@@ -661,6 +662,7 @@ class Manager:
                                       for port in node['dhcp_clients']}
             else:
                 vm = next((v for v in state['vms'] if v['name'] == node['name']), None)
+                report['configured_memory_mib']=node['memory_mib'];report['configured_vcpus']=node.get('vcpus',1)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')

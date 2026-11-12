@@ -3,6 +3,7 @@ import copy
 from .spec import validate
 
 SECTIONS={
+    'vmresources':{'label':'Ressources micro-VM','roles':('host',),'fields':('memory_mib','vcpus')},
     'dot1x':{'label':'Accès filaire 802.1X','roles':('switch',),'fields':('dot1x',)},
     'multicast':{'label':'Multicast / IGMP','roles':('switch',),'fields':('multicast',)},
     'snooping':{'label':'DHCP snooping / confiance','roles':('switch',),'fields':('dhcp_snooping',)},
@@ -26,8 +27,11 @@ PUBLIC_FIELDS=tuple(dict.fromkeys(field for section in SECTIONS.values() for fie
 
 
 def sections(node):
+    if node['runtime']=='firecracker':
+        section=SECTIONS['vmresources']
+        return [{'id':'vmresources','label':section['label'],'fields':list(section['fields'])}]
     if node['runtime']!='oci' or node.get('startup'):return []
-    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if node['role'] in section['roles'] and not (key=='dot1x' and not node.get('dot1x')) and not (key in ('snooping','arpinspection','sourceguard','multicast') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
+    return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if key!='vmresources' and node['role'] in section['roles'] and not (key=='dot1x' and not node.get('dot1x')) and not (key in ('snooping','arpinspection','sourceguard','multicast') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]
 
 
 def configure_section(spec,name,section,config):

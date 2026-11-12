@@ -57,7 +57,7 @@ def validate(data):
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -89,6 +89,7 @@ def validate(data):
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
                 raise ValueError('Gateway must belong to a configured interface subnet.')
         if runtime == 'oci':
+            if 'vcpus' in node:raise ValueError('vcpus is a micro-VM resource; OCI retains its existing CPU quota.')
             asset(node.get('rootfs'))
             if 'kernel' in node or 'disk' in node:
                 raise ValueError('OCI node cannot contain VM assets.')
@@ -103,6 +104,7 @@ def validate(data):
             if role == 'switch' and (any(interfaces.values()) or (node.get('gateway') and not node['svis'])):
                 raise ValueError('Switch physical ports remain unnumbered; use SVIs for management/routing.')
         else:
+            integer(node.setdefault('vcpus',1),1,32,'vcpus')
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')

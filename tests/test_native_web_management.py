@@ -263,3 +263,20 @@ class NativePortalTests(unittest.TestCase):
         self.assertEqual(len(fw['counters']),2);self.assertEqual(fw['counters'][0]['packets'],12)
         self.assertIsNone(fw['counters'][1]['packets']);self.assertIsNone(fw['counters'][1]['bytes'])
         for word in ('secret','private','foreign','expr','ruleset'):self.assertNotIn(word,json.dumps(result))
+
+    def test_microvm_resources_are_atomic_and_keep_guest_assets_private(self):
+        from network_labs.appliances.microvm import example
+        self.app.spec=example('/private/kernel','/private/disk');self.app.view_lab=self.app.spec['name']
+        original=self.app.manifest()
+        response=self.section('VM1','vmresources',{'memory_mib':192,'vcpus':2})
+        self.assertEqual(response['status'],200,response['body'])
+        state=json.loads(response['body']);self.assertFalse(state['editable']);self.assertTrue(state['section_editable'])
+        self.assertEqual([s['id'] for s in state['sections']],['vmresources'])
+        self.assertNotIn('/private',response['body'].decode())
+        self.assertEqual(self.app.spec['nodes'][1],original['nodes'][1])
+        self.assertEqual(self.app.spec['nodes'][0]['kernel'],original['nodes'][0]['kernel'])
+        before=self.app.manifest()
+        for config in ({'memory_mib':1800,'vcpus':2},{'memory_mib':192,'vcpus':0},{'memory_mib':192,'vcpus':2,'disk':'/other'}):
+            self.assertEqual(self.section('VM1','vmresources',config)['status'],400)
+            self.assertEqual(self.app.manifest(),before)
+        self.assertEqual(self.section('VM1','routing',{'routes':[],'gateway':'','forwarding':True})['status'],400)
