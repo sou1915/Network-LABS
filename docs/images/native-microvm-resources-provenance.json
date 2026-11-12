@@ -1,0 +1,15 @@
+{
+  "source_commit": "ab41d30abfa3b2d330a1ad1eb9073bebc6453f82",
+  "capture": "actual Chromium micro-VM resource editor; draft only",
+  "kvm_available_locally": false,
+  "native_microvm_started": false,
+  "file_sha256": {
+    "native-microvm-resources.png": "69a12f460a655ed6830d7d98fe95451bdd6328af4801c96b599c6429e5a68189"
+  },
+  "browser_acceptance": [
+    "RAM/vCPU edits reach shared Tk draft",
+    "excess RAM rejected atomically",
+    "reload restores validated allocations",
+    "unimplemented VM network editing stays disabled"
+  ]
+}

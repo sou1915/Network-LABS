@@ -1,5 +1,13 @@
 # Project checkpoint and planning estimate — 2026-11-06
 
+**Architecture correction:** the user's target is one Linux micro-VM per node,
+with device-facing CLI/web adapters and optional VMware/VirtualBox connectivity.
+Read [PROJECT_VISION.md](PROJECT_VISION.md). The historical OCI 7/7 acceptance
+below does not mean the micro-VM product is complete; no overall percentage is
+certified. Guest image/control and multi-interface network roles are now the
+priority. Existing native OCI workflows remain available during implementation.
+
+
 The current user priority is a bounded first LAN release: finish essentials,
 defer advanced extensions, then integrate the native GUI. The frozen
 [LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) now controls that transition.

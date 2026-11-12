@@ -1,5 +1,56 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## User clarification overrides earlier architecture assumptions
+
+Read [PROJECT_VISION.md](PROJECT_VISION.md) first. The required product is one
+lightweight Linux micro-VM per node, with real RAM/vCPU allocation. Device CLI
+and web experiences translate to Linux guest operations; a Windows-like node
+implements networking behavior, not a full Windows OS. Original vendor firmware
+is not the chosen solution. VMware/VirtualBox attachment remains a required
+integration target. Existing OCI/Wasm work is reusable but does not fulfill
+per-node micro-VM isolation. The old LAN 7/7 gate is limited implementation
+acceptance, not project completion. Prioritize guest execution/control over
+further expansion of OCI-only forms. Keep VXLAN on the later roadmap.
+
+
+## Micro-VM foundation checkpoint
+
+Source `ab41d30abfa3b2d330a1ad1eb9073bebc6453f82` adds explicit Firecracker
+vcpus (1..32; default 1 for older VM manifests), mapped to actual VMM
+machine-config alongside memory_mib. OCI rejects this VM-specific field and
+keeps its existing CPU quota. Read-only plan output reports configured VM
+vCPU totals separately from RAM allocations; status labels configured resources
+without claiming actual guest consumption or readiness.
+
+The new `microvm-example --kernel PATH --disk PATH --memory-mib 128 --vcpus 1`
+command generates two connected Firecracker host nodes. Their existing backend
+uses distinct namespaces, VMM processes and writable disk copies. This remains
+a one-interface/static-IPv4 guest profile; role conversion, guest agent and
+multi-NIC configuration are not implemented by this increment.
+
+The resource web editor is now available for Firecracker nodes only. RAM and
+vCPU writes validate the full lab atomically, preserving peer settings/assets;
+basic guest networking remains read-only. The actual
+[resource screenshot](images/native-microvm-resources.png) and
+[provenance](images/native-microvm-resources-provenance.json) are a draft session,
+not a booted guest. Full local regression passed 1083 tests in 86.260 seconds
+(141 environment/opt-in skips), including five actual Chromium workflows.
+The CLI example/plan path also ran without reading assets or changing the host.
+
+Prior OCI regression run 43220028478 has now finished: wired interoperability
+131188903383 passed; general tests passed but native GUI test 131188903725
+failed (child exit 1, empty stderr). No full console/capture success is claimed.
+The parent assertion now includes both child stdout and stderr to preserve
+failure diagnostics on the next run. Do not treat this OCI job as a KVM test.
+
+No /dev/kvm is available in this workspace. Real guest boot, packets and
+resource measurements remain unverified. Next: reproducible minimal guest
+image plus typed guest control/readiness, then move existing Linux operations
+and command translators into that guest executor. VMware/VirtualBox attachment
+and product-like network experiences remain required in PROJECT_VISION.md;
+VXLAN stays later. The old OCI gate must not be described as completion of
+this architecture.
+
 ## Authoritative GUI reference supplied by user
 
 The user explicitly rejected both workspace_design.png and enterprise_lan.png

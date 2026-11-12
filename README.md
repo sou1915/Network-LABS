@@ -1,5 +1,11 @@
 # Network LABS
 
+> Architecture cible : **une micro-VM Linux par nœud**, ressources réelles,
+> CLI/web de l’équipement traduites vers le guest, et connexion future aux
+> machines VMware/VirtualBox. Voir la [vision clarifiée](docs/PROJECT_VISION.md).
+> La couverture OCI actuelle ne certifie pas encore cette architecture.
+
+
 Simulateur réseau pédagogique pour Linux : construire une topologie LAN,
 configurer les équipements depuis une page web, des formulaires bureau ou une
 CLI, puis tester les trajets et les politiques. Sans VM, image constructeur,

@@ -1,5 +1,12 @@
 # Native node management coverage
 
+The user clarified the execution architecture: see
+[PROJECT_VISION.md](PROJECT_VISION.md). Product-like CLI/web experiences must
+control Linux inside one micro-VM per node; original vendor firmware is not
+required. The OCI coverage below describes reusable functionality, not the
+completed target architecture. Prioritize the guest executor and guest image.
+
+
 The user requests rich, functional management for every node, using the supplied
 FortiGate-style reference as the current visual target. The previous minimal
 interface form is not functional or visual completion. Do not call this a full
@@ -20,7 +27,7 @@ all native nodes and the navigation adapts to the selected role.
 | Router | Interfaces/admin, 802.1Q, IPv4 routes/gateway/forwarding, static IPv6 /64 and routes, DNS resolver, DHCP client/server, DNS server, LLDP on compatible nodes | OSPF/OSPFv3, RA/SLAAC/DHCPv6 and prefix delegation, relay, richer runtime diagnostics |
 | Switch | VLAN declarations, access/trunk ports with native/allowed VLANs, SVI creation/addressing, static routes and forwarding, static IPv6 on supported SVIs; STP/RSTP settings, BPDU/Root Guard, paired LACP, LLDP, static MAC admission, DHCP snooping, DAI and IP Source Guard/shared static bindings, IGMPv2 snooping/querier and per-port multicast policy; existing wired 802.1X identity/lease/renewal policy | Wired profile provisioning/authentication actions and runtime tables |
 | Host / server | Interface/admin, gateway/routes, static IPv6, DNS resolver and DHCP client; DHCP server pools/leases/reservations; local DNS zones, A/AAAA records, TTL and IPv6 listen option; LLDP on compatible nodes | Dedicated HTTPS/TFTP/NTP/SNMP/syslog/SSH service controls and native interactive consoles/traffic views |
-| Firecracker microVM | Read current declared basic configuration | Rich forms remain disabled; current editors target OCI |
+| Firecracker microVM | Declared RAM/vCPU resource editor with full-lab budget validation; basic network settings remain read-only | Guest image/agent, multi-NIC roles, interactive guest management and measured resource usage |
 
 IPv6, DNS and service profiles have real combination restrictions enforced by
 the backend. For example, adding IPv6 to the IPv4 campus with dot1Q routing is
@@ -39,8 +46,8 @@ policy workflow, VPN, IPS/antivirus/web filtering, identity/SSO, HA, SD-WAN,
 certificates, monitoring and administration. The current engine is not a full
 commercial appliance implementation, and these must not become decorative
 working-looking controls. Track implemented backend versus missing backend
-versus missing GUI separately. Actual vendor firmware parity would require
-an explicitly chosen vendor/version and a compatible actual appliance runtime.
+versus missing GUI separately. Interface fidelity requires an explicitly chosen product/version and working
+translations to our Linux guest engine; original firmware is not the target.
 
 Prioritize richer native configuration and observations, then polish their
 workflows against the supplied image. Static VXLAN stays on the roadmap after
