@@ -280,7 +280,7 @@ class NativeWorkbenchIntegrationTests(unittest.TestCase):
             try:
                 completed=run(['sudo','-u',user.pw_name,'--','xvfb-run','-a','/usr/bin/python3','-I','-c',CHILD,
                                str(Path(__file__).parents[1]),str(manifest),str(work),str(artifacts)],check=False,timeout=180)
-                self.assertEqual(completed.returncode,0,completed.stderr[-6000:])
+                self.assertEqual(completed.returncode,0,(completed.stdout+'\n'+completed.stderr)[-6000:])
                 result=json.loads((artifacts/'native-gui-result.json').read_text())
                 self.assertEqual(result['gui_uid'],uid);self.assertTrue(result['root_state_denied']);self.assertTrue(result['stopped'])
                 self.assertEqual(result['callback_errors'],[]);self.assertFalse(manager.directory.exists())
