@@ -13,6 +13,15 @@ acceptance, not project completion. Prioritize guest execution/control over
 further expansion of OCI-only forms. Keep VXLAN on the later roadmap.
 
 
+## Guest image builder checkpoint — 2026-11-12
+
+`microvm-rootfs` now builds minimal BusyBox ext4 userspace without root/mounts.
+Six focused tests passed locally, including actual ext4 inspection. Dedicated
+CI selection: `microvm-image`. See [PROJECT_VISION.md](PROJECT_VISION.md) for
+commands and kernel requirements. No KVM boot or guest control is certified;
+next work is typed guest control/readiness and a real two-guest KVM smoke test.
+
+
 ## Micro-VM foundation checkpoint
 
 Source `ab41d30abfa3b2d330a1ad1eb9073bebc6453f82` adds explicit Firecracker

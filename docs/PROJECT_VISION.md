@@ -70,8 +70,8 @@ Open the manifest in the native GUI. The web manager exposes **Ressources
 micro-VM** for these nodes; edits validate the entire RAM budget. Networking
 forms and OCI console/capture remain unavailable for guests without an adapter.
 Each guest gets a separate writable copy of the supplied base disk on start.
-The base guest must already support the Firecracker boot/network contract;
-this increment does not build it or install an agent.
+The guest image builder below supplies minimal userspace. A compatible kernel
+is still required, and no guest control agent is installed yet.
 
 The new `vcpus` field is Firecracker-only (1..32, default 1 for old manifests).
 It reaches `machine-config.vcpu_count`; RAM reaches `mem_size_mib`. Planning
@@ -81,3 +81,28 @@ its existing distinct cgroup quota and rejects a misleading `vcpus` setting.
 The current workspace has no `/dev/kvm`. Schema, generated VMM configuration,
 HTTP atomicity and real browser interaction can be tested here; guest boot,
 packet delivery and CPU/RAM consumption require a KVM-capable host and assets.
+
+## Minimal guest image checkpoint (2026-11-12)
+
+Install `busybox-static` and `e2fsprogs`, then build without root or mounts:
+
+```sh
+python3 -m network_labs.appliances microvm-rootfs \
+  --busybox /bin/busybox --output /tmp/network-labs.ext4 --size-mib 64
+```
+
+The command refuses existing destinations, stages the complete disk before
+publication, normalizes guest inode ownership to root and returns SHA-256.
+PID1 mounts proc/sysfs/devtmpfs/devpts and starts BusyBox init without a login
+shell or management listener. Root login is locked. The kernel must match the
+BusyBox architecture and include virtio block/network, ext4, devtmpfs (including
+auto-mount for initial console), proc/sysfs/devpts and `CONFIG_IP_PNP` for the
+existing static `ip=` boot argument. This is not a vendor firmware image.
+
+Local evidence: a real 64 MiB ext4 was built; six focused tests passed including
+actual ext4 inspection of init, root ownership, executable/private/sticky modes,
+non-overwrite behavior and failure cleanup. CI suite `microvm-image` repeats
+these checks. Neither this test nor `NETWORK_LABS_GUEST_INIT_COMPLETE` certifies
+VM boot, usable networking or guest control. Next: boot on KVM, typed guest
+control/readiness, then multi-NIC and network-role translation inside guests.
+VMware/VirtualBox integration and deferred VXLAN remain on the roadmap.

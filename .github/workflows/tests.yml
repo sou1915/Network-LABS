@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - microvm-image
           - benchmark-kernel-peak
           - dual-stack-ssh-host-key
           - ssh-radius-host-key
@@ -35,6 +36,18 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  microvm-image:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'microvm-image'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install guest image tools
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs
+      - name: Build and inspect actual guest ext4 (no boot claim)
+        env:
+          NETWORK_LABS_GUEST_BUSYBOX: /bin/busybox
+        run: python3 -m unittest tests.test_guest_image tests.test_microvm_foundation -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
