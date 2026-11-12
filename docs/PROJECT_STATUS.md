@@ -18,7 +18,8 @@ passed native CI run 42364702892; LAN remains 7/7.
 [Per-node coverage and remaining commercial parity](NODE_MANAGEMENT_ROADMAP.md)
 remain explicit; this is not a completed vendor firmware implementation. Read-only dated Linux inspections are now available in web management, with
 link/route, access-policy and managed IPv4 firewall/NAT counters from the desktop result. An external native OCI console entry is now implemented in the CLI tab.
-Embedded consoles, richer forms and packet views remain pending.
+A bounded native PCAP entry is implemented in the scrollable PCAP tab.
+Embedded consoles, integrated packet views and richer forms remain pending.
 Older broad-catalogue percentages below
 are historical planning estimates, not a completion counter for this gate.
 No protocol/security assertion is relaxed by this scope decision.

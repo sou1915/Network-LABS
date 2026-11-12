@@ -159,4 +159,20 @@ launch is recorded as requested, never as a confirmed guest connection.
 
 Close the shell with exit before another native operation: the existing CLI
 holds its lab lock for the session. Active shell changes do not edit the draft.
-An embedded terminal, shell session supervision and packet capture remain open.
+An embedded terminal, shell session supervision and packet viewing remain open.
+
+## Native PCAP entry
+
+The scrollable desktop PCAP tab selects a declared interface, duration (1..60 s),
+packet limit and optional BPF filter. The snapshot length is fixed at 2048 bytes;
+the engine's 16 MiB limit also bounds the maximum packet count. A running OCI
+node and matching observed lab are required. A new output path is selected;
+existing files and symlinks are refused before sudo, with O_EXCL/NOFOLLOW enforced
+again by the native engine. Paths and filters stay separate argv values.
+
+The terminal authenticates and invokes the existing bounded namespace-pinned
+capture engine. It displays the real JSON result, then waits for Enter to close.
+The UI records a request only; capture progress/completion is not fabricated.
+Other lab commands remain usable during capture. The caller owns the mode-0600
+PCAP. Integrated packet decoding, capture lifecycle/result presentation and
+in-app export management remain open. No browser capture endpoint is exposed.

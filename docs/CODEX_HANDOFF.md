@@ -21,7 +21,45 @@ the shell and essential native workflows, then graphical editing and supported
 configuration. Keep providing real implementation screenshots. LAN core stays
 accepted; VXLAN remains tracked after LAN/GUI.
 
-## Latest external native console checkpoint
+## Latest bounded PCAP entry checkpoint
+
+Source `b89c4cbea6b09a28fa47fb635fd333ae3b81dbaa` adds the desktop PCAP tab:
+node interface, duration, packet cap, BPF and a new output file. It calls the
+existing namespace-pinned tcpdump engine through a typed external-terminal
+wrapper. Authentication, progress and final JSON stay in the terminal. The
+GUI records only a launch request. Existing paths/symlinks, invalid bounds,
+unknown/stopped/non-OCI nodes and mismatched labs are refused; caller-owned
+mode-0600 output and namespace/interface enforcement remain engine guarantees.
+The panel scrolls so instructions are accessible in the reference layout.
+
+Full local regression passed 1078 cases in 84.322 s (141 skips), including four
+actual Chromium workflows. New tests verify literal paths/BPF arguments,
+no-overwrite, auth denial, limits and real Tk selection/busy guards. The actual
+[PCAP screenshot](images/native-capture-management.png) shows an unobserved
+node with launch disabled; see [provenance](images/native-capture-provenance.json).
+The native CHILD compiles and adds capture during actual permitted ICMP traffic,
+PCAP parsing/count and output ownership checks. No native capture success is
+claimed yet. Expected artifacts become seven (prior six plus native-capture-running.png),
+activity count 16, cumulative private results unchanged at 12/19.
+
+Previous run 43099192111 at 09ce90e finished: wired job 130785103566 passed;
+general tests job 130785103841 failed after 1074 cases because the new local
+screenshot test unconditionally imported PIL, absent from the CI venv. This
+blocked the privileged GUI scenario. The correction gates only optional local
+screenshots on NETWORK_LABS_GUI_SCREENSHOTS=1; all behavioral assertions still
+run. Dedicated native screenshot dependencies remain mandatory/installed.
+
+New [run 43220028478](https://github.com/sou1915/Network-LABS/actions/runs/43220028478)
+is queued at b89c4cb with suite=dot1x, including native GUI console/capture tests.
+Inspect this run before another dispatch. The usage-limit approval-review
+failure from the previous turn was resolved after its stated reset time; normal
+GitHub access and push worked again. Existing source-bound native artifacts
+still belong to 271303a until new native evidence is accepted.
+LAN's earlier 7/7 gate stays accepted; VXLAN remains later. Embedded consoles,
+packet viewing, integrated capture result handling, continuous monitoring and
+wired provisioning/authentication actions remain open.
+
+## Previous external native console checkpoint
 
 Source `09ce90e97b4443443a563b6b62513baed1850ade` adds a desktop CLI tab
 that opens the selected running OCI node's real /bin/sh through the existing
@@ -42,7 +80,7 @@ The focused capture/guard test passed again in 1.747 s.
 
 Run 43097993685 ended with startup_failure and no jobs; it did not validate
 any counter or console behavior. New [native run 43099192111](https://github.com/sou1915/Network-LABS/actions/runs/43099192111)
-is queued at 09ce90e. Its GUI scenario opens a real PTY via the same unprivileged
+finished at 09ce90e with wired success and a general-test PIL import failure (see above). Its GUI scenario opens a real PTY via the same unprivileged
 wrapper/sudo/native CLI, checks a guest-shell marker and a network namespace
 different from the host, exits and captures native-console-running.png.
 The native CHILD compiled, but actual PTY success remains pending. Its event
