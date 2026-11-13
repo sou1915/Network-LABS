@@ -46,6 +46,7 @@ class GuestImageTests(unittest.TestCase):
                                       check=True, capture_output=True, text=True).stdout
             self.assertIn('NETWORK_LABS_GUEST_INIT_COMPLETE', inspect('cat /sbin/init'))
             self.assertIn('exec /bin/busybox init', inspect('cat /sbin/init'))
+            self.assertNotIn('/bin/busybox mountpoint', inspect('cat /sbin/init'))
             for name in ('/sbin/init', '/bin/busybox', '/bin/sh', '/etc/shadow'):
                 metadata = inspect('stat ' + name)
                 self.assertRegex(metadata, r'User:\s+0\s+Group:\s+0')
