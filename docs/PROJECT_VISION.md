@@ -146,3 +146,30 @@ includes these tests. No guest boot is certified in the current workspace,
 which still has no `/dev/kvm`. Next: actual KVM boot/diagnostic/traffic smoke,
 then typed network mutations and role translation. VMware/VirtualBox attachment
 and VXLAN remain tracked, not implemented by this checkpoint.
+
+## Real KVM acceptance harness (2026-11-13)
+
+Agent/image CI passed at `e2e2eb6`: run `43442607192`, job `131943786083`.
+The agent now accepts `PING <IPv4>` with strict address validation and fixed
+one-packet/one-second BusyBox arguments. Host CLI operation `ping` requires
+`--destination IPv4`; no command strings or arbitrary options are accepted.
+
+Dedicated Actions selection `microvm-kvm` runs only on explicit dispatch. It
+requires real `/dev/kvm` and fails rather than skipping if unavailable. It pins
+Firecracker 1.10.1 and official CI kernel 5.10.223 by SHA-256, builds our image,
+boots two independent guests, checks vsock readiness and assigned addresses,
+then verifies bidirectional ping, link-down failure and link-up recovery.
+It also verifies base-image immutability and cleanup of VMMs/namespaces/bundles.
+Console logs and structured results are retained as `microvm-kvm-evidence`.
+Configured resources are checked; actual resource consumption is not measured.
+
+To run on a disposable host with the required tools and compatible kernel:
+
+```sh
+sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_MICROVM_KERNEL=/path/to/vmlinux \
+  python3 -m unittest tests.test_native_microvm -v
+```
+
+The default test suite skips this privileged test; explicit selection never
+substitutes mocked guests. Creation of this harness is not a passing boot claim:
+consult the Actions result and artifacts before certifying VM networking.

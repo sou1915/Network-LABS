@@ -1,6 +1,7 @@
 /* Network LABS guest protocol v1. No shell, arbitrary argv or TCP listener. */
 #define _GNU_SOURCE
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <linux/vm_sockets.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -44,6 +45,10 @@ static void serve(int input, int output) {
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};
     char *const routes[] = {"busybox", "ip", "route", "show", NULL};
     char *const *args = NULL;
+    char *const ping[] = {"busybox", "ping", "-c", "1", "-W", "1", request + 9, NULL};
+    struct in_addr destination;
+    if (!strncmp(request, "NL1 PING ", 9) && inet_pton(AF_INET, request + 9, &destination) == 1)
+        args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }

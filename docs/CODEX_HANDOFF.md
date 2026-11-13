@@ -13,6 +13,16 @@ acceptance, not project completion. Prioritize guest execution/control over
 further expansion of OCI-only forms. Keep VXLAN on the later roadmap.
 
 
+## KVM acceptance harness — 2026-11-13
+
+Agent/image CI passed: run `43442607192`. Added dedicated `microvm-kvm`
+workflow selection with pinned official VMM/kernel assets and a real two-guest
+boot/vsock/ping/link-loss/recovery/cleanup test. Bounded IPv4 ping is now a guest
+operation. No local KVM exists; dispatch result/artifacts must establish boot
+acceptance. See PROJECT_VISION.md for reproduction. Guest configuration changes,
+role translation, external VM attachment and VXLAN remain future work.
+
+
 ## Guest diagnostics checkpoint — 2026-11-13
 
 Previous image CI passed (run `43308396376`, job `131497652171`). Optional

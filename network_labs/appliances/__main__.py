@@ -30,7 +30,8 @@ def main(arguments=None):
     guest.add_argument('--with-agent', action='store_true', help='Compile a static read-only vsock guest agent; requires gcc and static libc.')
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
-    control.add_argument('operation', choices=['ready', 'addresses', 'routes'])
+    control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping'])
+    control.add_argument('--destination', help='IPv4 address required for ping.')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -339,7 +340,7 @@ def main(arguments=None):
             return 0
         elif args.command == 'microvm-diagnostic':
             from .guest_control import request
-            result = request(args.socket, args.operation)
+            result = request(args.socket, args.operation, destination=args.destination)
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)

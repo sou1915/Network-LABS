@@ -1,13 +1,19 @@
 """Bounded, read-only guest operations over Firecracker's local vsock socket."""
+import ipaddress
 import socket
 import time
 
-OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES'}
+OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING'}
 
 
-def request(path, operation, *, timeout=6):
+def request(path, operation, *, destination=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    command = OPERATIONS[operation]
+    if operation == 'ping':
+        command += ' ' + str(ipaddress.IPv4Address(destination))
+    elif destination is not None:
+        raise ValueError('Only ping accepts a destination.')
     if not 0 < timeout <= 30:
         raise ValueError('Guest timeout must be between 0 and 30 seconds.')
     deadline = time.monotonic() + timeout
@@ -35,7 +41,7 @@ def request(path, operation, *, timeout=6):
         handshake = line().split()
         if len(handshake) != 2 or handshake[0] != 'OK' or not handshake[1].isdigit():
             raise ValueError('Firecracker vsock connection rejected.')
-        connection.sendall(('NL1 ' + OPERATIONS[operation] + '\n').encode('ascii'))
+        connection.sendall(('NL1 ' + command + '\n').encode('ascii'))
         fields = line().split()
         if len(fields) != 3 or fields[0] != 'NL1' or not all(v.isdecimal() for v in fields[1:]):
             raise ValueError('Invalid guest response header.')

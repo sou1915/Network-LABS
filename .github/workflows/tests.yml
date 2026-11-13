@@ -10,6 +10,7 @@ on:
         default: all
         options:
           - all
+          - microvm-kvm
           - microvm-image
           - benchmark-kernel-peak
           - dual-stack-ssh-host-key
@@ -36,6 +37,32 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
+  microvm-kvm:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'microvm-kvm'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require real KVM
+        run: test -c /dev/kvm
+      - name: Install guest and fabric tools
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2
+      - name: Fetch pinned official Firecracker and guest kernel
+        run: |
+          curl -fL --retry 3 https://github.com/firecracker-microvm/firecracker/releases/download/v1.10.1/firecracker-v1.10.1-x86_64.tgz -o /tmp/firecracker.tgz
+          echo '36112969952b0e34fadcfca769d48a55dc22cbba99af17e02bd0e24fc35adc77  /tmp/firecracker.tgz' | sha256sum -c -
+          tar -xzf /tmp/firecracker.tgz -C /tmp
+          sudo install /tmp/release-v1.10.1-x86_64/firecracker-v1.10.1-x86_64 /usr/local/bin/firecracker
+          curl -fL --retry 3 https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223 -o /tmp/vmlinux
+          echo '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65  /tmp/vmlinux' | sha256sum -c -
+      - name: Verify two actual guests and packet loss recovery
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: microvm-kvm-evidence
+          path: /tmp/network-labs-microvm-evidence
+          if-no-files-found: warn
   microvm-image:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'microvm-image'
     runs-on: ubuntu-24.04

@@ -36,12 +36,12 @@ class GuestAgentTests(unittest.TestCase):
         self.assertEqual(json.loads(body), {'protocol': 1, 'agent_ready': True, 'network_verified': False})
 
     def test_rejects_shell_nul_unknown_version_and_overlong_requests(self):
-        for data in (b'NL1 ROUTES; id\n', b'NL1 READY\0evil\n', b'NL2 READY\n', b'x' * 80, b''):
+        for data in (b'NL1 ROUTES; id\n', b'NL1 READY\0evil\n', b'NL2 READY\n', b'NL1 PING 127.0.0.1;id\n', b'NL1 PING -c\n', b'x' * 80, b''):
             with self.subTest(data=data):
                 self.assertEqual(self.invoke(data)[0], 2)
 
     def test_fixed_linux_diagnostics_report_real_exit_status(self):
-        for operation in ('ADDRESSES', 'ROUTES'):
+        for operation in ('ADDRESSES', 'ROUTES', 'PING 127.0.0.1'):
             code, body = self.invoke(('NL1 ' + operation + '\n').encode())
             self.assertEqual(code, 0 if Path('/bin/busybox').exists() else 127)
             if code == 0 and operation == 'ADDRESSES':
@@ -95,3 +95,5 @@ class GuestTransportTests(unittest.TestCase):
     def test_deadline_and_operation_validation(self):
         with self.assertRaises(TimeoutError): self.exchange(b'NL1 0 0\n', timeout=.05, delay=.1)
         with self.assertRaises(ValueError): request('/nonexistent', 'shell')
+        with self.assertRaises(ValueError): request('/nonexistent', 'ping', destination='1.2.3.4;id')
+        with self.assertRaises(ValueError): request('/nonexistent', 'ready', destination='1.2.3.4')
