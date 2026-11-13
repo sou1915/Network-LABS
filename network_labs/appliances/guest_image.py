@@ -8,10 +8,12 @@ import tempfile
 from .runtime import static_busybox_rootfs
 
 INIT = '''#!/bin/sh
-set -eu
-/bin/busybox mount -t proc proc /proc
-/bin/busybox mount -t sysfs sysfs /sys
-/bin/busybox mount -t devtmpfs devtmpfs /dev
+set -eux
+# Keep PID1 alive on bootstrap failure so the serial error is not lost to panic.
+trap 'echo NETWORK_LABS_GUEST_INIT_FAILED; while :; do /bin/busybox sleep 3600; done' EXIT
+/bin/busybox mountpoint -q /proc || /bin/busybox mount -t proc proc /proc
+/bin/busybox mountpoint -q /sys || /bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mountpoint -q /dev || /bin/busybox mount -t devtmpfs devtmpfs /dev
 /bin/busybox mkdir -p /dev/pts /run
 /bin/busybox mount -t devpts devpts /dev/pts
 /bin/busybox ip link set lo up
