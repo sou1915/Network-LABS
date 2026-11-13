@@ -1,0 +1,8 @@
+{
+  "source_commit": "e96bb7f685442aa693092524bcdc8fcc0d643f3a",
+  "run": 43456371572,
+  "job": 131991482785,
+  "artifact": 14054725548,
+  "archive_sha256": "7b9bb48e69f87fa8ece96c271831e56847458c52b6411cdaf3e5e706ca544eca",
+  "scope": "Two Firecracker Linux guests, vsock readiness, static IPv4, bidirectional ping, link failure/recovery, base disk immutability, process/namespace/bundle cleanup. Not all node roles or GUI acceptance."
+}

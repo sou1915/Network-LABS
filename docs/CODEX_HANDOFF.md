@@ -1,5 +1,33 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Real two-guest KVM acceptance — PASS (2026-11-13)
+
+Source `e96bb7f685442aa693092524bcdc8fcc0d643f3a` passed the dedicated
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43456371572/job/131991482785).
+Two independent Firecracker guests booted our built image with 128 MiB/1 vCPU
+configured per guest. Both vsock agents replied and reported their own static
+IPv4 addresses; bidirectional ping passed. Link-down produced 100% loss and
+link-up restored delivery. Base-image immutability and process/namespace/bundle
+cleanup passed. The native test completed in 2.991 seconds (job: 46 seconds).
+
+Retained evidence: [results](evidence/microvm-kvm-2026-11-13/result.json),
+[cleanup](evidence/microvm-kvm-2026-11-13/cleanup.txt),
+[provenance](evidence/microvm-kvm-2026-11-13/provenance.json),
+and both guest console logs in that directory. Image build flags and READY's
+`network_verified: false` describe their narrower stages; the subsequent live
+packet probes establish this run's networking result.
+
+The first native runs exposed kernel-auto-mounted devtmpfs and Ubuntu BusyBox's
+missing mountpoint applet. Bootstrap now detects `/dev` through `/proc/mounts`
+using shell built-ins and retains serial diagnostics on failure.
+
+This validates two static IPv4 host guests, not every node role or overall LAN
+completion. Next: typed guest network configuration, multi-NIC support and
+router/switch/firewall role translation; then GUI integration and external
+VMware/VirtualBox attachment. VXLAN remains deferred. Actual resource consumption
+and broader isolation/security hardening are not certified by this smoke test.
+
+
 ## User clarification overrides earlier architecture assumptions
 
 Read [PROJECT_VISION.md](PROJECT_VISION.md) first. The required product is one
