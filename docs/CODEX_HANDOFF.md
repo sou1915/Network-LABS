@@ -13,6 +13,17 @@ acceptance, not project completion. Prioritize guest execution/control over
 further expansion of OCI-only forms. Keep VXLAN on the later roadmap.
 
 
+## Guest diagnostics checkpoint — 2026-11-13
+
+Previous image CI passed (run `43308396376`, job `131497652171`). Optional
+`microvm-rootfs --with-agent` adds a compiled static C vsock agent; each VMM
+gets its own socket in a private node bundle. `microvm-diagnostic --socket PATH
+ready|addresses|routes` supports bounded read-only operations, not arbitrary
+exec or network changes. See [PROJECT_VISION.md](PROJECT_VISION.md) for protocol,
+kernel requirements and test boundaries. Next: real KVM boot and two-guest
+traffic validation, then typed guest network changes; no KVM device here.
+
+
 ## Guest image builder checkpoint — 2026-11-12
 
 `microvm-rootfs` now builds minimal BusyBox ext4 userspace without root/mounts.

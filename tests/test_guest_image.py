@@ -36,7 +36,8 @@ class GuestImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'disk.ext4'
             binary = os.environ['NETWORK_LABS_GUEST_BUSYBOX']
-            report = build(binary, output, size_mib=16)
+            report = build(binary, output, size_mib=16, with_agent=True)
+            self.assertTrue(report['guest_agent_installed'])
             self.assertFalse(report['guest_boot_verified'])
             self.assertFalse(report['guest_control_available'])
             self.assertEqual(output.stat().st_size, 16 * 1024 * 1024)
@@ -52,10 +53,16 @@ class GuestImageTests(unittest.TestCase):
             self.assertIn('0600', inspect('stat /etc/shadow'))
             self.assertIn('1777', inspect('stat /tmp'))
             self.assertNotIn('getty', inspect('cat /etc/inittab'))
+            self.assertIn('::respawn:/sbin/network-labs-agent', inspect('cat /etc/inittab'))
+            self.assertIn('0755', inspect('stat /sbin/network-labs-agent'))
+            self.assertRegex(inspect('stat /sbin/network-labs-agent'), r'User:\s+0\s+Group:\s+0')
             with self.assertRaises(ValueError):
                 build(binary, output)
             failed = Path(directory) / 'failed.ext4'
             with self.assertRaises(ValueError):
                 build(binary, failed, mke2fs='/bin/false')
+            self.assertFalse(failed.exists())
+            with self.assertRaises(ValueError):
+                build(binary, failed, with_agent=True, cc='/bin/false')
             self.assertFalse(failed.exists())
             self.assertEqual(list(Path(directory).iterdir()), [output])

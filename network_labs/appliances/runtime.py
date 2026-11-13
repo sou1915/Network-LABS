@@ -121,6 +121,7 @@ def firecracker_config(node, kernel, disk):
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
         'network-interfaces': [{'iface_id': 'eth0', 'host_dev_name': 'tap0'}],
+        'vsock': {'guest_cid': 3, 'uds_path': str(Path(disk).parent / 'guest.vsock')},
     }
 
 
@@ -614,7 +615,7 @@ class Manager:
             self.crun('exec', node['name'], *command, log=bundle / 'console.log')
 
     def start_vm(self, node, index):
-        bundle = self.directory / node['name']; bundle.mkdir()
+        bundle = self.directory / node['name']; bundle.mkdir(mode=0o700)
         shutil.copyfile(node['disk'], bundle / 'rootfs.ext4')
         write_json(bundle / 'firecracker.json', firecracker_config(node, Path(node['kernel']).resolve(), bundle / 'rootfs.ext4'))
         with (bundle / 'console.log').open('ab') as log:
@@ -638,7 +639,7 @@ class Manager:
         state = self.read()
         node = next((n for n in state['spec']['nodes'] if n['name'] == name), None)
         if node is None or node['runtime'] != 'oci':
-            raise RuntimeFailure('exec is available only for OCI nodes; Firecracker has no guest agent.')
+            raise RuntimeFailure('exec is available only for OCI nodes; Firecracker guest agent supports only fixed diagnostics.')
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab is not running.')
         from .spec import argv

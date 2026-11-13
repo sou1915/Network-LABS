@@ -27,7 +27,7 @@ INITTAB = '''# No unauthenticated shell or network management listener.
 '''
 
 
-def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs'):
+def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc'):
     """Publish a complete ext4 image exclusively; never overwrite an existing path."""
     if type(size_mib) is not int or not 16 <= size_mib <= 1024:
         raise ValueError('Guest disk size must be an integer between 16 and 1024 MiB.')
@@ -39,7 +39,21 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs'):
         root = static_busybox_rootfs(busybox, work / 'root')
         (root / 'sbin/init').write_text(INIT)
         (root / 'sbin/init').chmod(0o755)
-        (root / 'etc/inittab').write_text(INITTAB)
+        inittab = INITTAB
+        if with_agent:
+            agent = root / 'sbin/network-labs-agent'
+            compiled = subprocess.run([str(cc), '-static', '-Os', '-Wall', '-Wextra', '-Werror',
+                                       '-o', str(agent), str(Path(__file__).parent / 'guest/agent.c')],
+                                      capture_output=True, text=True, timeout=120)
+            if compiled.returncode:
+                raise ValueError('Guest agent compilation failed: ' + compiled.stderr.strip())
+            # A native compiler must match the supplied BusyBox guest architecture.
+            if agent.read_bytes()[4:6] != (root / 'bin/busybox').read_bytes()[4:6] or agent.read_bytes()[18:20] != (root / 'bin/busybox').read_bytes()[18:20]:
+                raise ValueError('Guest agent and BusyBox architectures differ.')
+            agent.chmod(0o755)
+            inittab = inittab.replace('::respawn:/bin/busybox sleep 3600',
+                                      '::respawn:/sbin/network-labs-agent')
+        (root / 'etc/inittab').write_text(inittab)
         (root / 'etc/shadow').write_text('root:!:0:0:99999:7:::\n')
         (root / 'etc/shadow').chmod(0o600)
         (root / 'tmp').chmod(0o1777)
@@ -67,4 +81,4 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs'):
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         os.link(disk, output)  # Atomic and fails closed if destination appeared meanwhile.
     return {'disk': str(output), 'size_mib': size_mib, 'sha256': digest,
-            'guest_boot_verified': False, 'guest_control_available': False}
+            'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent)}

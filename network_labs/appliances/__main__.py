@@ -27,6 +27,10 @@ def main(arguments=None):
     guest.add_argument('--busybox', type=Path, required=True)
     guest.add_argument('--output', type=Path, required=True)
     guest.add_argument('--size-mib', type=int, default=64)
+    guest.add_argument('--with-agent', action='store_true', help='Compile a static read-only vsock guest agent; requires gcc and static libc.')
+    control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
+    control.add_argument('--socket', type=Path, required=True)
+    control.add_argument('operation', choices=['ready', 'addresses', 'routes'])
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -333,9 +337,12 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-diagnostic':
+            from .guest_control import request
+            result = request(args.socket, args.operation)
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
-            result = build(args.busybox, args.output, size_mib=args.size_mib)
+            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
             result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)

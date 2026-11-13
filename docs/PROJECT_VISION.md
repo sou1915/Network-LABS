@@ -106,3 +106,43 @@ these checks. Neither this test nor `NETWORK_LABS_GUEST_INIT_COMPLETE` certifies
 VM boot, usable networking or guest control. Next: boot on KVM, typed guest
 control/readiness, then multi-NIC and network-role translation inside guests.
 VMware/VirtualBox integration and deferred VXLAN remain on the roadmap.
+
+## Guest diagnostics checkpoint (2026-11-13)
+
+The image build CI from `bd9ccb0` passed:
+https://github.com/sou1915/Network-LABS/actions/runs/43308396376/job/131497652171
+
+`microvm-rootfs --with-agent` now compiles a static C agent into the guest
+(requires native gcc/static libc matching BusyBox). BusyBox init supervises it.
+Firecracker config exposes a separate `guest.vsock` socket in each private
+mode-0700 node bundle. CID 3 is scoped to each VMM; guest port 19001 accepts only
+host CID 2. The kernel additionally needs `CONFIG_VSOCKETS` and
+`CONFIG_VIRTIO_VSOCKETS` built in. No TCP management listener is installed.
+
+```sh
+python3 -m network_labs.appliances microvm-rootfs \
+  --busybox /bin/busybox --output /tmp/guest-with-agent.ext4 --with-agent
+# After booting the lab on a KVM-capable host, using its actual private bundle:
+python3 -m network_labs.appliances microvm-diagnostic \
+  --socket /path/to/private/lab/VM1/guest.vsock ready
+# Other operations: addresses, routes
+```
+
+Protocol NL1 accepts only READY, ADDRESSES and ROUTES. Diagnostics execute fixed
+`/bin/busybox ip address show` or `ip route show` argument arrays, without a
+shell. Replies preserve command exit status. Requests, responses and execution
+time are bounded (63-byte request, 32 KiB response, five-second worker deadline).
+The host client validates the Firecracker handshake and response framing with
+an overall deadline. The private socket is an administrative interface: do not
+expose its enclosing directory or forward it to untrusted clients.
+
+READY proves only that the agent replied, explicitly not network readiness.
+The default image still omits the agent. Images with it report installation,
+not operational guest control. Local tests exercise the compiled protocol,
+malformed input, timeout, Unix transport, actual ext4 placement/permissions and
+VMM socket separation. Linux diagnostics run on the test host when BusyBox is
+installed; those are not VM traffic tests. The dedicated `microvm-image` CI
+includes these tests. No guest boot is certified in the current workspace,
+which still has no `/dev/kvm`. Next: actual KVM boot/diagnostic/traffic smoke,
+then typed network mutations and role translation. VMware/VirtualBox attachment
+and VXLAN remain tracked, not implemented by this checkpoint.

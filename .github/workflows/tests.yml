@@ -43,11 +43,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install guest image tools
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev
       - name: Build and inspect actual guest ext4 (no boot claim)
         env:
           NETWORK_LABS_GUEST_BUSYBOX: /bin/busybox
-        run: python3 -m unittest tests.test_guest_image tests.test_microvm_foundation -v
+        run: python3 -m unittest tests.test_guest_image tests.test_guest_control tests.test_microvm_foundation -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04

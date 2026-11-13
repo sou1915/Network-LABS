@@ -20,6 +20,8 @@ class MicroVMFoundationTests(unittest.TestCase):
         self.assertEqual([c['machine-config']['vcpu_count'] for c in configs],[2,3])
         self.assertTrue(all(c['machine-config']['mem_size_mib']==192 for c in configs))
         self.assertNotEqual(configs[0]['drives'][0]['path_on_host'],configs[1]['drives'][0]['path_on_host'])
+        self.assertNotEqual(configs[0]['vsock']['uds_path'], configs[1]['vsock']['uds_path'])
+        self.assertEqual(configs[0]['vsock']['guest_cid'], 3)
         self.assertIn('ip=192.0.2.10',configs[0]['boot-source']['boot_args'])
         self.assertIn('ip=192.0.2.20',configs[1]['boot-source']['boot_args'])
         before=copy.deepcopy(spec)
