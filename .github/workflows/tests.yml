@@ -74,7 +74,7 @@ jobs:
       - name: Build and inspect actual guest ext4 (no boot claim)
         env:
           NETWORK_LABS_GUEST_BUSYBOX: /bin/busybox
-        run: python3 -m unittest tests.test_guest_image tests.test_guest_control tests.test_microvm_foundation -v
+        run: python3 -m unittest tests.test_guest_image tests.test_guest_control tests.test_guest_startup tests.test_microvm_foundation -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04

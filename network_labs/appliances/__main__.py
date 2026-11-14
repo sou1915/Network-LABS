@@ -45,6 +45,8 @@ def main(arguments=None):
     route.add_argument('--network', required=True)
     route.add_argument('--gateway', required=True)
     route.add_argument('action', choices=['add', 'delete'])
+    vm_save = commands.add_parser('microvm-save', help='Capture live IPv4 addresses/routes for cold restore of a VM-only lab.')
+    vm_save.add_argument('lab')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -351,6 +353,10 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-save':
+            from .guest_startup import save_observed
+            with Manager(args.lab).locked() as manager:
+                result = save_observed(manager)
         elif args.command == 'microvm-route':
             from .guest_control import request
             result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway)

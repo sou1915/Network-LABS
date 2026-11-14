@@ -36,7 +36,7 @@ class RealMicroVMTests(unittest.TestCase):
             report = build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
             spec = example(kernel, root / 'base.ext4')
             records = []
-            with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'):
+            with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
                 manager = Manager(spec['name'])
                 with manager.locked():
                     try:
@@ -122,6 +122,28 @@ class RealMicroVMTests(unittest.TestCase):
                             probe(0, '198.51.100.20', present)
                             probe(0, '192.0.2.20', True)
                         self.assertEqual(request(sockets[1], 'address-delete', cidr='198.51.100.20/32')['exit_code'], 0)
+                        # Save observed IPv4 state, discard private disks, restore from startup.json.
+                        from network_labs.appliances.guest_startup import save_observed, observe
+                        from network_labs.appliances.persistence import load_startup
+                        self.assertEqual(request(sockets[1], 'address-add', cidr='198.51.100.20/32')['exit_code'], 0)
+                        self.assertEqual(request(sockets[0], 'route-add', network='198.51.100.20/32', gateway='192.0.2.20')['exit_code'], 0)
+                        saved = save_observed(manager)
+                        restored = load_startup(manager.name)
+                        for name in ('VM1', 'VM2'):
+                            shutil.copyfile(manager.directory / name / 'console.log', evidence / (name + '-before-restart.log'))
+                        manager.stop()
+                        for record in records:
+                            self.assertNotEqual(process_identity(record['pid']), record['starttime'])
+                        manager = Manager(spec['name'])
+                        manager.start(restored)
+                        records.extend(manager.state['vms'])
+                        restored_profiles = {}
+                        for index, node in enumerate(restored['nodes']):
+                            restored_profiles[node['name']] = observe(sockets[index], node)
+                            self.assertEqual(restored_profiles[node['name']], node['guest_network'])
+                        probe(0, '198.51.100.20', True)
+                        probe(1, '192.0.2.10', True)
+                        results['cold_restore'] = {'saved': saved, 'profiles': restored_profiles, 'passed': True}
                         with (root / 'base.ext4').open('rb') as stream:
                             self.assertEqual(hashlib.file_digest(stream, 'sha256').hexdigest(), report['sha256'])
                         (evidence / 'result.json').write_text(json.dumps(results, indent=2))

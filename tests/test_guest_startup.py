@@ -1,0 +1,52 @@
+import copy
+import unittest
+from unittest.mock import patch
+from network_labs.appliances.microvm import example
+from network_labs.appliances.spec import validate
+from network_labs.appliances.guest_startup import observe, apply
+
+ADDRESSES = '1: lo: <LOOPBACK,UP>\n    inet 127.0.0.1/8 scope host lo\n2: eth0: <BROADCAST,UP>\n    inet 192.0.2.10/24 scope global eth0\n    inet 198.51.100.1/32 scope global eth0\n'
+ROUTES = '192.0.2.0/24 dev eth0 scope link src 192.0.2.10\n203.0.113.0/24 via 192.0.2.20 dev eth0\n'
+PROFILE = {'addresses': ['198.51.100.1/32'], 'routes': [{'network':'203.0.113.0/24','gateway':'192.0.2.20'}]}
+
+class GuestStartupTests(unittest.TestCase):
+    def node(self): return example('/kernel','/disk')['nodes'][0]
+
+    def test_schema_rejects_unrepresentable_profiles(self):
+        for profile in (None, {}, {'addresses':[], 'routes':[], 'shell':'id'}, {'addresses':['192.0.2.10/24'], 'routes':[]}, {'addresses':[], 'routes':[{'network':'203.0.113.1/24','gateway':'192.0.2.20'}]}, {'addresses':[], 'routes':[{'network':'203.0.113.0/24','gateway':'10.0.0.1'}]}):
+            spec=example('/kernel','/disk');spec['nodes'][0]['guest_network']=profile
+            with self.subTest(profile=profile), self.assertRaises((ValueError, TypeError)): validate(spec)
+
+    def test_observation_captures_only_supported_ipv4(self):
+        with patch('network_labs.appliances.guest_startup.query', side_effect=[ADDRESSES, ROUTES]):
+            self.assertEqual(observe('/socket',self.node()),PROFILE)
+        for text in (ADDRESSES.replace('BROADCAST,UP','BROADCAST'), ADDRESSES.replace('192.0.2.10/24','192.0.2.12/24'), ADDRESSES+'3: eth1: <UP>\n'):
+            with patch('network_labs.appliances.guest_startup.query', return_value=text), self.assertRaises(ValueError): observe('/socket',self.node())
+        with patch('network_labs.appliances.guest_startup.query',side_effect=[ADDRESSES, ROUTES+'blackhole 10.0.0.0/8\n']), self.assertRaises(ValueError): observe('/socket',self.node())
+
+    def test_replay_order_and_failed_mutation_never_retried(self):
+        node=self.node();node['guest_network']=copy.deepcopy(PROFILE)
+        with patch('network_labs.appliances.guest_startup.query') as query, patch('network_labs.appliances.guest_startup.observe',return_value=PROFILE):
+            apply('/socket',node)
+            self.assertEqual([c.args[1] for c in query.call_args_list],['ready','address-add','route-add'])
+        with patch('network_labs.appliances.guest_startup.query',side_effect=['ready',ValueError('mutation failed')]) as query, self.assertRaises(ValueError): apply('/socket',node)
+        self.assertEqual(query.call_count,2)
+
+    def test_save_failure_never_overwrites_startup(self):
+        from types import SimpleNamespace
+        from pathlib import Path
+        from network_labs.appliances.guest_startup import save_observed
+        manager=SimpleNamespace(name='microvm-pair',directory=Path('/private'),state=None,read=lambda:{'phase':'running','spec':example('/kernel','/disk')})
+        with patch('network_labs.appliances.guest_startup.observe',side_effect=ValueError('agent unavailable')), patch('network_labs.appliances.persistence.save_startup') as save, self.assertRaises(ValueError): save_observed(manager)
+        save.assert_not_called()
+
+    def test_changed_capture_and_failed_readback_are_rejected(self):
+        from types import SimpleNamespace
+        from pathlib import Path
+        from network_labs.appliances.guest_startup import save_observed
+        manager=SimpleNamespace(name='microvm-pair',directory=Path('/private'),state=None,read=lambda:{'phase':'running','spec':example('/kernel','/disk')})
+        empty={'addresses':[], 'routes':[]}
+        with patch('network_labs.appliances.guest_startup.observe',side_effect=[empty,empty,PROFILE]), patch('network_labs.appliances.persistence.save_startup') as save, self.assertRaises(ValueError): save_observed(manager)
+        save.assert_not_called()
+        node=self.node();node['guest_network']=PROFILE
+        with patch('network_labs.appliances.guest_startup.query'), patch('network_labs.appliances.guest_startup.observe',return_value=empty), self.assertRaises(ValueError): apply('/socket',node)

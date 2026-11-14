@@ -1,5 +1,30 @@
 # Authoritative project vision — clarified by the user, 2026-11-12
 
+## Guest startup capture and cold restore — 2026-11-14
+
+`sudo python3 -m network_labs.appliances microvm-save LAB` captures supported
+observed IPv4 state from every guest in a running VM-only lab and atomically
+writes its startup manifest. `stop LAB` then `restore LAB` boots new private
+disk copies and reapplies saved extra addresses/routes through vsock, with
+readback before startup succeeds. The original base image is not modified.
+
+New optional Firecracker-only `guest_network` contains bounded `addresses` and
+`routes` lists. Saving requires eth0 up, its declared primary address present,
+and representable static routes. Unsupported state or unavailable agents reject
+save; startup application errors abort and clean up the lab. General `save` now
+checks guest drift instead of silently skipping VM nodes. Explicit `microvm-save`
+captures live changes; it does not rewrite the currently running declaration.
+Keep raw guest edits quiescent while saving: a double read detects drift but is
+not a distributed transaction. Existing startup is preserved on capture failure.
+
+Scope: IPv4 on eth0 only, no filesystem/IPv6/down-state snapshot. Default gateway
+continues to use the existing primary boot setting. Native test now saves an
+extra address and route, stops both guests, reloads startup.json, boots fresh
+guests and checks restored state and real packets. Native acceptance pending.
+GUI mutation/save binding, multi-NIC and node role translation remain next work;
+VXLAN remains deferred.
+
+
 ## Guest static routes — 2026-11-14
 
 `microvm-route --socket /private/node/guest.vsock --network 198.51.100.0/24

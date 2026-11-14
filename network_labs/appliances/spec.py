@@ -57,7 +57,7 @@ def validate(data):
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -110,6 +110,8 @@ def validate(data):
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
             if role != 'host' or list(interfaces) != ['eth0'] or not interfaces['eth0']:
                 raise ValueError('Firecracker initial adapter: host with one static IPv4 eth0 only.')
+        from .guest_startup import validate_profile
+        validate_profile(node)
     from .ipv6 import validate_lab as validate_ipv6_lab
     validate_ipv6_lab(data)
     from .ra_guard import validate_lab as validate_ra_guard_lab

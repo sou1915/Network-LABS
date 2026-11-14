@@ -631,6 +631,9 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
+            if 'guest_network' in node:
+                from .guest_startup import apply
+                apply(bundle / 'guest.vsock', node)
             return
         tail = (bundle / 'console.log').read_text(errors='replace')[-4000:]
         raise RuntimeFailure(f'Firecracker exited ({code}): {tail}')
