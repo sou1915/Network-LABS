@@ -107,6 +107,21 @@ class RealMicroVMTests(unittest.TestCase):
                             results['guest_address'].append({'operation': operation, 'reply': change, 'observed': observed})
                             probe(1, '192.0.2.11', present)
                             probe(1, '192.0.2.10', True)
+                        # VM2 owns a different-network endpoint; VM1 needs an explicit route.
+                        alias = request(sockets[1], 'address-add', cidr='198.51.100.20/32')
+                        self.assertEqual(alias['exit_code'], 0, alias)
+                        probe(0, '198.51.100.20', False)
+                        results['guest_route'] = []
+                        for operation, present in [('route-add', True), ('route-delete', False)]:
+                            change = request(sockets[0], operation, network='198.51.100.20/32', gateway='192.0.2.20')
+                            self.assertEqual(change['exit_code'], 0, change)
+                            observed = request(sockets[0], 'routes')
+                            self.assertEqual(observed['exit_code'], 0)
+                            self.assertEqual('198.51.100.20 via 192.0.2.20 dev eth0' in observed['output'], present)
+                            results['guest_route'].append({'operation': operation, 'reply': change, 'observed': observed})
+                            probe(0, '198.51.100.20', present)
+                            probe(0, '192.0.2.20', True)
+                        self.assertEqual(request(sockets[1], 'address-delete', cidr='198.51.100.20/32')['exit_code'], 0)
                         with (root / 'base.ext4').open('rb') as stream:
                             self.assertEqual(hashlib.file_digest(stream, 'sha256').hexdigest(), report['sha256'])
                         (evidence / 'result.json').write_text(json.dumps(results, indent=2))

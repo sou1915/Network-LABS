@@ -40,6 +40,11 @@ def main(arguments=None):
     address.add_argument('--socket', type=Path, required=True)
     address.add_argument('--cidr', required=True)
     address.add_argument('action', choices=['add', 'delete'])
+    route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through guest eth0; not persisted.')
+    route.add_argument('--socket', type=Path, required=True)
+    route.add_argument('--network', required=True)
+    route.add_argument('--gateway', required=True)
+    route.add_argument('action', choices=['add', 'delete'])
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -346,6 +351,9 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-route':
+            from .guest_control import request
+            result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway)
         elif args.command == 'microvm-address':
             from .guest_control import request
             result = request(args.socket, 'address-' + args.action, cidr=args.cidr)
@@ -646,7 +654,7 @@ def main(arguments=None):
             from .radius_server import redact
             result = redact(result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 1 if args.command in ('microvm-link', 'microvm-address') and result['exit_code'] else 0
+        return 1 if args.command in ('microvm-link', 'microvm-address', 'microvm-route') and result['exit_code'] else 0
     except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         print('Native lab: ' + str(error), file=sys.stderr)
         return 1

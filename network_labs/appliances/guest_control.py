@@ -3,10 +3,10 @@ import ipaddress
 import socket
 import time
 
-OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL'}
+OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL'}
 
 
-def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, timeout=6):
+def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
     command = OPERATIONS[operation]
@@ -26,6 +26,12 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         command += ' ' + str(ipaddress.IPv4Interface(cidr))
     elif cidr is not None:
         raise ValueError('Only address operations accept CIDR.')
+    if operation in ('route-add', 'route-delete'):
+        if not isinstance(network, str) or '/' not in network:
+            raise ValueError('Guest route requires an explicit IPv4 network/prefix.')
+        command += ' ' + str(ipaddress.IPv4Network(network, strict=True)) + ' ' + str(ipaddress.IPv4Address(gateway))
+    elif network is not None or gateway is not None:
+        raise ValueError('Only route operations accept network/gateway.')
     if not 0 < timeout <= 30:
         raise ValueError('Guest timeout must be between 0 and 30 seconds.')
     deadline = time.monotonic() + timeout

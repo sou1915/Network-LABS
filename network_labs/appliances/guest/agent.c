@@ -72,6 +72,22 @@ static void serve(int input, int output, int mutations) {
     char *const address_delete[] = {"busybox", "ip", "address", "del", request + 13, "dev", "eth0", NULL};
     if (mutations && !strncmp(request, "NL1 ADDR_ADD ", 13) && valid_cidr(request + 13)) args = address_add;
     if (mutations && !strncmp(request, "NL1 ADDR_DEL ", 13) && valid_cidr(request + 13)) args = address_delete;
+    char *route_network = request + 14;
+    char *route_gateway = NULL;
+    int route_add = !strncmp(request, "NL1 ROUTE_ADD ", 14);
+    int route_delete = !strncmp(request, "NL1 ROUTE_DEL ", 14);
+    if (mutations && (route_add || route_delete)) {
+        route_gateway = strchr(route_network, ' ');
+        if (route_gateway) {
+            *route_gateway++ = 0;
+            if (!valid_cidr(route_network) || inet_pton(AF_INET, route_gateway, &destination) != 1)
+                route_gateway = NULL;
+        }
+    }
+    char *const route_insert[] = {"busybox", "ip", "route", "add", route_network, "via", route_gateway, "dev", "eth0", NULL};
+    char *const route_remove[] = {"busybox", "ip", "route", "del", route_network, "via", route_gateway, "dev", "eth0", NULL};
+    if (route_gateway && route_add) args = route_insert;
+    if (route_gateway && route_delete) args = route_remove;
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }

@@ -50,7 +50,7 @@ class GuestAgentTests(unittest.TestCase):
                 self.assertIn(b'lo', body)
 
     def test_stdio_cannot_mutate_interfaces(self):
-        for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
+        for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 ROUTE_ADD 198.51.100.0/24 192.0.2.20\n', b'NL1 ROUTE_DEL 198.51.100.0/24 192.0.2.20\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
 
     def test_partial_request_times_out(self):
@@ -125,3 +125,11 @@ class GuestTransportTests(unittest.TestCase):
         for cidr in ('192.0.2.11', '192.0.2.11/33', '192.0.2.11/24;id', '::1/128', None):
             with self.assertRaises(ValueError): request('/missing', 'address-add', cidr=cidr)
         with self.assertRaises(ValueError): request('/missing', 'ready', cidr='192.0.2.11/24')
+
+    def test_route_wire_and_validation(self):
+        for operation, verb in [('route-add', 'ROUTE_ADD'), ('route-delete', 'ROUTE_DEL')]:
+            result = self.exchange(b'NL1 0 0\n', operation=operation, arguments={'network': '198.51.100.0/24', 'gateway': '192.0.2.20'}, wire=('NL1 ' + verb + ' 198.51.100.0/24 192.0.2.20\n').encode())
+            self.assertEqual(result['exit_code'], 0)
+        for network, gateway in [('198.51.100.1/24', '192.0.2.20'), ('::/0', '192.0.2.20'), ('0.0.0.0/0', '192.0.2.20;id'), ('default', '192.0.2.20'), ('0.0.0.0/0', None)]:
+            with self.assertRaises(ValueError): request('/missing', 'route-add', network=network, gateway=gateway)
+        with self.assertRaises(ValueError): request('/missing', 'ready', gateway='192.0.2.20')

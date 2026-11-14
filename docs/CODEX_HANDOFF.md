@@ -1,5 +1,24 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Guest static routes — 2026-11-14
+
+`microvm-route --socket /private/node/guest.vsock --network 198.51.100.0/24
+--gateway 192.0.2.20 add` (or `delete`) changes a live IPv4 route through eth0.
+The client requires a canonical IPv4 network and explicit IPv4 next hop; the
+guest validates both fields and executes fixed BusyBox argv without a shell.
+Default routes use `0.0.0.0/0`. Linux command failures propagate to CLI status.
+No automatic retries, persistence or GUI mutation integration is claimed.
+Inspect routes after a transport timeout before retrying an uncertain change.
+
+Expanded KVM acceptance places an off-subnet /32 address on VM2, proves initial
+unreachability from VM1, installs a route through VM2, proves packet delivery,
+then deletes it and proves loss while original on-link traffic continues.
+Local focused tests: 30 passed, one GUI test skipped. Native CI pending.
+The GUI remains unchanged in this increment; screenshots show a draft, not
+local runtime observations. Next: persisted guest configuration and restart
+validation, then multi-NIC and node roles. VXLAN remains on the later roadmap.
+
+
 ## Guest IPv4 address control — 2026-11-14
 
 `microvm-address --socket /private/node/guest.vsock --cidr 192.0.2.11/24 add`
