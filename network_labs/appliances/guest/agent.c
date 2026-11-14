@@ -26,7 +26,7 @@ static void reply(int fd, int code, const char *data, size_t size) {
     int n = snprintf(header, sizeof(header), "NL1 %d %zu\n", code, size);
     if (!send_all(fd, header, (size_t)n)) (void)send_all(fd, data, size);
 }
-static void serve(int input, int output) {
+static void serve(int input, int output, int mutations) {
     char request[64]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
     while (used < sizeof(request) - 1) {
@@ -51,6 +51,11 @@ static void serve(int input, int output) {
         args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
+    char *const link_up[] = {"busybox", "ip", "link", "set", "dev", "eth0", "up", NULL};
+    char *const link_down[] = {"busybox", "ip", "link", "set", "dev", "eth0", "down", NULL};
+    /* Only the vsock daemon may change the guest; diagnostic stdio stays read-only. */
+    if (mutations && !strcmp(request, "NL1 LINK eth0 up")) args = link_up;
+    if (mutations && !strcmp(request, "NL1 LINK eth0 down")) args = link_down;
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }
@@ -81,7 +86,7 @@ static void serve(int input, int output) {
 }
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
-    if (argc == 2 && !strcmp(argv[1], "--stdio")) { serve(0, 1); return 0; }
+    if (argc == 2 && !strcmp(argv[1], "--stdio")) { serve(0, 1, 0); return 0; }
     if (argc != 1) return 2;
     int server = socket(AF_VSOCK, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_vm address = {.svm_family=AF_VSOCK, .svm_cid=VMADDR_CID_ANY, .svm_port=19001};
@@ -94,7 +99,7 @@ int main(int argc, char **argv) {
         if (client < 0) { if (errno == EINTR) continue; return 1; }
         if (peer.svm_cid != VMADDR_CID_HOST) { close(client); continue; }
         pid_t worker = fork();
-        if (worker == 0) { close(server); serve(client, client); close(client); _exit(0); }
+        if (worker == 0) { close(server); serve(client, client, 1); close(client); _exit(0); }
         close(client);
         if (worker > 0) while (waitpid(worker, NULL, 0) < 0 && errno == EINTR) {}
     }

@@ -1,4 +1,5 @@
 """Real compiled guest protocol and local transport; not a KVM boot test."""
+import io
 import json
 import shutil
 import socket
@@ -8,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 from network_labs.appliances.guest_control import request
 
 
@@ -47,6 +49,10 @@ class GuestAgentTests(unittest.TestCase):
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
+    def test_stdio_cannot_mutate_interfaces(self):
+        for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
+            self.assertEqual(self.invoke(data)[0], 2)
+
     def test_partial_request_times_out(self):
         with subprocess.Popen([str(self.binary), '--stdio'], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE) as child:
@@ -55,7 +61,7 @@ class GuestAgentTests(unittest.TestCase):
 
 
 class GuestTransportTests(unittest.TestCase):
-    def exchange(self, payload, *, handshake=b'OK 19001\n', timeout=1, delay=0):
+    def exchange(self, payload, *, handshake=b'OK 19001\n', timeout=1, delay=0, operation='ready', arguments=None, wire=b'NL1 READY\n'):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'vsock'
             errors = []
@@ -68,7 +74,7 @@ class GuestTransportTests(unittest.TestCase):
                             self.assertEqual(connection.recv(100), b'CONNECT 19001\n')
                             connection.sendall(handshake)
                             if not handshake.startswith(b'OK '): return
-                            self.assertEqual(connection.recv(100), b'NL1 READY\n')
+                            self.assertEqual(connection.recv(100), wire)
                             time.sleep(delay)
                             for byte in payload: connection.sendall(bytes([byte]))
                     except (BrokenPipeError, ConnectionResetError): pass
@@ -76,7 +82,7 @@ class GuestTransportTests(unittest.TestCase):
                 worker = threading.Thread(target=serve)
                 worker.start()
                 try:
-                    return request(path, 'ready', timeout=timeout)
+                    return request(path, operation, timeout=timeout, **(arguments or {}))
                 finally:
                     worker.join(4)
                     self.assertFalse(worker.is_alive())
@@ -97,3 +103,18 @@ class GuestTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError): request('/nonexistent', 'shell')
         with self.assertRaises(ValueError): request('/nonexistent', 'ping', destination='1.2.3.4;id')
         with self.assertRaises(ValueError): request('/nonexistent', 'ready', destination='1.2.3.4')
+
+    def test_typed_link_wire_and_rejections(self):
+        result = self.exchange(b'NL1 0 0\n', operation='link', arguments={'interface': 'eth0', 'state': 'down'}, wire=b'NL1 LINK eth0 down\n')
+        self.assertEqual(result['exit_code'], 0)
+        for interface, state in [('lo', 'down'), ('eth0;id', 'up'), ('eth0', 'down;id'), ('eth0', None)]:
+            with self.assertRaises(ValueError):
+                request('/missing', 'link', interface=interface, state=state)
+        with self.assertRaises(ValueError): request('/missing', 'ready', state='up')
+
+    def test_link_cli_reports_guest_failure(self):
+        from network_labs.appliances.__main__ import main
+        for code in (0, 2):
+            with patch('network_labs.appliances.guest_control.request', return_value={'exit_code': code, 'output': ''}) as call, patch('sys.stdout', new_callable=io.StringIO):
+                self.assertEqual(main(['microvm-link', '--socket', '/private/guest.vsock', 'down']), 0 if code == 0 else 1)
+                call.assert_called_once_with(Path('/private/guest.vsock'), 'link', interface='eth0', state='down')

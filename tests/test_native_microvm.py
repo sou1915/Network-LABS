@@ -74,6 +74,28 @@ class RealMicroVMTests(unittest.TestCase):
                         probe(0, '192.0.2.20', False)
                         manager.ns(0, 'ip', 'link', 'set', 'eth0', 'up')
                         probe(0, '192.0.2.20', True)
+                        # Change the NIC inside VM1, leaving the host fabric up.
+                        results['guest_link'] = []
+                        def guest_link(state):
+                            result = request(sockets[0], 'link', interface='eth0', state=state)
+                            self.assertEqual(result['exit_code'], 0, result)
+                            observed = request(sockets[0], 'addresses')
+                            self.assertEqual(observed['exit_code'], 0)
+                            row = next(row for row in observed['output'].splitlines() if ': eth0:' in row)
+                            flags = row.split('<', 1)[1].split('>', 1)[0].split(',')
+                            self.assertEqual('UP' in flags, state == 'up')
+                            results['guest_link'].append({'requested': state, 'reply': result, 'observed': observed})
+                            self.assertEqual(request(sockets[0], 'ready')['exit_code'], 0)
+                            host = json.loads(manager.ns(0, 'ip', '-j', 'link', 'show', 'eth0').stdout)
+                            self.assertIn('UP', host[0]['flags'])
+                        guest_link('down')
+                        probe(1, '192.0.2.10', False)
+                        # Setting the same state twice is safe and idempotent.
+                        guest_link('down')
+                        guest_link('up')
+                        guest_link('up')
+                        probe(0, '192.0.2.20', True)
+                        probe(1, '192.0.2.10', True)
                         with (root / 'base.ext4').open('rb') as stream:
                             self.assertEqual(hashlib.file_digest(stream, 'sha256').hexdigest(), report['sha256'])
                         (evidence / 'result.json').write_text(json.dumps(results, indent=2))

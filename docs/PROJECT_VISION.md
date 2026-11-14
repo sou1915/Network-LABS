@@ -1,5 +1,20 @@
 # Authoritative project vision — clarified by the user, 2026-11-12
 
+## Guest interface control — 2026-11-14
+
+`microvm-link --socket /private/node/guest.vsock down` (or `up`) changes the
+live guest eth0 through vsock using fixed BusyBox `ip link set dev eth0` argv.
+Only eth0/up/down are accepted in the client and guest. Diagnostic stdio mode
+rejects mutations. A failed guest command returns a failing CLI status.
+
+This is transient guest state: no manifest/startup persistence or GUI binding.
+A transport timeout leaves the outcome unknown; inspect `addresses` before
+retrying. Setting the same desired state is idempotent. Expanded `microvm-kvm`
+checks guest down/up, duplicate requests, retained vsock access, unaffected host
+fabric, failed peer ping while down and restored bidirectional delivery.
+Native CI evidence is required before marking this extension accepted.
+
+
 ## Real two-guest KVM acceptance — PASS (2026-11-13)
 
 Source `e96bb7f685442aa693092524bcdc8fcc0d643f3a` passed the dedicated

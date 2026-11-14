@@ -1,12 +1,12 @@
-"""Bounded, read-only guest operations over Firecracker's local vsock socket."""
+"""Bounded, typed guest operations over Firecracker's local vsock socket."""
 import ipaddress
 import socket
 import time
 
-OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING'}
+OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK'}
 
 
-def request(path, operation, *, destination=None, timeout=6):
+def request(path, operation, *, destination=None, interface=None, state=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
     command = OPERATIONS[operation]
@@ -14,6 +14,12 @@ def request(path, operation, *, destination=None, timeout=6):
         command += ' ' + str(ipaddress.IPv4Address(destination))
     elif destination is not None:
         raise ValueError('Only ping accepts a destination.')
+    if operation == 'link':
+        if interface != 'eth0' or state not in ('up', 'down'):
+            raise ValueError('Guest link requires interface eth0 and state up or down.')
+        command += ' ' + interface + ' ' + state
+    elif interface is not None or state is not None:
+        raise ValueError('Only link accepts interface/state arguments.')
     if not 0 < timeout <= 30:
         raise ValueError('Guest timeout must be between 0 and 30 seconds.')
     deadline = time.monotonic() + timeout

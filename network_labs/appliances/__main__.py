@@ -27,11 +27,15 @@ def main(arguments=None):
     guest.add_argument('--busybox', type=Path, required=True)
     guest.add_argument('--output', type=Path, required=True)
     guest.add_argument('--size-mib', type=int, default=64)
-    guest.add_argument('--with-agent', action='store_true', help='Compile a static read-only vsock guest agent; requires gcc and static libc.')
+    guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
     control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping'])
     control.add_argument('--destination', help='IPv4 address required for ping.')
+    link = commands.add_parser('microvm-link', help='Set live guest eth0 up/down via vsock; not saved to the manifest.')
+    link.add_argument('--socket', type=Path, required=True)
+    link.add_argument('--interface', choices=['eth0'], default='eth0')
+    link.add_argument('state', choices=['up', 'down'])
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -338,6 +342,9 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-link':
+            from .guest_control import request
+            result = request(args.socket, 'link', interface=args.interface, state=args.state)
         elif args.command == 'microvm-diagnostic':
             from .guest_control import request
             result = request(args.socket, args.operation, destination=args.destination)
@@ -632,7 +639,7 @@ def main(arguments=None):
             from .radius_server import redact
             result = redact(result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
+        return 1 if args.command == 'microvm-link' and result['exit_code'] else 0
     except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         print('Native lab: ' + str(error), file=sys.stderr)
         return 1
