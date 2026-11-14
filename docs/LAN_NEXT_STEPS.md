@@ -12,7 +12,15 @@ A transport timeout leaves the outcome unknown; inspect `addresses` before
 retrying. Setting the same desired state is idempotent. Expanded `microvm-kvm`
 checks guest down/up, duplicate requests, retained vsock access, unaffected host
 fabric, failed peer ping while down and restored bidirectional delivery.
-Native CI evidence is required before marking this extension accepted.
+Native acceptance **PASS** at source `563f99f64f0743dfec01d86a05a24323943f3dfc`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43595151867/job/132447966413).
+The real two-guest test completed in 3.883 seconds, including guest eth0 down/up,
+repeated requests, retained vsock control and host fabric, and traffic recovery.
+Evidence: [results](evidence/microvm-link-2026-11-14/result.json),
+[provenance](evidence/microvm-link-2026-11-14/provenance.json), and console/cleanup
+logs in the same directory. Local tests: 28 passing, one GUI test skipped.
+Next: typed guest IP/route configuration and persistence, followed by multi-NIC
+and role translation. This does not certify every node or overall LAN completion.
 
 
 ## Real two-guest KVM acceptance — PASS (2026-11-13)
