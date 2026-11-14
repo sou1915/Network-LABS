@@ -1,0 +1,8 @@
+{
+  "source_commit": "fd469e2e41c9b2be31ad055c385ce2ef2d6116c8",
+  "run": 43595978010,
+  "job": 132450437959,
+  "artifact": 14114706369,
+  "archive_sha256": "2bde0a98aeb5457c86c764f23b0fb5c8cf136301966935942a9305aec12707b6",
+  "scope": "Guest IPv4 alias add/delete, corresponding packet delivery/loss, preservation of original address and connectivity; baseline KVM and link tests."
+}

@@ -1,0 +1,5 @@
+{
+  "source_commit": "fd469e2e41c9b2be31ad055c385ce2ef2d6116c8",
+  "capture": "Actual Tk workbench and Chromium web editor, 2026-11-14",
+  "state": "Draft microvm-pair; no local VM boot, no observed runtime traffic. Browser resource test changes VM1 to 192 MiB and 2 vCPUs; workbench draft uses 128 MiB/1 vCPU. Network mutations are CLI-only."
+}

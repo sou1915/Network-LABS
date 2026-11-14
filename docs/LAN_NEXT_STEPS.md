@@ -13,7 +13,17 @@ Expanded native acceptance adds a secondary address, verifies peer ping, removes
 it, verifies packet failure, and verifies original-address connectivity throughout.
 UI terminology now says runtime instead of OCI for the shared node status table.
 Screenshots show the current draft GUI, not a locally booted guest; network
-mutation controls are not yet bound to this UI. Native validation is pending.
+mutation controls are not yet bound to this UI. Native acceptance **PASS** at `fd469e2e41c9b2be31ad055c385ce2ef2d6116c8`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43595978010/job/132450437959),
+7.523-second actual guest test. [Results](evidence/microvm-address-2026-11-14/result.json)
+and [provenance](evidence/microvm-address-2026-11-14/provenance.json) retain the evidence.
+Local focused suite: 29 passed, one GUI test skipped; the separate actual Chromium
+resource editor test passed. Current draft GUI captures:
+[topology](images/microvm-progress-2026-11-14/workbench.png) and
+[resources](images/microvm-progress-2026-11-14/resources.png), with capture provenance
+in that directory. These screenshots do not claim local guest boot or GUI network
+mutation integration. Next: typed routes and configuration persistence, multi-NIC
+and role translation. VXLAN remains deferred.
 
 
 ## Guest interface control — 2026-11-14
