@@ -3,10 +3,10 @@ import ipaddress
 import socket
 import time
 
-OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK'}
+OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL'}
 
 
-def request(path, operation, *, destination=None, interface=None, state=None, timeout=6):
+def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
     command = OPERATIONS[operation]
@@ -20,6 +20,12 @@ def request(path, operation, *, destination=None, interface=None, state=None, ti
         command += ' ' + interface + ' ' + state
     elif interface is not None or state is not None:
         raise ValueError('Only link accepts interface/state arguments.')
+    if operation in ('address-add', 'address-delete'):
+        if not isinstance(cidr, str) or '/' not in cidr:
+            raise ValueError('Guest address requires explicit IPv4/prefix.')
+        command += ' ' + str(ipaddress.IPv4Interface(cidr))
+    elif cidr is not None:
+        raise ValueError('Only address operations accept CIDR.')
     if not 0 < timeout <= 30:
         raise ValueError('Guest timeout must be between 0 and 30 seconds.')
     deadline = time.monotonic() + timeout

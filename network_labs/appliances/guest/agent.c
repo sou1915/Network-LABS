@@ -12,6 +12,18 @@
 #include <string.h>
 
 #define LIMIT 32768
+static int valid_cidr(const char *value) {
+    char ip[16]; const char *slash = strchr(value, '/');
+    if (!slash || slash == value || slash - value >= (int)sizeof(ip)) return 0;
+    size_t length = (size_t)(slash - value);
+    memcpy(ip, value, length); ip[length] = 0;
+    struct in_addr address;
+    if (inet_pton(AF_INET, ip, &address) != 1) return 0;
+    const char *prefix = slash + 1; size_t digits = strlen(prefix);
+    if (digits < 1 || digits > 2 || (digits > 1 && prefix[0] == '0')) return 0;
+    for (size_t i = 0; i < digits; i++) if (prefix[i] < '0' || prefix[i] > '9') return 0;
+    return atoi(prefix) <= 32;
+}
 static int send_all(int fd, const char *data, size_t size) {
     while (size) {
         ssize_t n = write(fd, data, size);
@@ -56,6 +68,10 @@ static void serve(int input, int output, int mutations) {
     /* Only the vsock daemon may change the guest; diagnostic stdio stays read-only. */
     if (mutations && !strcmp(request, "NL1 LINK eth0 up")) args = link_up;
     if (mutations && !strcmp(request, "NL1 LINK eth0 down")) args = link_down;
+    char *const address_add[] = {"busybox", "ip", "address", "add", request + 13, "dev", "eth0", NULL};
+    char *const address_delete[] = {"busybox", "ip", "address", "del", request + 13, "dev", "eth0", NULL};
+    if (mutations && !strncmp(request, "NL1 ADDR_ADD ", 13) && valid_cidr(request + 13)) args = address_add;
+    if (mutations && !strncmp(request, "NL1 ADDR_DEL ", 13) && valid_cidr(request + 13)) args = address_delete;
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }

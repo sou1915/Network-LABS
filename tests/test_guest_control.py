@@ -50,7 +50,7 @@ class GuestAgentTests(unittest.TestCase):
                 self.assertIn(b'lo', body)
 
     def test_stdio_cannot_mutate_interfaces(self):
-        for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
+        for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
 
     def test_partial_request_times_out(self):
@@ -118,3 +118,10 @@ class GuestTransportTests(unittest.TestCase):
             with patch('network_labs.appliances.guest_control.request', return_value={'exit_code': code, 'output': ''}) as call, patch('sys.stdout', new_callable=io.StringIO):
                 self.assertEqual(main(['microvm-link', '--socket', '/private/guest.vsock', 'down']), 0 if code == 0 else 1)
                 call.assert_called_once_with(Path('/private/guest.vsock'), 'link', interface='eth0', state='down')
+
+    def test_address_wire_and_validation(self):
+        result = self.exchange(b'NL1 0 0\n', operation='address-add', arguments={'cidr': '192.0.2.11/24'}, wire=b'NL1 ADDR_ADD 192.0.2.11/24\n')
+        self.assertEqual(result['exit_code'], 0)
+        for cidr in ('192.0.2.11', '192.0.2.11/33', '192.0.2.11/24;id', '::1/128', None):
+            with self.assertRaises(ValueError): request('/missing', 'address-add', cidr=cidr)
+        with self.assertRaises(ValueError): request('/missing', 'ready', cidr='192.0.2.11/24')

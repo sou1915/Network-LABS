@@ -1,5 +1,21 @@
 # Authoritative project vision — clarified by the user, 2026-11-12
 
+## Guest IPv4 address control — 2026-11-14
+
+`microvm-address --socket /private/node/guest.vsock --cidr 192.0.2.11/24 add`
+(or `delete`) changes an explicit IPv4 address on guest eth0 using fixed argv.
+Both sides validate input; stdio diagnostics reject mutations. Errors propagate
+to the CLI. Changes are live only, not saved to manifests/startup. A duplicate
+add/delete can return a Linux error; this operation is not claimed idempotent.
+After a transport timeout, inspect addresses before deciding whether to retry.
+
+Expanded native acceptance adds a secondary address, verifies peer ping, removes
+it, verifies packet failure, and verifies original-address connectivity throughout.
+UI terminology now says runtime instead of OCI for the shared node status table.
+Screenshots show the current draft GUI, not a locally booted guest; network
+mutation controls are not yet bound to this UI. Native validation is pending.
+
+
 ## Guest interface control — 2026-11-14
 
 `microvm-link --socket /private/node/guest.vsock down` (or `up`) changes the

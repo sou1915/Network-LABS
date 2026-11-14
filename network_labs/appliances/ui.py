@@ -176,7 +176,7 @@ class ApplianceWindow:
         tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=(self.font,10,'bold'),anchor='w').pack(fill='x',padx=14)
         tk.Label(details,textvariable=self.selected_details,bg=PANEL,fg=MUTED,justify='left',anchor='w',wraplength=265).pack(fill='x',padx=14,pady=4)
         self.nodes=ttk.Treeview(details,columns=('runtime','state','memory'),displaycolumns=('state','memory'),show='tree headings',height=3,selectmode='browse',style='Native.Treeview')
-        for key,label,width in (('#0','Nœud',65),('runtime','Runtime',65),('state','État OCI',115),('memory','RAM',70)):
+        for key,label,width in (('#0','Nœud',65),('runtime','Runtime',65),('state','État runtime',115),('memory','RAM',70)):
             self.nodes.heading(key,text=label);self.nodes.column(key,width=width,minwidth=45,stretch=True)
         self.nodes.pack(fill='x',padx=8);self.nodes.bind('<<TreeviewSelect>>',self.select_node)
         controls=tk.Frame(details,bg=PANEL,padx=12,pady=6);controls.pack(fill='x')

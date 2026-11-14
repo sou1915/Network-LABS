@@ -96,6 +96,17 @@ class RealMicroVMTests(unittest.TestCase):
                         guest_link('up')
                         probe(0, '192.0.2.20', True)
                         probe(1, '192.0.2.10', True)
+                        results['guest_address'] = []
+                        for operation, present in [('address-add', True), ('address-delete', False)]:
+                            change = request(sockets[0], operation, cidr='192.0.2.11/24')
+                            self.assertEqual(change['exit_code'], 0, change)
+                            observed = request(sockets[0], 'addresses')
+                            self.assertEqual(observed['exit_code'], 0)
+                            self.assertEqual('192.0.2.11/24' in observed['output'], present)
+                            self.assertIn('192.0.2.10/24', observed['output'])
+                            results['guest_address'].append({'operation': operation, 'reply': change, 'observed': observed})
+                            probe(1, '192.0.2.11', present)
+                            probe(1, '192.0.2.10', True)
                         with (root / 'base.ext4').open('rb') as stream:
                             self.assertEqual(hashlib.file_digest(stream, 'sha256').hexdigest(), report['sha256'])
                         (evidence / 'result.json').write_text(json.dumps(results, indent=2))
