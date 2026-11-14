@@ -20,7 +20,17 @@ not a distributed transaction. Existing startup is preserved on capture failure.
 Scope: IPv4 on eth0 only, no filesystem/IPv6/down-state snapshot. Default gateway
 continues to use the existing primary boot setting. Native test now saves an
 extra address and route, stops both guests, reloads startup.json, boots fresh
-guests and checks restored state and real packets. Native acceptance pending.
+guests and checks restored state and real packets. Native acceptance **PASS** at `5ed6a002097fa5992ad3f019ef33db315cfa29c2`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43643416167/job/132595735281).
+The real test completed in 9.039 seconds, including fresh-guest restore and
+post-restore packet delivery. [Results](evidence/microvm-startup-2026-11-14/result.json),
+[provenance](evidence/microvm-startup-2026-11-14/provenance.json), before/after guest
+console logs and cleanup evidence are retained. The
+[report screenshot](evidence/microvm-startup-2026-11-14/report.png) renders these
+actual artifacts; it is not a live GUI screenshot. Full local regression at the
+initial implementation: 1104 tests, 142 skips, no failures (113.083 seconds),
+including actual browser flows. Final stricter capture validation: six focused
+tests passed. The workspace remains without local KVM; native proof is from CI.
 GUI mutation/save binding, multi-NIC and node role translation remain next work;
 VXLAN remains deferred.
 

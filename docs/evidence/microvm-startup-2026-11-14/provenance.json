@@ -1,0 +1,8 @@
+{
+  "source_commit": "5ed6a002097fa5992ad3f019ef33db315cfa29c2",
+  "run": 43643416167,
+  "job": 132595735281,
+  "artifact": 14132848811,
+  "archive_sha256": "004329f8525180b7ea14fd49d622bbdaa097810525246442e6c33d8f2a65db26",
+  "scope": "Capture observed IPv4 addresses/routes, discard private disks, restore from startup.json, compare restored profiles and verify real packets. Baseline native guest tests and cleanup included. Report image is rendered from results, not a live GUI."
+}
