@@ -24,6 +24,10 @@ class GuestStartupTests(unittest.TestCase):
             with patch('network_labs.appliances.guest_startup.query', return_value=text), self.assertRaises(ValueError): observe('/socket',self.node())
         with patch('network_labs.appliances.guest_startup.query',side_effect=[ADDRESSES, ROUTES+'blackhole 10.0.0.0/8\n']), self.assertRaises(ValueError): observe('/socket',self.node())
 
+    def test_custom_connected_route_attributes_are_not_silently_dropped(self):
+        with patch('network_labs.appliances.guest_startup.query', side_effect=[ADDRESSES, '192.0.2.0/24 dev eth0 scope link src 192.0.2.10 metric 100\n']), self.assertRaises(ValueError):
+            observe('/socket', self.node())
+
     def test_replay_order_and_failed_mutation_never_retried(self):
         node=self.node();node['guest_network']=copy.deepcopy(PROFILE)
         with patch('network_labs.appliances.guest_startup.query') as query, patch('network_labs.appliances.guest_startup.observe',return_value=PROFILE):

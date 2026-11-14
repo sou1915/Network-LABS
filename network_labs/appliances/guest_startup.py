@@ -24,6 +24,8 @@ def validate_profile(node):
     for route in routes:
         if not isinstance(route, dict) or set(route) != {'network', 'gateway'}:
             raise ValueError('Guest route requires network/gateway only.')
+        if not isinstance(route['network'], str) or '/' not in route['network'] or not isinstance(route['gateway'], str):
+            raise ValueError('Guest route network/prefix and gateway must be strings.')
         network = str(ipaddress.IPv4Network(route['network'], strict=True))
         gateway = str(ipaddress.IPv4Address(route['gateway']))
         if not any(ipaddress.IPv4Address(gateway) in net for net in networks):
@@ -69,7 +71,7 @@ def observe(socket, node):
         if not fields: continue
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
-            if network not in connected or fields[1:3] != ['dev', 'eth0'] or 'scope' not in fields or fields.index('scope') + 1 >= len(fields) or fields[fields.index('scope') + 1] != 'link':
+            if network not in connected or len(fields) != 7 or fields[1:6] != ['dev', 'eth0', 'scope', 'link', 'src'] or fields[6] not in {str(ipaddress.IPv4Interface(a).ip) for a in addresses}:
                 raise ValueError('Unmanaged guest route cannot be saved: ' + line)
             continue
         if len(fields) != 5 or fields[1] != 'via' or fields[3:] != ['dev', 'eth0']:
