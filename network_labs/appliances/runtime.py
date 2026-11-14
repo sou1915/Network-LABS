@@ -120,7 +120,7 @@ def firecracker_config(node, kernel, disk):
                         'boot_args': f'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ip={interface.ip}::{gateway}:{interface.netmask}:{node["name"]}:eth0:off'},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
-        'network-interfaces': [{'iface_id': 'eth0', 'host_dev_name': 'tap0'}],
+        'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:]} for port in sorted(node['interfaces'])],
         'vsock': {'guest_cid': 3, 'uds_path': str(Path(disk).parent / 'guest.vsock')},
     }
 
@@ -460,11 +460,13 @@ class Manager:
                     self.state.setdefault('firewall_ipv6_fingerprints', {})[node['name']] = apply_ipv6_firewall(self, i, node)
                     self.save()
                 if node['runtime'] == 'firecracker':
-                    self.ns(i, 'ip', 'tuntap', 'add', 'tap0', 'mode', 'tap')
-                    self.ns(i, 'ip', 'link', 'add', 'vmbr0', 'type', 'bridge', 'stp_state', '0')
-                    self.ns(i, 'ip', 'link', 'set', 'tap0', 'master', 'vmbr0')
-                    self.ns(i, 'ip', 'link', 'set', 'tap0', 'up')
-                    self.ns(i, 'ip', 'link', 'set', 'vmbr0', 'up')
+                    for port in node['interfaces']:
+                        tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
+                        self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap')
+                        self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
+                        self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
+                        self.ns(i, 'ip', 'link', 'set', tap, 'up')
+                        self.ns(i, 'ip', 'link', 'set', bridge, 'up')
             byname = {n['name']: (i, n) for i, n in enumerate(spec['nodes'])}
             for i, link in enumerate(spec['links']):
                 peers = [f'{prefix(spec)}l{i}{side}' for side in ('a', 'b')]
@@ -478,7 +480,7 @@ class Manager:
                     self.ns(j, 'ip', 'link', 'set', peer, 'name', port)
                     if node['runtime'] == 'firecracker':
                         self.ns(j, 'ip', 'link', 'set', port, 'up')
-                        self.ns(j, 'ip', 'link', 'set', port, 'master', 'vmbr0')
+                        self.ns(j, 'ip', 'link', 'set', port, 'master', 'vmbr' + port[3:])
             connected = {tuple(e) for link in spec['links'] for e in link}
             for i, node in enumerate(spec['nodes']):
                 if node['runtime'] == 'oci':
@@ -631,7 +633,7 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node:
+            if 'guest_network' in node or len(node['interfaces']) > 1:
                 from .guest_startup import apply
                 apply(bundle / 'guest.vsock', node)
             return

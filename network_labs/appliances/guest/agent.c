@@ -12,6 +12,9 @@
 #include <string.h>
 
 #define LIMIT 32768
+static int valid_port(const char *value) {
+    return strlen(value) == 4 && !strncmp(value, "eth", 3) && value[3] >= '0' && value[3] <= '3';
+}
 static int valid_cidr(const char *value) {
     char ip[16]; const char *slash = strchr(value, '/');
     if (!slash || slash == value || slash - value >= (int)sizeof(ip)) return 0;
@@ -63,15 +66,18 @@ static void serve(int input, int output, int mutations) {
         args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
-    char *const link_up[] = {"busybox", "ip", "link", "set", "dev", "eth0", "up", NULL};
-    char *const link_down[] = {"busybox", "ip", "link", "set", "dev", "eth0", "down", NULL};
-    /* Only the vsock daemon may change the guest; diagnostic stdio stays read-only. */
-    if (mutations && !strcmp(request, "NL1 LINK eth0 up")) args = link_up;
-    if (mutations && !strcmp(request, "NL1 LINK eth0 down")) args = link_down;
+    char port[5], action[5], cidr[20], extra;
+    char *const link_args[] = {"busybox", "ip", "link", "set", "dev", port, action, NULL};
+    if (mutations && sscanf(request, "NL1 LINK %4s %4s %c", port, action, &extra) == 2 &&
+        valid_port(port) && (!strcmp(action, "up") || !strcmp(action, "down"))) args = link_args;
     char *const address_add[] = {"busybox", "ip", "address", "add", request + 13, "dev", "eth0", NULL};
     char *const address_delete[] = {"busybox", "ip", "address", "del", request + 13, "dev", "eth0", NULL};
     if (mutations && !strncmp(request, "NL1 ADDR_ADD ", 13) && valid_cidr(request + 13)) args = address_add;
     if (mutations && !strncmp(request, "NL1 ADDR_DEL ", 13) && valid_cidr(request + 13)) args = address_delete;
+    char *const iface_add[] = {"busybox", "ip", "address", "add", cidr, "dev", port, NULL};
+    char *const iface_delete[] = {"busybox", "ip", "address", "del", cidr, "dev", port, NULL};
+    if (mutations && sscanf(request, "NL1 IF_ADD %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_add;
+    if (mutations && sscanf(request, "NL1 IF_DEL %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_delete;
     char *route_network = request + 14;
     char *route_gateway = NULL;
     int route_add = !strncmp(request, "NL1 ROUTE_ADD ", 14);

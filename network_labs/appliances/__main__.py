@@ -23,6 +23,7 @@ def main(arguments=None):
     vm_sample.add_argument('--disk',type=Path,required=True)
     vm_sample.add_argument('--memory-mib',type=int,default=128)
     vm_sample.add_argument('--vcpus',type=int,default=1)
+    vm_sample.add_argument('--multinic',action='store_true',help='Three guests with two isolated segments and a dual-interface host.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
     guest.add_argument('--output', type=Path, required=True)
@@ -32,13 +33,14 @@ def main(arguments=None):
     control.add_argument('--socket', type=Path, required=True)
     control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping'])
     control.add_argument('--destination', help='IPv4 address required for ping.')
-    link = commands.add_parser('microvm-link', help='Set live guest eth0 up/down via vsock; not saved to the manifest.')
+    link = commands.add_parser('microvm-link', help='Set live guest eth0..eth3 up/down via vsock; not saved to the manifest.')
     link.add_argument('--socket', type=Path, required=True)
-    link.add_argument('--interface', choices=['eth0'], default='eth0')
+    link.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], default='eth0')
     link.add_argument('state', choices=['up', 'down'])
-    address = commands.add_parser('microvm-address', help='Add/delete a live IPv4 address on guest eth0; not persisted.')
+    address = commands.add_parser('microvm-address', help='Add/delete a live IPv4 address on a guest interface; not persisted.')
     address.add_argument('--socket', type=Path, required=True)
     address.add_argument('--cidr', required=True)
+    address.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'])
     address.add_argument('action', choices=['add', 'delete'])
     route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through guest eth0; not persisted.')
     route.add_argument('--socket', type=Path, required=True)
@@ -362,7 +364,7 @@ def main(arguments=None):
             result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway)
         elif args.command == 'microvm-address':
             from .guest_control import request
-            result = request(args.socket, 'address-' + args.action, cidr=args.cidr)
+            result = request(args.socket, 'address-' + args.action, cidr=args.cidr, interface=args.interface)
         elif args.command == 'microvm-link':
             from .guest_control import request
             result = request(args.socket, 'link', interface=args.interface, state=args.state)
@@ -374,7 +376,15 @@ def main(arguments=None):
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
-            result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
+            if args.multinic:
+                from .microvm import multinic_example
+                result=multinic_example(args.kernel,args.disk)
+                for node in result['nodes']:
+                    node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
+                from .spec import validate
+                result=validate(result)
+            else:
+                result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
         elif args.command == 'example':
             pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
             if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):

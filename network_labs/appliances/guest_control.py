@@ -15,14 +15,18 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     elif destination is not None:
         raise ValueError('Only ping accepts a destination.')
     if operation == 'link':
-        if interface != 'eth0' or state not in ('up', 'down'):
-            raise ValueError('Guest link requires interface eth0 and state up or down.')
+        if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state not in ('up', 'down'):
+            raise ValueError('Guest link requires interface eth0..eth3 and state up or down.')
         command += ' ' + interface + ' ' + state
-    elif interface is not None or state is not None:
+    elif state is not None or (interface is not None and operation not in ('address-add', 'address-delete')):
         raise ValueError('Only link accepts interface/state arguments.')
     if operation in ('address-add', 'address-delete'):
         if not isinstance(cidr, str) or '/' not in cidr:
             raise ValueError('Guest address requires explicit IPv4/prefix.')
+        if interface is not None:
+            if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
+                raise ValueError('Guest address interface must be eth0..eth3.')
+            command = ('IF_ADD' if operation == 'address-add' else 'IF_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Interface(cidr))
     elif cidr is not None:
         raise ValueError('Only address operations accept CIDR.')

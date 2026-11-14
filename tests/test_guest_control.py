@@ -133,3 +133,8 @@ class GuestTransportTests(unittest.TestCase):
         for network, gateway in [('198.51.100.1/24', '192.0.2.20'), ('::/0', '192.0.2.20'), ('0.0.0.0/0', '192.0.2.20;id'), ('default', '192.0.2.20'), ('0.0.0.0/0', None)]:
             with self.assertRaises(ValueError): request('/missing', 'route-add', network=network, gateway=gateway)
         with self.assertRaises(ValueError): request('/missing', 'ready', gateway='192.0.2.20')
+
+    def test_multinic_address_and_link_wire(self):
+        for operation, arguments, wire in [('address-add', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_ADD eth1 198.51.100.10/24\n'), ('address-delete', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_DEL eth1 198.51.100.10/24\n'), ('link', {'interface':'eth1','state':'down'}, b'NL1 LINK eth1 down\n')]:
+            self.assertEqual(self.exchange(b'NL1 0 0\n',operation=operation,arguments=arguments,wire=wire)['exit_code'],0)
+        with self.assertRaises(ValueError):request('/missing','address-add',interface='eth4',cidr='198.51.100.10/24')

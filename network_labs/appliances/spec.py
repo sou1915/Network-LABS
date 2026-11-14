@@ -108,8 +108,14 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role != 'host' or list(interfaces) != ['eth0'] or not interfaces['eth0']:
-                raise ValueError('Firecracker initial adapter: host with one static IPv4 eth0 only.')
+            if role != 'host' or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
+                raise ValueError('Firecracker host requires one static IPv4 per port, contiguous eth0..eth3.')
+            interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
+            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values()]
+            if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
+                raise ValueError('Firecracker interface subnets must not overlap.')
+            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in networks[0]:
+                raise ValueError('Firecracker boot gateway must be on eth0.')
         from .guest_startup import validate_profile
         validate_profile(node)
     from .ipv6 import validate_lab as validate_ipv6_lab

@@ -49,29 +49,35 @@ def query(socket, operation, **kwargs):
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
-    addresses = []; interface = None; up = False
+    by_port = {port: [] for port in node['interfaces']}
+    interface = None; active = set()
     for line in text.splitlines():
         header = re.match(r'^\d+: ([^:]+): <([^>]*)>', line)
         if header:
             interface = header[1]
-            if interface not in ('lo', 'eth0'):
-                raise ValueError('Guest startup supports only lo and eth0.')
-            if interface == 'eth0': up = 'UP' in header[2].split(',')
+            if interface != 'lo' and interface not in by_port:
+                raise ValueError('Guest has an undeclared interface.')
+            if 'UP' in header[2].split(','): active.add(interface)
         fields = line.split()
-        if fields and fields[0] == 'inet' and interface == 'eth0':
-            addresses.append(str(ipaddress.IPv4Interface(fields[1])))
+        if fields and fields[0] == 'inet' and interface in by_port:
+            by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
+    for port, primary_address in node['interfaces'].items():
+        primary_address = str(ipaddress.IPv4Interface(primary_address))
+        if port not in active or primary_address not in by_port[port]:
+            raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
+        if port != 'eth0' and by_port[port] != [primary_address]:
+            raise ValueError('Extra-address persistence currently supports eth0 only.')
     primary = str(ipaddress.IPv4Interface(node['interfaces']['eth0']))
-    if not up or primary not in addresses:
-        raise ValueError('Save requires guest eth0 up with its declared primary IPv4 address.')
+    addresses = by_port['eth0']
     routes = []
-    connected = {str(ipaddress.IPv4Interface(a).network) for a in addresses}
+    connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
         if not fields: continue
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
-            if network not in connected or len(fields) != 7 or fields[1:6] != ['dev', 'eth0', 'scope', 'link', 'src'] or fields[6] not in {str(ipaddress.IPv4Interface(a).ip) for a in addresses}:
+            if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
                 raise ValueError('Unmanaged guest route cannot be saved: ' + line)
             continue
         if len(fields) != 5 or fields[1] != 'via' or fields[3:] != ['dev', 'eth0']:
@@ -98,11 +104,16 @@ def apply(socket, node, timeout=40):
         except (OSError, ValueError):
             if time.monotonic() >= deadline: raise
             time.sleep(.1)
-    for address in node['guest_network']['addresses']:
+    for port, address in node['interfaces'].items():
+        if port != 'eth0':
+            query(socket, 'address-add', interface=port, cidr=address)
+            query(socket, 'link', interface=port, state='up')
+    profile = node.get('guest_network', {'addresses': [], 'routes': []})
+    for address in profile['addresses']:
         query(socket, 'address-add', cidr=address)
-    for route in node['guest_network']['routes']:
+    for route in profile['routes']:
         query(socket, 'route-add', **route)
-    if observe(socket, node) != node['guest_network']:
+    if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
 
 
@@ -123,4 +134,4 @@ def save_observed(manager):
         if observe(manager.directory / node['name'] / 'guest.vsock', node) != node['guest_network']:
             raise ValueError('Guest changed during save; no startup configuration written.')
     save_startup(manager.name, candidate)
-    return {'saved': str(startup_path(manager.name)), 'scope': 'Observed IPv4 addresses/routes; eth0 up. No disk snapshot or IPv6 persistence.'}
+    return {'saved': str(startup_path(manager.name)), 'scope': 'Observed eth0 extras/routes and declared primary addresses; interfaces up. No disk snapshot or IPv6 persistence.'}

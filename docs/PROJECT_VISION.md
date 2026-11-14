@@ -1,5 +1,29 @@
 # Authoritative project vision — clarified by the user, 2026-11-12
 
+## Multi-NIC host micro-VMs — 2026-11-14
+
+Firecracker host manifests now accept contiguous eth0..eth3 (1..4 static IPv4
+interfaces) with non-overlapping subnets. Each port owns its own TAP and bridge;
+the host never merges those bridges. The primary boot IP/gateway stays on eth0;
+additional ports are configured through the guest agent before startup succeeds.
+`microvm-example --multinic --kernel PATH --disk PATH` creates three guests:
+VM1 on two isolated segments and VM2/VM3 as endpoints. This is not a router role.
+
+`microvm-link --interface eth1` and `microvm-address --interface eth1` target the
+selected port with bounded argument validation. Static route mutation and extra
+address/route capture remain scoped to eth0. Declared primary IPv4 addresses for
+all ports are restored; unexpected extra addresses on secondary ports reject
+save. All declared ports must be up for the current save adapter.
+
+Dedicated KVM acceptance now also tests three guests, distinct bridge membership,
+selective eth1 link/address loss, unaffected eth0 traffic, no implicit cross-subnet
+forwarding even with endpoint routes, and cold restore. Local focused suite:
+39 passed, one GUI test skipped. Native validation pending. GUI resource copy
+now describes 1..4 ports; live GUI mutation controls remain future work.
+Next: multi-interface route/role translation (router/switch/firewall) and GUI
+integration. VMware/VirtualBox attachment and VXLAN remain tracked.
+
+
 ## Guest startup capture and cold restore — 2026-11-14
 
 `sudo python3 -m network_labs.appliances microvm-save LAB` captures supported

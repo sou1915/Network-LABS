@@ -54,3 +54,14 @@ class GuestStartupTests(unittest.TestCase):
         save.assert_not_called()
         node=self.node();node['guest_network']=PROFILE
         with patch('network_labs.appliances.guest_startup.query'), patch('network_labs.appliances.guest_startup.observe',return_value=empty), self.assertRaises(ValueError): apply('/socket',node)
+
+    def test_declared_extra_port_is_verified_and_replayed(self):
+        node=self.node();node['interfaces']['eth1']='198.51.100.10/24'
+        text=ADDRESSES.replace('    inet 198.51.100.1/32 scope global eth0\n','')+'3: eth1: <BROADCAST,UP>\n    inet 198.51.100.10/24 scope global eth1\n'
+        routes='192.0.2.0/24 dev eth0 scope link src 192.0.2.10\n198.51.100.0/24 dev eth1 scope link src 198.51.100.10\n'
+        with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes]):
+            self.assertEqual(observe('/socket',node),{'addresses':[],'routes':[]})
+        with patch('network_labs.appliances.guest_startup.query') as query, patch('network_labs.appliances.guest_startup.observe',return_value={'addresses':[],'routes':[]}):
+            apply('/socket',node)
+            self.assertEqual(query.call_args_list[1].kwargs,{'interface':'eth1','cidr':'198.51.100.10/24'})
+            self.assertEqual(query.call_args_list[2].kwargs,{'interface':'eth1','state':'up'})
