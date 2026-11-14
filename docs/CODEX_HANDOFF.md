@@ -13,7 +13,14 @@ Inspect routes after a transport timeout before retrying an uncertain change.
 Expanded KVM acceptance places an off-subnet /32 address on VM2, proves initial
 unreachability from VM1, installs a route through VM2, proves packet delivery,
 then deletes it and proves loss while original on-link traffic continues.
-Local focused tests: 30 passed, one GUI test skipped. Native CI pending.
+Local focused tests: 30 passed, one GUI test skipped. Native acceptance **PASS** at `e41f872f78936617631051652829f604ea89bc68`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43598010155/job/132456550827),
+4.907-second real guest test. [Results](evidence/microvm-route-2026-11-14/result.json)
+and [provenance](evidence/microvm-route-2026-11-14/provenance.json) retain the source
+artifacts. [Report screenshot](evidence/microvm-route-2026-11-14/report.png) is a
+rendering of those actual results, not a live GUI screenshot. The [HTML report](evidence/microvm-route-2026-11-14/report.html)
+is retained too. The existing GUI was recaptured and its Chromium resource-editor
+test passed; no product GUI feature changed in this increment.
 The GUI remains unchanged in this increment; screenshots show a draft, not
 local runtime observations. Next: persisted guest configuration and restart
 validation, then multi-NIC and node roles. VXLAN remains on the later roadmap.

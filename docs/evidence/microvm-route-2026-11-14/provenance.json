@@ -1,0 +1,8 @@
+{
+  "source_commit": "e41f872f78936617631051652829f604ea89bc68",
+  "run": 43598010155,
+  "job": 132456550827,
+  "artifact": 14115014234,
+  "archive_sha256": "200ce3498571aca9d5e3a649772c92a36b0e12d05f419e0159c1b14b64eb170e",
+  "scope": "Live guest static route via peer, initial loss, delivery after addition, loss after removal, original connectivity retained; baseline KVM acceptance and cleanup. Report screenshot is rendered from retained results, not a live product GUI."
+}
