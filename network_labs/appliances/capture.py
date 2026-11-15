@@ -154,7 +154,13 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
         if process.returncode == 124 and reason != 'interrupted':
             reason = 'duration'
         if process.returncode not in (0, 124):
-            raise RuntimeFailure(f'tcpdump failed (exit {process.returncode}): ' + _log(log_handle).decode(errors='replace').strip())
+            # Say how long it ran and what reached the file: a killed capture and a silent one need different fixes.
+            try:
+                recorded = f'{pcap_summary(handle)["captured_packets"]} packets recorded'
+            except RuntimeFailure as error:
+                recorded = f'unreadable capture file ({error})'
+            raise RuntimeFailure(f'tcpdump failed (exit {process.returncode}) after {time.monotonic() - started:.2f}s of a {seconds}s limit, {recorded}: '
+                                 + _log(log_handle).decode(errors='replace').strip())
         summary = pcap_summary(handle)
         if summary['captured_packets'] > packets or summary['snapshot_length'] > snaplen:
             raise RuntimeFailure('Capture exceeded its requested packet/snapshot bounds.')

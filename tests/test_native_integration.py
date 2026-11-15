@@ -545,6 +545,14 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                 log = manager.directory / 'R1/ssh.log'
                 self.fail('SSH not ready: ' + (log.read_text(errors='replace') if log.exists() else 'missing log'))
             def ssh(command, identity=key, tty=False, check=True):
+                try:
+                    return ssh_once(command, identity, tty, check)
+                except Exception as error:
+                    # The client runs at LogLevel=ERROR; the server log names the actual refusal.
+                    log = manager.directory / 'R1/ssh.log'
+                    error.add_note('R1 ssh.log: ' + (log.read_text(errors='replace')[-3000:] if log.exists() else 'missing'))
+                    raise
+            def ssh_once(command, identity, tty, check):
                 return manager.ns(0, 'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
                                   '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(known),
                                   '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=3', '-o', 'LogLevel=ERROR',

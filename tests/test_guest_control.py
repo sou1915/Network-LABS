@@ -1,6 +1,7 @@
 """Real compiled guest protocol and local transport; not a KVM boot test."""
 import io
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -45,7 +46,12 @@ class GuestAgentTests(unittest.TestCase):
     def test_fixed_linux_diagnostics_report_real_exit_status(self):
         for operation in ('ADDRESSES', 'ROUTES', 'PING 127.0.0.1'):
             code, body = self.invoke(('NL1 ' + operation + '\n').encode())
-            self.assertEqual(code, 0 if Path('/bin/busybox').exists() else 127, (operation, body))
+            expected = 0 if Path('/bin/busybox').exists() else 127
+            if expected == 0 and operation.startswith('PING') and os.geteuid() != 0 and b'permission denied' in body:
+                # Raw ICMP needs root. The guest agent has it; an unprivileged test process may not,
+                # and BusyBox's own refusal must then come back with its real exit status.
+                expected = 1
+            self.assertEqual(code, expected, (operation, body))
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
