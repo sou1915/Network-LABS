@@ -149,14 +149,18 @@ try:
         assert isolated['data']['probe_commands_attempted']==2
         window.choose_node('PC1');window.destination.set('SRV1')
         capture_path=directory/'gui-icmp.pcap';capture_process=[]
+        capture_log=directory/'gui-capture.log'
         def capture_terminal(command):
-            process=direct_terminal(command);capture_process.append(process);return process
+            # Keep what a real terminal would have shown, so an early exit explains itself.
+            with capture_log.open('wb') as log:
+                process=ui.subprocess.Popen(command,stdin=ui.subprocess.DEVNULL,stdout=log,stderr=ui.subprocess.STDOUT)
+            capture_process.append(process);return process
         window.capture_interface.set('eth0');window.capture_seconds.set('8');window.capture_packets.set('100');window.capture_filter.set('icmp')
         with patch.object(ui,'launch_terminal',side_effect=capture_terminal),patch.object(ui.filedialog,'asksaveasfilename',return_value=str(capture_path)):
             assert window.open_capture(),window.note.get()
         deadline=time.monotonic()+5
         while time.monotonic()<deadline and (not capture_path.exists() or capture_path.stat().st_size<24):
-            assert capture_process[0].poll() is None,'Capture exited before PCAP header'
+            assert capture_process[0].poll() is None,'Capture exited before PCAP header (exit '+str(capture_process[0].returncode)+'): '+capture_log.read_text(errors='replace')[-3000:]
             root.update();time.sleep(.03)
         assert capture_path.exists() and capture_path.stat().st_size>=24
         firewall_allowed=drive('verify')
