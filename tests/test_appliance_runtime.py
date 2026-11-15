@@ -169,6 +169,24 @@ class LifecycleTests(unittest.TestCase):
                 manager.stop()
                 kill.assert_not_called()
 
+    def test_stop_retains_state_when_a_vmm_survives_sigkill(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = Manager('test'); manager.directory = Path(folder) / 'test'; manager.directory.mkdir()
+            manager.state = {'spec': {}, 'vms': [{'name': 'VM1', 'pid': 123, 'starttime': 'same'}],
+                             'containers': [], 'namespaces': ['nl-owned'], 'host_links': [], 'mounts': []}
+            state = manager.state
+            def read_state():
+                manager.state = state
+                return state
+            with patch.object(manager, 'read', side_effect=read_state), patch('network_labs.appliances.runtime.process_identity', return_value='same'), \
+                 patch('os.kill') as kill, patch('os.waitpid', side_effect=ChildProcessError), patch('time.sleep'), \
+                 patch('network_labs.appliances.runtime.run', side_effect=AssertionError('fabric removed under a live VMM')):
+                with self.assertRaisesRegex(RuntimeFailure, 'VMM VM1 .pid 123. is still running'):
+                    manager.stop()
+                kill.assert_called_once()
+            # Nothing owned was torn down, so a later stop can still find and remove it.
+            self.assertTrue(manager.directory.exists())
+
 
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
 class NativeGUITests(unittest.TestCase):

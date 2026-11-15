@@ -125,3 +125,17 @@ class GuestStartupTests(unittest.TestCase):
         for role in ('switch','firewall'):
             spec=router_example('/kernel','/disk');spec['nodes'][0]['role']=role
             with self.subTest(role=role),self.assertRaises(ValueError):validate(spec)
+
+    def test_router_chain_declares_one_transit_route_per_router_on_the_right_port(self):
+        from network_labs.appliances.microvm import router_chain_example
+        from network_labs.appliances.guest_startup import route_port
+        spec=router_chain_example('/kernel','/disk');first,second=spec['nodes'][:2]
+        self.assertEqual([n['name'] for n in spec['nodes']],['R1','R2','VM2','VM3'])
+        self.assertEqual(route_port(first,first['guest_network'],'203.0.113.2'),'eth1')
+        self.assertEqual(route_port(second,second['guest_network'],'203.0.113.1'),'eth0')
+        # R1 reaches its next hop through its second port, so replay must name that port; forwarding still comes last.
+        with patch('network_labs.appliances.guest_startup.query') as query,patch('network_labs.appliances.guest_startup.observe',return_value=first['guest_network']):
+            apply('/socket',first)
+        calls=[(c.args[1],c.kwargs) for c in query.call_args_list]
+        self.assertIn(('route-add',{'network':'198.51.100.0/24','gateway':'203.0.113.2','interface':'eth1'}),calls)
+        self.assertEqual(calls[-1],('forward',{'state':'on'}))

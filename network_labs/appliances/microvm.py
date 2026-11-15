@@ -36,3 +36,17 @@ def router_example(kernel, disk):
     right['gateway'] = '198.51.100.1'
     spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['VM3', 'eth0']]]
     return validate(spec)
+
+
+def router_chain_example(kernel, disk):
+    """VM2 - R1 - R2 - VM3: each router holds one declared static route across the transit link."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-router-chain'
+    first, left, right = spec['nodes']
+    first['interfaces']['eth1'] = '203.0.113.1/30'
+    first['guest_network'] = {'addresses': [], 'routes': [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}]}
+    second = dict(first, name='R2', interfaces={'eth0': '203.0.113.2/30', 'eth1': '198.51.100.1/24'},
+                  guest_network={'addresses': [], 'routes': [{'network': '192.0.2.0/24', 'gateway': '203.0.113.1'}]})
+    spec['nodes'] = [first, second, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

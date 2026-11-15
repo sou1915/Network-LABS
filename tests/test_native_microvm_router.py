@@ -98,3 +98,75 @@ class RouterGuestTests(unittest.TestCase):
                 for record in records: self.assertNotEqual(process_identity(record['pid']), record['starttime'])
                 self.assertFalse(manager.directory.exists())
                 (evidence / 'cleanup.txt').write_text('All owned VMMs and private lab resources removed.\n')
+
+    def test_two_router_chain_static_routes_withdrawal_and_restore(self):
+        from network_labs.appliances.microvm import router_chain_example
+        self.assertEqual(os.geteuid(), 0)
+        self.assertTrue(Path('/dev/kvm').exists(), 'KVM required, no fallback')
+        kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
+        evidence = Path(os.environ.get('NETWORK_LABS_MICROVM_EVIDENCE', '/tmp/network-labs-microvm-evidence')) / 'router-chain'
+        evidence.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='nlrc-') as temporary:
+            root = Path(temporary)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            spec = router_chain_example(kernel, root / 'base.ext4')
+            names = [n['name'] for n in spec['nodes']]
+            with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
+                manager = Manager(spec['name']); records = []; results = {'probes': []}
+                with manager.locked():
+                    try:
+                        manager.start(spec); records.extend(manager.state['vms'])
+                        sockets = {name: manager.directory / name / 'guest.vsock' for name in names}
+
+                        def probe(name, destination, expected, attempts=1):
+                            for _ in range(attempts):
+                                result = request(sockets[name], 'ping', destination=destination)
+                                if (result['exit_code'] == 0) == expected: break
+                            results['probes'].append({'source': name, 'destination': destination, 'expected': expected, **result})
+                            self.assertEqual(result['exit_code'] == 0, expected, result)
+                            return result
+
+                        def wait_ready():
+                            for name in ('VM2', 'VM3'):
+                                deadline = time.monotonic() + 40
+                                while True:
+                                    try: query(sockets[name], 'ready'); break
+                                    except (ValueError, OSError):
+                                        if time.monotonic() >= deadline: raise
+                                        time.sleep(.1)
+
+                        wait_ready()
+                        results['routes'] = {name: query(sockets[name], 'routes') for name in ('R1', 'R2')}
+                        # The declared transit routes were installed by startup, R1's through its second port.
+                        self.assertIn('198.51.100.0/24 via 203.0.113.2 dev eth1', results['routes']['R1'])
+                        self.assertIn('192.0.2.0/24 via 203.0.113.1 dev eth0', results['routes']['R2'])
+                        direct = probe('VM2', '192.0.2.1', True, attempts=3)
+                        routed = probe('VM2', '198.51.100.20', True, attempts=5); probe('VM3', '192.0.2.20', True, attempts=5)
+                        ttl = lambda result: int(result['output'].split('ttl=')[1].split()[0])
+                        # Two routers on the return path cost exactly two TTLs.
+                        self.assertEqual(ttl(routed), ttl(direct) - 2, (routed, direct)); results['ttl'] = {'direct': ttl(direct), 'routed': ttl(routed)}
+                        # Withdrawing R1's route through eth1 breaks the far segment only; a save then records its absence.
+                        query(sockets['R1'], 'route-delete', network='198.51.100.0/24', gateway='203.0.113.2', interface='eth1')
+                        probe('VM2', '198.51.100.20', False); probe('VM2', '192.0.2.1', True)
+                        query(sockets['R1'], 'route-add', network='198.51.100.0/24', gateway='203.0.113.2', interface='eth1')
+                        probe('VM2', '198.51.100.20', True, attempts=3)
+                        results['saved'] = save_observed(manager)
+                        restored = load_startup(manager.name)
+                        self.assertEqual(restored['nodes'][0]['guest_network']['routes'], [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}])
+                        for name in names: shutil.copyfile(manager.directory / name / 'console.log', evidence / (name + '-before-restart.log'))
+                        manager.stop()
+                        for record in records: self.assertNotEqual(process_identity(record['pid']), record['starttime'])
+                        manager = Manager(spec['name']); manager.start(restored); records.extend(manager.state['vms'])
+                        wait_ready()
+                        results['restored_profiles'] = {n['name']: observe(sockets[n['name']], n) for n in restored['nodes']}
+                        probe('VM2', '198.51.100.20', True, attempts=5); probe('VM3', '192.0.2.20', True, attempts=5)
+                        results['cold_restore_passed'] = True
+                        (evidence / 'result.json').write_text(json.dumps(results, indent=2))
+                    finally:
+                        for name in names:
+                            console = manager.directory / name / 'console.log'
+                            if console.exists(): shutil.copyfile(console, evidence / (name + '.log'))
+                        if manager.directory.exists(): manager.stop()
+                for record in records: self.assertNotEqual(process_identity(record['pid']), record['starttime'])
+                self.assertFalse(manager.directory.exists())
+                (evidence / 'cleanup.txt').write_text('All owned VMMs and private lab resources removed.\n')
