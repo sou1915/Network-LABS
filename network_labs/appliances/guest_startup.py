@@ -73,6 +73,27 @@ def query(socket, operation, **kwargs):
     return result['output']
 
 
+def forwarding(socket):
+    """True/False from the guest kernel; None for an image whose agent predates routers."""
+    try:
+        return query(socket, 'forwarding').strip() == '1'
+    except ValueError as error:
+        # Such an agent cannot have enabled forwarding either, so a host on it is still off.
+        if 'unsupported operation' in str(error):
+            return None
+        raise
+
+
+def check_forwarding(socket, node):
+    state = forwarding(socket)
+    if node.get('role') == 'router':
+        if state is not True:
+            raise ValueError('Router guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
+                             else 'Router guest is not forwarding IPv4.')
+    elif state:
+        raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
+
+
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
@@ -120,6 +141,7 @@ def observe(socket, node):
         # A next hop reached through another port than its own subnet cannot be replayed.
         if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
             raise ValueError('Unsupported guest static route device for ' + route['network'])
+    check_forwarding(socket, node)
     return candidate['guest_network']
 
 
@@ -149,6 +171,8 @@ def apply(socket, node, timeout=40, alive=None):
         port = route_port(node, profile, route['gateway'])
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
+    if node.get('role') == 'router':
+        query(socket, 'forward', state='on')
     if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
 

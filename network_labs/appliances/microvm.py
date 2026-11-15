@@ -24,3 +24,15 @@ def multinic_example(kernel, disk):
     spec['nodes'].append(right)
     spec['links'].append([['VM1', 'eth1'], ['VM3', 'eth0']])
     return validate(spec)
+
+
+def router_example(kernel, disk):
+    """R1 forwards IPv4 between two segments; VM2 and VM3 reach each other only through it."""
+    spec = multinic_example(kernel, disk)
+    spec['name'] = 'microvm-router'
+    router, left, right = spec['nodes']
+    router.update(name='R1', role='router', interfaces={'eth0': '192.0.2.1/24', 'eth1': '198.51.100.1/24'})
+    left['gateway'] = '192.0.2.1'
+    right['gateway'] = '198.51.100.1'
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

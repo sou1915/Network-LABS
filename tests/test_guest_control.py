@@ -55,6 +55,14 @@ class GuestAgentTests(unittest.TestCase):
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
+    def test_forwarding_is_readable_but_never_writable_over_stdio(self):
+        code, body = self.invoke(b'NL1 FORWARDING\n')
+        self.assertEqual(code, 0); self.assertIn(body.strip(), (b'0', b'1'))
+        before = Path('/proc/sys/net/ipv4/ip_forward').read_text()
+        for data in (b'NL1 FORWARD on\n', b'NL1 FORWARD off\n', b'NL1 FORWARD maybe\n', b'NL1 FORWARD on \n'):
+            self.assertEqual(self.invoke(data)[0], 2)
+        self.assertEqual(Path('/proc/sys/net/ipv4/ip_forward').read_text(), before)
+
     def test_stdio_cannot_mutate_interfaces(self):
         for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 ROUTE_ADD 198.51.100.0/24 192.0.2.20\n', b'NL1 ROUTE_DEL 198.51.100.0/24 192.0.2.20\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
@@ -144,6 +152,14 @@ class GuestTransportTests(unittest.TestCase):
             self.assertEqual(result['exit_code'], 0)
         with self.assertRaises(ValueError): request('/missing', 'route-add', network='203.0.113.0/24', gateway='198.51.100.20', interface='eth4')
         with self.assertRaises(ValueError): request('/missing', 'ping', destination='192.0.2.20', interface='eth1')
+
+    def test_forwarding_wire_and_validation(self):
+        self.assertEqual(self.exchange(b'NL1 0 2\n1\n', operation='forwarding', arguments={}, wire=b'NL1 FORWARDING\n')['output'], '1\n')
+        for state in ('on', 'off'):
+            self.assertEqual(self.exchange(b'NL1 0 0\n', operation='forward', arguments={'state': state}, wire=('NL1 FORWARD ' + state + '\n').encode())['exit_code'], 0)
+        for arguments in ({}, {'state': 'up'}, {'state': 'on', 'interface': 'eth0'}):
+            with self.assertRaises(ValueError): request('/missing', 'forward', **arguments)
+        with self.assertRaises(ValueError): request('/missing', 'forwarding', state='on')
 
     def test_multinic_address_and_link_wire(self):
         for operation, arguments, wire in [('address-add', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_ADD eth1 198.51.100.10/24\n'), ('address-delete', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_DEL eth1 198.51.100.10/24\n'), ('link', {'interface':'eth1','state':'down'}, b'NL1 LINK eth1 down\n')]:

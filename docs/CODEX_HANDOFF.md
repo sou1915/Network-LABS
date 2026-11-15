@@ -1,5 +1,19 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Router micro-VM guests — 2026-11-15 (real-KVM acceptance pending)
+
+A Firecracker node may now declare `role: router` (at least two ports). After its
+addresses and routes are applied, startup switches IPv4 forwarding on in the guest
+kernel through two new typed agent requests, `FORWARDING` (read) and `FORWARD on|off`
+(write `/proc/sys/net/ipv4/ip_forward` directly; no shell, no sysctl applet). Startup
+readback and `microvm-save` fail closed unless a router forwards and a host does not;
+a host on an image whose agent predates these requests is accepted as not forwarding.
+`microvm-example --router --kernel PATH --disk PATH` prints R1 between VM2 and VM3,
+whose boot gateways point at R1. `tests/test_native_microvm_router.py` is the KVM
+acceptance: routed pings both ways, exactly one TTL lost per hop, no traffic with
+forwarding off, loss of the far port, save and cold restore. This is IPv4 static
+forwarding only: no NAT, firewall, dynamic routing or IPv6, and no switch role.
+
 ## Micro-VM hardening and multi-port routes — 2026-11-15 (not yet run on KVM)
 
 Unit-tested only; the real-KVM acceptance tests still have to be re-run on a

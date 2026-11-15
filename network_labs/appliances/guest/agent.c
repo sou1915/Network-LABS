@@ -5,6 +5,7 @@
 #include <linux/vm_sockets.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
@@ -56,6 +57,23 @@ static void serve(int input, int output, int mutations) {
     if (!strcmp(request, "NL1 READY")) {
         const char *ready = "{\"protocol\":1,\"agent_ready\":true,\"network_verified\":false}";
         reply(output, 0, ready, strlen(ready)); return;
+    }
+    /* IPv4 forwarding is one kernel switch: read or write it directly, never through a command line. */
+    const char *forward_path = "/proc/sys/net/ipv4/ip_forward";
+    if (!strcmp(request, "NL1 FORWARDING")) {
+        char value[4]; int fd = open(forward_path, O_RDONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value));
+        if (fd >= 0) close(fd);
+        if (n < 1) { reply(output, 1, "forwarding state unavailable", 28); return; }
+        reply(output, 0, value, (size_t)n); return;
+    }
+    int forward_on = !strcmp(request, "NL1 FORWARD on"), forward_off = !strcmp(request, "NL1 FORWARD off");
+    if (mutations && (forward_on || forward_off)) {
+        int fd = open(forward_path, O_WRONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : write(fd, forward_on ? "1\n" : "0\n", 2);
+        if (fd >= 0) close(fd);
+        if (n != 2) { reply(output, 1, "forwarding change failed", 24); return; }
+        reply(output, 0, "", 0); return;
     }
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};
     char *const routes[] = {"busybox", "ip", "route", "show", NULL};

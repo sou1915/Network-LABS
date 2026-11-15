@@ -24,6 +24,7 @@ def main(arguments=None):
     vm_sample.add_argument('--memory-mib',type=int,default=128)
     vm_sample.add_argument('--vcpus',type=int,default=1)
     vm_sample.add_argument('--multinic',action='store_true',help='Three guests with two isolated segments and a dual-interface host.')
+    vm_sample.add_argument('--router',action='store_true',help='Three guests: a router guest forwarding IPv4 between two endpoint guests.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
     guest.add_argument('--output', type=Path, required=True)
@@ -377,9 +378,11 @@ def main(arguments=None):
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
-            if args.multinic:
-                from .microvm import multinic_example
-                result=multinic_example(args.kernel,args.disk)
+            if args.multinic and args.router:
+                raise ValueError('Choose --multinic or --router, not both.')
+            if args.multinic or args.router:
+                from .microvm import multinic_example, router_example
+                result=(router_example if args.router else multinic_example)(args.kernel,args.disk)
                 for node in result['nodes']:
                     node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
                 from .spec import validate
