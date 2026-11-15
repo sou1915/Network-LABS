@@ -45,7 +45,7 @@ class GuestAgentTests(unittest.TestCase):
     def test_fixed_linux_diagnostics_report_real_exit_status(self):
         for operation in ('ADDRESSES', 'ROUTES', 'PING 127.0.0.1'):
             code, body = self.invoke(('NL1 ' + operation + '\n').encode())
-            self.assertEqual(code, 0 if Path('/bin/busybox').exists() else 127)
+            self.assertEqual(code, 0 if Path('/bin/busybox').exists() else 127, (operation, body))
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
