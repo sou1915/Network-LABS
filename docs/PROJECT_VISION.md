@@ -18,7 +18,17 @@ save. All declared ports must be up for the current save adapter.
 Dedicated KVM acceptance now also tests three guests, distinct bridge membership,
 selective eth1 link/address loss, unaffected eth0 traffic, no implicit cross-subnet
 forwarding even with endpoint routes, and cold restore. Local focused suite:
-39 passed, one GUI test skipped. Native validation pending. GUI resource copy
+39 passed, one GUI test skipped. Native acceptance **PASS** at `942d460d3188266c6213aa417eb375b312ced092`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43645330648/job/132601690477).
+Both real KVM suites passed in 20.157 seconds, including the three-guest dual-NIC
+scenario, selective port failures, no implicit forwarding and cold restore.
+[Results](evidence/microvm-multinic-2026-11-15/result.json),
+[provenance](evidence/microvm-multinic-2026-11-15/provenance.json) and guest logs
+are retained. [Actual workbench screenshot](evidence/microvm-multinic-2026-11-15/workbench.png)
+shows the draft three-node topology with repositioned nodes, not locally booted
+guests. Full local regression: 1109 tests, 143 skips, no failures (88.165 seconds).
+One and two NICs have native acceptance evidence; the schema allows up to four,
+but three/four NIC guests do not yet have dedicated native certification. GUI resource copy
 now describes 1..4 ports; live GUI mutation controls remain future work.
 Next: multi-interface route/role translation (router/switch/firewall) and GUI
 integration. VMware/VirtualBox attachment and VXLAN remain tracked.

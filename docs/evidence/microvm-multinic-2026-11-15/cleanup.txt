@@ -1,0 +1,1 @@
+All owned VMMs and private lab resources removed.
