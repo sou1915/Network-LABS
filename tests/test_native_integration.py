@@ -551,9 +551,11 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     # The client runs at LogLevel=ERROR; the server log names the actual refusal.
                     log = manager.directory / 'R1/ssh.log'
                     error.add_note('R1 ssh.log: ' + (log.read_text(errors='replace')[-3000:] if log.exists() else 'missing'))
+                    again = ssh_once(command, identity, tty, False, verbose=True)
+                    error.add_note(f'verbose retry exit {again.returncode}, stdout {again.stdout[-400:]!r}, stderr tail: ' + again.stderr[-3500:])
                     raise
-            def ssh_once(command, identity, tty, check):
-                return manager.ns(0, 'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
+            def ssh_once(command, identity, tty, check, verbose=False):
+                return manager.ns(0, 'ssh', *(['-vvv'] if verbose else []), '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
                                   '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(known),
                                   '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=3', '-o', 'LogLevel=ERROR',
                                   '-i', str(identity), *(['-tt'] if tty else ['-T']), 'lab@192.0.2.20', command,

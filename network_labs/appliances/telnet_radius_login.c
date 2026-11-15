@@ -31,6 +31,16 @@ static int unprivileged(void) {
     return 0;
 }
 
+/* BusyBox telnetd frees a session as soon as it reaps this process, without
+ * first forwarding what is still queued on the PTY. Final output written just
+ * before exit (a denial, a diagnostic result) was therefore sometimes lost.
+ * Stay alive briefly so telnetd's select loop relays it first. */
+static int finish(int code) {
+    struct timespec grace = {0, 200 * 1000 * 1000};
+    nanosleep(&grace, NULL);
+    return code;
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) {
         puts("Network LABS Telnet RADIUS login 1"); return 0;
@@ -44,10 +54,10 @@ int main(int argc, char **argv) {
     char action[33]; deadline = now() + 15;
     if (write_all(STDERR_FILENO, "RADIUS action (identity/hostname/security-context/shell): ",
                   sizeof("RADIUS action (identity/hostname/security-context/shell): ") - 1) || line(STDIN_FILENO, action, 32)) {
-        fputs(NL_DENIAL_TEXT, stderr); return 126;
+        fputs(NL_DENIAL_TEXT, stderr); return finish(126);
     }
     if (strcmp(action, "identity") && strcmp(action, "hostname") && strcmp(action, "security-context") && strcmp(action, "shell")) {
-        fputs(NL_DENIAL_TEXT, stderr); return 126;
+        fputs(NL_DENIAL_TEXT, stderr); return finish(126);
     }
-    return run(action, !strcmp(action, "shell") ? 3615 : 15);
+    return finish(run(action, !strcmp(action, "shell") ? 3615 : 15));
 }
