@@ -6,6 +6,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
+#include <linux/if_bridge.h>
+#include <linux/netlink.h>
+#include <linux/netfilter/nfnetlink.h>
+#include <linux/netfilter/nf_tables.h>
+#include <sys/time.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
@@ -27,6 +34,31 @@ static int valid_cidr(const char *value) {
     if (digits < 1 || digits > 2 || (digits > 1 && prefix[0] == '0')) return 0;
     for (size_t i = 0; i < digits; i++) if (prefix[i] < '0' || prefix[i] > '9') return 0;
     return atoi(prefix) <= 32;
+}
+/* Ask nf_tables for its generation: a read-only request that only an nf_tables kernel answers. */
+static int has_nftables(void) {
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
+    if (fd < 0) return 0;
+    struct { struct nlmsghdr header; struct nfgenmsg generic; } query;
+    memset(&query, 0, sizeof(query));
+    query.header.nlmsg_len = sizeof(query);
+    query.header.nlmsg_type = (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_GETGEN;
+    query.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    query.generic.version = NFNETLINK_V0;
+    struct timeval limit = {1, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+    char answer[512]; int present = 0;
+    if (send(fd, &query, sizeof(query), 0) == (ssize_t)sizeof(query)) {
+        ssize_t n = recv(fd, answer, sizeof(answer), 0);
+        if (n >= (ssize_t)sizeof(struct nlmsghdr)) {
+            struct nlmsghdr *header = (struct nlmsghdr *)answer;
+            if (header->nlmsg_type != NLMSG_ERROR) present = 1;
+            else if (n >= (ssize_t)(sizeof(struct nlmsghdr) + sizeof(struct nlmsgerr)))
+                present = ((struct nlmsgerr *)NLMSG_DATA(header))->error == 0;
+        }
+    }
+    close(fd);
+    return present;
 }
 static int send_all(int fd, const char *data, size_t size) {
     while (size) {
@@ -57,6 +89,21 @@ static void serve(int input, int output, int mutations) {
     if (!strcmp(request, "NL1 READY")) {
         const char *ready = "{\"protocol\":1,\"agent_ready\":true,\"network_verified\":false}";
         reply(output, 0, ready, strlen(ready)); return;
+    }
+    if (!strcmp(request, "NL1 KERNEL")) {
+        /* What this guest kernel can do, probed without changing anything. */
+        unsigned long version[3] = {BRCTL_GET_VERSION, 0, 0};
+        int probe = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        int bridge = probe >= 0 && ioctl(probe, SIOCGIFBR, version) >= 0;
+        if (probe >= 0) close(probe);
+        char report[256];
+        int n = snprintf(report, sizeof(report),
+            "bridge=%d\nvlan=%d\niptables=%d\nnftables=%d\nconntrack=%d\nipv6_forwarding=%d\n",
+            bridge, !access("/proc/net/vlan", F_OK), !access("/proc/net/ip_tables_names", F_OK),
+            has_nftables(),
+            !access("/proc/sys/net/netfilter/nf_conntrack_max", F_OK),
+            !access("/proc/sys/net/ipv6/conf/all/forwarding", F_OK));
+        reply(output, 0, report, (size_t)n); return;
     }
     /* IPv4 forwarding is one kernel switch: read or write it directly, never through a command line. */
     const char *forward_path = "/proc/sys/net/ipv4/ip_forward";

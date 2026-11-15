@@ -55,6 +55,14 @@ class GuestAgentTests(unittest.TestCase):
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
+    def test_kernel_capabilities_are_reported_without_changing_anything(self):
+        code, body = self.invoke(b'NL1 KERNEL\n')
+        self.assertEqual(code, 0)
+        report = dict(line.split('=') for line in body.decode().splitlines())
+        self.assertEqual(sorted(report), ['bridge', 'conntrack', 'iptables', 'ipv6_forwarding', 'nftables', 'vlan'])
+        self.assertTrue(all(value in ('0', '1') for value in report.values()), report)
+        self.assertEqual(self.invoke(b'NL1 KERNEL bridge\n')[0], 2)
+
     def test_forwarding_is_readable_but_never_writable_over_stdio(self):
         code, body = self.invoke(b'NL1 FORWARDING\n')
         self.assertEqual(code, 0); self.assertIn(body.strip(), (b'0', b'1'))

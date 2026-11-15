@@ -92,6 +92,39 @@ class CaptureTests(unittest.TestCase):
             manager.crun.assert_called_once_with('state', 'PC1', check=False)
             manager.ns.assert_called_once_with(0, 'ip', 'link', 'show', 'dev', 'eth0')
 
+    def test_micro_vm_capture_records_on_the_host_side_tap_of_the_chosen_port(self):
+        from contextlib import nullcontext
+        from network_labs.appliances.microvm import router_example
+        from network_labs.appliances.runtime import process_identity
+        spec = router_example('/kernel', '/disk')
+        alive = {'name': 'R1', 'pid': os.getpid(), 'starttime': process_identity(os.getpid())}
+        state = {'phase': 'running', 'spec': spec, 'vms': [alive]}
+        manager = SimpleNamespace(name=spec['name'], locked=nullcontext, read=lambda: state, crun=Mock(), ns=Mock())
+        class Process:
+            def __init__(self, args, **kwargs):
+                self.returncode = None; self.stderr = None; self.args = args; kwargs['stdout'].write(pcap())
+            def communicate(self, timeout):
+                self.returncode = 0; return None, b''
+            def poll(self): return self.returncode
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / namespace(spec, 0)).touch(); children = []
+            def spawn(*args, **kwargs):
+                child = Process(*args, **kwargs); children.append(child); return child
+            with patch('network_labs.appliances.capture.NETNS_ROOT', root), patch('shutil.which', side_effect=lambda p: '/usr/bin/' + p), \
+                 patch('network_labs.appliances.capture.subprocess.Popen', side_effect=spawn), patch('network_labs.appliances.capture._ready', return_value=b'listening on tap1'), patch.dict(os.environ, {}, clear=True):
+                report = capture(manager, 'R1', 'eth1', root / 'vm.pcap', expression='icmp')
+                self.assertEqual(children[0].args[children[0].args.index('-i') + 1], 'tap1')
+                self.assertEqual((report['interface'], report['captured_packets']), ('eth1', 1))
+                self.assertIn('host-side tap1 of guest eth1', report['source'])
+                manager.ns.assert_called_once_with(0, 'ip', 'link', 'show', 'dev', 'tap1')
+                manager.crun.assert_not_called()
+                # Undeclared ports, host device names and a dead VMM never start a capture.
+                for port in ('eth2', 'tap1', 'vmbr0', 'lo', 'any'):
+                    with self.subTest(port=port), self.assertRaises(ValueError): capture(manager, 'R1', port, root / 'unused')
+                alive['starttime'] = 'stale'
+                with self.assertRaisesRegex(RuntimeFailure, 'must be running'): capture(manager, 'R1', 'eth1', root / 'unused')
+                self.assertEqual(len(children), 1)
+
     def test_interface_and_output_rejections_never_spawn_capture(self):
         spec = example('/rootfs')
         from contextlib import nullcontext

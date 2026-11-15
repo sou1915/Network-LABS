@@ -1,5 +1,16 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16
+
+`capture LAB NODE ethN` now accepts micro-VM nodes: it records on the host-side
+`tapN` of the chosen guest port inside the node's namespace, with the same bounds
+and no-overwrite rules as container capture; nothing runs in the guest. `status`
+adds `vmm_memory_bytes`, its source (`cgroup` when jailed with cgroup v2, else the
+process resident set) and `vmm_cpu_seconds` per live VMM. The agent answers a new
+read-only `KERNEL` request (`microvm-diagnostic kernel`) reporting whether the
+guest kernel has bridging, 802.1Q, iptables, nf_tables, conntrack and IPv6
+forwarding; switch and firewall guest roles will be designed from that report.
+
 ## Router micro-VM guests — 2026-11-15
 
 A Firecracker node may now declare `role: router` (at least two ports). After its

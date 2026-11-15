@@ -33,7 +33,7 @@ def main(arguments=None):
     guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
-    control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping'])
+    control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping', 'forwarding', 'kernel'])
     control.add_argument('--destination', help='IPv4 address required for ping.')
     link = commands.add_parser('microvm-link', help='Set live guest eth0..eth3 up/down via vsock; not saved to the manifest.')
     link.add_argument('--socket', type=Path, required=True)

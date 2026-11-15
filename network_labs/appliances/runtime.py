@@ -309,6 +309,22 @@ def process_identity(pid):
         return None
 
 
+def vmm_usage(vm):
+    """Measured host cost of one VMM: its cgroup when jailed, else the process itself."""
+    usage = {'vmm_memory_bytes': None, 'vmm_memory_source': None, 'vmm_cpu_seconds': None}
+    try:
+        fields = Path(f'/proc/{vm["pid"]}/stat').read_text().rsplit(')', 1)[1].split()
+        usage['vmm_cpu_seconds'] = round((int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK'), 2)
+        if vm.get('cgroup') and Path(vm['cgroup'], 'memory.current').is_file():
+            usage.update(vmm_memory_bytes=int(Path(vm['cgroup'], 'memory.current').read_text()), vmm_memory_source='cgroup')
+        else:
+            rss = next(line for line in Path(f'/proc/{vm["pid"]}/status').read_text().splitlines() if line.startswith('VmRSS:'))
+            usage.update(vmm_memory_bytes=int(rss.split()[1]) * 1024, vmm_memory_source='process resident set')
+    except (OSError, ValueError, IndexError, StopIteration):
+        pass  # A process that just exited has nothing to measure; liveness is reported separately.
+    return usage
+
+
 class Manager:
     def __init__(self, name):
         self.name = identifier(name)
@@ -728,11 +744,13 @@ class Manager:
                 report['configured_memory_mib']=node['memory_mib'];report['configured_vcpus']=node.get('vcpus',1)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
                 report['vmm_jailed'] = bool(vm and vm.get('jailed'))
+                if report['vmm_alive']:
+                    report.update(vmm_usage(vm))
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')
             nodes.append(report)
         return {'name': self.name, 'phase': state['phase'], 'revision': state.get('revision', 0), 'nodes': nodes,
-                'memory_note': 'OCI cgroup memory only; not total app/VM/host usage.'}
+                'memory_note': 'OCI cgroup memory and, per micro-VM, measured VMM memory/CPU; not total app or host usage.'}
 
     def inspect(self, name):
         from .lan import observe

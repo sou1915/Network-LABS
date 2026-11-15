@@ -170,3 +170,61 @@ class RouterGuestTests(unittest.TestCase):
                 for record in records: self.assertNotEqual(process_identity(record['pid']), record['starttime'])
                 self.assertFalse(manager.directory.exists())
                 (evidence / 'cleanup.txt').write_text('All owned VMMs and private lab resources removed.\n')
+
+
+    def test_capture_usage_and_kernel_report_on_a_running_router(self):
+        """Operations that must not hold the lab lock: capture a routed ping on the router's far port."""
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from network_labs.appliances.capture import capture
+        self.assertEqual(os.geteuid(), 0)
+        kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
+        evidence = Path(os.environ.get('NETWORK_LABS_MICROVM_EVIDENCE', '/tmp/network-labs-microvm-evidence')) / 'router-capture'
+        evidence.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='nlcp-') as temporary, ThreadPoolExecutor(max_workers=1) as pool:
+            root = Path(temporary)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            spec = router_example(kernel, root / 'base.ext4')
+            with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
+                manager = Manager(spec['name']); records = []; results = {}
+                with manager.locked():
+                    manager.start(spec); records.extend(manager.state['vms'])
+                try:
+                    sockets = {n['name']: manager.directory / n['name'] / 'guest.vsock' for n in spec['nodes']}
+                    for name in ('VM2', 'VM3'):
+                        deadline = time.monotonic() + 40
+                        while True:
+                            try: query(sockets[name], 'ready'); break
+                            except (ValueError, OSError):
+                                if time.monotonic() >= deadline: raise
+                                time.sleep(.1)
+                    results['kernel'] = dict(line.split('=') for line in query(sockets['R1'], 'kernel').splitlines())
+                    print('GUEST_KERNEL_CAPABILITIES ' + json.dumps(results['kernel'], sort_keys=True), flush=True)
+                    self.assertEqual(sorted(results['kernel']), ['bridge', 'conntrack', 'iptables', 'ipv6_forwarding', 'nftables', 'vlan'])
+                    # Resolve neighbours first so the capture sees exactly one request and one reply.
+                    deadline = time.monotonic() + 15
+                    while request(sockets['VM2'], 'ping', destination='198.51.100.20')['exit_code'] and time.monotonic() < deadline: time.sleep(.2)
+                    ready = threading.Event(); path = root / 'routed.pcap'
+                    future = pool.submit(capture, Manager(spec['name']), 'R1', 'eth1', path, seconds=10, packets=2, expression='icmp', ready=ready.set)
+                    self.assertTrue(ready.wait(8), 'Guest capture did not become ready')
+                    self.assertEqual(request(sockets['VM2'], 'ping', destination='198.51.100.20')['exit_code'], 0)
+                    report = future.result(timeout=15); results['capture'] = report
+                    self.assertEqual((report['captured_packets'], report['stop_reason']), (2, 'completed'), report)
+                    self.assertIn('tap1', report['source'])
+                    with self.assertRaises(ValueError): capture(Manager(spec['name']), 'R1', 'eth2', root / 'no.pcap', seconds=1, packets=1)
+                    with manager.locked():
+                        manager.state = None
+                        status = {n['name']: n for n in manager.status()['nodes']}
+                    results['status'] = status
+                    for name, node in status.items():
+                        self.assertTrue(node['vmm_alive'], node)
+                        self.assertGreater(node['vmm_memory_bytes'], 8 * 1024 * 1024, node); self.assertGreaterEqual(node['vmm_cpu_seconds'], 0, node)
+                        self.assertEqual(node['vmm_memory_source'], 'cgroup' if node['vmm_jailed'] and records[0].get('cgroup') else 'process resident set', node)
+                    (evidence / 'result.json').write_text(json.dumps(results, indent=2))
+                    shutil.copyfile(path, evidence / 'routed.pcap')
+                finally:
+                    with manager.locked():
+                        manager.state = None
+                        if manager.directory.exists(): manager.stop()
+                for record in records: self.assertNotEqual(process_identity(record['pid']), record['starttime'])
+                self.assertFalse(manager.directory.exists())
