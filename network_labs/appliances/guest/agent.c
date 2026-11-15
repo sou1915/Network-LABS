@@ -78,6 +78,13 @@ static void serve(int input, int output, int mutations) {
     char *const iface_delete[] = {"busybox", "ip", "address", "del", cidr, "dev", port, NULL};
     if (mutations && sscanf(request, "NL1 IF_ADD %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_add;
     if (mutations && sscanf(request, "NL1 IF_DEL %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_delete;
+    char via_network[20], via_gateway[16];
+    char *const iface_route_add[] = {"busybox", "ip", "route", "add", via_network, "via", via_gateway, "dev", port, NULL};
+    char *const iface_route_delete[] = {"busybox", "ip", "route", "del", via_network, "via", via_gateway, "dev", port, NULL};
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %4s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+        valid_port(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_add;
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %4s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+        valid_port(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_delete;
     char *route_network = request + 14;
     char *route_gateway = NULL;
     int route_add = !strncmp(request, "NL1 ROUTE_ADD ", 14);

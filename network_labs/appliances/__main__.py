@@ -42,8 +42,9 @@ def main(arguments=None):
     address.add_argument('--cidr', required=True)
     address.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'])
     address.add_argument('action', choices=['add', 'delete'])
-    route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through guest eth0; not persisted.')
+    route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through a guest port (default eth0); not persisted.')
     route.add_argument('--socket', type=Path, required=True)
+    route.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], help='Other ports need a guest image built with the current agent.')
     route.add_argument('--network', required=True)
     route.add_argument('--gateway', required=True)
     route.add_argument('action', choices=['add', 'delete'])
@@ -361,7 +362,7 @@ def main(arguments=None):
                 result = save_observed(manager)
         elif args.command == 'microvm-route':
             from .guest_control import request
-            result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway)
+            result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway, interface=args.interface)
         elif args.command == 'microvm-address':
             from .guest_control import request
             result = request(args.socket, 'address-' + args.action, cidr=args.cidr, interface=args.interface)

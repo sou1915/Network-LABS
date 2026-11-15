@@ -17,7 +17,7 @@ import subprocess
 import time
 
 from .catalog import capabilities
-from .spec import MIB, identifier, namespace, prefix, validate
+from .spec import DEFAULT_VCPU_BUDGET, MIB, identifier, namespace, prefix, validate
 
 STATE_ROOT = Path('/run/network-labs')
 CONFIG_ROOT = Path('/var/lib/network-labs')
@@ -125,13 +125,38 @@ def firecracker_config(node, kernel, disk):
     }
 
 
+VM_UID_BASE = 200000   # One unprivileged numeric uid/gid per VMM; no passwd entry is needed.
+VM_OVERHEAD_MIB = 128  # VMM process headroom above guest RAM inside its memory cgroup.
+
+
+def jailer_path():
+    """Firecracker's jailer is used whenever installed; NETWORK_LABS_VM_JAILER=0 opts out."""
+    return None if os.environ.get('NETWORK_LABS_VM_JAILER') == '0' else shutil.which('jailer')
+
+
+def vm_cgroup(spec, index):
+    return Path('/sys/fs/cgroup/network-labs') / prefix(spec) / f'vm{index}'
+
+
+def jailer_command(spec, node, index, jailer, firecracker, base, *, cgroup=True):
+    """Chroot, private uid/gid, lab netns and (cgroup v2) RAM/CPU caps for one VMM."""
+    uid = str(VM_UID_BASE + index)
+    limits = ['--cgroup-version', '2', '--parent-cgroup', f'network-labs/{prefix(spec)}',
+              '--cgroup', f'memory.max={(node["memory_mib"] + VM_OVERHEAD_MIB) * MIB}',
+              '--cgroup', f'cpu.max={node.get("vcpus", 1) * 100000} 100000'] if cgroup else []
+    return [str(jailer), '--id', f'vm{index}', '--exec-file', str(firecracker), '--uid', uid, '--gid', uid,
+            '--chroot-base-dir', str(base), '--netns', '/run/netns/' + namespace(spec, index), *limits,
+            '--', '--no-api', '--config-file', '/firecracker.json']
+
+
 def plan(data):
     spec = validate(data)
     return {'name': spec['name'], 'budget_mib': spec['budget_mib'],
             'allocated_node_mib': sum(n['memory_mib'] for n in spec['nodes']),
             'allocated_vm_vcpus': sum(n.get('vcpus',1) for n in spec['nodes'] if n['runtime']=='firecracker'),
+            'budget_vcpus': spec.get('budget_vcpus', DEFAULT_VCPU_BUDGET),
             'reserve_mib': spec['reserve_mib'],
-            'note': 'Allocation check, not measured total RAM. VM host overhead and GUI are not hard capped.',
+            'note': 'Allocation check, not measured total RAM. GUI is not hard capped; VMM processes are capped only when the Firecracker jailer and cgroup v2 are available.',
             'nodes': [{'name': n['name'], 'runtime': n['runtime'], 'role': n['role'],
                        'namespace': namespace(spec, i), 'memory_mib': n['memory_mib'],
                        'interfaces': n['interfaces'], 'vcpus': n.get('vcpus') if n['runtime']=='firecracker' else None, 'exec': n['runtime'] == 'oci'}
@@ -445,6 +470,7 @@ class Manager:
         self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
                       'phase': 'starting', 'namespaces': [], 'mounts': [],
                       'containers': [], 'vms': [], 'host_links': [], 'firewall_fingerprints': {}}
+        jailed = jailer_path() is not None
         self.save()
         try:
             for i, node in enumerate(spec['nodes']):
@@ -462,7 +488,9 @@ class Manager:
                 if node['runtime'] == 'firecracker':
                     for port in node['interfaces']:
                         tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
-                        self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap')
+                        # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
+                        owner = ['user', str(VM_UID_BASE + i), 'group', str(VM_UID_BASE + i)] if jailed else []
+                        self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap', *owner)
                         self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
                         self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
                         self.ns(i, 'ip', 'link', 'set', tap, 'up')
@@ -617,28 +645,57 @@ class Manager:
             self.crun('exec', node['name'], *command, log=bundle / 'console.log')
 
     def start_vm(self, node, index):
+        spec = self.state['spec']
         bundle = self.directory / node['name']; bundle.mkdir(mode=0o700)
-        shutil.copyfile(node['disk'], bundle / 'rootfs.ext4')
-        write_json(bundle / 'firecracker.json', firecracker_config(node, Path(node['kernel']).resolve(), bundle / 'rootfs.ext4'))
+        jailer = jailer_path()
+        record = {'name': node['name'], 'jailed': jailer is not None}
+        if jailer is None:
+            shutil.copyfile(node['disk'], bundle / 'rootfs.ext4')
+            write_json(bundle / 'firecracker.json', firecracker_config(node, Path(node['kernel']).resolve(), bundle / 'rootfs.ext4'))
+            command = ['ip', 'netns', 'exec', namespace(spec, index), 'firecracker', '--no-api', '--config-file', str(bundle / 'firecracker.json')]
+        else:
+            firecracker = Path(shutil.which('firecracker')).resolve()
+            uid = VM_UID_BASE + index
+            root = bundle / 'jail' / firecracker.name / f'vm{index}' / 'root'
+            root.mkdir(parents=True, mode=0o700)
+            # One read-only kernel copy per lab, hard-linked into each chroot; the user's asset is never chowned.
+            assets = self.directory / 'vm-kernels'; assets.mkdir(mode=0o700, exist_ok=True)
+            kernel = assets / str(sorted({n['kernel'] for n in spec['nodes'] if n['runtime'] == 'firecracker'}).index(node['kernel']))
+            if not kernel.exists():
+                shutil.copyfile(Path(node['kernel']).resolve(), kernel); kernel.chmod(0o444)
+            os.link(kernel, root / 'vmlinux')
+            shutil.copyfile(node['disk'], root / 'rootfs.ext4')
+            (root / 'rootfs.ext4').chmod(0o600); os.chown(root / 'rootfs.ext4', uid, uid)
+            write_json(root / 'firecracker.json', firecracker_config(node, Path('/vmlinux'), Path('/rootfs.ext4')))
+            (root / 'firecracker.json').chmod(0o444)
+            os.chown(root, uid, uid)  # The VMM creates its vsock socket in the chroot root.
+            # Stable paths for diagnostics, save and tests, whichever launch mode is used.
+            for name in ('rootfs.ext4', 'firecracker.json', 'guest.vsock'):
+                (bundle / name).symlink_to(root / name)
+            cgroup = Path('/sys/fs/cgroup/cgroup.controllers').is_file()
+            if cgroup:
+                record['cgroup'] = str(vm_cgroup(spec, index))
+            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', cgroup=cgroup)
         with (bundle / 'console.log').open('ab') as log:
-            process = subprocess.Popen(['ip', 'netns', 'exec', namespace(self.state['spec'], index),
-                                        'firecracker', '--no-api', '--config-file', str(bundle / 'firecracker.json')],
-                                       stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-        record = {'name': node['name'], 'pid': process.pid, 'starttime': process_identity(process.pid)}
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        record.update(pid=process.pid, starttime=process_identity(process.pid))
         if record['starttime'] is None:
             process.kill(); process.wait()
             raise RuntimeFailure('Cannot record VMM process identity; launch cancelled.')
         self.state['vms'].append(record); self.save()
+        tail = lambda: (bundle / 'console.log').read_text(errors='replace')[-4000:]
         # Surviving launch is not guest readiness; status explicitly preserves this distinction.
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
             if 'guest_network' in node or len(node['interfaces']) > 1:
                 from .guest_startup import apply
-                apply(bundle / 'guest.vsock', node)
+                try:
+                    apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
+                except (OSError, ValueError) as error:
+                    raise RuntimeFailure(f'{node["name"]}: guest startup failed: {error} Console tail: {tail()}') from error
             return
-        tail = (bundle / 'console.log').read_text(errors='replace')[-4000:]
-        raise RuntimeFailure(f'Firecracker exited ({code}): {tail}')
+        raise RuntimeFailure(f'Firecracker exited ({code}): {tail()}')
 
     def execute(self, name, command, tty=False):
         state = self.read()
@@ -670,6 +727,7 @@ class Manager:
                 vm = next((v for v in state['vms'] if v['name'] == node['name']), None)
                 report['configured_memory_mib']=node['memory_mib'];report['configured_vcpus']=node.get('vcpus',1)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
+                report['vmm_jailed'] = bool(vm and vm.get('jailed'))
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')
             nodes.append(report)
@@ -869,7 +927,7 @@ class Manager:
             if vm['starttime'] and process_identity(vm['pid']) == vm['starttime']:
                 try:
                     os.kill(vm['pid'], signal.SIGKILL)
-                    for _ in range(50):
+                    for _ in range(150):
                         if process_identity(vm['pid']) != vm['starttime']:
                             break
                         # Reap direct children, if stop follows a failed start in this process.
@@ -880,12 +938,23 @@ class Manager:
                         time.sleep(0.02)
                 except ProcessLookupError:
                     pass
+                # Never tear the fabric down under a VMM that survived SIGKILL.
+                if process_identity(vm['pid']) == vm['starttime']:
+                    errors.append(f'VMM {vm["name"]} (pid {vm["pid"]}) is still running')
+            if vm.get('cgroup') and vm['cgroup'].startswith('/sys/fs/cgroup/network-labs/'):
+                for _ in range(50):  # An emptied cgroup can stay busy briefly after SIGKILL.
+                    try:
+                        os.rmdir(vm['cgroup']); break
+                    except FileNotFoundError:
+                        break
+                    except OSError:
+                        time.sleep(0.02)
         for name in reversed(state['containers']):
             result = self.crun('delete', '--force', name, check=False)
             if result.returncode and self.crun('state', name, check=False).returncode == 0:
                 errors.append(result.stderr.strip())
         if errors:
-            raise RuntimeFailure('Containers still exist; cleanup state retained: ' + '; '.join(errors))
+            raise RuntimeFailure('Containers or VMMs still exist; cleanup state retained: ' + '; '.join(errors))
         for ns in reversed(state['namespaces']):
             result = run(['ip', 'netns', 'delete', ns], check=False)
             existing = {line.split()[0] for line in run(['ip', 'netns', 'list']).stdout.splitlines() if line.strip()}
@@ -904,4 +973,9 @@ class Manager:
         if errors:
             state['phase'] = 'cleanup-failed'; self.save()
             raise RuntimeFailure('Cleanup incomplete; state retained: ' + '; '.join(errors))
+        if any(vm.get('cgroup') for vm in state['vms']):
+            try:  # Shared with this lab's containers; only an empty parent is removed.
+                os.rmdir(Path('/sys/fs/cgroup/network-labs') / prefix(state['spec']))
+            except OSError:
+                pass
         shutil.rmtree(self.directory)

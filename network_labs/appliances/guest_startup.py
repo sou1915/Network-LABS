@@ -6,21 +6,50 @@ import time
 from .guest_control import request
 
 
+def _port_networks(node, profile):
+    """Every IPv4 network configured on each declared port, primary first."""
+    extras = {'eth0': profile['addresses'], **profile.get('port_addresses', {})}
+    return {port: [ipaddress.IPv4Interface(a).network for a in [primary, *extras.get(port, [])]]
+            for port, primary in node['interfaces'].items()}
+
+
+def route_port(node, profile, gateway):
+    """Ports never share a subnet, so an on-link next hop identifies one port."""
+    gateway = ipaddress.IPv4Address(gateway)
+    ports = [port for port, nets in _port_networks(node, profile).items() if any(gateway in net for net in nets)]
+    if len(ports) != 1:
+        raise ValueError('Guest next hop must be on a configured subnet.')
+    return ports[0]
+
+
 def validate_profile(node):
     profile = node.get('guest_network')
     if 'guest_network' not in node:
         return
-    if node['runtime'] != 'firecracker' or not isinstance(profile, dict) or set(profile) != {'addresses', 'routes'}:
+    if (node['runtime'] != 'firecracker' or not isinstance(profile, dict)
+            or not {'addresses', 'routes'} <= set(profile) <= {'addresses', 'routes', 'port_addresses'}):
         raise ValueError('guest_network requires a Firecracker addresses/routes object.')
-    addresses, routes = profile['addresses'], profile['routes']
-    if not isinstance(addresses, list) or len(addresses) > 32 or not isinstance(routes, list) or len(routes) > 32:
+    routes, extra_ports = profile['routes'], profile.get('port_addresses', {})
+    if not isinstance(extra_ports, dict) or set(extra_ports) - (set(node['interfaces']) - {'eth0'}):
+        raise ValueError('port_addresses must map declared guest ports other than eth0 to address lists.')
+    by_port = {'eth0': profile['addresses'], **extra_ports}
+    if any(not isinstance(values, list) for values in by_port.values()) or sum(map(len, by_port.values())) > 32 or not isinstance(routes, list) or len(routes) > 32:
         raise ValueError('Guest startup supports at most 32 addresses and 32 routes.')
-    primary = str(ipaddress.IPv4Interface(node['interfaces']['eth0']))
-    normalized = [str(ipaddress.IPv4Interface(a)) for a in addresses if isinstance(a, str) and '/' in a]
-    if len(normalized) != len(addresses) or len(set(normalized)) != len(normalized) or primary in normalized:
-        raise ValueError('Guest extra addresses must be unique explicit IPv4 prefixes, excluding primary.')
+    for port, values in by_port.items():
+        primary = str(ipaddress.IPv4Interface(node['interfaces'][port]))
+        normalized = [str(ipaddress.IPv4Interface(a)) for a in values if isinstance(a, str) and '/' in a]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized) or primary in normalized:
+            raise ValueError('Guest extra addresses must be unique explicit IPv4 prefixes, excluding primary.')
+        by_port[port] = sorted(normalized)
+    profile['addresses'] = by_port.pop('eth0')
+    profile.pop('port_addresses', None)
+    if any(by_port.values()):
+        profile['port_addresses'] = {port: values for port, values in sorted(by_port.items()) if values}
+    networks = _port_networks(node, profile)
+    ports = list(networks)
+    if any(a.overlaps(b) for i, left in enumerate(ports) for right in ports[i+1:] for a in networks[left] for b in networks[right]):
+        raise ValueError('Guest addresses on different ports must not share or overlap a subnet.')
     checked = []
-    networks = [ipaddress.IPv4Interface(a).network for a in [primary, *normalized]]
     for route in routes:
         if not isinstance(route, dict) or set(route) != {'network', 'gateway'}:
             raise ValueError('Guest route requires network/gateway only.')
@@ -28,14 +57,12 @@ def validate_profile(node):
             raise ValueError('Guest route network/prefix and gateway must be strings.')
         network = str(ipaddress.IPv4Network(route['network'], strict=True))
         gateway = str(ipaddress.IPv4Address(route['gateway']))
-        if not any(ipaddress.IPv4Address(gateway) in net for net in networks):
-            raise ValueError('Guest next hop must be on a configured subnet.')
+        route_port(node, profile, gateway)
         if network == '0.0.0.0/0' and node.get('gateway'):
             raise ValueError('Guest default route already supplied by primary gateway.')
         checked.append({'network': network, 'gateway': gateway})
     if len({r['network'] for r in checked}) != len(checked):
         raise ValueError('Guest static routes require unique prefixes.')
-    profile['addresses'] = sorted(normalized)
     profile['routes'] = sorted(checked, key=lambda r: r['network'])
 
 
@@ -65,11 +92,8 @@ def observe(socket, node):
         primary_address = str(ipaddress.IPv4Interface(primary_address))
         if port not in active or primary_address not in by_port[port]:
             raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
-        if port != 'eth0' and by_port[port] != [primary_address]:
-            raise ValueError('Extra-address persistence currently supports eth0 only.')
-    primary = str(ipaddress.IPv4Interface(node['interfaces']['eth0']))
-    addresses = by_port['eth0']
-    routes = []
+    extras = {port: [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))] for port, values in by_port.items()}
+    routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
     for line in query(socket, 'routes').splitlines():
@@ -80,24 +104,31 @@ def observe(socket, node):
             if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
                 raise ValueError('Unmanaged guest route cannot be saved: ' + line)
             continue
-        if len(fields) != 5 or fields[1] != 'via' or fields[3:] != ['dev', 'eth0']:
+        if len(fields) != 5 or fields[1] != 'via' or fields[3] != 'dev' or fields[4] not in by_port:
             raise ValueError('Unsupported guest static route: ' + line)
         gateway = str(ipaddress.IPv4Address(fields[2]))
         if network == '0.0.0.0/0' and node.get('gateway'):
-            if gateway != node['gateway']: raise ValueError('Guest primary gateway differs.')
+            if gateway != node['gateway'] or fields[4] != 'eth0': raise ValueError('Guest primary gateway differs.')
             default_seen = True
-        else: routes.append({'network': network, 'gateway': gateway})
+        else:
+            routes.append({'network': network, 'gateway': gateway}); devices[network] = fields[4]
     if node.get('gateway') and not default_seen: raise ValueError('Guest primary gateway missing.')
     candidate = copy.deepcopy(node)
-    candidate['guest_network'] = {'addresses': [a for a in addresses if a != primary], 'routes': routes}
+    candidate['guest_network'] = {'addresses': extras.pop('eth0'), 'routes': routes, 'port_addresses': extras}
     validate_profile(candidate)
+    for route in candidate['guest_network']['routes']:
+        # A next hop reached through another port than its own subnet cannot be replayed.
+        if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
+            raise ValueError('Unsupported guest static route device for ' + route['network'])
     return candidate['guest_network']
 
 
-def apply(socket, node, timeout=40):
+def apply(socket, node, timeout=40, alive=None):
     """Fresh boot only: wait for agent, then apply once; failures abort lab startup."""
     deadline = time.monotonic() + timeout
     while True:
+        if alive is not None and not alive():
+            raise ValueError('Guest VMM exited before its agent answered.')
         try:
             query(socket, 'ready')
             break
@@ -111,8 +142,13 @@ def apply(socket, node, timeout=40):
     profile = node.get('guest_network', {'addresses': [], 'routes': []})
     for address in profile['addresses']:
         query(socket, 'address-add', cidr=address)
+    for port, values in profile.get('port_addresses', {}).items():
+        for address in values:
+            query(socket, 'address-add', interface=port, cidr=address)
     for route in profile['routes']:
-        query(socket, 'route-add', **route)
+        port = route_port(node, profile, route['gateway'])
+        # eth0 keeps the original request so guest images built before multi-port routes still restore.
+        query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
     if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
 
@@ -134,4 +170,4 @@ def save_observed(manager):
         if observe(manager.directory / node['name'] / 'guest.vsock', node) != node['guest_network']:
             raise ValueError('Guest changed during save; no startup configuration written.')
     save_startup(manager.name, candidate)
-    return {'saved': str(startup_path(manager.name)), 'scope': 'Observed eth0 extras/routes and declared primary addresses; interfaces up. No disk snapshot or IPv6 persistence.'}
+    return {'saved': str(startup_path(manager.name)), 'scope': 'Observed extra IPv4 addresses and on-link static routes on every declared port, plus declared primary addresses; interfaces up. No disk snapshot or IPv6 persistence.'}

@@ -1,5 +1,31 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Micro-VM hardening and multi-port routes — 2026-11-15 (not yet run on KVM)
+
+Unit-tested only; the real-KVM acceptance tests still have to be re-run on a
+Firecracker host, and guest images must be rebuilt with `microvm-rootfs
+--with-agent` before routes through eth1..eth3 can be used.
+
+- **vCPU budget.** The total of micro-VM `vcpus` must fit the optional lab key
+  `budget_vcpus` (default 64, maximum 1024). `plan` reports the budget.
+- **Jailer.** When Firecracker's `jailer` binary is on `PATH`, each VMM starts
+  through it: chroot under the node's private state directory, its own
+  unprivileged uid/gid (200000 + node index), the node's network namespace, and
+  with cgroup v2 a memory cap (guest RAM + 128 MiB) and a CPU cap (one core per
+  vCPU). TAP devices are owned by that uid. `status` reports `vmm_jailed`, and
+  `doctor` lists `jailer`. Without the binary, or with `NETWORK_LABS_VM_JAILER=0`,
+  the earlier direct root launch is used. `guest.vsock`, `rootfs.ext4` and
+  `firecracker.json` keep their paths in the node directory (symlinks when jailed).
+- **Stop.** A VMM that survives SIGKILL for three seconds is now an error and the
+  lab state is retained; the fabric is no longer removed underneath it.
+- **Startup failure.** Guest startup stops as soon as the VMM exits and the error
+  carries the console tail, instead of waiting 40 seconds for the agent.
+- **Ports.** Extra addresses on eth1..eth3 are saved under the optional
+  `guest_network.port_addresses` key, and static routes may use a next hop on any
+  port (`microvm-route --interface eth1`, agent requests `IF_ROUTE_ADD/DEL`).
+  Addresses on different ports may not share or overlap a subnet, so each next
+  hop identifies exactly one port. This is still host addressing, not a router role.
+
 ## Multi-NIC host micro-VMs — 2026-11-14
 
 Firecracker host manifests now accept contiguous eth0..eth3 (1..4 static IPv4

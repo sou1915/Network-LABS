@@ -55,3 +55,30 @@ class MicroVMFoundationTests(unittest.TestCase):
         for interfaces in ({'eth0':'192.0.2.10/24','eth2':'198.51.100.10/24'}, {'eth0':'192.0.2.10/24','eth1':'192.0.2.11/24'}):
             bad=copy.deepcopy(spec);bad['nodes'][0]['interfaces']=interfaces
             with self.assertRaises(ValueError):validate(bad)
+
+    def test_total_vcpus_are_budgeted(self):
+        from network_labs.appliances.microvm import multinic_example
+        spec=multinic_example('/kernel','/disk')
+        for node in spec['nodes']:node['vcpus']=32
+        with self.assertRaisesRegex(ValueError,'vCPU'):validate(spec)
+        spec['budget_vcpus']=96
+        self.assertEqual(plan(spec)['budget_vcpus'],96)
+        for value in (0,1025,True,'8'):
+            spec['budget_vcpus']=value
+            with self.subTest(value=value),self.assertRaises(ValueError):validate(spec)
+        self.assertNotIn('budget_vcpus',validate(example('/kernel','/disk')))
+
+    def test_jailer_command_drops_privileges_and_caps_the_vmm(self):
+        from network_labs.appliances.runtime import jailer_command,jailer_path,VM_UID_BASE
+        from network_labs.appliances.spec import namespace,prefix
+        spec=example('/kernel','/disk',vcpus=2,memory_mib=192)
+        command=jailer_command(spec,spec['nodes'][1],1,'/usr/bin/jailer','/usr/bin/firecracker',Path('/private/VM2/jail'))
+        pairs=dict(zip(command[1:command.index('--')][::2],command[1:command.index('--')][1::2]))
+        self.assertEqual((pairs['--uid'],pairs['--gid'],pairs['--id']),(str(VM_UID_BASE+1),str(VM_UID_BASE+1),'vm1'))
+        self.assertEqual(pairs['--netns'],'/run/netns/'+namespace(spec,1))
+        self.assertEqual(pairs['--parent-cgroup'],'network-labs/'+prefix(spec))
+        self.assertIn('memory.max='+str((192+128)*1024*1024),command);self.assertIn('cpu.max=200000 100000',command)
+        self.assertEqual(command[command.index('--'):],['--','--no-api','--config-file','/firecracker.json'])
+        self.assertNotIn('--cgroup',jailer_command(spec,spec['nodes'][0],0,'/j','/f',Path('/b'),cgroup=False))
+        with patch.dict('os.environ',{'NETWORK_LABS_VM_JAILER':'0'}),patch('shutil.which',return_value='/usr/bin/jailer'):self.assertIsNone(jailer_path())
+        with patch.dict('os.environ',{},clear=True),patch('shutil.which',return_value='/usr/bin/jailer'):self.assertEqual(jailer_path(),'/usr/bin/jailer')

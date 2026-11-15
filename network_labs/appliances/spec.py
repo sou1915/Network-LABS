@@ -9,6 +9,9 @@ from pathlib import Path
 MIB = 1024 * 1024
 
 
+DEFAULT_VCPU_BUDGET = 64
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,31}', value):
         raise ValueError('Identifier: letter followed by up to 31 letters, digits, _ or -.')
@@ -42,7 +45,7 @@ def asset(value):
 
 def validate(data):
     data = copy.deepcopy(data)
-    keys(data, ('version', 'name', 'budget_mib', 'reserve_mib', 'nodes', 'links'), 'Lab')
+    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links'), 'Lab')
     if type(data.get('version')) is not int or data['version'] not in (1, 2):
         raise ValueError('Native manifest version 1 or 2 required.')
     identifier(data.get('name'))
@@ -166,6 +169,10 @@ def validate(data):
     validate_components(data, validate_links(data))
     if sum(n['memory_mib'] for n in data['nodes']) + reserve > budget:
         raise ValueError('Node memory allocations + GUI/host overhead reserve exceed lab budget.')
+    # Optional key: absent means the default, so existing manifests keep their exact shape.
+    vcpu_budget = integer(data.get('budget_vcpus', DEFAULT_VCPU_BUDGET), 1, 1024, 'budget_vcpus')
+    if sum(n['vcpus'] for n in data['nodes'] if n['runtime'] == 'firecracker') > vcpu_budget:
+        raise ValueError(f'Micro-VM vCPU allocations exceed the lab budget of {vcpu_budget}; lower vcpus or set budget_vcpus.')
     return data
 
 

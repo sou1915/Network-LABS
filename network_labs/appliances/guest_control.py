@@ -18,8 +18,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state not in ('up', 'down'):
             raise ValueError('Guest link requires interface eth0..eth3 and state up or down.')
         command += ' ' + interface + ' ' + state
-    elif state is not None or (interface is not None and operation not in ('address-add', 'address-delete')):
-        raise ValueError('Only link accepts interface/state arguments.')
+    elif state is not None or (interface is not None and operation not in ('address-add', 'address-delete', 'route-add', 'route-delete')):
+        raise ValueError('Only link, address and route operations accept an interface; only link accepts a state.')
     if operation in ('address-add', 'address-delete'):
         if not isinstance(cidr, str) or '/' not in cidr:
             raise ValueError('Guest address requires explicit IPv4/prefix.')
@@ -33,6 +33,10 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     if operation in ('route-add', 'route-delete'):
         if not isinstance(network, str) or '/' not in network:
             raise ValueError('Guest route requires an explicit IPv4 network/prefix.')
+        if interface is not None:
+            if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
+                raise ValueError('Guest route interface must be eth0..eth3.')
+            command = ('IF_ROUTE_ADD' if operation == 'route-add' else 'IF_ROUTE_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Network(network, strict=True)) + ' ' + str(ipaddress.IPv4Address(gateway))
     elif network is not None or gateway is not None:
         raise ValueError('Only route operations accept network/gateway.')
