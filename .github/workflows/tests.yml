@@ -53,10 +53,14 @@ jobs:
           echo '36112969952b0e34fadcfca769d48a55dc22cbba99af17e02bd0e24fc35adc77  /tmp/firecracker.tgz' | sha256sum -c -
           tar -xzf /tmp/firecracker.tgz -C /tmp
           sudo install /tmp/release-v1.10.1-x86_64/firecracker-v1.10.1-x86_64 /usr/local/bin/firecracker
+          sudo install /tmp/release-v1.10.1-x86_64/jailer-v1.10.1-x86_64 /usr/local/bin/jailer
           curl -fL --retry 3 https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223 -o /tmp/vmlinux
           echo '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65  /tmp/vmlinux' | sha256sum -c -
-      - name: Verify two actual guests and packet loss recovery
-        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic -v
+      - name: Verify actual guests under the Firecracker jailer (unprivileged VMM, chroot, cgroup caps)
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic -v
+      - name: Verify actual guests with the direct launch used when no jailer is installed
+        if: always()
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

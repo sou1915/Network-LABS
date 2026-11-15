@@ -64,6 +64,13 @@ class RealMicroVMTests(unittest.TestCase):
                             self.assertNotEqual((manager.directory / name / 'rootfs.ext4').stat().st_ino,
                                                 (root / 'base.ext4').stat().st_ino)
                             results['nodes'][name] = {'ready': ready, 'addresses': addresses, 'configured_resources': config['machine-config']}
+                        if os.environ.get('NETWORK_LABS_EXPECT_JAILER') == '1':
+                            for vm in manager.read()['vms']:
+                                # Real, effective and saved uid of the live VMM must all be its private unprivileged id.
+                                uids = next(l for l in Path(f'/proc/{vm["pid"]}/status').read_text().splitlines() if l.startswith('Uid:')).split()[1:]
+                                self.assertTrue(vm['jailed']); self.assertTrue(all(int(u) >= 200000 for u in uids), uids)
+                                self.assertTrue(Path(vm['cgroup'], 'memory.max').read_text().strip().isdigit())
+                            results['vmm_jailed'] = True
                         def probe(index, address, expected):
                             result = request(sockets[index], 'ping', destination=address)
                             results['probes'].append(result)
