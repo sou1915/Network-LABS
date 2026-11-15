@@ -31,7 +31,7 @@ def record(lab,node,interface,output,seconds,packets,expression):
     auth=subprocess.run(['sudo','-v'])
     if auth.returncode:return auth.returncode
     print(f'Capture native : {lab} / {node} / {interface}. Résultat et fichier confirmés ci-dessous après la fin.',flush=True)
-    return subprocess.run(['sudo','-n',sys.executable,'-I','-c',CLI_BOOTSTRAP,str(SOURCE),'--json','capture',lab,node,interface,
+    return subprocess.run(['sudo','-n',sys.executable,'-I','-c',CLI_BOOTSTRAP,str(SOURCE),'capture',lab,node,interface,
                            '--output',output,'--seconds',str(seconds),'--packets',str(packets),'--snaplen','2048','--filter='+expression]).returncode
 
 

@@ -32,3 +32,16 @@ class CaptureEntryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(ui_capture.subprocess,'run',return_value=subprocess.CompletedProcess([],1)) as run:
             self.assertEqual(ui_capture.record('lab','PC1','eth0',str(Path(folder)/'new.pcap'),2,10,''),1)
             run.assert_called_once_with(['sudo','-v'])
+
+    def test_backend_arguments_are_accepted_by_the_real_cli(self):
+        """The desktop entry once passed an option the CLI rejects, so no capture ever started."""
+        from network_labs.appliances.__main__ import main
+        with tempfile.TemporaryDirectory() as folder:
+            path=str(Path(folder)/'new.pcap')
+            with patch.object(ui_capture.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as run:
+                ui_capture.record('lab','PC1','eth0',path,3,100,'icmp')
+            args=run.call_args_list[1].args[0];backend=args[args.index(str(ui_capture.SOURCE))+1:]
+            with patch('network_labs.appliances.capture.capture',return_value={'stop_reason':'completed'}) as capture,patch('sys.stdout'):
+                self.assertEqual(main(backend),0)
+            self.assertEqual(capture.call_args.args[1:3],('PC1','eth0'))
+            self.assertEqual(capture.call_args.kwargs['expression'],'icmp');self.assertEqual(str(capture.call_args.args[3]),path)
