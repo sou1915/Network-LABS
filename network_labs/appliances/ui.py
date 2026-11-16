@@ -87,7 +87,8 @@ class ApplianceWindow:
         body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
         library_card=SoftPanel(body,BG,SIDEBAR);library_card.configure(width=196);body.add(library_card,weight=0);library=library_card.inner
         content=self.content=ttk.Panedwindow(body,orient='vertical');body.add(content,weight=1)
-        workspace=ttk.Panedwindow(content,orient='horizontal');content.add(workspace,weight=3)
+        workspace=self.workspace=ttk.Panedwindow(content,orient='horizontal')
+        content.add(workspace,weight=3)
         lower=self.lower=ttk.Panedwindow(content,orient='horizontal');content.add(lower,weight=1)
         self.dock=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.dock,weight=3)
         self.activity_book=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.activity_book,weight=2)
@@ -148,7 +149,9 @@ class ApplianceWindow:
         legend=tk.Frame(self.topology_tab,bg=PANEL,padx=8,pady=3);legend.grid(row=2,column=0,sticky='ew')
         self.runtime_hint=tk.StringVar(value='État non observé');self.runtime_label=tk.Label(legend,textvariable=self.runtime_hint,bg=PANEL,fg=MUTED,font=(self.font,8));self.runtime_label.pack(side='left',padx=5)
         self.label(legend,'VLAN / adresses : configuration',MUTED,8).pack(side='right')
-        device=tk.Frame(workspace,bg=PANEL,width=354);device.pack_propagate(False);workspace.add(device,weight=0)
+        device=self.device_panel=tk.Frame(workspace,bg=PANEL,width=430)
+        device.pack_propagate(False)
+        workspace.add(device,weight=0)
         self.device_tabs=ttk.Notebook(device,style='Native.TNotebook');self.device_tabs.pack(fill='both',expand=True)
         details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='État / test');details=details_card.inner
         self.config_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.config_panel,text='GUI')
@@ -213,6 +216,22 @@ class ApplianceWindow:
         if not self.closed and self.content.winfo_height()>350:
             self.content.sashpos(0,max(250,self.content.winfo_height()-184))
             self.lower.sashpos(0,int(self.content.winfo_width()*.55))
+            # The device panel holds a section rail and a form: give it about 30% of the width (420-560 px)
+            # so port names, addresses and action buttons are not cut off.
+            width=self.workspace.winfo_width()
+            if width>900:
+                self.workspace.sashpos(len(self.workspace.panes())-2,width-max(420,min(560,int(width*.3))))
+            # Node positions depend on the canvas width: lay the topology out again for the fitted canvas, and
+            # put the view back at the origin unless the user has zoomed or panned it.
+            if getattr(self,'graph',None) and not self.pending:
+                self.window.after_idle(self.refit_topology)
+
+    def refit_topology(self):
+        if self.closed or not getattr(self,'graph',None):
+            return
+        self.draw(self.graph,self.states)
+        if self.zoom==1. and not getattr(self,'view_moved',False):
+            self.view_origin(0,0)
 
     def sync_navigation(self,event=None):
         if self.closed:return
@@ -329,7 +348,13 @@ class ApplianceWindow:
     def load_spec(self,spec,path=None):
         spec=validate(spec);self.path=Path(path) if path else None
         self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
-        self.config_key=None;self.positions={};self.zoom=1.;self.draw(public_topology(spec));self.view_origin(0,0);self.observation.set('Topologie déclarée · état runtime à actualiser.')
+        self.config_key=None
+        self.positions={}
+        self.zoom=1.
+        self.view_moved=False
+        self.draw(public_topology(spec))
+        self.view_origin(0,0)
+        self.observation.set('Topologie déclarée · état runtime à actualiser.')
 
     def draw(self,graph,states=None):
         validate_topology(graph)
@@ -356,6 +381,12 @@ class ApplianceWindow:
             span=max(max(x for x,y in points)-min(x for x,y in points)+104,width/max(1,len(set(members.values())))-18)
             middle=(min(x for x,y in points)+max(x for x,y in points))/2
             x1=middle-span/2;x2=middle+span/2
+            # Keep the group inside the canvas, clear of the vertical scrollbar.
+            right=width-24
+            if x2>right:
+                x1,x2=x1-(x2-right),right
+            if x1<8:
+                x2,x1=x2+(8-x1),8
             y1=min(y for x,y in points)-82;y2=max(y for x,y in points)+64
             bg,border,ink=palette[index%len(palette)]
             rounded_box(self.canvas,x1,y1,x2,y2,r=16,fill=bg,outline=border,dash=(3,2),tags=('vlan-group',))
@@ -482,7 +513,11 @@ class ApplianceWindow:
         return 'break'
 
     def reset_view(self):
-        self.dragging=None;self.panning=False;self.zoom=1.;self.draw(self.graph,self.states)
+        self.dragging=None
+        self.panning=False
+        self.zoom=1.
+        self.view_moved=False
+        self.draw(self.graph,self.states)
         self.view_origin(0,0)
 
     def view_origin(self,x,y):
@@ -491,6 +526,7 @@ class ApplianceWindow:
         self.canvas.yview_moveto((y-region[1])/max(1,region[3]-region[1]))
 
     def begin_pan(self,event):
+        self.view_moved=True
         self.dragging=None;self.panning=True;self.canvas.focus_set();self.canvas.configure(cursor='fleur')
         self.canvas.scan_mark(event.x,event.y);return 'break'
 
@@ -540,7 +576,7 @@ class ApplianceWindow:
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
         ports_card=SoftCard(form,PANEL);ports_card.pack(fill='x',padx=7)
         self.port_table=ttk.Treeview(ports_card.inner,columns=('address','admin'),show='tree headings',height=3,style='Native.Treeview')
-        for key,label,width in [('#0','Nom',45),('address','Adresse IPv4',130),('admin','Admin',48)]:
+        for key,label,width in [('#0','Nom',96),('address','Adresse IPv4',122),('admin','Admin',78)]:
             self.port_table.heading(key,text=label);self.port_table.column(key,width=width,minwidth=35)
         self.port_table.tag_configure('enabled',foreground='#168942');self.port_table.tag_configure('disabled',foreground='#bb3646')
         self.port_table.pack(fill='x');self.port_table.bind('<<TreeviewSelect>>',self.config_table_selected)
@@ -563,7 +599,11 @@ class ApplianceWindow:
         self.firewall_live.pack(fill='x',padx=9,pady=(2,5))
         self.firewall_live.state(['disabled'])
         self.config_message=tk.StringVar()
-        tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,font=(self.font,7),justify='left',wraplength=230,anchor='w').pack(fill='x',padx=9,pady=7)
+        message=self.config_message_label=tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,
+                                                   font=(self.font,7),justify='left',wraplength=300,anchor='w')
+        message.pack(fill='x',padx=9,pady=7)
+        # Wrap to the form's real width, which follows the device panel.
+        message.bind('<Configure>',lambda event:message.configure(wraplength=max(120,event.width-4)))
 
     def open_web_management(self,page='interfaces'):
         selected=self.nodes.selection()
@@ -575,8 +615,11 @@ class ApplianceWindow:
 
     def config_table_selected(self,event=None):
         selected=self.port_table.selection()
-        if selected and selected[0]!=self.config_vars['port'].get():
-            self.config_vars['port'].set(selected[0]);self.config_port_selected()
+        # A subinterface row stands for its parent port: the form edits physical ports only.
+        port=(self.port_table.parent(selected[0]) or selected[0]) if selected else None
+        if port and port!=self.config_vars['port'].get():
+            self.config_vars['port'].set(port)
+            self.config_port_selected()
 
     def load_config(self,force=False):
         selected=self.nodes.selection()
@@ -593,10 +636,16 @@ class ApplianceWindow:
                 if node['role'] in roles:button.pack(fill='x',pady=2)
             self.device_heading.set(node['name']+' · '+{'host':'Linux','switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}[node['role']])
             self.port_table.delete(*self.port_table.get_children())
-            self.port_table.configure(height=max(1,min(3,len(node['interfaces']))))
+            self.port_table.configure(height=max(1,min(4,len(node['interfaces'])+len(node.get('subinterfaces',{})))))
             for port,address in node['interfaces'].items():
                 enabled=port not in node.get('shutdown',[])
                 self.port_table.insert('','end',iid=port,text=port,values=(address or '—','Activé' if enabled else 'Arrêté'),tags=('enabled' if enabled else 'disabled',))
+                # 802.1Q subinterfaces (router-on-a-stick) are listed under their port; they are edited in Gestion web.
+                for name,sub in node.get('subinterfaces',{}).items():
+                    if sub.get('parent')==port:
+                        row=(sub.get('address') or '—','VLAN '+str(sub.get('vlan')))
+                        self.port_table.insert(port,'end',iid=name,text=name,values=row,tags=('enabled',))
+                self.port_table.item(port,open=True)
             self.config_vars['name'].set(node['name']);self.config_vars['gateway'].set(node.get('gateway',''))
             ports=list(node['interfaces']);self.config_fields['port'].configure(values=ports)
             self.config_vars['port'].set(ports[0] if ports else '')
@@ -606,6 +655,10 @@ class ApplianceWindow:
             self.config_message.set('Modifier un port puis appliquer. Le réseau actif reste inchangé.')
             self.config_apply.state(['!disabled'] if ports and not self.pending else ['disabled'])
             # A firewall policy can also be applied to the running lab: atomically on containers, rebuilt closed on micro-VMs.
+            if node['role']=='firewall':
+                self.firewall_live.pack(fill='x',padx=9,pady=(2,5),before=self.config_message_label)
+            else:
+                self.firewall_live.pack_forget()
             self.firewall_live.state(['!disabled'] if node['role']=='firewall' and node['name'] in self.states and not self.pending
                                      else ['disabled'])
         except (ValueError,TypeError,KeyError,StopIteration) as error:

@@ -70,11 +70,25 @@ def place_nodes(graph,members,width):
     routers=[n for n in graph['nodes'] if n['role']=='router'];firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
     switches=[n for n in graph['nodes'] if n['role']=='switch'];upper=bool(routers or firewalls)
     for i,n in enumerate(routers):positions[n['name']]=((i+1)*width*.8/(len(routers)+1),72)
-    for i,n in enumerate(firewalls):positions[n['name']]=(width*(.52+(i+1)*.16/len(firewalls)),90)
-    for i,name in enumerate(dmz):positions[name]=(width-48,100+i*125)
+    for i,n in enumerate(firewalls):
+        # Beside routers when there are any; otherwise spread across the canvas like routers.
+        x=width*(.52+(i+1)*.16/len(firewalls)) if routers else (i+1)*width/(len(firewalls)+1)
+        positions[n['name']]=(x,90)
+    # Hosts cabled straight to a firewall sit in a row under it, centred on it and kept inside the canvas.
+    by_firewall={}
+    for host,firewall in dmz.items():
+        by_firewall.setdefault(firewall,[]).append(host)
+    for firewall,names in by_firewall.items():
+        fx,fy=positions[firewall]
+        spacing=min(170,max(110,width*.8/len(names)))
+        start=min(max(70,fx-spacing*(len(names)-1)/2),max(70,width-70-spacing*(len(names)-1)))
+        for i,name in enumerate(names):
+            positions[name]=(start+i*spacing,fy+190)
     for i,n in enumerate(switches):positions[n['name']]=((i+1)*width*.86/(len(switches)+1),194 if upper else 100)
     hosts=[n for n in graph['nodes'] if n['role']=='host' and n['name'] not in dmz]
     vids=sorted(set(members.values()));columns=max(1,int(width//115))
+    # Other hosts go below the firewall rows when there are any.
+    base=(334 if upper else 270)+(140 if dmz else 0)
     if vids:
         groups=[(vid,[n for n in hosts if members.get(n['name'])==vid]) for vid in vids]
         other=[n for n in hosts if n['name'] not in members]
@@ -84,9 +98,10 @@ def place_nodes(graph,members,width):
             per_row=max(1,int(cell//95))
             for i,n in enumerate(nodes):
                 row=i//per_row;count=min(per_row,len(nodes)-row*per_row)
-                positions[n['name']]=(g*cell+(i%per_row+.5)*cell/count,(334 if upper else 270)+row*130)
+                positions[n['name']]=(g*cell+(i%per_row+.5)*cell/count,base+row*130)
     else:
-        for i,n in enumerate(hosts):positions[n['name']]=((i%columns+.5)*width/min(columns,len(hosts)),(334 if upper else 270)+(i//columns)*130)
+        for i,n in enumerate(hosts):
+            positions[n['name']]=((i%columns+.5)*width/min(columns,len(hosts)),base+(i//columns)*130)
     return positions
 
 
