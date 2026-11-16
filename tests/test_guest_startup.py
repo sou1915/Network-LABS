@@ -121,7 +121,8 @@ class GuestStartupTests(unittest.TestCase):
     def test_router_role_needs_two_ports_and_stays_a_micro_vm_role(self):
         from network_labs.appliances.microvm import router_example
         spec=router_example('/kernel','/disk');spec['nodes'][0]['interfaces']={'eth0':'192.0.2.1/24'}
-        with self.assertRaisesRegex(ValueError,'two ports'):validate(spec)
+        with self.assertRaisesRegex(ValueError, 'two routed interfaces'):
+            validate(spec)
         for role in ('switch','firewall'):
             spec=router_example('/kernel','/disk');spec['nodes'][0]['role']=role
             with self.subTest(role=role),self.assertRaises(ValueError):validate(spec)
@@ -374,3 +375,80 @@ class SwitchVlanTests(unittest.TestCase):
         with patch.object(guest_startup, 'query', return_value=self.LISTING + 'eth1 30 pvid\n'):
             with self.assertRaisesRegex(ValueError, 'Unmanaged'):
                 guest_startup.observed_vlans('/socket', switch)
+
+
+class RouterOnAStickTests(unittest.TestCase):
+    """802.1Q subinterfaces on a router guest: lab-file rules, wire format, startup order and readback."""
+
+    ADDRESSES = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
+                 '2: eth0: <BROADCAST,UP,LOWER_UP>\n'
+                 '3: eth0.10@eth0: <BROADCAST,UP,LOWER_UP>\n    inet 192.0.2.1/24 scope global eth0.10\n'
+                 '4: eth0.20@eth0: <BROADCAST,UP,LOWER_UP>\n    inet 198.51.100.1/24 scope global eth0.20\n')
+    ROUTES = ('192.0.2.0/24 dev eth0.10 scope link src 192.0.2.1\n'
+              '198.51.100.0/24 dev eth0.20 scope link src 198.51.100.1\n')
+
+    def router(self):
+        from network_labs.appliances.microvm import router_on_a_stick_example
+        return router_on_a_stick_example('/kernel', '/disk')['nodes'][1]
+
+    def test_lab_rules(self):
+        from network_labs.appliances.microvm import router_on_a_stick_example
+        spec = router_on_a_stick_example('/kernel', '/disk')
+        changes = {
+            'one routed interface': lambda r: r['subinterfaces'].pop('eth0.20'),
+            'subinterface without address': lambda r: r['subinterfaces']['eth0.20'].update(address=''),
+            'subinterface on an undeclared port': lambda r: r['subinterfaces'].update(
+                {'eth1.30': {'parent': 'eth1', 'vlan': 30, 'address': '203.0.113.1/24'}}),
+            'overlapping subinterface subnets': lambda r: r['subinterfaces']['eth0.20'].update(address='192.0.2.129/25'),
+            'subinterface on a host': lambda r: r.update(role='host'),
+        }
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec)
+            change(bad['nodes'][1])
+            with self.subTest(label), self.assertRaises(ValueError):
+                validate(bad)
+
+    def test_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import guest_interface, request
+        self.assertTrue(all(guest_interface(name) for name in ('eth0', 'eth3', 'eth0.1', 'eth2.4094')))
+        refused = ('eth4', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0', 'eth0.10;id', None)
+        self.assertFalse(any(guest_interface(name) for name in refused))
+        for operation, kwargs in (('vlan-add', {'interface': 'eth0.10', 'vlan': 10}), ('vlan-add', {'interface': 'eth0', 'vlan': 0}),
+                                  ('vlan-delete', {'interface': 'eth0'}), ('vlan-delete', {'interface': 'eth0.10', 'vlan': 10}),
+                                  ('link', {'interface': 'eth0.4095', 'state': 'up'})):
+            with self.subTest(operation=operation, kwargs=kwargs), self.assertRaises(ValueError):
+                request('/missing', operation, **kwargs)
+
+    def test_startup_raises_the_parent_then_each_subinterface(self):
+        from network_labs.appliances import guest_startup
+        router = self.router()
+        calls = []
+
+        def fake(socket, operation, **kw):
+            calls.append((operation, kw.get('interface'), kw.get('vlan'), kw.get('cidr'), kw.get('state')))
+            return {'forwarding': '1\n'}.get(operation, '')
+        empty = {'addresses': [], 'routes': []}
+        with patch.object(guest_startup, 'query', side_effect=fake), patch.object(guest_startup, 'observe', return_value=empty):
+            apply('/socket', router)
+        steps = [c for c in calls if c[0] in ('link', 'vlan-add', 'address-add')]
+        self.assertEqual(steps, [('link', 'eth0', None, None, 'up'),
+                                 ('vlan-add', 'eth0', 10, None, None), ('address-add', 'eth0.10', None, '192.0.2.1/24', None),
+                                 ('link', 'eth0.10', None, None, 'up'),
+                                 ('vlan-add', 'eth0', 20, None, None), ('address-add', 'eth0.20', None, '198.51.100.1/24', None),
+                                 ('link', 'eth0.20', None, None, 'up')])
+        self.assertLess(calls.index(steps[-1]), [c[0] for c in calls].index('forward'))
+
+    def test_readback_accepts_declared_subinterfaces_and_nothing_extra(self):
+        from network_labs.appliances import guest_startup
+        router = self.router()
+        with patch.object(guest_startup, 'query', side_effect=[self.ADDRESSES, self.ROUTES, '1\n']):
+            self.assertEqual(guest_startup.observe('/socket', router), {'addresses': [], 'routes': []})
+        extra = self.ADDRESSES + '    inet 192.0.2.2/24 scope global secondary eth0.20\n'
+        with patch.object(guest_startup, 'query', side_effect=[extra, self.ROUTES, '1\n']), self.assertRaises(ValueError):
+            guest_startup.observe('/socket', router)
+        undeclared = self.ADDRESSES + '5: eth0.30@eth0: <BROADCAST,UP>\n'
+        with patch.object(guest_startup, 'query', return_value=undeclared), self.assertRaisesRegex(ValueError, 'undeclared'):
+            guest_startup.observe('/socket', router)
+        down = self.ADDRESSES.replace('3: eth0.10@eth0: <BROADCAST,UP,LOWER_UP>', '3: eth0.10@eth0: <BROADCAST>')
+        with patch.object(guest_startup, 'query', return_value=down), self.assertRaisesRegex(ValueError, 'up'):
+            guest_startup.observe('/socket', router)

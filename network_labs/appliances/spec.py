@@ -132,21 +132,28 @@ def validate(data):
                 validate_profile(node)
                 continue
             dynamic = set(node['dhcp_clients'])
-            if any(not address for port, address in interfaces.items() if port not in dynamic):
+            parents = {sub['parent'] for sub in node['subinterfaces'].values()}  # router-on-a-stick: an unnumbered trunk port
+            if any(not address for port, address in interfaces.items() if port not in dynamic and port not in parents):
                 raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port (or a DHCP client port), contiguous eth0..eth3.')
             if dynamic and role != 'host':
                 raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
             server = node.get('dhcp_server')
             if server and ('network' in server or server['reservations']):
                 raise ValueError('Firecracker DHCP server: local pool only; remote networks and reservations are not available on guests yet.')
-            if role in ('router', 'firewall') and len(interfaces) < 2:
-                raise ValueError('Firecracker router or firewall requires at least two ports; a single-port guest is a host.')
+            subinterfaces = node['subinterfaces']
+            if any(sub['vlan'] is None or not sub['address'] for sub in subinterfaces.values()):
+                raise ValueError('Firecracker subinterfaces need a VLAN and an IPv4 address.')
+            routed = sum(1 for address in interfaces.values() if address) + len(subinterfaces)
+            if role in ('router', 'firewall') and routed < 2:
+                raise ValueError('Firecracker router or firewall requires at least two routed interfaces (ports or subinterfaces); '
+                                 'a single-port guest is a host.')
             if role == 'firewall' and node.get('firewall') is None:
                 raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
             if role != 'firewall' and node.get('firewall') is not None:
                 raise ValueError('A firewall policy requires role firewall.')
             interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
-            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values() if a]
+            addresses_declared = [*interfaces.values(), *(sub['address'] for sub in node['subinterfaces'].values())]
+            networks = [ipaddress.IPv4Interface(a).network for a in addresses_declared if a]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
                 raise ValueError('Firecracker interface subnets must not overlap.')
             if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network:

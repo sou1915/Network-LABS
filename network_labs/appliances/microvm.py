@@ -113,6 +113,27 @@ def switch_vlan_example(kernel, disk):
                      'nodes': switches + hosts, 'links': links})
 
 
+def router_on_a_stick_example(kernel, disk):
+    """Inter-VLAN routing: R1 routes between VLAN 10 and VLAN 20 over one trunk port with two 802.1Q subinterfaces.
+
+    VM1 (VLAN 10, 192.0.2.0/24) and VM2 (VLAN 20, 198.51.100.0/24) hang off SW1 access ports; SW1's
+    trunk carries both VLANs tagged to R1's unnumbered eth0, which holds eth0.10 and eth0.20.
+    """
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()),
+            'memory_mib': 128, 'vcpus': 1}
+    switch = dict(base, name='SW1', role='switch', interfaces={'eth0': '', 'eth1': '', 'eth2': ''}, vlans=[1, 10, 20],
+                  switchports={'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                               'eth2': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}})
+    router = dict(base, name='R1', role='router', interfaces={'eth0': ''},
+                  subinterfaces={'eth0.10': {'parent': 'eth0', 'vlan': 10, 'address': '192.0.2.1/24'},
+                                 'eth0.20': {'parent': 'eth0', 'vlan': 20, 'address': '198.51.100.1/24'}})
+    hosts = [dict(base, name='VM1', role='host', interfaces={'eth0': '192.0.2.10/24'}, gateway='192.0.2.1'),
+             dict(base, name='VM2', role='host', interfaces={'eth0': '198.51.100.10/24'}, gateway='198.51.100.1')]
+    links = [[['SW1', 'eth0'], ['VM1', 'eth0']], [['SW1', 'eth1'], ['VM2', 'eth0']], [['SW1', 'eth2'], ['R1', 'eth0']]]
+    return validate({'version': 1, 'name': 'microvm-router-on-a-stick', 'budget_mib': 2048, 'reserve_mib': 512,
+                     'nodes': [switch, router, *hosts], 'links': links})
+
+
 def firewall_example(kernel, disk):
     """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
     spec = router_example(kernel, disk)

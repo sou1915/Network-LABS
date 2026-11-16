@@ -12,6 +12,7 @@
 #include <linux/netlink.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/rtnetlink.h>
+#include <linux/if_vlan.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/time.h>
 #include <net/if.h>
@@ -27,6 +28,15 @@
 #define LIMIT 32768
 static int valid_port(const char *value) {
     return strlen(value) == 4 && !strncmp(value, "eth", 3) && value[3] >= '0' && value[3] <= '3';
+}
+/* A guest port eth0..eth3, or one of its 802.1Q subinterfaces eth0.1 .. eth3.4094. */
+static int valid_interface(const char *value) {
+    if (strlen(value) == 4) return valid_port(value);
+    if (strlen(value) < 6 || strlen(value) > 9 || value[4] != '.') return 0;
+    char base[5]; memcpy(base, value, 4); base[4] = 0;
+    const char *vid = value + 5;
+    if (!valid_port(base) || vid[0] == '0' || strspn(vid, "0123456789") != strlen(vid)) return 0;
+    long number = atol(vid); return number >= 1 && number <= 4094;
 }
 static int valid_cidr(const char *value) {
     char ip[16]; const char *slash = strchr(value, '/');
@@ -383,25 +393,54 @@ static void serve(int input, int output, int mutations) {
         args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
-    char port[5], action[5], cidr[20], extra;
+    char port[10], action[5], cidr[20], extra;
+    /* 802.1Q subinterfaces, named ethN.VID, through the kernel's VLAN ioctl as vconfig does. */
+    unsigned subinterface_vid;
+    int subinterface_add = sscanf(request, "NL1 VLAN_ADD %4s %u %c", port, &subinterface_vid, &extra) == 2;
+    int subinterface_delete = !subinterface_add && sscanf(request, "NL1 VLAN_DEL %9s %c", port, &extra) == 1;
+    if (mutations && ((subinterface_add && valid_port(port) && subinterface_vid >= 1 && subinterface_vid <= 4094) ||
+                      (subinterface_delete && valid_interface(port) && strlen(port) > 4))) {
+        int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
+        struct vlan_ioctl_args vlan;
+        if (!failure && subinterface_add) {
+            memset(&vlan, 0, sizeof(vlan));
+            vlan.cmd = SET_VLAN_NAME_TYPE_CMD; vlan.u.name_type = VLAN_NAME_TYPE_RAW_PLUS_VID_NO_PAD;
+            if (ioctl(fd, SIOCSIFVLAN, &vlan) < 0) failure = errno;
+        }
+        if (!failure) {
+            memset(&vlan, 0, sizeof(vlan));
+            vlan.cmd = subinterface_add ? ADD_VLAN_CMD : DEL_VLAN_CMD;
+            strncpy(vlan.device1, port, sizeof(vlan.device1) - 1);
+            if (subinterface_add) vlan.u.VID = (int)subinterface_vid;
+            if (ioctl(fd, SIOCSIFVLAN, &vlan) < 0) failure = errno;
+        }
+        if (fd >= 0) close(fd);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "vlan interface change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, "", 0); return;
+    }
     char *const link_args[] = {"busybox", "ip", "link", "set", "dev", port, action, NULL};
-    if (mutations && sscanf(request, "NL1 LINK %4s %4s %c", port, action, &extra) == 2 &&
-        valid_port(port) && (!strcmp(action, "up") || !strcmp(action, "down"))) args = link_args;
+    if (mutations && sscanf(request, "NL1 LINK %9s %4s %c", port, action, &extra) == 2 &&
+        valid_interface(port) && (!strcmp(action, "up") || !strcmp(action, "down"))) args = link_args;
     char *const address_add[] = {"busybox", "ip", "address", "add", request + 13, "dev", "eth0", NULL};
     char *const address_delete[] = {"busybox", "ip", "address", "del", request + 13, "dev", "eth0", NULL};
     if (mutations && !strncmp(request, "NL1 ADDR_ADD ", 13) && valid_cidr(request + 13)) args = address_add;
     if (mutations && !strncmp(request, "NL1 ADDR_DEL ", 13) && valid_cidr(request + 13)) args = address_delete;
     char *const iface_add[] = {"busybox", "ip", "address", "add", cidr, "dev", port, NULL};
     char *const iface_delete[] = {"busybox", "ip", "address", "del", cidr, "dev", port, NULL};
-    if (mutations && sscanf(request, "NL1 IF_ADD %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_add;
-    if (mutations && sscanf(request, "NL1 IF_DEL %4s %19s %c", port, cidr, &extra) == 2 && valid_port(port) && valid_cidr(cidr)) args = iface_delete;
+    if (mutations && sscanf(request, "NL1 IF_ADD %9s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
+        args = iface_add;
+    if (mutations && sscanf(request, "NL1 IF_DEL %9s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
+        args = iface_delete;
     char via_network[20], via_gateway[16];
     char *const iface_route_add[] = {"busybox", "ip", "route", "add", via_network, "via", via_gateway, "dev", port, NULL};
     char *const iface_route_delete[] = {"busybox", "ip", "route", "del", via_network, "via", via_gateway, "dev", port, NULL};
-    if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %4s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
-        valid_port(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_add;
-    if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %4s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
-        valid_port(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_delete;
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+        valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_add;
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+        valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_delete;
     char *route_network = request + 14;
     char *route_gateway = NULL;
     int route_add = !strncmp(request, "NL1 ROUTE_ADD ", 14);

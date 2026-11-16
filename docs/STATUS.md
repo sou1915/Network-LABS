@@ -39,13 +39,15 @@ the direct launch.
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
 | Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |
 | Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
+| Router-on-a-stick: 802.1Q subinterfaces on router/firewall guests | `--router-on-a-stick` | Unnumbered trunk port with `ethN.VID` subinterfaces; needs the Network LABS kernel |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
 | Capture on a guest port | — (`capture LAB NODE ethN`) | Recorded on the host-side TAP |
 | Isolation and limits | — | Jailer chroot, per-lab uid block, cgroup memory/CPU caps, vCPU and memory budgets |
 
 ## Micro-VM guests — not yet
 
-- SVIs (an address on a switch VLAN) and router-on-a-stick subinterfaces on guests.
+- SVIs (an address on a switch VLAN) on switch guests, and firewall rules on subinterfaces (guest firewall
+  rules name physical ports only). Static routes through a subinterface are unit-tested only.
 - STP, LACP and switch security features on guests.
 - Routing protocols (OSPF), DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).

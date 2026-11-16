@@ -6,12 +6,17 @@ import time
 from .guest_control import request
 
 
+def guest_interfaces(node):
+    """Every guest interface with its declared primary address: ports ('' when unnumbered), then subinterfaces."""
+    return {**node['interfaces'], **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()}}
+
+
 def _port_networks(node, profile):
     """Every IPv4 network configured on each declared port, primary first."""
     extras = {'eth0': profile['addresses'], **profile.get('port_addresses', {})}
     # A DHCP client port has no declared primary; its leased address is never part of the profile.
     return {port: [ipaddress.IPv4Interface(a).network for a in [*([primary] if primary else []), *extras.get(port, [])]]
-            for port, primary in node['interfaces'].items()}
+            for port, primary in guest_interfaces(node).items()}
 
 
 def route_port(node, profile, gateway):
@@ -39,7 +44,7 @@ def validate_profile(node):
     for port, values in by_port.items():
         if not node['interfaces'][port]:
             if values:
-                raise ValueError('A DHCP client port takes no extra static addresses.')
+                raise ValueError('An unnumbered port (DHCP client or subinterface parent) takes no extra static addresses.')
             continue
         primary = str(ipaddress.IPv4Interface(node['interfaces'][port]))
         normalized = [str(ipaddress.IPv4Interface(a)) for a in values if isinstance(a, str) and '/' in a]
@@ -178,10 +183,11 @@ def check_switch(socket, node):
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
-    by_port = {port: [] for port in node['interfaces']}
+    declared = guest_interfaces(node)
+    by_port = {port: [] for port in declared}
     interface = None; active = set()
     for line in text.splitlines():
-        header = re.match(r'^\d+: ([^:]+): <([^>]*)>', line)
+        header = re.match(r'^\d+: ([^:@]+)(?:@[^:]+)?: <([^>]*)>', line)  # a subinterface reads "eth0.10@eth0
         if header:
             interface = header[1]
             if interface != 'lo' and interface not in by_port:
@@ -191,8 +197,8 @@ def observe(socket, node):
         if fields and fields[0] == 'inet' and interface in by_port:
             by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
     dynamic = set(node.get('dhcp_clients', []))
-    for port, primary_address in node['interfaces'].items():
-        if port in dynamic:
+    for port, primary_address in declared.items():
+        if port in dynamic or not primary_address:
             if port not in active:
                 raise ValueError('Save requires all declared guest interfaces up.')
             continue
@@ -200,8 +206,13 @@ def observe(socket, node):
         if port not in active or primary_address not in by_port[port]:
             raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
     # Leased addresses come from the DHCP server on every boot; they are never saved as static ones.
-    extras = {port: [] if port in dynamic else [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))]
-              for port, values in by_port.items()}
+    def unexpected(port, values):
+        primary = str(ipaddress.IPv4Interface(declared[port])) if declared[port] else None
+        return [] if port in dynamic else [a for a in values if a != primary]
+    extras = {port: unexpected(port, values) for port, values in by_port.items()}
+    for name in node.get('subinterfaces', {}):
+        if extras.pop(name):
+            raise ValueError(f'Extra addresses on subinterface {name} cannot be saved; only its declared address is.')
     routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
@@ -274,6 +285,11 @@ def apply(socket, node, timeout=40, alive=None):
             query(socket, 'address-add', interface=port, cidr=address)
         if port != 'eth0' or not address:
             query(socket, 'link', interface=port, state='up')
+    for name, sub in node.get('subinterfaces', {}).items():
+        # Router-on-a-stick: each 802.1Q subinterface rides its (already up) parent port.
+        query(socket, 'vlan-add', interface=sub['parent'], vlan=sub['vlan'])
+        query(socket, 'address-add', interface=name, cidr=sub['address'])
+        query(socket, 'link', interface=name, state='up')
     profile = node.get('guest_network', {'addresses': [], 'routes': []})
     for address in profile['addresses']:
         query(socket, 'address-add', cidr=address)
