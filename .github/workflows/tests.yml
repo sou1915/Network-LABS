@@ -61,6 +61,10 @@ jobs:
       - name: Verify actual guests with the direct launch used when no jailer is installed
         if: always()
         run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router -v
+      - name: Report what the guest kernel supports
+        if: always()
+        run: |
+          sudo python3 -c "import json;print('GUEST_KERNEL_CAPABILITIES', json.dumps(json.load(open('/tmp/network-labs-microvm-evidence/router-capture/result.json'))['kernel'], sort_keys=True))"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
