@@ -75,6 +75,33 @@ class GuestFirewallTests(unittest.TestCase):
         finally:
             run('-F', chain); run('-X', chain)
 
+    @unittest.skipUnless(os.geteuid() == 0 and shutil.which('xtables-legacy-multi') and shutil.which('chroot'), 'root, legacy iptables and chroot required')
+    def test_image_files_alone_can_install_every_rule_kind(self):
+        """A guest has only what the builder copied: a missing library or module must fail here, not at boot."""
+        import tempfile
+        from pathlib import Path
+        from network_labs.appliances.guest_image import install_iptables
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / 'sbin').mkdir(); (root / 'run').mkdir()
+            install_iptables(root, shutil.which('xtables-legacy-multi'))
+            self.assertFalse([path for path in root.rglob('*') if path.is_symlink()])
+            run = lambda *args: subprocess.run(['chroot', folder, '/sbin/xtables-legacy-multi', 'iptables', '-w', *args], capture_output=True, text=True)
+            chain = 'NLIMG' + str(os.getpid())
+            if run('-N', chain).returncode: self.skipTest('iptables cannot create a chain here')
+            try:
+                for rule in guest_firewall.expected(POLICY)['rules']:
+                    args = ['-A', chain]
+                    if 'state' in rule: args += ['-m', 'conntrack', '--ctstate', ','.join(sorted(rule['state'], reverse=True))]
+                    for option, key in (('-i', 'in'), ('-o', 'out'), ('-p', 'protocol'), ('-s', 'source'), ('-d', 'destination')):
+                        if key in rule: args += [option, str(rule[key])]
+                    if 'dport' in rule: args += ['--dport', str(rule['dport'])]
+                    added = run(*args, '-j', rule['action'].upper())
+                    self.assertEqual(added.returncode, 0, added.stderr)
+                listing = run('-S', chain).stdout.replace(chain, 'FORWARD').replace('-N FORWARD', '-P FORWARD DROP')
+                self.assertEqual(guest_firewall.parse(listing), guest_firewall.expected(POLICY), listing)
+            finally:
+                run('-F', chain); run('-X', chain)
+
     def test_apply_is_closed_while_changing_and_verifies_the_result(self):
         node = self.node(); calls = []
         def fake(socket, operation, **arguments):

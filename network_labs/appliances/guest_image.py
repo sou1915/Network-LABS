@@ -35,7 +35,8 @@ INITTAB = '''# No unauthenticated shell or network management listener.
 '''
 
 
-FIREWALL_MODULES = ('libxt_conntrack.so', 'libxt_tcp.so', 'libxt_udp.so', 'libipt_icmp.so')
+# libxt_standard implements the plain ACCEPT/DROP verdicts; without it no rule can be added at all.
+FIREWALL_MODULES = ('libxt_standard.so', 'libxt_conntrack.so', 'libxt_tcp.so', 'libxt_udp.so', 'libipt_icmp.so')
 
 
 def install_iptables(root, program):
