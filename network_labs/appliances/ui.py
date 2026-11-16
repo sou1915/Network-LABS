@@ -459,7 +459,7 @@ class ApplianceWindow:
             presentation=MODELS[node['model']]['presentation'] if node.get('model') in MODELS else None
             kind='server' if presentation=='server' or name in dmz or name.upper().startswith('SRV') else node['role']
             host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
-            draw_device(self.canvas,kind,x,y,scale=.85 if node['role']=='host' else .9,tags=tags,variant='red' if host_index%2 else 'blue')
+            draw_device(self.canvas,kind,x,y,scale=1,tags=tags,variant='red' if host_index%2 else 'blue')
             if node['role']=='host':
                 self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]

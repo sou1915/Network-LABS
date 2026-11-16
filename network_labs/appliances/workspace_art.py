@@ -3,46 +3,124 @@ import ipaddress
 from .soft_widgets import rounded_box
 
 
+def _mix(a, b, t):
+    """Colour between a and b ('#rrggbb'), t in 0..1."""
+    pa, pb = [int(a[i:i + 2], 16) for i in (1, 3, 5)], [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return '#' + ''.join(f'{round(u + (v - u) * t):02x}' for u, v in zip(pa, pb))
+
+
+# Chassis palettes per role: top face, front panel top/bottom, side, outline, emblem.
+_CHASSIS = {
+    'router': ('#3f6f8f', '#1e4560', '#0f2738', '#0b1d2a', '#091620', '#2f9be0'),
+    'switch': ('#dfe7ee', '#c9d5df', '#9fb0bf', '#7d8e9c', '#5b6c7a', '#2f8fd8'),
+    'firewall': ('#5b4a4a', '#3b2f31', '#221a1c', '#1a1314', '#120c0d', '#e4572e'),
+}
+
+
 def draw_device(c,role,x,y,scale=1,tags=(),variant='blue'):
-    def rect(a,b,d,e,**kw):return c.create_rectangle(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
-    def line(*points,**kw):return c.create_line(*[v*scale+(x if i%2==0 else y) for i,v in enumerate(points)],tags=tags,**kw)
+    """Unbranded device drawings: 3D chassis with front panel, ports, LEDs and a role emblem; monitors and towers."""
+    def pt(points):
+        return [v*scale+(x if i%2==0 else y) for i,v in enumerate(points)]
+
+    def rect(a,b,d,e,**kw):
+        return c.create_rectangle(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
+
+    def line(*points,**kw):
+        return c.create_line(*pt(points),tags=tags,**kw)
+
+    def poly(*points,**kw):
+        return c.create_polygon(*pt(points),tags=tags,**kw)
+
+    def oval(a,b,d,e,**kw):
+        return c.create_oval(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
+
+    def gradient(a,b,d,e,top,bottom,steps=10):
+        height=(e-b)/steps
+        for i in range(steps):
+            rect(a,b+i*height,d,b+(i+1)*height+.6,fill=_mix(top,bottom,i/(steps-1)),outline='')
+
+    width=max(1,round(scale))
     if role=='host':
-        rect(-32,-27,32,14,fill='#172331',outline='#0b1520',width=2)
-        for row in range(32):
-            shade=f'#{195+row:02x}{18+row:02x}{27+row:02x}' if variant=='red' else f'#{8+row:02x}{104+row*2:02x}{222+row:02x}'
-            rect(-29,-24+row,29,-23+row,fill=shade,outline='')
+        oval(-30,20,30,30,fill='#d5dde5',outline='')                      # shadow on the desk
+        poly(-8,13,8,13,11,24,-11,24,fill='#3a4b5c',outline='')            # stand neck
+        poly(-21,23,21,23,24,27,-24,27,fill='#2b3a49',outline='')          # base
+        line(-21,23,21,23,fill='#5d7083',width=width)
+        rect(-34,-30,34,15,fill='#1b2836',outline='#0b1520',width=width)  # bezel
+        rect(-34,-30,34,-28,fill='#2e3e4f',outline='')
+        top,bottom=(('#e8573a','#9c1f27') if variant=='red' else ('#2ea8ff','#0b4fbf'))
+        gradient(-30,-26,30,10,top,bottom,steps=12)
+        poly(-30,-26,-4,-26,-30,0,fill=_mix(top,'#ffffff',.25),outline='')  # screen glare
         if variant=='red':
-            c.create_oval(x-10*scale,y-17*scale,x+10*scale,y+3*scale,outline='#ffffff',width=max(1,2*scale),tags=tags)
-            line(-4,-10,1,-7,-4,-4,fill='white',width=max(1,2*scale));line(3,-3,8,-3,fill='white',width=max(1,2*scale))
+            oval(-10,-17,10,3,outline='#ffffff',width=max(1,2*scale))
+            line(-4,-10,1,-7,-4,-4,fill='white',width=max(1,2*scale))
+            line(3,-3,8,-3,fill='white',width=max(1,2*scale))
         else:
             for a,b,d,e in [(-12,-16,-1,-7),(2,-18,13,-7),(-12,-4,-1,5),(2,-4,13,7)]:
-                rect(a,b,d,e,fill='#69c6ff',outline='')
-        rect(-5,15,5,23,fill='#344454',outline='');rect(-20,23,20,26,fill='#243547',outline='')
-        rect(-29,10,29,12,fill='#8d9eac',outline='')
+                rect(a,b,d,e,fill='#bfe6ff',outline='')
+        rect(-34,10,34,15,fill='#c3ccd5',outline='')                     # chin
+        oval(-1.5,11.5,1.5,13.5,fill='#31cf47',outline='')                # power LED
     elif role=='server':
-        c.create_polygon(x-16*scale,y-29*scale,x+11*scale,y-34*scale,x+21*scale,y-28*scale,x-6*scale,y-22*scale,fill='#586975',outline='#263847',tags=tags)
+        oval(-22,25,26,33,fill='#d5dde5',outline='')
+        poly(-16,-29,11,-34,21,-28,-6,-22,fill='#6f818d',outline='#263847')            # top
+        poly(12,-29,21,-28,21,24,12,29,fill='#142532',outline='#132331')               # side
         rect(-16,-29,12,29,fill='#263846',outline='#132331')
-        c.create_polygon(x+12*scale,y-29*scale,x+21*scale,y-28*scale,x+21*scale,y+24*scale,x+12*scale,y+29*scale,fill='#142532',outline='#132331',tags=tags)
-        for row in range(4):rect(-12,-23+row*9,8,-17+row*9,fill='#344c5c',outline='#526b79')
-        for row in range(3):line(-11,16+row*3,7,16+row*3,fill='#647984')
-        rect(-11,11,-8,13,fill='#31cf47',outline='')
+        gradient(-15,-28,11,28,'#34495a','#1d2c39',steps=8)
+        for row in range(4):                                                            # drive bays
+            rect(-12,-23+row*9,8,-17+row*9,fill='#3c5567',outline='#5f7b8c')
+            rect(-10,-21+row*9,-6,-19+row*9,fill='#9fb4c2',outline='')
+            oval(4,-21+row*9,6,-19+row*9,fill='#31cf47' if row != 2 else '#f1b434',outline='')
+        for row in range(4):
+            line(-11,14+row*3,7,14+row*3,fill='#647984')
+        oval(-11,25,-7,28,fill='#31cf47',outline='')
     else:
-        # A three-dimensional, unbranded rack chassis; not a firmware/model claim.
-        c.create_polygon(x-51*scale,y-14*scale,x-40*scale,y-25*scale,x+45*scale,y-25*scale,x+54*scale,y-14*scale,fill='#314855',outline='#263848',tags=tags)
-        rect(-51,-14,54,15,fill='#183441' if role=='router' else '#c8d3dc' if role=='switch' else '#f1f0eb',outline='#263848')
-        rect(-49,12,52,16,fill='#152331',outline='')
-        line(-37,-20,34,-20,fill='#778c99',width=1)
-        if role=='firewall':
-            rect(-45,-9,-21,-5,fill='#e62328',outline='')
-            rect(-45,-4,-21,-1,fill='#a3abb2',outline='')
-        count=12 if role=='switch' else 4 if role=='firewall' else 6
-        start=-12 if role=='firewall' else -42;spacing=7 if role=='switch' else 12
-        for index in range(count):
-            px=start+index*spacing
-            rect(px,-7,px+5,2,fill='#14202a',outline='#6b7d88')
-            rect(px+1,3,px+4,4,fill='#54b97c',outline='')
-        for px in (45,49):rect(px,-6,px+1,-4,fill='#2bb67c',outline='')
-        line(-44,8,37,8,fill='#889aa5',width=1)
+        top,front_top,front_bottom,side,edge,accent=_CHASSIS.get(role,_CHASSIS['router'])
+        oval(-52,10,58,24,fill='#d5dde5',outline='')                                   # shadow
+        poly(-51,-14,-40,-25,45,-25,54,-14,fill=top,outline=edge)                       # top face
+        line(-38,-22,43,-22,fill=_mix(top,'#ffffff',.35))
+        poly(54,-14,58,-18,58,11,54,15,fill=side,outline=edge)                          # right side
+        gradient(-51,-14,54,15,front_top,front_bottom,steps=9)                          # front panel
+        rect(-51,-14,54,15,fill='',outline=edge,width=width)
+        line(-51,-13,54,-13,fill=_mix(front_top,'#ffffff',.3))
+        rect(-49,12,52,15,fill=_mix(front_bottom,'#000000',.35),outline='')            # base rail
+        # Role emblem in a round badge on the left of the panel.
+        badge=accent if role=='switch' else _mix(front_bottom,'#000000',.3)
+        oval(-47,-11,-29,7,fill=badge,outline=_mix(accent,'#000000',.25) if role=='switch' else accent,width=width)
+        if role=='router':
+            for dx,dy in ((0,-5),(0,5),(-5,0),(5,0)):
+                line(-38,-2,-38+dx,-2+dy,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+        elif role=='switch':
+            line(-44,-5,-32,-5,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+            line(-32,1,-44,1,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+        else:
+            for row in range(3):                                                        # brick wall
+                offset=0 if row%2==0 else 3
+                for col in range(3):
+                    bx=-45+offset+col*5
+                    if bx+4<=-31:
+                        rect(bx,-8+row*4,bx+4,-5+row*4,fill=accent,outline='')
+        # Ports: two rows on switches, one row with link LEDs elsewhere.
+        if role=='switch':
+            for row in range(2):
+                for index in range(10):
+                    px=-24+index*6
+                    rect(px,-10+row*9,px+4.5,-4+row*9,fill='#121c25',outline='#3f505d')
+                    rect(px+.8,-11.4+row*9,px+2.2,-10.4+row*9,fill='#3ddc84' if (index+row)%3 else '#f1b434',outline='')
+            for index in range(2):                                                      # uplinks
+                px=37+index*6
+                rect(px,-8,px+5,0,fill='#2b3946',outline='#9fb0bf')
+        else:
+            count=4 if role=='firewall' else 6
+            for index in range(count):
+                px=-22+index*9
+                rect(px,-8,px+6,1,fill='#0d151c',outline=_mix(front_top,'#ffffff',.35))
+                rect(px+1,-7,px+5,-5,fill='#26323c',outline='')
+                rect(px+1,3,px+3,5,fill='#3ddc84' if index%4 != 3 else '#f1b434',outline='')
+            line(30,-10,30,10,fill=_mix(front_top,'#ffffff',.2))
+        # Status LEDs and a vent grille on the right.
+        for i,colour in enumerate(('#3ddc84','#2f9be0','#3ddc84')):
+            oval(46,-10+i*5,49,-7+i*5,fill=colour,outline='')
+        for i in range(4):
+            line(34+i*2.4,-9,34+i*2.4,8,fill=_mix(front_bottom,'#000000',.4) if role!='switch' else '#8798a6')
 
 
 def access_vlans(graph,spec):
@@ -86,11 +164,13 @@ def place_nodes(graph,members,width):
         start=min(max(70,fx-spacing*(len(names)-1)/2),max(70,width-70-spacing*(len(names)-1)))
         for i,name in enumerate(names):
             positions[name]=(start+i*spacing,fy+190)
-    for i,n in enumerate(switches):positions[n['name']]=((i+1)*width*.86/(len(switches)+1),194 if upper else 100)
+    # Under routers and firewalls, switches leave room for the uplink captions and port labels in between.
+    for i,n in enumerate(switches):
+        positions[n['name']]=((i+1)*width*.86/(len(switches)+1),222 if upper else 100)
     hosts=[n for n in graph['nodes'] if n['role']=='host' and n['name'] not in dmz]
     vids=sorted(set(members.values()));columns=max(1,int(width//115))
     # Other hosts go below the firewall rows when there are any.
-    base=(334 if upper else 270)+(140 if dmz else 0)
+    base=(362 if upper else 270)+(140 if dmz else 0)
     if vids:
         groups=[(vid,[n for n in hosts if members.get(n['name'])==vid]) for vid in vids]
         other=[n for n in hosts if n['name'] not in members]
