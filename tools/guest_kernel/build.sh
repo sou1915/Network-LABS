@@ -8,9 +8,8 @@
 set -euo pipefail
 
 KERNEL_VERSION=5.10.223
-# Empty until the first CI build prints it; until then the tarball is checked against
-# kernel.org's own sha256sums list instead. Pin the printed value here.
-KERNEL_SHA256=
+# Printed by the first CI build after matching kernel.org's sha256sums list.
+KERNEL_SHA256=ca09d86a6b79706c33382d3f8606f476eb07918417a87fb1815f6a4aa81f2ba1
 FIRECRACKER_TAG=v1.10.1
 CONFIG_SHA256=df50707f6b8460038483c7979712533d4bcab47ec9cb340e2df31e470918fb34
 
@@ -39,9 +38,18 @@ cat ../base.config "$here/network-labs.fragment" > .config
 make olddefconfig >/dev/null
 
 # Every option Firecracker enables must survive, and every fragment option must take effect.
+# Firecracker's CI kernels come from Amazon Linux's 5.10 tree, which adds a few options
+# (DAMON, VMGENID, ...) that this kernel.org tree does not define. Those are reported and
+# skipped; an option the tree does define but that ended up disabled stops the build.
 missing=0
 while IFS= read -r line; do
-    grep -qxF "$line" .config || { echo "lost from base config: $line" >&2; missing=1; }
+    grep -qxF "$line" .config && continue
+    symbol="${line#CONFIG_}"; symbol="${symbol%%=*}"
+    if grep -rqE "^[[:space:]]*(menu)?config[[:space:]]+${symbol}[[:space:]]*$" --include='Kconfig*' .; then
+        echo "lost from base config: $line" >&2; missing=1
+    else
+        echo "not defined in Linux ${KERNEL_VERSION} (Amazon Linux addition), skipped: $line"
+    fi
 done < <(grep -E '^CONFIG_[A-Z0-9_]+=y$' ../base.config)
 while IFS= read -r line; do
     grep -qxF "$line" .config || { echo "fragment option not applied: $line" >&2; missing=1; }
