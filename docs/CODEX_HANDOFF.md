@@ -1,5 +1,20 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Address translation on firewall micro-VMs — 2026-11-16 (real-KVM acceptance pending)
+
+A firewall guest's `nat` entries (masquerade, snat, dnat with optional `to_port`)
+now run in the guest's iptables nat table through typed agent requests `FW_NAT`,
+`FW_NAT_FLUSH` and `FW_NAT_LIST`: destination NAT in PREROUTING, source NAT in
+POSTROUTING. They are installed while forwarding still drops, read back exactly
+(chain policies included), and replaced by a live `firewall` change. A guest kernel
+without the nat table is reported as such; a policy without NAT never needs it.
+Source NAT on a guest matches the outbound port only (`in` is refused). Images now
+carry the DNAT, SNAT and MASQUERADE target modules under the names iptables loads;
+the builder previously copied a linked module under its target's name only.
+`microvm-example --firewall-nat` hides VM2 behind FW1's outside address and
+publishes VM2's ICMP on it; `tests/test_native_microvm_firewall_nat.py` checks the
+translated addresses by capture on the endpoint ports, a live NAT change and restore.
+
 ## Four-port micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
 
 `microvm-example --router-quad` prints R1 using all four guest ports (eth0..eth3,
@@ -40,7 +55,7 @@ exact readback, and only then enables forwarding; `microvm-save` refuses drift.
 Live `firewall LAB FW1 --file policy.json` now works on a firewall guest: the chain is
 rebuilt closed (forwarding paused), read back, and on failure the previous policy is
 restored; an interrupted change is restored by `recover`. Not available on guests yet:
-address translation (`nat` entries are rejected), sessions view, IPv6 filtering. `microvm-example
+sessions view, IPv6 filtering. `microvm-example
 --firewall` prints FW1 between an inside and an outside endpoint.
 
 ## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16

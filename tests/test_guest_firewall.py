@@ -25,6 +25,18 @@ LISTING = '''-P FORWARD DROP
 '''
 
 
+NAT_EMPTY = '-P PREROUTING ACCEPT\n-P INPUT ACCEPT\n-P OUTPUT ACCEPT\n-P POSTROUTING ACCEPT\n'
+NAT_LISTING = NAT_EMPTY + '''-A PREROUTING -d 198.51.100.1/32 -i eth1 -p icmp -j DNAT --to-destination 192.0.2.20
+-A PREROUTING -d 198.51.100.1/32 -i eth1 -p tcp -m tcp --dport 8080 -j DNAT --to-destination 192.0.2.20:80
+-A POSTROUTING -s 192.0.2.0/24 -o eth1 -j MASQUERADE
+-A POSTROUTING -s 192.0.2.30/32 -o eth1 -j SNAT --to-source 198.51.100.1
+'''
+NAT_POLICY = [{'name': 'hide', 'type': 'masquerade', 'out': 'eth1', 'source': '192.0.2.0/24'},
+              {'name': 'pin', 'type': 'snat', 'out': 'eth1', 'source': '192.0.2.30/32', 'to': '198.51.100.1'},
+              {'name': 'ping', 'type': 'dnat', 'in': 'eth1', 'destination': '198.51.100.1/32', 'protocol': 'icmp', 'to': '192.0.2.20'},
+              {'name': 'web', 'type': 'dnat', 'in': 'eth1', 'destination': '198.51.100.1/32', 'protocol': 'tcp', 'dport': 8080, 'to': '192.0.2.20', 'to_port': 80}]
+
+
 class GuestFirewallTests(unittest.TestCase):
     def node(self):
         node = firewall_example('/kernel', '/disk')['nodes'][0]; node['firewall'] = copy.deepcopy(POLICY); return node
@@ -39,7 +51,8 @@ class GuestFirewallTests(unittest.TestCase):
                  'policy on a host': lambda nodes: nodes[1].update(firewall=copy.deepcopy(POLICY)),
                  'single port': lambda nodes: nodes[0].update(interfaces={'eth0': '192.0.2.1/24'}),
                  'undeclared port': lambda nodes: nodes[0]['firewall']['rules'][0].update(out='eth2'),
-                 'translation': lambda nodes: nodes[0]['firewall']['nat'].append({'name': 'out', 'out': 'eth1', 'type': 'masquerade'})}
+                 'source NAT matching the input port': lambda nodes: nodes[0]['firewall']['nat'].append({'name': 'out', 'in': 'eth0', 'out': 'eth1', 'type': 'masquerade'}),
+                 'NAT on an undeclared port': lambda nodes: nodes[0]['firewall']['nat'].append({'name': 'out', 'out': 'eth2', 'type': 'masquerade'})}
         for label, change in cases.items():
             with self.subTest(label), self.assertRaises(ValueError): validate(changed(change))
 
@@ -102,14 +115,38 @@ class GuestFirewallTests(unittest.TestCase):
             finally:
                 run('-F', chain); run('-X', chain)
 
+    @unittest.skipUnless(os.geteuid() == 0 and shutil.which('xtables-legacy-multi') and shutil.which('chroot'), 'root, legacy iptables and chroot required')
+    def test_image_files_alone_can_install_every_nat_kind(self):
+        """The NAT targets are links to one module; the image must hold them under the names iptables loads."""
+        import tempfile
+        from pathlib import Path
+        from network_labs.appliances.guest_image import install_iptables
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / 'sbin').mkdir(); (root / 'run').mkdir()
+            install_iptables(root, shutil.which('xtables-legacy-multi'))
+            run = lambda *args: subprocess.run(['chroot', folder, '/sbin/xtables-legacy-multi', 'iptables', '-w', '-t', 'nat', *args], capture_output=True, text=True)
+            chain = 'NLNAT' + str(os.getpid())
+            if run('-N', chain).returncode: self.skipTest('iptables cannot create a nat chain here')
+            try:
+                for line in NAT_LISTING.splitlines():
+                    words = line.split()
+                    if words[0] != '-A': continue
+                    added = run('-A', chain, *words[2:])
+                    self.assertEqual(added.returncode, 0, (line, added.stderr))
+                listing = run('-S', chain).stdout
+                self.assertEqual(len([l for l in listing.splitlines() if l.startswith('-A')]), 4, listing)
+            finally:
+                run('-F', chain); run('-X', chain)
+
     def test_apply_is_closed_while_changing_and_verifies_the_result(self):
         node = self.node(); calls = []
         def fake(socket, operation, **arguments):
-            calls.append((operation, arguments)); return {'exit_code': 0, 'output': LISTING}
+            calls.append((operation, arguments)); return {'exit_code': 0, 'output': NAT_EMPTY if operation == 'firewall-nat-list' else LISTING}
         with patch.object(guest_firewall, 'request', side_effect=fake): guest_firewall.apply('/socket', node)
         self.assertEqual([c[0] for c in calls], ['firewall-policy', 'firewall-flush', 'firewall-state', 'firewall-state',
-                                                'firewall-rule', 'firewall-rule', 'firewall-rule', 'firewall-rule', 'firewall-policy', 'firewall-list'])
-        self.assertEqual((calls[0][1], calls[-2][1]), ({'state': 'drop'}, {'state': 'drop'}))
+                                                'firewall-rule', 'firewall-rule', 'firewall-rule', 'firewall-rule', 'firewall-nat-flush',
+                                                'firewall-policy', 'firewall-list', 'firewall-nat-list'])
+        self.assertEqual((calls[0][1], calls[-3][1]), ({'state': 'drop'}, {'state': 'drop'}))
         self.assertEqual(calls[4][1]['rule'], {'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'source': '192.0.2.0/24', 'destination': '198.51.100.20/32', 'dport': 443, 'action': 'accept'})
         drifted = LISTING.replace('-A FORWARD -s 203.0.113.0/24 -j DROP\n', '')
         with patch.object(guest_firewall, 'request', return_value={'exit_code': 0, 'output': drifted}), self.assertRaisesRegex(ValueError, 'differ'):
@@ -157,7 +194,9 @@ class GuestFirewallTests(unittest.TestCase):
         self.assertEqual([rule['name'] for rule in saved['nodes'][0]['firewall']['rules']], ['inside-ping-out', 'inside-web'])
         self.assertEqual(spec['nodes'][0]['firewall']['rules'][-1]['name'], 'inside-ping-out')  # The draft is replaced, never edited in place.
         translated = copy.deepcopy(policy); translated['nat'].append({'name': 'hide', 'out': 'eth1', 'type': 'masquerade'})
-        with self.assertRaisesRegex(ValueError, 'translation'): configure_section(spec, 'FW1', 'firewall', {'firewall': translated})
+        self.assertEqual(configure_section(spec, 'FW1', 'firewall', {'firewall': translated})['nodes'][0]['firewall']['nat'][0]['type'], 'masquerade')
+        translated['nat'][0]['in'] = 'eth0'
+        with self.assertRaisesRegex(ValueError, 'outbound'): configure_section(spec, 'FW1', 'firewall', {'firewall': translated})
         with self.assertRaises(ValueError): configure_section(spec, 'VM2', 'firewall', {'firewall': policy})
 
 
@@ -219,11 +258,70 @@ class LiveGuestFirewallTests(unittest.TestCase):
             manager.state = None; state = manager.read()
             self.assertEqual(state['phase'], 'running'); self.assertNotIn('pending_spec', state)
 
-    def test_translation_is_still_refused_before_the_guest_is_touched(self):
+    def test_invalid_translation_is_refused_before_the_guest_is_touched(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
             manager, spec = self.manager(root)
-            policy = self.policy(spec); policy['nat'].append({'name': 'hide', 'out': 'eth1', 'type': 'masquerade'})
-            with patch('network_labs.appliances.guest_firewall.apply') as apply, self.assertRaisesRegex(ValueError, 'translation'):
+            policy = self.policy(spec); policy['nat'].append({'name': 'hide', 'in': 'eth0', 'out': 'eth1', 'type': 'masquerade'})
+            with patch('network_labs.appliances.guest_firewall.apply') as apply, self.assertRaisesRegex(ValueError, 'outbound'):
                 manager.configure_firewall('FW1', policy)
             apply.assert_not_called()
+
+
+class GuestNatTests(unittest.TestCase):
+    """Address translation in a firewall guest's nat table: wire format, exact readback, and kernels without NAT."""
+    def node(self, nat=NAT_POLICY):
+        spec = firewall_example('/kernel', '/disk'); spec['nodes'][0]['firewall']['nat'] = copy.deepcopy(nat)
+        return validate(spec)['nodes'][0]
+
+    def test_listing_reads_back_as_the_declared_translation_in_chain_order(self):
+        node = self.node()
+        self.assertEqual(guest_firewall.parse_nat(NAT_LISTING), guest_firewall.expected_nat(node['firewall']))
+        self.assertEqual([r['type'] for r in guest_firewall.expected_nat(node['firewall'])], ['dnat', 'dnat', 'masquerade', 'snat'])
+        self.assertEqual(guest_firewall.parse_nat(NAT_EMPTY), [])
+        for wrong in (NAT_LISTING.replace('192.0.2.20:80', '192.0.2.20:81'), NAT_LISTING.replace('-o eth1 -j MASQUERADE', '-o eth0 -j MASQUERADE'),
+                      NAT_LISTING.replace('-A POSTROUTING -s 192.0.2.30/32 -o eth1 -j SNAT --to-source 198.51.100.1\n', '')):
+            self.assertNotEqual(guest_firewall.parse_nat(wrong), guest_firewall.expected_nat(node['firewall']))
+        for unreadable in (NAT_LISTING.replace('-P OUTPUT ACCEPT', '-P OUTPUT DROP'), NAT_EMPTY + '-A OUTPUT -j DNAT --to-destination 192.0.2.1\n',
+                           NAT_EMPTY + '-A POSTROUTING -j DNAT --to-destination 192.0.2.1\n', NAT_EMPTY + '-A PREROUTING -j REDIRECT --to-ports 80\n', ''):
+            with self.subTest(unreadable=unreadable), self.assertRaises(ValueError): guest_firewall.parse_nat(unreadable)
+
+    def test_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import _firewall_command
+        expected = ['FW_NAT dnat eth1 - icmp - 198.51.100.1/32 - 192.0.2.20 -', 'FW_NAT dnat eth1 - tcp - 198.51.100.1/32 8080 192.0.2.20 80',
+                    'FW_NAT masquerade - eth1 any 192.0.2.0/24 - - - -', 'FW_NAT snat - eth1 any 192.0.2.30/32 - - 198.51.100.1 -']
+        self.assertEqual([_firewall_command('firewall-nat-rule', None, r) for r in guest_firewall.expected_nat(self.node()['firewall'])], expected)
+        for rule in ({'type': 'masquerade'}, {'type': 'dnat', 'out': 'eth1', 'to': '192.0.2.1'}, {'type': 'masquerade', 'out': 'eth1', 'to': '192.0.2.1'},
+                     {'type': 'snat', 'out': 'eth1'}, {'type': 'dnat', 'in': 'eth1', 'to': '192.0.2.1', 'to_port': 80},
+                     {'type': 'dnat', 'in': 'eth1', 'to': '192.0.2.1', 'dport': 80}, {'type': 'redirect', 'in': 'eth1'},
+                     {'type': 'dnat', 'in': 'eth9', 'to': '192.0.2.1'}, {'type': 'masquerade', 'out': 'eth1', 'comment': '; id'}):
+            with self.subTest(rule=rule), self.assertRaises(ValueError): _firewall_command('firewall-nat-rule', None, rule)
+
+    def test_apply_installs_translation_while_closed_and_reads_it_back(self):
+        node = self.node(); calls = []
+        filter_listing = '\n'.join(['-P FORWARD DROP', '-A FORWARD -m conntrack --ctstate INVALID -j DROP',
+                                     '-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT',
+                                     '-A FORWARD -s 192.0.2.0/24 -i eth0 -o eth1 -p icmp -j ACCEPT']) + '\n'
+        def fake(socket, operation, **arguments):
+            calls.append(operation)
+            return {'exit_code': 0, 'output': NAT_LISTING if operation == 'firewall-nat-list' else filter_listing}
+        with patch.object(guest_firewall, 'request', side_effect=fake): guest_firewall.apply('/socket', node)
+        flush = calls.index('firewall-nat-flush')
+        self.assertEqual(calls[flush + 1:flush + 5], ['firewall-nat-rule'] * 4)
+        self.assertEqual(calls[flush + 5], 'firewall-policy')  # The declared default comes only after NAT is in place.
+
+    def test_kernel_without_nat_table_is_fine_without_translation_and_reported_with_it(self):
+        missing = {'exit_code': 3, 'output': "iptables v1.8.10 (legacy): can't initialize iptables table `nat': Table does not exist"}
+        old_agent = {'exit_code': 2, 'output': 'unsupported operation'}
+        filter_ok = {'exit_code': 0, 'output': LISTING}
+        plain = GuestFirewallTests.node(GuestFirewallTests())
+        for absent in (missing, old_agent):
+            fake = lambda socket, operation, **k: absent if operation.startswith('firewall-nat') else filter_ok
+            with self.subTest(absent=absent['output'][:20]), patch.object(guest_firewall, 'request', side_effect=fake):
+                guest_firewall.apply('/socket', plain)  # No NAT declared: a guest without the table is acceptable.
+                self.assertIsNone(guest_firewall.observe_nat('/socket'))
+            with patch.object(guest_firewall, 'request', side_effect=fake), self.assertRaisesRegex(ValueError, 'NAT table'):
+                guest_firewall.apply('/socket', self.node())
+        stray = lambda socket, operation, **k: {'exit_code': 0, 'output': NAT_LISTING} if operation == 'firewall-nat-list' else filter_ok
+        with patch.object(guest_firewall, 'request', side_effect=stray), self.assertRaisesRegex(ValueError, 'NAT rules differ'):
+            guest_firewall.check('/socket', plain)

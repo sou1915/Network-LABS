@@ -57,10 +57,10 @@ jobs:
           curl -fL --retry 3 https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223 -o /tmp/vmlinux
           echo '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65  /tmp/vmlinux' | sha256sum -c -
       - name: Verify actual guests under the Firecracker jailer (unprivileged VMM, chroot, cgroup caps)
-        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad -v
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat -v
       - name: Verify actual guests with the direct launch used when no jailer is installed
         if: always()
-        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad -v
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat -v
       - name: Report what the guest kernel supports
         if: always()
         run: |

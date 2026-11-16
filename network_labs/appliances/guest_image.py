@@ -36,7 +36,8 @@ INITTAB = '''# No unauthenticated shell or network management listener.
 
 
 # libxt_standard implements the plain ACCEPT/DROP verdicts; without it no rule can be added at all.
-FIREWALL_MODULES = ('libxt_standard.so', 'libxt_conntrack.so', 'libxt_tcp.so', 'libxt_udp.so', 'libipt_icmp.so')
+FIREWALL_MODULES = ('libxt_standard.so', 'libxt_conntrack.so', 'libxt_tcp.so', 'libxt_udp.so', 'libipt_icmp.so',
+                    'libxt_DNAT.so', 'libxt_SNAT.so', 'libxt_MASQUERADE.so')
 
 
 def install_iptables(root, program):
@@ -60,7 +61,9 @@ def install_iptables(root, program):
     for source in [*libraries, *(modules / name for name in FIREWALL_MODULES)]:
         # The host may reach one file through /lib and /usr/lib; the image has no such link, and iptables
         # looks for its modules under the path it was built with. Provide both spellings as plain files.
-        for location in {source, source.resolve()}:
+        # Resolve the folder, not the file: a module such as libxt_MASQUERADE.so is a link to libxt_NAT.so,
+        # and iptables loads it by the link's own name.
+        for location in {source, source.parent.resolve() / source.name}:
             target = root / location.relative_to('/')
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists():

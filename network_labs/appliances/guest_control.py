@@ -5,7 +5,8 @@ import time
 
 OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
               'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
-              'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE'}
+              'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE',
+              'firewall-nat-list': 'FW_NAT_LIST', 'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT'}
 
 
 def _firewall_command(operation, state, rule):
@@ -16,6 +17,8 @@ def _firewall_command(operation, state, rule):
         if state not in choices or rule is not None:
             raise ValueError(f'Guest {operation} requires state ' + ' or '.join(choices) + '.')
         return command + ' ' + state
+    if operation == 'firewall-nat-rule':
+        return command + ' ' + _nat_fields(state, rule)
     if operation != 'firewall-rule':
         if state is not None or rule is not None:
             raise ValueError(f'Guest {operation} accepts no arguments.')
@@ -40,6 +43,35 @@ def _firewall_command(operation, state, rule):
     else:
         fields.append('-')
     return command + ' ' + ' '.join(fields)
+
+
+def _nat_fields(state, rule):
+    if state is not None or not isinstance(rule, dict) or set(rule) - {'type', 'in', 'out', 'protocol', 'source', 'destination', 'dport', 'to', 'to_port'}:
+        raise ValueError('Guest NAT rule requires type and optional in/out/protocol/source/destination/dport/to/to_port.')
+    kind, protocol = rule.get('type'), rule.get('protocol', 'any')
+    if kind not in ('masquerade', 'snat', 'dnat') or protocol not in ('any', 'tcp', 'udp', 'icmp'):
+        raise ValueError('Guest NAT rule: type masquerade/snat/dnat and protocol any/tcp/udp/icmp.')
+    if (kind == 'dnat') != ('in' in rule) or (kind == 'dnat') == ('out' in rule):
+        raise ValueError('Guest destination NAT matches in only; source NAT matches out only.')
+    if (kind == 'masquerade') == ('to' in rule):
+        raise ValueError('Guest SNAT and DNAT need to; masquerade chooses its own address.')
+    fields = [kind]
+    for key in ('in', 'out'):
+        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
+            raise ValueError('Guest NAT interface must be eth0..eth3.')
+        fields.append(rule.get(key, '-'))
+    fields.append(protocol)
+    for key in ('source', 'destination'):
+        fields.append(str(ipaddress.IPv4Network(rule[key], strict=True)) if key in rule else '-')
+    for key in ('dport', 'to_port'):
+        if key in rule and (type(rule[key]) is not int or not 1 <= rule[key] <= 65535 or protocol not in ('tcp', 'udp')):
+            raise ValueError(f'Guest NAT {key} requires tcp or udp and 1..65535.')
+    if 'to_port' in rule and (kind != 'dnat' or 'dport' not in rule):
+        raise ValueError('Guest NAT to_port requires dnat with dport.')
+    fields.append(str(rule['dport']) if 'dport' in rule else '-')
+    fields.append(str(ipaddress.IPv4Address(rule['to'])) if 'to' in rule else '-')
+    fields.append(str(rule['to_port']) if 'to_port' in rule else '-')
+    return ' '.join(fields)
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, timeout=6):

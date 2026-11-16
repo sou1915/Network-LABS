@@ -37,6 +37,10 @@ static int valid_cidr(const char *value) {
     for (size_t i = 0; i < digits; i++) if (prefix[i] < '0' || prefix[i] > '9') return 0;
     return atoi(prefix) <= 32;
 }
+static int valid_port_number(const char *value) {
+    if (!value[0] || value[0] == '0' || strspn(value, "0123456789") != strlen(value) || strlen(value) > 5) return 0;
+    long number = atol(value); return number >= 1 && number <= 65535;
+}
 /* Ask nf_tables for its generation: a read-only request that only an nf_tables kernel answers. */
 static int has_nftables(void) {
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
@@ -204,12 +208,45 @@ static void serve(int input, int output, int mutations) {
     /* IPv4 forward filtering through the image's iptables; every argument is typed and validated here. */
     const char *program = "/bin/busybox";
     char fw_action[7], fw_in[5], fw_out[5], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
+    char nat_kind[11], nat_to[16], nat_to_port[6], nat_target[24]; struct in_addr nat_address;
     char *firewall[24]; int count = 0;
     #define FW(word) firewall[count++] = (char *)(word)
     FW("iptables"); FW("-w");
     int fw_ready = 0;
     if (!strcmp(request, "NL1 FW_LIST")) { FW("-S"); FW("FORWARD"); fw_ready = 1; }
     else if (mutations && !strcmp(request, "NL1 FW_FLUSH")) { FW("-F"); FW("FORWARD"); fw_ready = 1; }
+    /* Address translation in the nat table: destination NAT before routing, source NAT after it. */
+    else if (!strcmp(request, "NL1 FW_NAT_LIST")) { FW("-t"); FW("nat"); FW("-S"); fw_ready = 1; }
+    else if (mutations && !strcmp(request, "NL1 FW_NAT_FLUSH")) { FW("-t"); FW("nat"); FW("-F"); fw_ready = 1; }
+    else if (mutations && sscanf(request, "NL1 FW_NAT %10s %4s %4s %4s %19s %19s %5s %15s %5s %c", nat_kind, fw_in, fw_out, fw_proto,
+                                 fw_source, fw_destination, fw_port, nat_to, nat_to_port, &extra) == 9) {
+        int dnat = !strcmp(nat_kind, "dnat"), snat = !strcmp(nat_kind, "snat"), masquerade = !strcmp(nat_kind, "masquerade");
+        int tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
+        int has_port = strcmp(fw_port, "-") != 0, has_to_port = strcmp(nat_to_port, "-") != 0;
+        int has_in = strcmp(fw_in, "-") != 0, has_out = strcmp(fw_out, "-") != 0;
+        int to_ok = masquerade ? !strcmp(nat_to, "-") : inet_pton(AF_INET, nat_to, &nat_address) == 1;
+        if ((dnat || snat || masquerade) && to_ok &&
+            (dnat ? has_in && !has_out : has_out && !has_in) &&
+            (!has_in || valid_port(fw_in)) && (!has_out || valid_port(fw_out)) &&
+            (tcp || udp || !strcmp(fw_proto, "icmp") || !strcmp(fw_proto, "any")) &&
+            (!has_port || ((tcp || udp) && valid_port_number(fw_port))) &&
+            (!has_to_port || (dnat && has_port && valid_port_number(nat_to_port))) &&
+            (!strcmp(fw_source, "-") || valid_cidr(fw_source)) && (!strcmp(fw_destination, "-") || valid_cidr(fw_destination))) {
+            FW("-t"); FW("nat"); FW("-A"); FW(dnat ? "PREROUTING" : "POSTROUTING");
+            if (has_in) { FW("-i"); FW(fw_in); }
+            if (has_out) { FW("-o"); FW(fw_out); }
+            if (strcmp(fw_proto, "any")) { FW("-p"); FW(fw_proto); }
+            if (strcmp(fw_source, "-")) { FW("-s"); FW(fw_source); }
+            if (strcmp(fw_destination, "-")) { FW("-d"); FW(fw_destination); }
+            if (has_port) { FW("--dport"); FW(fw_port); }
+            FW("-j"); FW(dnat ? "DNAT" : snat ? "SNAT" : "MASQUERADE");
+            if (!masquerade) {
+                snprintf(nat_target, sizeof(nat_target), "%s%s%s", nat_to, has_to_port ? ":" : "", has_to_port ? nat_to_port : "");
+                FW(dnat ? "--to-destination" : "--to-source"); FW(nat_target);
+            }
+            fw_ready = 1;
+        }
+    }
     else if (mutations && (!strcmp(request, "NL1 FW_POLICY accept") || !strcmp(request, "NL1 FW_POLICY drop"))) {
         FW("-P"); FW("FORWARD"); FW(request[14] == 'a' ? "ACCEPT" : "DROP"); fw_ready = 1;
     } else if (mutations && (!strcmp(request, "NL1 FW_STATE invalid") || !strcmp(request, "NL1 FW_STATE established"))) {

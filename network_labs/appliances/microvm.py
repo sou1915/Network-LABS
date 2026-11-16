@@ -62,6 +62,17 @@ def quad_router_example(kernel, disk):
                      'links': [[['R1', f'eth{i}'], [f'VM{i + 1}', 'eth0']] for i in range(4)]})
 
 
+def firewall_nat_example(kernel, disk):
+    """FW1 hides the inside behind its outside address and publishes VM2's ICMP on that address."""
+    spec = firewall_example(kernel, disk)
+    spec['name'] = 'microvm-firewall-nat'
+    policy = spec['nodes'][0]['firewall']
+    policy['rules'].append({'name': 'published-ping-in', 'in': 'eth1', 'out': 'eth0', 'destination': '192.0.2.20/32', 'protocol': 'icmp', 'action': 'accept'})
+    policy['nat'] = [{'name': 'hide-inside', 'type': 'masquerade', 'out': 'eth1', 'source': '192.0.2.0/24'},
+                     {'name': 'publish-vm2', 'type': 'dnat', 'in': 'eth1', 'destination': '198.51.100.1/32', 'protocol': 'icmp', 'to': '192.0.2.20'}]
+    return validate(spec)
+
+
 def switch_example(kernel, disk):
     """SW1 bridges three endpoint guests into one segment; it holds no address and routes nothing."""
     base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()), 'memory_mib': 128, 'vcpus': 1}

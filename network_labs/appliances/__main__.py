@@ -28,6 +28,7 @@ def main(arguments=None):
     vm_sample.add_argument('--router-chain',action='store_true',help='Four guests: two router guests with static routes across a transit link.')
     vm_sample.add_argument('--firewall',action='store_true',help='Three guests: a stateful firewall guest between an inside and an outside endpoint.')
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
+    vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
     vm_sample.add_argument('--switch',action='store_true',help='Four guests: an untagged learning-bridge switch guest joining three endpoint guests.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
@@ -383,11 +384,11 @@ def main(arguments=None):
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
-            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad > 1:
-                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall or --switch.')
-            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad:
-                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example
-                result=(quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
+            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad + args.firewall_nat > 1:
+                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall, --firewall-nat or --switch.')
+            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad or args.firewall_nat:
+                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example, firewall_nat_example
+                result=(firewall_nat_example if args.firewall_nat else quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
                 for node in result['nodes']:
                     node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
                 from .spec import validate
