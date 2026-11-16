@@ -558,6 +558,10 @@ class ApplianceWindow:
         self.config_admin=ttk.Checkbutton(form,text='Interface activée',variable=self.config_enabled,style='Native.TCheckbutton');self.config_admin.pack(anchor='w',padx=9,pady=5)
         self.config_apply=ttk.Button(self.config_actions,text='Appliquer au brouillon',command=self.apply_config,style='Native.Primary.TButton');self.config_apply.pack(side='left',fill='x',expand=True,padx=(0,5))
         ttk.Button(self.config_actions,text='Recharger',command=lambda:self.load_config(force=True),style='Native.TButton').pack(side='right')
+        self.firewall_live=ttk.Button(form,text='Appliquer le pare-feu au lab actif',command=lambda:self.launch('firewall'),
+                                      style='Native.TButton')
+        self.firewall_live.pack(fill='x',padx=9,pady=(2,5))
+        self.firewall_live.state(['disabled'])
         self.config_message=tk.StringVar()
         tk.Label(form,textvariable=self.config_message,bg=PANEL,fg=MUTED,font=(self.font,7),justify='left',wraplength=230,anchor='w').pack(fill='x',padx=9,pady=7)
 
@@ -597,10 +601,13 @@ class ApplianceWindow:
             ports=list(node['interfaces']);self.config_fields['port'].configure(values=ports)
             self.config_vars['port'].set(ports[0] if ports else '')
             self.config_port_selected()
-            self.config_fields['name'].configure(state='normal' if node['runtime']=='oci' else 'disabled')
-            self.config_fields['gateway'].configure(state='normal' if node['runtime']=='oci' and node['role']!='switch' else 'disabled')
-            self.config_message.set('Modifier un port puis appliquer. Le réseau actif reste inchangé.' if node['runtime']=='oci' else 'MicroVM : configuration JSON uniquement.')
-            self.config_apply.state(['!disabled'] if ports and node['runtime']=='oci' and not self.pending else ['disabled'])
+            self.config_fields['name'].configure(state='normal')
+            self.config_fields['gateway'].configure(state='normal' if node['role']!='switch' else 'disabled')
+            self.config_message.set('Modifier un port puis appliquer. Le réseau actif reste inchangé.')
+            self.config_apply.state(['!disabled'] if ports and not self.pending else ['disabled'])
+            # A firewall policy can also be applied to the running lab: atomically on containers, rebuilt closed on micro-VMs.
+            self.firewall_live.state(['!disabled'] if node['role']=='firewall' and node['name'] in self.states and not self.pending
+                                     else ['disabled'])
         except (ValueError,TypeError,KeyError,StopIteration) as error:
             self.config_message.set(str(error));self.config_apply.state(['disabled'])
 
@@ -610,8 +617,9 @@ class ApplianceWindow:
         port=self.config_vars['port'].get()
         self.config_vars['address'].set(node['interfaces'].get(port,''));self.config_enabled.set(port not in node.get('shutdown',[]))
         if self.port_table.exists(port) and self.port_table.selection()!=(port,):self.port_table.selection_set(port)
-        editable=node['runtime']=='oci' and node['role']!='switch' and port not in node.get('dhcp_clients',[])
+        editable=node['role']!='switch' and port not in node.get('dhcp_clients',[])
         self.config_fields['address'].configure(state='normal' if editable else 'disabled')
+        # Guest ports have no administrative shutdown in the lab file.
         self.config_admin.state(['!disabled'] if node['runtime']=='oci' else ['disabled'])
 
     def apply_config(self):
@@ -853,14 +861,23 @@ class ApplianceWindow:
         if self.pending:return False
         directory=None
         try:
-            if action=='start':
-                if not self.save():return False
-                spec=self.manifest();lab=spec['name']
-            else:lab=self.view_lab
+            if action in ('start','firewall'):
+                if not self.save():
+                    return False
+                spec=self.manifest()
+                lab=spec['name'] if action=='start' else self.view_lab
+                if action=='firewall' and spec['name']!=lab:
+                    raise ValueError('Le projet et le laboratoire observé diffèrent.')
+            else:
+                lab=self.view_lab
             directory=tempfile.TemporaryDirectory(prefix='network-labs-gui-')
             target=lab
-            if action=='start':target=str(Path(directory.name)/'manifest.json');private_json(target,spec)
-            selected=self.nodes.selection();node=selected[0] if selected and action in ('inspect','verify') else None
+            # Both carry a private snapshot of the saved project: start the lab from it, or take the node's policy from it.
+            if action in ('start','firewall'):
+                target=str(Path(directory.name)/'manifest.json')
+                private_json(target,spec)
+            selected=self.nodes.selection()
+            node=selected[0] if selected and action in ('inspect','verify','firewall') else None
             request=validate_request({'id':uuid.uuid4().hex,'owner_uid':os.geteuid(),'action':action,'target':target,'lab':lab,'node':node,
                                       'destination':self.destination.get() if action=='verify' else None})
             path=Path(directory.name)/'request.json';private_json(path,request)

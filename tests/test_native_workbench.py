@@ -154,6 +154,35 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertFalse(window.open_console())
         self.assertIn('micro-VM', str(error.call_args.args[0]))
 
+    def test_firewall_policy_is_applied_to_the_running_lab_from_a_private_snapshot(self):
+        from network_labs.appliances.microvm import firewall_example
+        window = self.window
+        spec = firewall_example('/assets/vmlinux', '/assets/guest.ext4')
+        window.load_spec(spec)
+        self.root.update()
+        window.choose_node('FW1')
+        self.root.update()
+        self.assertIn('disabled', window.firewall_live.state())  # Not running yet: nothing to change live.
+        window.draw(bridge.public_topology(spec), {name: {'status': 'running'} for name in ('FW1', 'VM2', 'VM3')})
+        window.view_lab = spec['name']
+        window.choose_node('FW1')
+        window.load_config(force=True)
+        self.root.update()
+        self.assertNotIn('disabled', window.firewall_live.state())
+        with tempfile.TemporaryDirectory() as directory, patch('network_labs.appliances.ui.launch_terminal', return_value=Mock()):
+            window.path = Path(directory) / 'canonical.json'
+            self.assertTrue(window.launch('firewall'))
+            request = window.pending['request']
+            self.assertEqual((request['action'], request['node'], request['lab']), ('firewall', 'FW1', spec['name']))
+            snapshot = json.loads(Path(request['target']).read_text())
+            self.assertEqual(snapshot['nodes'][0]['firewall'], spec['nodes'][0]['firewall'])
+            window.pending['directory'].cleanup()
+            window.pending = None
+            window.busy(False)
+        window.choose_node('VM2')
+        self.root.update()
+        self.assertIn('disabled', window.firewall_live.state())
+
     def test_graphical_edit_click_drag_and_pending_or_mismatched_view_guards(self):
         from network_labs.appliances import topology_edit as edit
         window=self.window;spec=window.manifest()

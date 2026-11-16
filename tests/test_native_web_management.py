@@ -271,7 +271,7 @@ class NativePortalTests(unittest.TestCase):
         response=self.section('VM1','vmresources',{'memory_mib':192,'vcpus':2})
         self.assertEqual(response['status'],200,response['body'])
         state=json.loads(response['body']);self.assertFalse(state['editable']);self.assertTrue(state['section_editable'])
-        self.assertEqual([s['id'] for s in state['sections']],['vmresources'])
+        self.assertEqual([s['id'] for s in state['sections']],['vmresources','dhcpserver'])
         self.assertNotIn('/private',response['body'].decode())
         self.assertEqual(self.app.spec['nodes'][1],original['nodes'][1])
         self.assertEqual(self.app.spec['nodes'][0]['kernel'],original['nodes'][0]['kernel'])

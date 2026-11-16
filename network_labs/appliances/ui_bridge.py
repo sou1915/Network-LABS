@@ -8,7 +8,7 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify')
+ACTIONS=('start','status','stop','inspect','verify','firewall')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
 
@@ -67,17 +67,27 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify'):identifier(node)
-    elif node is not None:raise ValueError('Unexpected node argument.')
+    if action in ('inspect','verify','firewall'):
+        identifier(node)
+    elif node is not None:
+        raise ValueError('Unexpected node argument.')
     if action=='verify':identifier(destination)
     elif destination is not None:raise ValueError('Unexpected destination argument.')
-    spec=load(target) if action=='start' else None
+    spec=load(target) if action in ('start','firewall') else None
     lab=spec['name'] if spec else identifier(target)
     with Manager(lab).locked() as manager:
         if action=='start':manager.start(spec)
+        if action=='firewall':
+            # The saved project's policy for that node replaces the running one (rollback on failure).
+            declared=next((n for n in spec['nodes'] if n['name']==node and n.get('firewall') is not None),None)
+            if declared is None:
+                raise ValueError('The saved project has no firewall policy for this node.')
+            firewall_result=manager.configure_firewall(node,declared['firewall'])
         topology=public_topology(manager.read()['spec'])
         if action=='stop':manager.stop();data={'stopped':lab}
         elif action=='inspect':data=manager.inspect(node)
+        elif action=='firewall':
+            data=firewall_result
         elif action=='verify':
             from .verify import verify
             data=verify(manager,node,destination,count=2,bidirectional=True)
@@ -94,11 +104,14 @@ def validate_request(request):
     if action not in ACTIONS:raise ValueError('Unknown GUI operation.')
     target=request['target']
     if not isinstance(target,str) or '\0' in target or len(target)>4096:raise ValueError('Invalid operation target.')
-    if action=='start':
-        if not Path(target).is_absolute():raise ValueError('Start requires an absolute manifest snapshot.')
+    if action in ('start','firewall'):
+        if not Path(target).is_absolute():
+            raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify'):identifier(request['node'])
-    elif request['node'] is not None:raise ValueError('Unexpected node argument.')
+    if action in ('inspect','verify','firewall'):
+        identifier(request['node'])
+    elif request['node'] is not None:
+        raise ValueError('Unexpected node argument.')
     if action=='verify':identifier(request['destination'])
     elif request['destination'] is not None:raise ValueError('Unexpected destination argument.')
     return request

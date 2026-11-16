@@ -93,7 +93,11 @@ def configure_node(spec,name,*,new_name,port,address,gateway,enabled):
     """Edit one physical port and basic identity without guessing advanced refs."""
     draft=copy.deepcopy(spec)
     node=next((n for n in draft['nodes'] if n['name']==name),None)
-    if node is None or node['runtime']!='oci':raise ValueError('Configuration de base : équipement OCI existant requis.')
+    if node is None:
+        raise ValueError('Configuration de base : équipement existant requis.')
+    guest=node['runtime']=='firecracker'
+    if guest and not enabled:
+        raise ValueError('MicroVM : un port ne peut pas être désactivé dans le brouillon ; débrancher le câble.')
     if port not in node['interfaces']:raise ValueError('Choisir une interface physique existante.')
     if not all(isinstance(v,str) for v in (new_name,address,gateway)) or type(enabled) is not bool:
         raise ValueError('Nom, IPv4 et passerelle textuels ; état du port booléen requis.')
@@ -111,7 +115,9 @@ def configure_node(spec,name,*,new_name,port,address,gateway,enabled):
     node['interfaces'][port]=address
     if gateway:node['gateway']=gateway
     else:node.pop('gateway',None)
-    shutdown=[p for p in node.get('shutdown',[]) if p!=port]
-    if not enabled:shutdown.append(port)
-    node['shutdown']=shutdown
+    if not guest:
+        shutdown=[p for p in node.get('shutdown',[]) if p!=port]
+        if not enabled:
+            shutdown.append(port)
+        node['shutdown']=shutdown
     return validate(draft)

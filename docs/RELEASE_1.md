@@ -27,13 +27,13 @@ Current progress against this list is tracked in [STATUS.md](STATUS.md).
 
 ## Required engineering (derived from the stories)
 
-| Need | State on 2026-11-16 |
+| Need | State (updated 2026-11-16) |
 | --- | --- |
 | Micro-VM host, router, firewall (NAT), DHCP guests | Done, real-KVM tested |
-| Switch guest with access and trunk VLANs | Blocked on a guest kernel with 802.1Q (`tools/guest_kernel/`) |
-| GUI start/stop/status for micro-VM labs | Not started |
-| GUI forms writing to running guests | Not started (firewall and resources pages only) |
-| GUI ping, console and capture for guests | Capture exists in the CLI; console and GUI wiring not started |
+| Switch guest with access and trunk VLANs | Done, real-KVM tested on the Network LABS kernel; router-on-a-stick too |
+| GUI start/stop/status for micro-VM labs | Done |
+| GUI forms writing to running guests | Draft forms for every guest role; live apply for the firewall policy only |
+| GUI ping, console and capture for guests | Capture done; ping is container-only; no guest console by design (decision needed) |
 | Installable on Ubuntu 24.04 with documented KVM prerequisites | Partial; guest kernel and image must be provided by the user |
 
 ## Out of scope for release 1

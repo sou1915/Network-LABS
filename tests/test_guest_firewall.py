@@ -186,8 +186,8 @@ class GuestFirewallTests(unittest.TestCase):
     def test_web_management_offers_and_validates_the_policy_page_for_firewall_guests(self):
         from network_labs.appliances.management_options import configure_section, sections
         spec = firewall_example('/kernel', '/disk')
-        self.assertEqual([item['id'] for item in sections(spec['nodes'][0])], ['vmresources', 'firewall'])
-        self.assertEqual([item['id'] for item in sections(spec['nodes'][1])], ['vmresources'])
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][0])], ['vmresources', 'firewall', 'subinterfaces', 'dhcpserver'])
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][1])], ['vmresources', 'dhcpserver'])
         policy = copy.deepcopy(spec['nodes'][0]['firewall'])
         policy['rules'].append({'name': 'inside-web', 'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'dport': 443, 'action': 'accept'})
         saved = configure_section(spec, 'FW1', 'firewall', {'firewall': policy})

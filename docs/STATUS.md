@@ -54,7 +54,7 @@ the direct launch.
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.
 - Device-style CLI/web management on guests (only resources and firewall pages today).
-- GUI forms that change a running micro-VM (addresses, routes, firewall, DHCP), and a guest console.
+- Live changes from the GUI other than the firewall policy (addresses, VLAN ports, DHCP apply on restart), and a guest console.
 - VMware/VirtualBox attachment, VXLAN/EVPN, WAN.
 
 ## Containers (OCI) — what works
@@ -81,8 +81,13 @@ lab workbench (topology editing, lifecycle, inspection, capture and console
 entries) and browser-based management pages. For micro-VMs the workbench can add
 host, router, firewall and switch nodes (kernel, disk, 1–4 ports, static addresses
 or `dhcp`), start and stop the lab, show each node as running while its VMM is
-alive, and capture on its ports. A micro-VM has no console by design (its agent
-takes typed requests only); forms that change a running guest are not wired yet.
+alive, and capture on its ports. The interface form edits a micro-VM's name, port
+addresses and gateway in the draft, and the browser management pages offer each guest
+role what it supports (VLAN ports on switches, subinterfaces on routers and firewalls,
+DHCP server, firewall policy, resources). Draft changes apply on the next start.
+**Appliquer le pare-feu au lab actif** sends a saved firewall policy to the running lab,
+for containers and micro-VMs, with rollback on failure. A micro-VM has no console by
+design (its agent takes typed requests only).
 
 ## How to run
 
