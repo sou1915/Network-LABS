@@ -5,8 +5,9 @@ IPv4 RADIUS backend from a managed NAS network namespace. It verifies the
 RADIUS Response Authenticator and Message-Authenticator before using any EAP
 challenge or State, then requires the matching final EAP Success or Failure.
 It never opens a shell, changes a port, installs authorization or sends EAPOL.
-This is an EAP protocol foundation; a working IEEE 802.1X controlled port is a
-separate milestone.
+This diagnostic is an EAP protocol foundation. The separately implemented
+[finite wired 802.1X profile](DOT1X_WIRED.md) builds a controlled port on that
+foundation; the diagnostic command itself still installs no admission.
 
 The sequence is EAP Response/Identity inside Access-Request, verified
 Access-Challenge carrying a 16-byte MD5 challenge and one nonempty opaque State,
@@ -95,3 +96,20 @@ only the method proof, not the password.
 Protocol references: [RFC 3579](https://www.rfc-editor.org/rfc/rfc3579.html),
 [RFC 3748 section 5.4](https://www.rfc-editor.org/rfc/rfc3748.html#section-5.4),
 and the [FreeRADIUS EAP-MD5 module](https://networkradius.com/doc/current/raddb/mods-available/eap/md5.html).
+
+
+A separately explicit [finite wired controlled-port profile](DOT1X_WIRED.md)
+now builds on this backend using real EAPOL pass-through and a kernel timeout
+gate. The raw `radius-eap-md5` diagnostic itself still changes no access policy.
+
+The managed EAP-enabled backend also accepts a per-user `session_timeout`
+positive uint32 and emits RADIUS Session-Timeout. The standalone diagnostic
+remains an authentication observation. The separate [wired profile](DOT1X_WIRED.md)
+enforces the verified reply as a finite kernel admission cap; PAP-only server
+user configuration rejects this setting.
+
+An EAP-enabled user may also declare `termination_action` 0 (Default) or 1
+(RADIUS-Request), only together with `session_timeout`. The wired profile
+honors verified action 1 within its explicit local finite renewal budget;
+action 0/default terminates the admitted session. This does not turn the
+standalone authentication diagnostic into a persistent access service.

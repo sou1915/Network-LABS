@@ -14,6 +14,10 @@ RADIUS PAP remains IPv4 UDP/1812 and requires the existing authenticated
 response/message checks. This is IPv6 SSH with an IPv4 AAA backend, not
 RADIUS-over-IPv6, RadSec, mutual TLS, or device-wide vendor AAA.
 
+An optional [pinned dual-stack host identity](DUAL_STACK_SSH_HOST_IDENTITY.md)
+preserves strict known_hosts for both literal SSH addresses through cold
+restore. The default reference retains ephemeral host identity.
+
 Use a trusted BusyBox rootfs built with the existing Dropbear and FreeRADIUS
 binary/module/dictionary options. The key must be OpenSSH ed25519 public data;
 secret/password files follow the private-file rules in [NATIVE_RADIUS.md](NATIVE_RADIUS.md).

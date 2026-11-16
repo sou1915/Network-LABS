@@ -1,0 +1,14 @@
+{
+  "source_commit": "d05ad41d3389568b00d40ddd02fd2db58c5c08eb",
+  "capture": "actual local Chromium session; empty observation state",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-observations-management.png": "f651e9d9df53180884c5c457b228a216632f1bf6f54a4e2400f1ee8d02c42b48"
+  },
+  "browser_acceptance": [
+    "observation navigation opens",
+    "no data state is explicit",
+    "no configuration save button on read-only page"
+  ],
+  "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
+}

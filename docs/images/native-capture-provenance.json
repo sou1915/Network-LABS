@@ -1,0 +1,9 @@
+{
+  "source_commit": "b89c4cbea6b09a28fa47fb635fd333ae3b81dbaa",
+  "capture": "actual local Tk PCAP tab, unobserved node, disabled launch, no mocked events retained",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-capture-management.png": "1cd817693e7a2454a48cc23cbe96593b56c5b54d72b5daa140f5b24467c875c7"
+  },
+  "reproducible_test": "NETWORK_LABS_GUI_SCREENSHOTS=1 python3 -m unittest discover -s tests -p test_native_workbench.py -k test_native_capture -v"
+}

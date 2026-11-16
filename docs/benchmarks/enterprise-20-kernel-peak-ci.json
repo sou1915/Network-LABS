@@ -1,0 +1,509 @@
+{
+  "version": 2,
+  "lab": "enterprise-peak-0a4750331b7d",
+  "node_count": 20,
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "x86_64",
+    "logical_cpus": 4
+  },
+  "allocated_node_mib": 1280,
+  "reserve_mib": 512,
+  "host_before": {
+    "memory_total_bytes": 16760344576,
+    "memory_available_bytes": 15708528640,
+    "swap_used_bytes": 0,
+    "cpu_ticks_total": 65115,
+    "cpu_ticks_busy": 3627
+  },
+  "lab_cgroup_context": {
+    "existed_before_start": false,
+    "memory_peak_before_start_bytes": null,
+    "memory_peak_scope": "fresh-benchmark-cgroup-lifetime"
+  },
+  "startup_and_readiness_seconds": 4.433182434000003,
+  "idle": {
+    "duration_seconds": 10.000316042999998,
+    "samples": 51,
+    "lab_cgroup_memory_mean_bytes": 5193647.68627451,
+    "lab_cgroup_memory_sampled_peak_bytes": 5713920,
+    "lab_cgroup_swap_sampled_peak_bytes": 0,
+    "lab_cgroup_cpu_percent_one_core": 0.0,
+    "runner_cpu_percent_one_core": 0.9116911866382295,
+    "runner_pss_sampled_peak_bytes": 46983168,
+    "host_busy_percent_total_capacity": 0.577019568489714,
+    "host_available_min_bytes": 15723864064,
+    "lab_memory_event_deltas": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0,
+      "sock_throttled": 0
+    }
+  },
+  "load": {
+    "metrics": {
+      "duration_seconds": 9.999340695,
+      "samples": 51,
+      "lab_cgroup_memory_mean_bytes": 8531807.37254902,
+      "lab_cgroup_memory_sampled_peak_bytes": 9584640,
+      "lab_cgroup_swap_sampled_peak_bytes": 0,
+      "lab_cgroup_cpu_percent_one_core": 1.3965320740579086,
+      "runner_cpu_percent_one_core": 0.9196506330260598,
+      "runner_pss_sampled_peak_bytes": 46983168,
+      "host_busy_percent_total_capacity": 0.6037735849056604,
+      "host_available_min_bytes": 15745347584,
+      "lab_memory_event_deltas": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "flows": [
+      {
+        "source": "PC1",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.102 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.096 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.099 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.101 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.105 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.068 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.117 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.099 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.137 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.111 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.115 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.113 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.102 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.110 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.134 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.111 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.068/0.110/0.155 ms\n"
+      },
+      {
+        "source": "PC2",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.102 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.097 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.099 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.101 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.106 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.136 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.104 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.099 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.137 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.108 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.115 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.113 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.102 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.110 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.134 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.111 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.049/0.079/0.191 ms\n"
+      },
+      {
+        "source": "PC3",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.101 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.096 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.099 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.101 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.124 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.091 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.104 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.103 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.136 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.106 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.115 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.113 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.088 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.110 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.111 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.134 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.111 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.043/0.126/2.817 ms\n"
+      },
+      {
+        "source": "PC4",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.042 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.046 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.039/0.057/0.115 ms\n"
+      },
+      {
+        "source": "PC5",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.076 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.045 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.114 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.103 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.136 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.106 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.115 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.113 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.091 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.110 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.111 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.134 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.112 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.111 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.045/0.066/0.136 ms\n"
+      },
+      {
+        "source": "PC6",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.046 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.038 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.069 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.043 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.038/0.049/0.115 ms\n"
+      },
+      {
+        "source": "PC7",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.045 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.052 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.045/0.059/0.135 ms\n"
+      },
+      {
+        "source": "PC8",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.042 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.047 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.070 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.073 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.052 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.042 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.046 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.040/0.058/0.132 ms\n"
+      },
+      {
+        "source": "PC9",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.056 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.069 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.067 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.045 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.040/0.058/0.115 ms\n"
+      },
+      {
+        "source": "PC10",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.057 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.044 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.043 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.071 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.063 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.054 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.050 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.042/0.056/0.090 ms\n"
+      },
+      {
+        "source": "PC11",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.065 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.048 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.055 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.073 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.050 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.046 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.046/0.060/0.134 ms\n"
+      },
+      {
+        "source": "PC12",
+        "returncode": 0,
+        "transmitted": 100,
+        "received": 100,
+        "output": "98.51.100.10: seq=76 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=77 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=78 ttl=62 time=0.062 ms\n64 bytes from 198.51.100.10: seq=79 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=80 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=81 ttl=62 time=0.039 ms\n64 bytes from 198.51.100.10: seq=82 ttl=62 time=0.064 ms\n64 bytes from 198.51.100.10: seq=83 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=84 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=85 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=86 ttl=62 time=0.051 ms\n64 bytes from 198.51.100.10: seq=87 ttl=62 time=0.053 ms\n64 bytes from 198.51.100.10: seq=88 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=89 ttl=62 time=0.061 ms\n64 bytes from 198.51.100.10: seq=90 ttl=62 time=0.069 ms\n64 bytes from 198.51.100.10: seq=91 ttl=62 time=0.040 ms\n64 bytes from 198.51.100.10: seq=92 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=93 ttl=62 time=0.059 ms\n64 bytes from 198.51.100.10: seq=94 ttl=62 time=0.058 ms\n64 bytes from 198.51.100.10: seq=95 ttl=62 time=0.060 ms\n64 bytes from 198.51.100.10: seq=96 ttl=62 time=0.041 ms\n64 bytes from 198.51.100.10: seq=97 ttl=62 time=0.043 ms\n64 bytes from 198.51.100.10: seq=98 ttl=62 time=0.049 ms\n64 bytes from 198.51.100.10: seq=99 ttl=62 time=0.043 ms\n\n--- 198.51.100.10 ping statistics ---\n100 packets transmitted, 100 packets received, 0% packet loss\nround-trip min/avg/max = 0.039/0.055/0.164 ms\n"
+      }
+    ],
+    "all_packets_received": true,
+    "protocol": "icmp",
+    "target": "198.51.100.10",
+    "requested_packets_per_source": 100,
+    "requested_packets_per_second_per_source": 10,
+    "note": "Bounded connectivity workload, not maximum-throughput or application-load testing."
+  },
+  "all_nodes_running_after_load": true,
+  "nodes_after_load": {
+    "PC1": {
+      "memory_bytes": 425984,
+      "memory_peak_bytes": 1753088,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 27761,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC2": {
+      "memory_bytes": 188416,
+      "memory_peak_bytes": 692224,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 16075,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC3": {
+      "memory_bytes": 266240,
+      "memory_peak_bytes": 1179648,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 19629,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "SW1": {
+      "memory_bytes": 159744,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1783,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC4": {
+      "memory_bytes": 200704,
+      "memory_peak_bytes": 892928,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 13161,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC5": {
+      "memory_bytes": 266240,
+      "memory_peak_bytes": 684032,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 14471,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC6": {
+      "memory_bytes": 270336,
+      "memory_peak_bytes": 692224,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 11783,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "SW2": {
+      "memory_bytes": 167936,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1752,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC7": {
+      "memory_bytes": 262144,
+      "memory_peak_bytes": 618496,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 13195,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC8": {
+      "memory_bytes": 262144,
+      "memory_peak_bytes": 897024,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 13262,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC9": {
+      "memory_bytes": 262144,
+      "memory_peak_bytes": 684032,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 13154,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "SW3": {
+      "memory_bytes": 167936,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1909,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC10": {
+      "memory_bytes": 520192,
+      "memory_peak_bytes": 929792,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 12378,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC11": {
+      "memory_bytes": 266240,
+      "memory_peak_bytes": 880640,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 13322,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC12": {
+      "memory_bytes": 270336,
+      "memory_peak_bytes": 1155072,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 11997,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "SW4": {
+      "memory_bytes": 172032,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1898,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "R1": {
+      "memory_bytes": 163840,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1913,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "FW1": {
+      "memory_bytes": 172032,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1927,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "DHCP1": {
+      "memory_bytes": 331776,
+      "memory_peak_bytes": 737280,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 3761,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "WAN1": {
+      "memory_bytes": 163840,
+      "memory_peak_bytes": 524288,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 2162,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    }
+  },
+  "lab_cgroup_after_load": {
+    "memory_bytes": 5234688,
+    "memory_peak_bytes": 9588736,
+    "swap_bytes": 0,
+    "cpu_usage_usec": 197303,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0,
+      "sock_throttled": 0
+    }
+  },
+  "cleanup_complete": true,
+  "host_after": {
+    "memory_total_bytes": 16760344576,
+    "memory_available_bytes": 15750926336,
+    "swap_used_bytes": 0,
+    "cpu_ticks_total": 74993,
+    "cpu_ticks_busy": 4114
+  },
+  "host_used_increase_at_sampled_available_min_bytes": -15335424,
+  "assessment": {
+    "target_bytes": 2147483648,
+    "lab_cgroup_sampled_peak_under_target": true,
+    "lab_cgroup_lifetime_peak_under_target": true,
+    "lab_cgroup_current_run_kernel_peak_under_target": true,
+    "total_application_under_target": "unverified",
+    "packet_test_passed": true,
+    "oom_kill_observed": false,
+    "notes": [
+      "Lab parent cgroup includes descendants; do not add per-node memory again.",
+      "Sampled peaks exclude startup spikes and may miss peaks between samples.",
+      "memory.peak is the kernel cgroup lifetime high-water mark; missing support is null, never zero.",
+      "A pre-existing empty parent may include prior runs; current-run kernel-peak assessment is then unknown. No counters are reset.",
+      "Kernel peak covers memory charged to this cgroup hierarchy, not all host-side startup or kernel/network work.",
+      "Runner PSS is separate; shared pages mean it must not be blindly added to cgroup memory.",
+      "Host readings include unrelated programs, caches, kernel/network work and measurement overhead.",
+      "Cgroup CPU is task attribution; networking work can run outside these cgroups.",
+      "Final GUI, vendor firmware, VMs and heavy services are not covered. No total-app 2 GiB claim."
+    ]
+  },
+  "scope": "Headless 20-node shared-kernel OCI reference, 10 seconds idle and 10 seconds bounded ICMP; no full-application 2 GiB or laptop certification."
+}

@@ -28,6 +28,11 @@ The manifest sets `management.ssh_radius: true` together with explicit
 one managed RADIUS server containing its matching NAS client are required.
 External RADIUS server secrets are not accepted by this bridge profile.
 
+For fixed IPv4 diagnostics, an optional [explicit server host identity](SSH_RADIUS_HOST_IDENTITY.md)
+lets clients keep pre-provisioned strict known_hosts through cold restore.
+This preserves host trust separately from RADIUS decisions; shell/accounting
+and IPv6 variants retain their separately documented identity scope.
+
 An SSH client on the lab network supplies two newline-terminated stdin lines:
 RADIUS username, then password. Keep this local input file private (mode 600).
 For example, a file with `learner` on its first line and the RADIUS password

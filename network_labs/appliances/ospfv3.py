@@ -60,6 +60,40 @@ def config(node):
     return '\n'.join(lines + ['  };', '}']) + '\n'
 
 
+def validate_dns_lab(spec):
+    """One separate DNS service behind a physical two-router OSPFv3 pair."""
+    servers=[n for n in spec['nodes'] if n.get('dns_server')]
+    routers=[n for n in spec['nodes'] if n['role']=='router']
+    if (len(servers)!=1 or not servers[0]['dns_server'].get('listen_ipv6') or len(routers)!=2 or
+            any(not n.get('ospfv3') for n in routers) or
+            any(n['role'] not in ('host','router') or any(n.get(k) for k in
+                ('svis','subinterfaces','firewall_ipv6','tftp_server','ntp_server')) for n in spec['nodes'])):
+        raise ValueError('OSPFv3/DNS requires one separate managed IPv6 DNS server and exactly two physical OSPFv3 routers, without other service/security compositions.')
+    active={}
+    for node in routers:
+        policy=node['ospfv3'];ports=[p for p,v in policy['interfaces'].items() if not v['passive']]
+        if set(policy['interfaces'])!=set(node['ipv6']) or not 1<=len(ports)<=2:
+            raise ValueError('OSPFv3/DNS routers require every numbered port in OSPF and one or two active physical transits.')
+        active[node['name']]=ports
+    endpoints={(name,port) for name,ports in active.items() for port in ports}
+    pairs=[tuple(tuple(end) for end in link) for link in spec['links']
+           if all(tuple(end) in endpoints for end in link)]
+    count=len(active[routers[0]['name']])
+    if (routers[0]['ospfv3']['router_id']==routers[1]['ospfv3']['router_id'] or
+            any(routers[0]['ospfv3'][key]!=routers[1]['ospfv3'][key] for key in ('hello','dead')) or
+            len(active[routers[1]['name']])!=count or len(pairs)!=count or
+            {end for pair in pairs for end in pair}!=endpoints or any(a[0]==b[0] for a,b in pairs)):
+        raise ValueError('OSPFv3/DNS requires directly paired active ports, distinct router IDs and matching hello/dead timers.')
+    if count==2:
+        policies={n['name']:n['ospfv3']['interfaces'] for n in routers}
+        costs=[(policies[a[0]][a[1]]['cost'],policies[b[0]][b[1]]['cost']) for a,b in pairs]
+        if any(a!=b for a,b in costs) or len({a for a,_ in costs})!=2:
+            raise ValueError('OSPFv3/DNS parallel transits require symmetric per-link costs and a distinct preferred path.')
+    server=servers[0];address=str(ipaddress.IPv6Interface(server['ipv6'][server['dns_server']['interface']]).ip)
+    if any(n.get('resolvers') and n['resolvers']!=[address] for n in spec['nodes']):
+        raise ValueError('OSPFv3/DNS clients must use only the managed IPv6 resolver.')
+
+
 def prepare_files(bundle, node):
     if node.get('ospfv3') is not None:
         (Path(bundle) / 'files/bird.conf').write_text(config(node))

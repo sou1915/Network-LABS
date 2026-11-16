@@ -1,0 +1,83 @@
+# Managed IPv6 HTTPS behind a forwarding firewall
+
+`example --ipv6-https-firewall` creates PC1, FW1 and PC2. PC2 runs the
+[managed IPv6 HTTPS server](IPV6_HTTPS.md) at `2001:db8:20::20`; PC1 is
+`2001:db8:10::10`. FW1 routes between those two static IPv6 /64 networks.
+
+The example uses default-drop forwarding with invalid-state rejection and
+stateful established/related acceptance. Its explicit outbound rules allow
+only PC1-to-PC2 TCP/443 and ICMPv6 echo requests on the declared interfaces.
+There is no TCP/80 or TCP/8080 allow rule. This is an address/interface/port
+policy, not TLS inspection: the client must separately verify CA and identity.
+Allowed ICMPv6 echo is an independent path control; this profile does not
+claim a complete production PMTU/error-traffic policy.
+
+Build separate server/client images as in [HTTPS_SERVER.md](HTTPS_SERVER.md).
+The server leaf needs IP SAN `2001:db8:20::20` for the literal-address probe,
+and its matching unencrypted private key must have mode 0600.
+
+```bash
+python3 -m network_labs.appliances example --ipv6-https-firewall \
+  --rootfs /path/to/server-rootfs \
+  --https-client-rootfs /path/to/client-rootfs > ipv6-https-firewall.json
+sudo python3 -m network_labs.appliances start ipv6-https-firewall.json
+sudo python3 -m network_labs.appliances probe ipv6-https-firewall-lan PC1 \
+  2001:db8:20::20 --family ipv6 --protocol https \
+  --ca-file /path/to/ca.pem --json
+```
+
+The server remains a distinct single-interface OCI host with explicit
+`https_server.family: ipv6`. The optional firewall is separately managed;
+HTTPS is not co-located on FW1. Only static IPv6 physical addressing/routing
+is supported. Local-input policy with HTTPS, dynamic protocols/addressing,
+dual-stack, DNS/other service co-location, VLAN/SVI/subinterfaces and multiple
+HTTPS servers remain refused. This permits forwarding-rule declarations
+within the existing IPv6 firewall schema; it does not add live policy edits.
+
+TLS identity/conformity, explicit restart and declarative cold restore retain
+their existing scope. Firewall inspection/counters and HTTPS config inspection
+do not independently prove an authorized TLS response. Save refuses observed
+forwarding/ruleset drift and stores declarations, not conntrack/TLS sessions.
+
+## Validation
+
+`ipv6-https-firewall-interop` checks real trusted TLS/GET, wrong CA rejection,
+both-interface IPv6 TLS capture, independently live but blocked TCP/8080,
+positive accept/state/default-drop counters and IPv6 conntrack entries.
+It separates routing and service outages with direct TLS/allowed echo
+controls, checks drift refusal, and recreates exact saved policy/identity.
+A stateless variant preserves outbound HTTPS permission and explicit echo
+return but omits TCP return permission; remote HTTPS must fail while direct
+TLS and echo work. Restoring the stateful saved profile must recover service.
+Host namespace/link/route/rule/forwarding/nftables invariants are checked.
+
+An additional source-isolation control now tests a temporary
+`2001:db8:10::99` address on the same PC1 interface, destination and TCP/443.
+It requires completed DAD, source-bound gateway reachability and the expected
+route before testing denial. Positive ingress SYN traffic, absent egress,
+increasing default-drop counters and a connect timeout must accompany working
+authorized/direct TLS controls and an unchanged server PID. Extra addressing
+must refuse save, then be removed before a successful save. The control runs
+again after cold restore. This is a bounded source-address rule test, not
+client identity authentication or prevention of allowlisted-address spoofing.
+At test/validation commit `72b0732f90be9a93dd9075f42071486dae4b0e1a`, the
+[expanded native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42086361238/job/127452432140)
+passed in 35.461 seconds, including this control before and after cold restore.
+All five selected jobs passed (expanded scenario, baseline IPv6 HTTPS,
+standalone IPv6 firewall, DNS/firewall and general CI); 49 other jobs were
+intentionally skipped. Four focused local policy/CLI tests passed; compilation
+and diff checks passed. No protocol behavior or manifest scope changed, and
+no failed native run preceded this added validation. The older result below
+predates the added source control.
+
+At implementation commit `8ce6321df0e06cee37bc5413478d7e20253288c3`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
+passed its scenario in 22.128 seconds. Baseline IPv6 HTTPS, standalone IPv6
+firewall, DNS/firewall and general CI regressions also passed: five selected
+jobs succeeded; the other 49 jobs were intentionally skipped, not validated
+by this selection. Local tests passed 965 cases in 32.219 seconds with 153
+environment-dependent skips; compilation and diff checks passed. No failed
+native run preceded this checkpoint.
+
+The selector runs these five regression jobs:
+`gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https-firewall`.

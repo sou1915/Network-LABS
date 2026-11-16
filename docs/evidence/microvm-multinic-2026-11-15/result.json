@@ -1,0 +1,142 @@
+{
+  "probes": [
+    {
+      "source": "VM1",
+      "destination": "192.0.2.20",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=0.893 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.893/0.893/0.893 ms\n"
+    },
+    {
+      "source": "VM1",
+      "destination": "198.51.100.20",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\n64 bytes from 198.51.100.20: seq=0 ttl=127 time=0.606 ms\n\n--- 198.51.100.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.606/0.606/0.606 ms\n"
+    },
+    {
+      "source": "VM2",
+      "destination": "192.0.2.10",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.269 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.269/0.269/0.269 ms\n"
+    },
+    {
+      "source": "VM3",
+      "destination": "198.51.100.10",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=127 time=0.279 ms\n\n--- 198.51.100.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.279/0.279/0.279 ms\n"
+    },
+    {
+      "source": "VM2",
+      "destination": "198.51.100.20",
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\n\n--- 198.51.100.20 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "source": "VM3",
+      "destination": "192.0.2.20",
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "source": "VM3",
+      "destination": "198.51.100.10",
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n\n--- 198.51.100.10 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "source": "VM2",
+      "destination": "192.0.2.10",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.573 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.573/0.573/0.573 ms\n"
+    },
+    {
+      "source": "VM3",
+      "destination": "198.51.100.10",
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n\n--- 198.51.100.10 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "source": "VM2",
+      "destination": "192.0.2.10",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.531 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.531/0.531/0.531 ms\n"
+    },
+    {
+      "source": "VM3",
+      "destination": "198.51.100.10",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 198.51.100.10 (198.51.100.10): 56 data bytes\n64 bytes from 198.51.100.10: seq=0 ttl=127 time=0.529 ms\n\n--- 198.51.100.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.529/0.529/0.529 ms\n"
+    },
+    {
+      "source": "VM1",
+      "destination": "192.0.2.20",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=0.802 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.802/0.802/0.802 ms\n"
+    },
+    {
+      "source": "VM1",
+      "destination": "198.51.100.20",
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\n64 bytes from 198.51.100.20: seq=0 ttl=127 time=0.746 ms\n\n--- 198.51.100.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.746/0.746/0.746 ms\n"
+    },
+    {
+      "source": "VM2",
+      "destination": "198.51.100.20",
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\n\n--- 198.51.100.20 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    }
+  ],
+  "addresses": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether 36:74:11:5c:a8:f3 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::3474:11ff:fe5c:a8f3/64 scope link tentative \n       valid_lft forever preferred_lft forever\n3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ee:9c:74:87:cc:2d brd ff:ff:ff:ff:ff:ff\n    inet 198.51.100.10/24 scope global eth1\n       valid_lft forever preferred_lft forever\n    inet6 fe80::ec9c:74ff:fe87:cc2d/64 scope link tentative \n       valid_lft forever preferred_lft forever\n",
+  "fabric": {
+    "lo": null,
+    "tap0": "vmbr0",
+    "vmbr0": null,
+    "tap1": "vmbr1",
+    "vmbr1": null,
+    "eth0": "vmbr0",
+    "eth1": "vmbr1"
+  },
+  "saved": {
+    "saved": "/tmp/nlmn-kn7ijd8a/config/microvm-pair/startup.json",
+    "scope": "Observed eth0 extras/routes and declared primary addresses; interfaces up. No disk snapshot or IPv6 persistence."
+  },
+  "restored_profiles": {
+    "VM1": {
+      "addresses": [],
+      "routes": []
+    },
+    "VM2": {
+      "addresses": [],
+      "routes": [
+        {
+          "network": "198.51.100.0/24",
+          "gateway": "192.0.2.10"
+        }
+      ]
+    },
+    "VM3": {
+      "addresses": [],
+      "routes": [
+        {
+          "network": "192.0.2.0/24",
+          "gateway": "198.51.100.10"
+        }
+      ]
+    }
+  },
+  "restored_addresses": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether 2e:ee:86:bb:b4:8c brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::2cee:86ff:febb:b48c/64 scope link \n       valid_lft forever preferred_lft forever\n3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether 9a:9e:44:1e:7f:11 brd ff:ff:ff:ff:ff:ff\n    inet 198.51.100.10/24 scope global eth1\n       valid_lft forever preferred_lft forever\n    inet6 fe80::989e:44ff:fe1e:7f11/64 scope link \n       valid_lft forever preferred_lft forever\n",
+  "cold_restore_passed": true
+}

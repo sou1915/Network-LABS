@@ -18,6 +18,8 @@ from network_labs.appliances.ssh_radius import alive, stop_worker
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS') == '1', 'Opt-in privileged native test')
 class NativeSSHRadiusTests(unittest.TestCase):
+    PINNED_HOST_KEY=False
+
     def test_real_ssh_radius_actions_denials_outages_protected_bridge_and_restart(self):
         self.assertEqual(os.geteuid(), 0)
         for name in ('dropbear', 'freeradius', 'ssh', 'ssh-keygen', 'crun', 'busybox', 'setpriv'):
@@ -30,12 +32,16 @@ class NativeSSHRadiusTests(unittest.TestCase):
              patch('network_labs.appliances.runtime.CONFIG_ROOT', Path(folder) / 'saved'):
             root = Path(folder); key = root / 'identity'; wrong = root / 'wrong'
             for path in (key, wrong): run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', path])
+            host_key=None
+            if self.PINNED_HOST_KEY:
+                self.assertIsNotNone(shutil.which('dropbearkey'))
+                host_key=root/'host-key';run(['dropbearkey','-t','ed25519','-f',host_key]);host_key.chmod(0o600)
             modules = next(p for p in ('/usr/lib/freeradius', '/usr/lib/x86_64-linux-gnu/freeradius')
                            if (Path(p) / 'rlm_pap.so').is_file())
             rootfs = static_busybox_rootfs(shutil.which('busybox'), root / 'rootfs', dropbear=shutil.which('dropbear'),
                 freeradius=shutil.which('freeradius'), freeradius_modules=modules, freeradius_dictionaries='/usr/share/freeradius')
             digest = hashlib.sha256(password.encode()).hexdigest()
-            spec = radius_lab(rootfs, secret, digest, ssh_key=key.with_suffix('.pub').read_text().strip())
+            spec = radius_lab(rootfs, secret, digest, ssh_key=key.with_suffix('.pub').read_text().strip(),ssh_host_key_file=host_key)
             spec['name'] = 'ssh-radius-' + str(os.getpid())
             spec['nodes'][0]['radius_access']['users']['viewer'] = ['hostname']
             spec['nodes'][2]['radius_server']['users']['viewer'] = {'password_sha256': digest}
@@ -47,6 +53,15 @@ class NativeSSHRadiusTests(unittest.TestCase):
             spec['links'].append([['SW1', 'eth2'], ['PC3', 'eth0']]); spec = validate(spec)
             manager = Manager(spec['name']); known = root / 'known_hosts'
             def trust_host():
+                if self.PINNED_HOST_KEY:
+                    expected='192.0.2.10 '+spec['nodes'][0]['management']['ssh_host_key']['public_key']+'\n'
+                    if known.exists():self.assertEqual(known.read_text(),expected)
+                    else:known.write_text(expected)
+                    deadline=time.monotonic()+15
+                    while time.monotonic()<deadline:
+                        if manager.ns(0,'ss','-H','-ltn','sport = :22').stdout:return
+                        time.sleep(.1)
+                    self.fail('Pinned SSH RADIUS listener did not become ready')
                 deadline = time.monotonic() + 15
                 while time.monotonic() < deadline:
                     result = manager.ns(3, 'ssh-keyscan', '-T', '2', '-t', 'ed25519', '192.0.2.10', check=False, timeout=4)
@@ -81,6 +96,15 @@ class NativeSSHRadiusTests(unittest.TestCase):
                 with manager.locked(): manager.start(spec)
                 records.append(dict(manager.state['ssh_radius_workers']['PC1']))
                 trust_host(); allowed()
+                if self.PINNED_HOST_KEY:
+                    expected=known.read_text()
+                    known.write_text('192.0.2.10 '+key.with_suffix('.pub').read_text().strip()+'\n')
+                    denied=ssh('identity');self.assertNotEqual(denied.returncode,0)
+                    self.assertIn('Host key verification failed',denied.stderr)
+                    known.write_text(expected);allowed()
+                    from network_labs.appliances.ssh_host_key import KEY
+                    self.assertNotEqual(manager.crun('exec','--user','65532:65532','PC1','/bin/busybox','cat',KEY,check=False).returncode,0)
+                    self.assertTrue(manager.inspect('PC1')['management']['ssh_host_key']['configuration_verified'])
                 for username, credential in (('unicode', 'pässword✓'), ('maximum', 'z' * 128)):
                     result = ssh('identity', username=username, credential=credential)
                     self.assertEqual(result.returncode, 0, result)

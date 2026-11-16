@@ -1,0 +1,14 @@
+{
+  "source_commit": "294decee4e49f37117885aebde1b5b0c42f7c83e",
+  "capture": "actual Chromium firewall observation page before inspection",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-firewall-observations.png": "c2219c50968e9f6fc094b4f4e2007435bfb8714c09df5929e69cf55f3bf194b7"
+  },
+  "browser_acceptance": [
+    "explicit unavailable firewall snapshot",
+    "separate rendering fixture tests MAC/firewall counters and escaped rule labels",
+    "refresh restores actual empty state"
+  ],
+  "fixture_screenshot_retained": false
+}

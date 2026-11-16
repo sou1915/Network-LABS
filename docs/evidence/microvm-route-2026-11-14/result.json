@@ -1,0 +1,236 @@
+{
+  "image": {
+    "disk": "/tmp/nlvm-sgt5qxwn/base.ext4",
+    "size_mib": 64,
+    "sha256": "0bb6fea2463478252f306bbae01abd57086fd942c62e844bcf95d25ea220b35f",
+    "guest_boot_verified": false,
+    "guest_control_available": false,
+    "guest_agent_installed": true
+  },
+  "nodes": {
+    "VM1": {
+      "ready": {
+        "operation": "ready",
+        "exit_code": 0,
+        "output": "{\"protocol\":1,\"agent_ready\":true,\"network_verified\":false}"
+      },
+      "addresses": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::c835:a0ff:fe73:b183/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      },
+      "configured_resources": {
+        "vcpu_count": 1,
+        "mem_size_mib": 128
+      }
+    },
+    "VM2": {
+      "ready": {
+        "operation": "ready",
+        "exit_code": 0,
+        "output": "{\"protocol\":1,\"agent_ready\":true,\"network_verified\":false}"
+      },
+      "addresses": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether da:97:c4:1f:74:26 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.20/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::d897:c4ff:fe1f:7426/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      },
+      "configured_resources": {
+        "vcpu_count": 1,
+        "mem_size_mib": 128
+      }
+    }
+  },
+  "probes": [
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=1.730 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 1.730/1.730/1.730 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.319 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.319/0.319/0.319 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=1.202 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 1.202/1.202/1.202 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=0.642 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.642/0.642/0.642 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=1.013 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 1.013/1.013/1.013 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.11 (192.0.2.11): 56 data bytes\n64 bytes from 192.0.2.11: seq=0 ttl=127 time=0.528 ms\n\n--- 192.0.2.11 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.528/0.528/0.528 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.235 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.235/0.235/0.235 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 192.0.2.11 (192.0.2.11): 56 data bytes\n\n--- 192.0.2.11 ping statistics ---\n1 packets transmitted, 0 packets received, 100% packet loss\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.437 ms\n\n--- 192.0.2.10 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.437/0.437/0.437 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\nping: sendto: Network is unreachable\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\n64 bytes from 198.51.100.20: seq=0 ttl=127 time=0.353 ms\n\n--- 198.51.100.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.353/0.353/0.353 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=0.256 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.256/0.256/0.256 ms\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 1,
+      "output": "PING 198.51.100.20 (198.51.100.20): 56 data bytes\nping: sendto: Network is unreachable\n"
+    },
+    {
+      "operation": "ping",
+      "exit_code": 0,
+      "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=127 time=0.255 ms\n\n--- 192.0.2.20 ping statistics ---\n1 packets transmitted, 1 packets received, 0% packet loss\nround-trip min/avg/max = 0.255/0.255/0.255 ms\n"
+    }
+  ],
+  "guest_link": [
+    {
+      "requested": "down",
+      "reply": {
+        "operation": "link",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n"
+      }
+    },
+    {
+      "requested": "down",
+      "reply": {
+        "operation": "link",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n"
+      }
+    },
+    {
+      "requested": "up",
+      "reply": {
+        "operation": "link",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::c835:a0ff:fe73:b183/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      }
+    },
+    {
+      "requested": "up",
+      "reply": {
+        "operation": "link",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::c835:a0ff:fe73:b183/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      }
+    }
+  ],
+  "guest_address": [
+    {
+      "operation": "address-add",
+      "reply": {
+        "operation": "address-add",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet 192.0.2.11/24 scope global secondary eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::c835:a0ff:fe73:b183/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      }
+    },
+    {
+      "operation": "address-delete",
+      "reply": {
+        "operation": "address-delete",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "addresses",
+        "exit_code": 0,
+        "output": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast qlen 1000\n    link/ether ca:35:a0:73:b1:83 brd ff:ff:ff:ff:ff:ff\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n       valid_lft forever preferred_lft forever\n    inet6 fe80::c835:a0ff:fe73:b183/64 scope link tentative \n       valid_lft forever preferred_lft forever\n"
+      }
+    }
+  ],
+  "guest_route": [
+    {
+      "operation": "route-add",
+      "reply": {
+        "operation": "route-add",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "routes",
+        "exit_code": 0,
+        "output": "192.0.2.0/24 dev eth0 scope link  src 192.0.2.10 \n198.51.100.20 via 192.0.2.20 dev eth0 \n"
+      }
+    },
+    {
+      "operation": "route-delete",
+      "reply": {
+        "operation": "route-delete",
+        "exit_code": 0,
+        "output": ""
+      },
+      "observed": {
+        "operation": "routes",
+        "exit_code": 0,
+        "output": "192.0.2.0/24 dev eth0 scope link  src 192.0.2.10 \n"
+      }
+    }
+  ]
+}

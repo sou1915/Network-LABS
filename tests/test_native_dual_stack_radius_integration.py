@@ -23,6 +23,8 @@ from test_native_integration import unexpected_host_link_changes
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_NATIVE_TESTS')=='1','Opt-in privileged native test')
 class NativeDualStackRadiusTests(unittest.TestCase):
+    PINNED_HOST_KEY=False
+
     def test_real_ssh_both_families_radius_denials_faults_and_cold_restore(self):
         self.assertEqual(os.geteuid(),0)
         for tool in ('dropbear','freeradius','ssh','ssh-keygen','ssh-keyscan','crun','ip','busybox','tcpdump'):self.assertIsNotNone(shutil.which(tool),tool)
@@ -34,10 +36,14 @@ class NativeDualStackRadiusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,ThreadPoolExecutor(max_workers=1) as pool,patch('network_labs.appliances.runtime.CONFIG_ROOT',Path(folder)/'saved'):
             root=Path(folder);key=root/'identity';wrong=root/'wrong'
             for path in (key,wrong):run(['ssh-keygen','-q','-t','ed25519','-N','','-f',path])
+            host_key=None
+            if self.PINNED_HOST_KEY:
+                self.assertIsNotNone(shutil.which('dropbearkey'))
+                host_key=root/'host-key';run(['dropbearkey','-t','ed25519','-f',host_key]);host_key.chmod(0o600)
             modules=next(p for p in ('/usr/lib/freeradius','/usr/lib/x86_64-linux-gnu/freeradius') if (Path(p)/'rlm_pap.so').is_file())
             rootfs=static_busybox_rootfs(shutil.which('busybox'),root/'rootfs',dropbear=shutil.which('dropbear'),freeradius=shutil.which('freeradius'),freeradius_modules=modules,freeradius_dictionaries='/usr/share/freeradius')
             digest=hashlib.sha256(password.encode()).hexdigest()
-            spec=dual_stack_radius_lab(rootfs,secret,digest,ssh_key=key.with_suffix('.pub').read_text().strip());spec['name']='dual-radius-'+str(os.getpid())
+            spec=dual_stack_radius_lab(rootfs,secret,digest,ssh_key=key.with_suffix('.pub').read_text().strip(),ssh_host_key_file=host_key);spec['name']='dual-radius-'+str(os.getpid())
             spec['nodes'][0]['radius_access']['users']['viewer']=['hostname'];spec['nodes'][3]['radius_server']['users']['viewer']={'password_sha256':digest};spec=validate(spec)
             manager=Manager(spec['name']);known=root/'known_hosts'
             def wait(predicate,label):
@@ -54,6 +60,12 @@ class NativeDualStackRadiusTests(unittest.TestCase):
                 wait(listeners,'SSH did not bind exactly its declared IPv4/IPv6 addresses')
                 wait(lambda:'198.51.100.20:1812' in manager.ns(3,'ss','-H','-lun','sport = :1812').stdout,'RADIUS unavailable')
             def trust():
+                if self.PINNED_HOST_KEY:
+                    public=spec['nodes'][0]['management']['ssh_host_key']['public_key']
+                    expected=''.join(address+' '+public+'\n' for address in ('192.0.2.10','2001:db8:10::10'))
+                    if known.exists():self.assertEqual(known.read_text(),expected)
+                    else:known.write_text(expected)
+                    return
                 keys=[]
                 for family,address in ((4,'192.0.2.10'),(6,'2001:db8:10::10')):
                     result=manager.ns(3,'ssh-keyscan','-'+str(family),'-T','3','-t','ed25519',address,check=False,timeout=5)
@@ -94,6 +106,14 @@ class NativeDualStackRadiusTests(unittest.TestCase):
                     result=ssh(family,identity=wrong);self.assertEqual(result.returncode,255,result)
                     denied(family,action='sh -c id')
                 future.result(timeout=11)
+                if self.PINNED_HOST_KEY:
+                    expected=known.read_text();wrong_public=wrong.with_suffix('.pub').read_text().strip()
+                    known.write_text(''.join(address+' '+wrong_public+'\n' for address in ('192.0.2.10','2001:db8:10::10')))
+                    for family in (4,6):
+                        result=ssh(family);self.assertEqual(result.returncode,255)
+                        self.assertIn('Host key verification failed',result.stderr)
+                    known.write_text(expected);allowed(4);allowed(6)
+                    self.assertTrue(manager.inspect('PC1')['management']['ssh_host_key']['configuration_verified'])
                 for expression in (['ip','and','tcp','port','22'],['ip6','and','tcp','port','22'],['ip','and','udp','port','1812']):
                     self.assertTrue(run(['tcpdump','-nn','-r',pcap,*expression]).stdout)
                 # Credentials sent through SSH must not appear in plaintext on TCP/22.

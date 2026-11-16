@@ -607,10 +607,13 @@ def dual_stack_lab(rootfs):
     return validate(spec)
 
 
-def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False, eap_password_file=None):
+def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_shell=False, accounting=False, ssh_key=None, ssh_actions=None, ssh_shell=False, accounting_retries=0, accounting_outbox=False, accounting_journal=False, role_policy=False, telnet=False, telnet_shell=False, eap_password_file=None, ssh_host_key_file=None):
     from .spec import integer
     integer(accounting_retries, 0, 2, 'Accounting retries')
     if type(telnet_shell) is not bool or (telnet_shell and not telnet): raise ValueError('Telnet shell requires explicit Telnet RADIUS.')
+    pinned_shell=ssh_shell and accounting and accounting_outbox and accounting_journal
+    if ssh_host_key_file is not None and (ssh_key is None or telnet or ((ssh_shell or allow_shell or accounting) and not pinned_shell)):
+        raise ValueError('Pinned SSH RADIUS requires diagnostics or an explicit shell with accounting, Stop outbox and session journal.')
     if type(telnet) is not bool or (telnet and (ssh_key is not None or ssh_shell or ((allow_shell or accounting) and not telnet_shell))):
         raise ValueError('Telnet RADIUS requires a boolean and a standalone diagnostic profile.')
     if telnet_shell: allow_shell = True
@@ -640,6 +643,9 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
             'ssh_radius': True, 'ssh_actions': list(ssh_actions) if ssh_actions is not None else ['identity', 'hostname', 'security-context']}
         if ssh_shell and 'shell' not in spec['nodes'][0]['management']['ssh_actions']:
             spec['nodes'][0]['management']['ssh_actions'].append('shell')
+        if ssh_host_key_file is not None:
+            from .ssh_host_key import policy
+            spec['nodes'][0]['management']['ssh_host_key']=policy(ssh_host_key_file)
     if role_policy:
         access = spec['nodes'][0]['radius_access']; access.pop('users')
         access['roles'] = {'observer': ['identity', 'hostname'], 'auditor': ['security-context']}
@@ -657,12 +663,61 @@ def radius_lab(rootfs, secret, password_sha256, username='learner', *, allow_she
     return validate(spec)
 
 
+def ipv6_tftp_lab(rootfs, files=None):
+    """Read-only TFTP over an explicit static IPv6 two-router path."""
+    spec=ipv6_routed_lab(rootfs);spec['name']='ipv6-tftp-lan'
+    spec['nodes'][3]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
+def ipv6_tftp_subinterfaces_lab(rootfs, files=None):
+    """Read-only IPv6 TFTP over ROAS VLANs and a tagged static transit."""
+    spec=ipv6_subinterfaces_lab(rootfs);spec['name']='ipv6-tftp-subinterfaces-lan'
+    spec['nodes'][3]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 tagged TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
+def ipv6_dns_tftp_lab(rootfs, files=None):
+    """Separate DNS and TFTP servers on static IPv6 ROAS and transit paths."""
+    spec=ipv6_dns_subinterfaces_lab(rootfs);spec['name']='ipv6-dns-tftp-lan'
+    spec['nodes'][3]['dns_server'].update(records={},records_ipv6={'files.lab.test':'2001:db8:20::10'})
+    spec['nodes'][2]['tftp_server']={'interface':'eth0','family':'ipv6',
+        'files':files if files is not None else {'sample.txt':'Network LABS IPv6 DNS and TFTP\n','sample.bin':{'base64':'AAECA/8='}}}
+    return validate(spec)
+
+
 def tftp_lab(rootfs, files=None):
     """Two hosts and a switch serving declared public files."""
     from .spec import example
     spec = example(rootfs); spec['name'] = 'tftp-lan'
     spec['nodes'][2]['tftp_server'] = {'interface': 'eth0', 'files': {'sample.txt': 'Network LABS TFTP\n', 'sample.bin': {'base64': 'AAECA/8='}}}
     if files is not None: spec['nodes'][2]['tftp_server']['files'] = files
+    return validate(spec)
+
+
+def ipv6_ntp_lab(rootfs):
+    """Isolated IPv6 local reference, one allowed and one denied SNTP client."""
+    spec=ipv6_routed_lab(rootfs);spec['name']='ipv6-ntp-lan'
+    spec['nodes'][3]['ntp_server']={'interface':'eth0','family':'ipv6','local_stratum':10,'clients':['2001:db8:10::10']}
+    spec['nodes'][2]['interfaces']['eth2']='';spec['nodes'][2]['ipv6']['eth2']='2001:db8:30::1/64'
+    spec['nodes'].append({'name':'PC3','runtime':'oci','rootfs':str(rootfs),'interfaces':{'eth0':''},'ipv6':{'eth0':'2001:db8:30::30/64'},
+        'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:30::1','interface':'eth0'}]})
+    spec['links'].append([['R2','eth2'],['PC3','eth0']])
+    return validate(spec)
+
+
+def ipv6_ntp_relay_lab(rootfs):
+    """One local source and one clockless IPv6 relay with explicit client ACLs."""
+    spec=ipv6_ntp_lab(rootfs);spec['name']='ipv6-ntp-relay-lan'
+    relay=spec['nodes'][3]['ntp_server'];relay.pop('local_stratum');relay['upstream']='2001:db8:40::40'
+    spec['nodes'][2]['interfaces']['eth3']='';spec['nodes'][2]['ipv6']['eth3']='2001:db8:40::1/64'
+    spec['nodes'][1]['ipv6_routes'].append({'destination':'2001:db8:40::/64','gateway':'2001:db8:100::2','interface':'eth1'})
+    spec['nodes'].append({'name':'PC4','runtime':'oci','rootfs':str(rootfs),'interfaces':{'eth0':''},'ipv6':{'eth0':'2001:db8:40::40/64'},
+        'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:40::1','interface':'eth0'}],
+        'ntp_server':{'interface':'eth0','family':'ipv6','local_stratum':10,'clients':['2001:db8:20::20']}})
+    spec['links'].append([['R2','eth3'],['PC4','eth0']])
     return validate(spec)
 
 
@@ -679,7 +734,7 @@ def ntp_lab(rootfs):
     return validate(spec)
 
 
-def management_lab(rootfs, ssh_key=None, telnet_password_hash='', *, ssh_actions=None):
+def management_lab(rootfs, ssh_key=None, telnet_password_hash='', *, ssh_actions=None, ssh_host_key_file=None):
     """Three-node internal IPv4 LAN with real management services on R1."""
     from .spec import example
     spec = example(rootfs); spec['name'] = 'management-lan'
@@ -688,6 +743,10 @@ def management_lab(rootfs, ssh_key=None, telnet_password_hash='', *, ssh_actions
     server['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key] if ssh_key else [],
                             'telnet_password_hash': telnet_password_hash, 'syslog_remote': '192.0.2.10'}
     if ssh_actions is not None: server['management']['ssh_actions'] = ssh_actions
+    if ssh_host_key_file is not None:
+        from .ssh_host_key import policy
+        server['management']['ssh_host_key']=policy(ssh_host_key_file)
+        server['management']['syslog_remote']=''
     return validate(spec)
 
 
@@ -776,6 +835,26 @@ def ospfv3_lab(rootfs):
         node['ipv6_routes'] = []
         node['ospfv3'] = {'router_id': f'{index}.{index}.{index}.{index}',
                           'interfaces': {port: {'passive': port == passive} for port in node['ipv6']}}
+    return validate(spec)
+
+
+def ipv6_dns_ospfv3_lab(rootfs):
+    """AAAA-only DNS behind a physical two-router OSPFv3 path."""
+    spec=ospfv3_lab(rootfs);spec['name']='ipv6-dns-ospfv3-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:20::20']
+    spec['nodes'][3]['dns_server']={'interface':'eth0','zone':'lab.test','listen_ipv6':True,
+        'records':{},'records_ipv6':{'server.lab.test':'2001:db8:20::20'}}
+    return validate(spec)
+
+
+def ipv6_dns_ospfv3_failover_lab(rootfs):
+    """DNS over two costed physical OSPFv3 transits, without static fallback."""
+    spec=ipv6_dns_ospfv3_lab(rootfs);spec['name']='ipv6-dns-ospfv3-failover-lan'
+    for index in (1,2):
+        node=spec['nodes'][index];node['interfaces']['eth2']=''
+        node['ipv6']['eth2']=f'2001:db8:200::{index}/64'
+        node['ospfv3']['interfaces']['eth2']={'passive':False,'cost':100}
+    spec['links'].append([['R1','eth2'],['R2','eth2']])
     return validate(spec)
 
 
@@ -875,6 +954,24 @@ def ipv6_subinterfaces_lab(rootfs):
                   [['R2', 'eth0'], ['SW1', 'eth4']], [['R2', 'eth1'], ['PC4', 'eth0']]]})
 
 
+def ipv6_dns_subinterfaces_lab(rootfs):
+    """Static IPv6-only DNS across ROAS VLANs and a tagged router transit."""
+    spec=ipv6_subinterfaces_lab(rootfs)
+    spec['name']='ipv6-dns-subinterfaces-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:30::10']
+    spec['nodes'][3]['dns_server']={'interface':'eth0','zone':'lab.test',
+        'listen_ipv6':True,'records':{'server.lab.test':'192.0.2.10'},
+        'records_ipv6':{'server.lab.test':'2001:db8:30::10'}}
+    return validate(spec)
+
+
+def ipv6_dns_aaaa_lab(rootfs):
+    """IPv6-only DNS service with an AAAA-only local zone and no dummy A data."""
+    spec=ipv6_dns_subinterfaces_lab(rootfs);spec['name']='ipv6-dns-aaaa-lan'
+    spec['nodes'][3]['dns_server']['records']={}
+    return validate(spec)
+
+
 def ipv6_firewall_lab(rootfs):
     """Two internal IPv6 LANs, stateful forwarding and a default-deny firewall."""
     spec = {'version': 2, 'name': 'ipv6-firewall-lan', 'nodes': [],
@@ -893,6 +990,30 @@ def ipv6_firewall_lab(rootfs):
                                 {'name': 'http-out', 'action': 'accept', 'in': 'eth0', 'out': 'eth1',
                                  'source': '2001:db8:10::10/128', 'destination': '2001:db8:20::20/128',
                                  'protocol': 'tcp', 'dport': 8080}]}})
+    return validate(spec)
+
+
+def ipv6_dns_firewall_lab(rootfs):
+    """IPv6-only DNS with explicit physical stateful forwarding rules."""
+    spec=ipv6_firewall_lab(rootfs);spec['name']='ipv6-dns-firewall-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:20::20']
+    spec['nodes'][2]['dns_server']={'interface':'eth0','zone':'lab.test','listen_ipv6':True,
+        'records':{'server.lab.test':'192.0.2.20'},'records_ipv6':{'server.lab.test':'2001:db8:20::20'}}
+    rules=spec['nodes'][1]['firewall_ipv6']['rules'];rules.pop()
+    for protocol in ('udp','tcp'):
+        rules.append({'name':'dns-'+protocol,'action':'accept','in':'eth0','out':'eth1',
+            'source':'2001:db8:10::10/128','destination':'2001:db8:20::20/128','protocol':protocol,'dport':53})
+    return validate(spec)
+
+
+def ipv6_input_firewall_lab(rootfs):
+    """Opt-in FW1 local input protection alongside existing forwarded DNS."""
+    spec=ipv6_dns_firewall_lab(rootfs);spec['name']='ipv6-input-firewall-lan'
+    spec['nodes'][1]['firewall_ipv6']['input']={'default':'drop','stateful':True,'rules':[
+        {'name':'local-http','action':'accept','in':'eth0','source':'2001:db8:10::10/128',
+         'destination':'2001:db8:10::1/128','protocol':'tcp','dport':8080},
+        {'name':'local-echo','action':'accept','in':'eth0','source':'2001:db8:10::10/128',
+         'destination':'2001:db8:10::1/128','protocol':'icmpv6','icmp_type':'echo-request'}]}
     return validate(spec)
 
 
@@ -938,24 +1059,66 @@ def stp_lacp_lab(rootfs, min_links=1, lacp_strict=None):
     return validate(spec)
 
 
-def syslog_tcp_lab(rootfs, forward=False):
+def syslog_tcp_lab(rootfs, forward=False, *, disk_queue=False):
     """Plain TCP collector and a diagnostic client on an isolated switched LAN."""
     from .spec import example
     if type(forward) is not bool: raise ValueError('TCP syslog forward selection must be boolean.')
+    if type(disk_queue) is not bool or (disk_queue and not forward):raise ValueError('Disk queue requires boolean selection and TCP forwarding.')
     spec = example(rootfs); spec['name'] = 'syslog-tcp-lan'
     spec['nodes'][0]['syslog_server'] = {'interface': 'eth0', 'transport': 'tcp', 'senders': ['192.0.2.20']}
     if forward:
         spec['nodes'][2]['management'] = {'interface': 'eth0', 'syslog_remote': '192.0.2.10', 'syslog_transport': 'tcp'}
+        if disk_queue:spec['nodes'][2]['management']['syslog_disk_queue']=True
     return validate(spec)
 
 
-def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name):
+def syslog_tls_lab(server_rootfs, client_rootfs, server_name, client_name, *, verify_peer_on_start=False, disk_queue=False):
     """Mutual TLS with explicit certificate names and pinned offline public assets."""
     from .syslog_tls import policy
-    spec = syslog_tcp_lab(server_rootfs, forward=True); spec['name'] = 'syslog-tls-lan'
+    spec = syslog_tcp_lab(server_rootfs, forward=True, disk_queue=disk_queue); spec['name'] = 'syslog-tls-lan'
     spec['nodes'][0]['syslog_server'].update(transport='tls', tls=policy(server_rootfs, client_name))
     spec['nodes'][2]['rootfs'] = str(Path(client_rootfs).resolve())
     spec['nodes'][2]['management'].update(syslog_transport='tls', syslog_tls=policy(client_rootfs, server_name))
+    if verify_peer_on_start:
+        spec['nodes'][0]['syslog_server']['tls']['verify_peer_on_start']=True
+        spec['nodes'][2]['management']['syslog_tls']['verify_peer_on_start']=True
+    return validate(spec)
+
+
+def ipv6_dns_https_lab(server_rootfs, client_rootfs):
+    """Separate static IPv6 DNS and HTTPS behind two physical routers."""
+    spec=ipv6_https_lab(server_rootfs,client_rootfs);spec['name']='ipv6-dns-https-lan'
+    spec['nodes'][0]['resolvers']=['2001:db8:30::30']
+    spec['nodes'][1]['ipv6_routes'].append({'destination':'2001:db8:30::/64','gateway':'2001:db8:100::2','interface':'eth1'})
+    router=spec['nodes'][2];router['interfaces']['eth2']='';router['ipv6']['eth2']='2001:db8:30::1/64'
+    spec['nodes'].append({'name':'PC3','runtime':'oci','rootfs':str(Path(client_rootfs).resolve()),'interfaces':{'eth0':''},
+        'ipv6':{'eth0':'2001:db8:30::30/64'},'ipv6_routes':[{'destination':'::/0','gateway':'2001:db8:30::1','interface':'eth0'}],
+        'dns_server':{'interface':'eth0','zone':'lab.test','listen_ipv6':True,'records':{},
+                      'records_ipv6':{'secure.lab.test':'2001:db8:20::20'}}})
+    spec['links'].append([['R2','eth2'],['PC3','eth0']])
+    return validate(spec)
+
+
+def ipv6_https_firewall_lab(server_rootfs, client_rootfs):
+    """One IPv6 HTTPS endpoint behind an explicit default-deny forward policy."""
+    from .https_server import policy
+    spec=ipv6_firewall_lab(client_rootfs);spec['name']='ipv6-https-firewall-lan'
+    server=spec['nodes'][2];server['rootfs']=str(Path(server_rootfs).resolve())
+    server['https_server']=policy(server_rootfs,family='ipv6')
+    server['memory_mib']=max(server['memory_mib'],32)
+    rules=spec['nodes'][1]['firewall_ipv6']['rules']
+    rules[-1].update(name='https-out',dport=443)
+    return validate(spec)
+
+
+def ipv6_https_lab(server_rootfs, client_rootfs):
+    """One persistent HTTPS server beyond two static IPv6 physical routers."""
+    from .https_server import policy
+    spec=ipv6_routed_lab(client_rootfs);spec['name']='ipv6-https-lan'
+    server=spec['nodes'][3]
+    server['rootfs']=str(Path(server_rootfs).resolve())
+    server['https_server']=policy(server_rootfs,family='ipv6')
+    server['memory_mib']=max(server['memory_mib'],32)
     return validate(spec)
 
 
@@ -982,7 +1145,7 @@ def dual_stack_dns_lab(rootfs, *, resolver_family='ipv4'):
     return validate(spec)
 
 
-def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None):
+def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *, ssh_key, ssh_actions=None, ssh_host_key_file=None):
     """IPv4 RADIUS gates fixed SSH diagnostics over static routed IPv4 and IPv6."""
     spec = dual_stack_lab(rootfs); spec['name'] = 'dual-stack-radius-lan'
     client, _, _, server = spec['nodes']
@@ -992,6 +1155,9 @@ def dual_stack_radius_lab(rootfs, secret, password_sha256, username='learner', *
     client['radius_access'] = {'server': '198.51.100.20', 'users': {username: actions}}
     client['management'] = {'interface': 'eth0', 'ssh_keys': [ssh_key], 'ssh_radius': True,
                             'ssh_ipv6': True, 'ssh_actions': actions}
+    if ssh_host_key_file is not None:
+        from .ssh_host_key import policy
+        client['management']['ssh_host_key']=policy(ssh_host_key_file)
     return validate(spec)
 
 
@@ -1013,4 +1179,18 @@ def dual_stack_services_lab(rootfs, secret, password_sha256, username='learner',
         'dns_server': {'interface': 'eth0', 'zone': 'lab.test', 'listen_ipv6': True,
                        'records': {'nas.lab.test': '192.0.2.10'}, 'records_ipv6': {'nas.lab.test': '2001:db8:10::10'}}})
     spec['links'].append([['R2', 'eth2'], ['DNS1', 'eth0']])
+    return validate(spec)
+
+
+def dot1x_lab(rootfs, secret, password_sha256, password_file, username='learner'):
+    """One pinned wired peer, NAS SVI and separate EAP-MD5 server."""
+    from .spec import example, validate
+    from pathlib import Path
+    spec=example(rootfs);spec['name']='dot1x-lan'
+    peer,switch,server=spec['nodes']
+    peer['interface_macs']={'eth0':'02:00:00:00:01:10'}
+    switch['svis']={'vlan1':{'vlan':1,'address':'192.0.2.1/24'}}
+    switch['dot1x']={'port':'eth0','peer':'PC1','server':'192.0.2.20','svi':'vlan1','users':[username],'seconds':5}
+    server['radius_server']={'interface':'eth0','eap_md5':True,'clients':[{'address':'192.0.2.1','secret':secret}],
+        'users':{username:{'password_sha256':password_sha256,'password_file':str(Path(password_file).absolute())}}}
     return validate(spec)

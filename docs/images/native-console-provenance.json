@@ -1,0 +1,10 @@
+{
+  "source_commit": "09ce90e97b4443443a563b6b62513baed1850ade",
+  "capture_test_commit": "5bada44ae40ea000dc842ecf4b43010f4bb46f77",
+  "capture": "actual local Tk CLI tab in unobserved state; mocked launch history cleared",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-console-management.png": "1b3652b7fcdc188c63fc664b4e19edbfeb0cec5838c193de9a26b0f959fc8aaf"
+  },
+  "reproducible_test": "python3 -m unittest discover -s tests -p test_native_workbench.py -k test_native_console -v"
+}

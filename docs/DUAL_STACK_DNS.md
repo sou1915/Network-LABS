@@ -32,9 +32,11 @@ A server policy can include:
 }
 ```
 
-`records` retains its required 1..256 A records. Optional `records_ipv6` adds
-at most 256 local AAAA records, normalized to canonical ASCII names and IPv6
-addresses. Names must belong to the local zone; duplicate normalized names
+`records` remains an explicit map of at most 256 A records. It may be empty
+when `records_ipv6` supplies at least one valid AAAA record; both maps empty
+remain refused. Optional `records_ipv6` contains at most 256 local AAAA records,
+normalized to canonical ASCII names and IPv6 addresses. See
+[DNS_AAAA_ONLY.md](DNS_AAAA_ONLY.md) for AAAA-only zone scope. Names must belong to the local zone; duplicate normalized names
 or duplicate addresses within a family are rejected for deterministic PTRs.
 Link-local, scoped, multicast, unspecified, loopback and IPv4-mapped IPv6
 addresses are excluded. A name can have one address of each family; IPv6-only

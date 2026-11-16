@@ -9,6 +9,9 @@ from pathlib import Path
 MIB = 1024 * 1024
 
 
+DEFAULT_VCPU_BUDGET = 64
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,31}', value):
         raise ValueError('Identifier: letter followed by up to 31 letters, digits, _ or -.')
@@ -42,7 +45,7 @@ def asset(value):
 
 def validate(data):
     data = copy.deepcopy(data)
-    keys(data, ('version', 'name', 'budget_mib', 'reserve_mib', 'nodes', 'links'), 'Lab')
+    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links'), 'Lab')
     if type(data.get('version')) is not int or data['version'] not in (1, 2):
         raise ValueError('Native manifest version 1 or 2 required.')
     identifier(data.get('name'))
@@ -57,7 +60,7 @@ def validate(data):
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -89,6 +92,7 @@ def validate(data):
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
                 raise ValueError('Gateway must belong to a configured interface subnet.')
         if runtime == 'oci':
+            if 'vcpus' in node:raise ValueError('vcpus is a micro-VM resource; OCI retains its existing CPU quota.')
             asset(node.get('rootfs'))
             if 'kernel' in node or 'disk' in node:
                 raise ValueError('OCI node cannot contain VM assets.')
@@ -103,11 +107,20 @@ def validate(data):
             if role == 'switch' and (any(interfaces.values()) or (node.get('gateway') and not node['svis'])):
                 raise ValueError('Switch physical ports remain unnumbered; use SVIs for management/routing.')
         else:
+            integer(node.setdefault('vcpus',1),1,32,'vcpus')
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role != 'host' or list(interfaces) != ['eth0'] or not interfaces['eth0']:
-                raise ValueError('Firecracker initial adapter: host with one static IPv4 eth0 only.')
+            if role != 'host' or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
+                raise ValueError('Firecracker host requires one static IPv4 per port, contiguous eth0..eth3.')
+            interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
+            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values()]
+            if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
+                raise ValueError('Firecracker interface subnets must not overlap.')
+            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in networks[0]:
+                raise ValueError('Firecracker boot gateway must be on eth0.')
+        from .guest_startup import validate_profile
+        validate_profile(node)
     from .ipv6 import validate_lab as validate_ipv6_lab
     validate_ipv6_lab(data)
     from .ra_guard import validate_lab as validate_ra_guard_lab
@@ -118,6 +131,10 @@ def validate(data):
     validate_collector_lab(data)
     from .ntp_server import validate_lab as validate_ntp_lab
     validate_ntp_lab(data)
+    from .dot1x import validate_lab as validate_dot1x_lab
+    validate_dot1x_lab(data)
+    from .dot1x_supplicant import validate_lab as validate_supplicant_lab
+    validate_supplicant_lab(data)
     from .radius_server import validate_lab as validate_radius_lab
     validate_radius_lab(data)
     from .snmp import validate_lab as validate_snmp_lab
@@ -152,6 +169,10 @@ def validate(data):
     validate_components(data, validate_links(data))
     if sum(n['memory_mib'] for n in data['nodes']) + reserve > budget:
         raise ValueError('Node memory allocations + GUI/host overhead reserve exceed lab budget.')
+    # Optional key: absent means the default, so existing manifests keep their exact shape.
+    vcpu_budget = integer(data.get('budget_vcpus', DEFAULT_VCPU_BUDGET), 1, 1024, 'budget_vcpus')
+    if sum(n['vcpus'] for n in data['nodes'] if n['runtime'] == 'firecracker') > vcpu_budget:
+        raise ValueError(f'Micro-VM vCPU allocations exceed the lab budget of {vcpu_budget}; lower vcpus or set budget_vcpus.')
     return data
 
 

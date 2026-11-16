@@ -10,7 +10,7 @@ import re
 
 from .spec import integer, keys
 
-LAN_FIELDS = ('https_server', 'ra_guard', 'firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
+LAN_FIELDS = ('dot1x_supplicant', 'dot1x', 'https_server', 'ra_guard', 'firewall_ipv6', 'radius_access', 'radius_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'management', 'dhcpv6_clients', 'dhcpv6_server', 'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server', 'slaac', 'router_advertisements', 'ipv6', 'ipv6_routes', 'ipv6_forwarding', 'vlans', 'switchports', 'subinterfaces', 'shutdown', 'forwarding',
               'dhcp_server', 'dhcp_clients', 'dialect', 'interface_aliases', 'routes', 'port_channels', 'spanning_tree', 'port_security', 'interface_macs', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast', 'dns_server', 'resolvers', 'lldp', 'switch_backend', 'svis', 'dhcp_relay', 'dhcp_pools', 'ospf', 'ospfv3')
 
 
@@ -197,6 +197,10 @@ def validate_lan(node):
     validate_tftp_server(node)
     from .radius_server import validate_node as validate_radius_server
     validate_radius_server(node)
+    from .dot1x import validate_node as validate_dot1x
+    validate_dot1x(node)
+    from .dot1x_supplicant import validate_node as validate_supplicant
+    validate_supplicant(node)
     from .radius_access import validate_node as validate_radius_access
     validate_radius_access(node)
     from .dhcpv6_relay import validate_node as validate_dhcpv6_relay
@@ -219,6 +223,9 @@ def memberships(node, port):
 
 def configure(manager, index, node, previous=None):
     """Apply one node's managed network state; caller owns rollback and journal."""
+    if previous is not None and any(n.get(k) for n in (node,previous) for k in ('dot1x','dot1x_supplicant')) and node != previous:
+        from .runtime import RuntimeFailure
+        raise RuntimeFailure('802.1X NAS edits require declarative recreation.')
     ns = lambda *args, **kwargs: manager.ns(index, *args, **kwargs)
     created_svis = set()
     initial = previous is None
@@ -235,6 +242,9 @@ def configure(manager, index, node, previous=None):
         if initial or address != previous.get('interface_macs', {}).get(interface):
             ns('ip', 'link', 'set', 'dev', interface, 'address', address)
     if node['role'] == 'switch' and node.get('switch_backend') != 'ovs':
+        if initial and node.get('dot1x'):
+            from .dot1x import apply as apply_dot1x
+            apply_dot1x(manager,index,node)
         if initial and node.get('ra_guard') is not None:
             from .ra_guard import apply as apply_ra_guard
             apply_ra_guard(manager, index, node)
@@ -409,6 +419,12 @@ def observe(manager, index, node):
         if node.get('port_security'):
             from .port_security import observe as observe_security
             result['port_security'] = observe_security(manager, index, node)
+    if node.get('dot1x_supplicant'):
+        from .dot1x_supplicant import observe as observe_supplicant
+        result['dot1x_supplicant']=observe_supplicant(manager,index,node)
+    if node.get('dot1x'):
+        from .dot1x import observe as observe_dot1x
+        result['dot1x']=observe_dot1x(manager,index,node)
     if node.get('ra_guard') is not None:
         from .ra_guard import observe as observe_ra_guard
         result['ra_guard'] = observe_ra_guard(manager, index, node)

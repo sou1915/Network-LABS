@@ -1,5 +1,11 @@
 # Network LABS
 
+> Architecture cible : **une micro-VM Linux par nœud**, ressources réelles,
+> CLI/web de l’équipement traduites vers le guest, et connexion future aux
+> machines VMware/VirtualBox. Voir la [vision clarifiée](docs/PROJECT_VISION.md).
+> La couverture OCI actuelle ne certifie pas encore cette architecture.
+
+
 Simulateur réseau pédagogique pour Linux : construire une topologie LAN,
 configurer les équipements depuis une page web, des formulaires bureau ou une
 CLI, puis tester les trajets et les politiques. Sans VM, image constructeur,
@@ -33,11 +39,44 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 
 ## Micro-nodes Linux natifs et microVMs (expérimental)
 
+[État actuel du projet, estimation et travail restant](docs/PROJECT_STATUS.md)
+et [couverture exacte des profils LAN natifs](docs/LAN_PROTOCOL_COVERAGE.md).
+Les estimations de progression ne sont pas des pourcentages de couverture des tests.
+
 **Fichier → Micro-nodes natifs · runtimes / manifest**, ou
-`python3 -m network_labs --native-lab`, ouvre le diagnostic des runtimes et un
-éditeur de lab JSON avec validation et budget mémoire cible. Le laboratoire
-natif est distinct du canvas pédagogique : il ne convertit pas automatiquement
-les modèles constructeur ni leurs configurations.
+`python3 -m network_labs --native-lab`, ouvre le LAN natif dans la fenêtre principale : équipements à gauche,
+topologie au centre et inspecteur à droite, selon la disposition existante.
+Création de postes/switches/routeurs OCI, câblage par ports libres ou nouveaux,
+suppression et déplacement sont disponibles pour le brouillon. Enregistrer puis
+arrêter/redémarrer applique la topologie ; les positions restent en session. Le projet initial est maintenant un
+campus natif de dix nodes (VLAN 10/20/30, routeur, deux switches, firewall bloquant
+par défaut et serveur endpoint). **Fichier → Campus entreprise** crée une copie
+avec votre rootfs ; **Nouveau LAN** conserve le petit exemple. La bibliothèque
+occupe toute la hauteur et le panneau GUI affiche ports/adresses/détails.
+L’onglet Configuration du panneau équipement permet le nom, IPv4/passerelle et
+l’état d’un port OCI ; les modifications sont validées avant application au brouillon. La bibliothèque
+est illustrée et classée ; le canevas affiche les groupes VLAN déclarés et
+les ports/trunks. Les résultats de ping sont lisibles dans un panneau de
+diagnostic en lecture seule, avec JSON séparé.
+La GUI utilise Inter (licence SIL OFL incluse), des contrôles arrondis et un
+canevas interactif : molette pour zoomer, bouton central ou Maj+glisser pour
+déplacer la vue, double-clic sur un équipement pour ouvrir sa configuration.
+Les boutons − / + / Centrer règlent aussi la vue sans modifier le manifest.
+**Gestion web**, dans le panneau du dispositif natif, ouvre une vraie page
+locale dans le navigateur : interfaces, nom/IP/passerelle et état administratif
+partagent le même brouillon que la GUI ; routes et politique pare-feu sont
+modifiables dans les éditeurs dédiés : filtrage IPv4 ordonné, NAT, routes,
+VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC, DHCP snooping/DAI/IP Source Guard,
+sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
+Enregistrer puis arrêter / démarrer pour activer les changements.
+[Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
+Le menu **Fichier → LAN sécurité access** crée un profil adapté aux protections
+snooping/DAI/source guard ; le profil actuel exige des ports physiques access.
+Démarrage/état/inspection, test ICMP réel et arrêt sont disponibles ; JSON,
+dépendances et plan mémoire restent accessibles par onglets. Le bouton de
+retour restaure le projet pédagogique. Le laboratoire natif garde son propre
+état : il ne convertit pas automatiquement les modèles constructeur ni leurs
+configurations. Voir la [capture réelle et les limites GUI](docs/NATIVE_GUI_FLOW.md).
 
 Le nouveau gestionnaire peut démarrer des **containers OCI/crun persistants**,
 relier leurs namespaces par veth et lancer des **microVMs Firecracker** optionnelles

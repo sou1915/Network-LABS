@@ -161,7 +161,11 @@ class LifecycleTests(unittest.TestCase):
             manager = Manager('test'); manager.directory = Path(folder) / 'test'; manager.directory.mkdir()
             manager.state = {'spec': {}, 'vms': [{'name': 'VM1', 'pid': 123, 'starttime': 'old'}],
                              'containers': [], 'namespaces': [], 'host_links': [], 'mounts': []}
-            with patch('network_labs.appliances.runtime.process_identity', return_value='new'), patch('os.kill') as kill:
+            state = manager.state
+            def read_state():
+                manager.state = state
+                return state
+            with patch.object(manager, 'read', side_effect=read_state), patch('network_labs.appliances.runtime.process_identity', return_value='new'), patch('os.kill') as kill:
                 manager.stop()
                 kill.assert_not_called()
 
@@ -181,6 +185,15 @@ class NativeGUITests(unittest.TestCase):
                 self.assertIn('allocated_node_mib', window.output.get('1.0', 'end'))
                 self.assertIs(app.open_native_lab(), window)
                 self.assertEqual(app.lab.execution_backend, 'model')
+                self.assertTrue(window.embedded)
+                self.assertIs(window.window.master, root)
+                self.assertFalse(app.workspace.winfo_ismapped())
+                window.close(); root.update()
+                self.assertTrue(app.workspace.winfo_ismapped())
+                self.assertEqual(app.lab.execution_backend, 'model')
+                reopened = app.open_native_lab(); root.update()
+                self.assertIsNot(reopened, window)
+                self.assertTrue(reopened.embedded)
         finally:
             app.pause(); root.destroy()
         self.assertEqual(errors, [])

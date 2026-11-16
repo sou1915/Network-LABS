@@ -34,9 +34,27 @@ def host_snapshot():
             'cpu_ticks_total': sum(ticks), 'cpu_ticks_busy': sum(ticks) - ticks[3] - ticks[4]}
 
 
+def kernel_memory_peak(path):
+    """Optional cgroup-v2 lifetime high-water mark; never reset kernel counters."""
+    try:value=(path/'memory.peak').read_text().strip()
+    except FileNotFoundError:return None
+    if not re.fullmatch(r'[0-9]+',value):raise ValueError('Invalid cgroup memory.peak counter.')
+    return int(value)
+
+
+def cgroup_context(path):
+    existed=path.exists()
+    if existed and key_values(path/'cgroup.events').get('populated')!=0:
+        raise RuntimeFailure('Benchmark refuses an already populated lab cgroup.')
+    return {'existed_before_start':existed,
+            'memory_peak_before_start_bytes':kernel_memory_peak(path) if existed else None,
+            'memory_peak_scope':'cgroup-lifetime-including-prior-runs' if existed else 'fresh-benchmark-cgroup-lifetime'}
+
+
 def group_snapshot(path):
     cpu = key_values(path / 'cpu.stat')
     return {'memory_bytes': int((path / 'memory.current').read_text()),
+            'memory_peak_bytes':kernel_memory_peak(path),
             'swap_bytes': int((path / 'memory.swap.current').read_text()),
             'cpu_usage_usec': cpu['usage_usec'],
             'memory_events': key_values(path / 'memory.events')}
@@ -159,13 +177,15 @@ def benchmark(data, *, seconds=5, sources=None, target):
     hosts = {n['name'] for n in spec['nodes'] if n['role'] == 'host'}
     if not sources or len(sources) > 16 or len(set(sources)) != len(sources) or set(sources) - hosts:
         raise ValueError('Choose 1..16 distinct OCI host sources; default selects PC-prefixed hosts.')
-    report = {'version': 1, 'lab': spec['name'], 'node_count': len(spec['nodes']),
+    report = {'version': 2, 'lab': spec['name'], 'node_count': len(spec['nodes']),
               'environment': {'kernel': platform.release(), 'machine': platform.machine(), 'logical_cpus': os.cpu_count()},
               'allocated_node_mib': sum(n['memory_mib'] for n in spec['nodes']),
               'reserve_mib': spec['reserve_mib'], 'host_before': host_snapshot()}
     with Manager(spec['name']).locked() as manager:
         if manager.directory.exists():
             raise RuntimeFailure('Benchmark needs a stopped lab; existing lab will not be adopted or stopped.')
+        parent=CGROUP_ROOT/prefix(spec)
+        report['lab_cgroup_context']=cgroup_context(parent)
         started = time.monotonic()
         try:
             manager.start(spec)
@@ -176,20 +196,30 @@ def benchmark(data, *, seconds=5, sources=None, target):
             status = manager.status()
             report['all_nodes_running_after_load'] = all(n['state'].get('status') == 'running' for n in status['nodes'])
             report['nodes_after_load'] = {n['name']: group_snapshot(CGROUP_ROOT / prefix(spec) / n['name']) for n in spec['nodes']}
+            # Read before teardown removes leaf cgroups. The parent includes
+            # descendants; its lifetime high-water mark also covers startup
+            # charges and transients that the phase samples may have missed.
+            report['lab_cgroup_after_load']=group_snapshot(parent)
         finally:
             if manager.directory.exists():
                 manager.stop()
         report['cleanup_complete'] = not manager.directory.exists()
     report['host_after'] = host_snapshot()
     peaks = [report['idle']['lab_cgroup_memory_sampled_peak_bytes'], report['load']['metrics']['lab_cgroup_memory_sampled_peak_bytes']]
+    lifetime_peak=report['lab_cgroup_after_load']['memory_peak_bytes']
     report['host_used_increase_at_sampled_available_min_bytes'] = report['host_before']['memory_available_bytes'] - min(report['idle']['host_available_min_bytes'], report['load']['metrics']['host_available_min_bytes'])
     report['assessment'] = {'target_bytes': spec['budget_mib'] * MIB,
                             'lab_cgroup_sampled_peak_under_target': max(peaks) < spec['budget_mib'] * MIB,
+                            'lab_cgroup_lifetime_peak_under_target':lifetime_peak<spec['budget_mib']*MIB if lifetime_peak is not None else None,
+                            'lab_cgroup_current_run_kernel_peak_under_target':lifetime_peak<spec['budget_mib']*MIB if lifetime_peak is not None and not report['lab_cgroup_context']['existed_before_start'] else None,
                             'total_application_under_target': 'unverified',
                             'packet_test_passed': report['load']['all_packets_received'],
-                            'oom_kill_observed': any(n['memory_events'].get('oom_kill', 0) for n in report['nodes_after_load'].values()),
+                            'oom_kill_observed': bool(report['lab_cgroup_after_load']['memory_events'].get('oom_kill',0)) or any(n['memory_events'].get('oom_kill', 0) for n in report['nodes_after_load'].values()),
                             'notes': ['Lab parent cgroup includes descendants; do not add per-node memory again.',
                                       'Sampled peaks exclude startup spikes and may miss peaks between samples.',
+                                      'memory.peak is the kernel cgroup lifetime high-water mark; missing support is null, never zero.',
+                                      'A pre-existing empty parent may include prior runs; current-run kernel-peak assessment is then unknown. No counters are reset.',
+                                      'Kernel peak covers memory charged to this cgroup hierarchy, not all host-side startup or kernel/network work.',
                                       'Runner PSS is separate; shared pages mean it must not be blindly added to cgroup memory.',
                                       'Host readings include unrelated programs, caches, kernel/network work and measurement overhead.',
                                       'Cgroup CPU is task attribution; networking work can run outside these cgroups.',
@@ -204,7 +234,10 @@ def summary(report):
                 'lab_cgroup_cpu_percent_one_core': round(metrics['lab_cgroup_cpu_percent_one_core'], 3),
                 'runner_pss_sampled_peak_mib': round(pss / MIB, 3) if pss is not None else None,
                 'host_busy_percent_total_capacity': metrics['host_busy_percent_total_capacity']}
+    lifetime_peak=report.get('lab_cgroup_after_load',{}).get('memory_peak_bytes')
     return {'lab': report['lab'], 'node_count': report['node_count'],
+            'lab_cgroup_lifetime_memory_peak_mib':round(lifetime_peak/MIB,3) if lifetime_peak is not None else None,
+            'lab_cgroup_context':report.get('lab_cgroup_context'),
             'startup_and_readiness_seconds': round(report['startup_and_readiness_seconds'], 3),
             'idle': phase(report['idle']), 'load': phase(report['load']['metrics']),
             'traffic': {'sources': len(report['load']['flows']), 'protocol': report['load']['protocol'],

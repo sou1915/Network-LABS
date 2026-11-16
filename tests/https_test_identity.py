@@ -18,3 +18,32 @@ def identities(folder, *, valid_ip='192.0.2.10', valid_name='https.lab'):
         openssl('x509','-req','-in',csr,'-CA',authority,'-CAkey',authority_key,'-CAcreateserial','-days','1','-extfile',ext,'-out',cert)
         key.chmod(0o600);result[name+'_cert']=cert;result[name+'_key']=key
     return result
+
+
+def lifecycle_identities(folder):
+    """Offline signed validity/purpose controls plus a new leaf and key."""
+    root=Path(folder);result=identities(root)
+    def openssl(*args):subprocess.run(['openssl',*map(str,args)],check=True,capture_output=True,timeout=15)
+    database=root/'index';database.touch();(root/'serial').write_text('01\n')
+    issued=root/'issued';issued.mkdir()
+    config=root/'issuer.cnf'
+    config.write_text('[ca]\ndefault_ca=issuer\n[issuer]\n'+
+        'database='+str(database)+'\nserial='+str(root/'serial')+'\nnew_certs_dir='+str(issued)+
+        '\ndefault_md=sha256\nunique_subject=no\npolicy=subject\n[subject]\ncommonName=supplied\n')
+    for name,start,end,purpose in (
+            ('expired','20000101000000Z','20000102000000Z','serverAuth'),
+            ('future','20990101000000Z','20990102000000Z','serverAuth'),
+            ('client-only',None,None,'clientAuth')):
+        ext=root/(name+'.ext');ext.write_text('[server]\nsubjectAltName=IP:192.0.2.10,DNS:https.lab\n'+
+            'basicConstraints=critical,CA:FALSE\nextendedKeyUsage='+purpose+'\nkeyUsage=critical,digitalSignature,keyEncipherment\n')
+        cert=root/(name+'.pem')
+        dates=['-startdate',start,'-enddate',end] if start else ['-days','1']
+        openssl('ca','-batch','-notext','-config',config,'-cert',result['ca'],'-keyfile',root/'HTTPS-CA.key',
+                '-in',root/'valid.csr','-extfile',ext,'-extensions','server','-out',cert,*dates)
+        result[name+'_cert']=cert;result[name+'_key']=result['valid_key']
+    key=root/'renewed.key';csr=root/'renewed.csr';cert=root/'renewed.pem'
+    openssl('req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=https.lab','-keyout',key,'-out',csr)
+    openssl('x509','-req','-in',csr,'-CA',result['ca'],'-CAkey',root/'HTTPS-CA.key','-CAcreateserial',
+            '-days','1','-extfile',root/'valid.ext','-out',cert)
+    key.chmod(0o600);result['renewed_cert']=cert;result['renewed_key']=key
+    return result

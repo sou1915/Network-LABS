@@ -1,0 +1,177 @@
+{
+  "version": 2,
+  "lab": "peak-burst-9a854dd1cf24",
+  "node_count": 3,
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "x86_64",
+    "logical_cpus": 4
+  },
+  "allocated_node_mib": 192,
+  "reserve_mib": 512,
+  "host_before": {
+    "memory_total_bytes": 16760344576,
+    "memory_available_bytes": 15632113664,
+    "swap_used_bytes": 0,
+    "cpu_ticks_total": 63342,
+    "cpu_ticks_busy": 3562
+  },
+  "lab_cgroup_context": {
+    "existed_before_start": false,
+    "memory_peak_before_start_bytes": null,
+    "memory_peak_scope": "fresh-benchmark-cgroup-lifetime"
+  },
+  "startup_and_readiness_seconds": 0.34054357600001595,
+  "idle": {
+    "duration_seconds": 2.0002461700000254,
+    "samples": 11,
+    "lab_cgroup_memory_mean_bytes": 1703563.6363636365,
+    "lab_cgroup_memory_sampled_peak_bytes": 2199552,
+    "lab_cgroup_swap_sampled_peak_bytes": 0,
+    "lab_cgroup_cpu_percent_one_core": 0.0,
+    "runner_cpu_percent_one_core": 0.9095380495091654,
+    "runner_pss_sampled_peak_bytes": 46972928,
+    "host_busy_percent_total_capacity": 0.6265664160401002,
+    "host_available_min_bytes": 15647936512,
+    "lab_memory_event_deltas": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0,
+      "sock_throttled": 0
+    }
+  },
+  "load": {
+    "metrics": {
+      "duration_seconds": 2.000522965999977,
+      "samples": 11,
+      "lab_cgroup_memory_mean_bytes": 1757184.0,
+      "lab_cgroup_memory_sampled_peak_bytes": 1835008,
+      "lab_cgroup_swap_sampled_peak_bytes": 0,
+      "lab_cgroup_cpu_percent_one_core": 0.1888006318443856,
+      "runner_cpu_percent_one_core": 0.8925166220761176,
+      "runner_pss_sampled_peak_bytes": 46983168,
+      "host_busy_percent_total_capacity": 0.5018820577164367,
+      "host_available_min_bytes": 15663382528,
+      "lab_memory_event_deltas": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "flows": [
+      {
+        "source": "PC1",
+        "returncode": 0,
+        "transmitted": 20,
+        "received": 20,
+        "output": "PING 192.0.2.20 (192.0.2.20): 56 data bytes\n64 bytes from 192.0.2.20: seq=0 ttl=64 time=0.101 ms\n64 bytes from 192.0.2.20: seq=1 ttl=64 time=0.074 ms\n64 bytes from 192.0.2.20: seq=2 ttl=64 time=0.059 ms\n64 bytes from 192.0.2.20: seq=3 ttl=64 time=0.069 ms\n64 bytes from 192.0.2.20: seq=4 ttl=64 time=0.057 ms\n64 bytes from 192.0.2.20: seq=5 ttl=64 time=0.087 ms\n64 bytes from 192.0.2.20: seq=6 ttl=64 time=0.066 ms\n64 bytes from 192.0.2.20: seq=7 ttl=64 time=0.067 ms\n64 bytes from 192.0.2.20: seq=8 ttl=64 time=0.066 ms\n64 bytes from 192.0.2.20: seq=9 ttl=64 time=0.070 ms\n64 bytes from 192.0.2.20: seq=10 ttl=64 time=0.061 ms\n64 bytes from 192.0.2.20: seq=11 ttl=64 time=0.070 ms\n64 bytes from 192.0.2.20: seq=12 ttl=64 time=0.067 ms\n64 bytes from 192.0.2.20: seq=13 ttl=64 time=0.067 ms\n64 bytes from 192.0.2.20: seq=14 ttl=64 time=0.067 ms\n64 bytes from 192.0.2.20: seq=15 ttl=64 time=0.062 ms\n64 bytes from 192.0.2.20: seq=16 ttl=64 time=0.073 ms\n64 bytes from 192.0.2.20: seq=17 ttl=64 time=0.066 ms\n64 bytes from 192.0.2.20: seq=18 ttl=64 time=0.065 ms\n64 bytes from 192.0.2.20: seq=19 ttl=64 time=0.066 ms\n\n--- 192.0.2.20 ping statistics ---\n20 packets transmitted, 20 packets received, 0% packet loss\nround-trip min/avg/max = 0.057/0.069/0.101 ms\n"
+      }
+    ],
+    "all_packets_received": true,
+    "protocol": "icmp",
+    "target": "192.0.2.20",
+    "requested_packets_per_source": 20,
+    "requested_packets_per_second_per_source": 10,
+    "note": "Bounded connectivity workload, not maximum-throughput or application-load testing."
+  },
+  "all_nodes_running_after_load": true,
+  "nodes_after_load": {
+    "PC1": {
+      "memory_bytes": 618496,
+      "memory_peak_bytes": 14704640,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 18064,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "SW1": {
+      "memory_bytes": 233472,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1807,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    },
+    "PC2": {
+      "memory_bytes": 229376,
+      "memory_peak_bytes": 262144,
+      "swap_bytes": 0,
+      "cpu_usage_usec": 1688,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0,
+        "sock_throttled": 0
+      }
+    }
+  },
+  "lab_cgroup_after_load": {
+    "memory_bytes": 1605632,
+    "memory_peak_bytes": 15691776,
+    "swap_bytes": 0,
+    "cpu_usage_usec": 21561,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0,
+      "sock_throttled": 0
+    }
+  },
+  "cleanup_complete": true,
+  "host_after": {
+    "memory_total_bytes": 16760344576,
+    "memory_available_bytes": 15708225536,
+    "swap_used_bytes": 0,
+    "cpu_ticks_total": 65094,
+    "cpu_ticks_busy": 3622
+  },
+  "host_used_increase_at_sampled_available_min_bytes": -15822848,
+  "assessment": {
+    "target_bytes": 2147483648,
+    "lab_cgroup_sampled_peak_under_target": true,
+    "lab_cgroup_lifetime_peak_under_target": true,
+    "lab_cgroup_current_run_kernel_peak_under_target": true,
+    "total_application_under_target": "unverified",
+    "packet_test_passed": true,
+    "oom_kill_observed": false,
+    "notes": [
+      "Lab parent cgroup includes descendants; do not add per-node memory again.",
+      "Sampled peaks exclude startup spikes and may miss peaks between samples.",
+      "memory.peak is the kernel cgroup lifetime high-water mark; missing support is null, never zero.",
+      "A pre-existing empty parent may include prior runs; current-run kernel-peak assessment is then unknown. No counters are reset.",
+      "Kernel peak covers memory charged to this cgroup hierarchy, not all host-side startup or kernel/network work.",
+      "Runner PSS is separate; shared pages mean it must not be blindly added to cgroup memory.",
+      "Host readings include unrelated programs, caches, kernel/network work and measurement overhead.",
+      "Cgroup CPU is task attribution; networking work can run outside these cgroups.",
+      "Final GUI, vendor firmware, VMs and heavy services are not covered. No total-app 2 GiB claim."
+    ]
+  },
+  "scope": "Presampling 12 MiB transient in owned-node tmpfs; not application memory or a throughput benchmark."
+}

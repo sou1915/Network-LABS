@@ -1,23 +1,519 @@
 # LAN work order
 
-Agreed order: complete the bounded AAA, IPv6 and switching profiles, polish
-the other LAN services, then integrate the native engine into the GUI.
-WAN work remains later. Each feature needs packet/service evidence and
-failure/recovery coverage appropriate to its scope.
+## Multi-NIC host micro-VMs — 2026-11-14
 
-1. AAA: RADIUS-gated execution and declared per-node action policy, then
-   Interactive SSH/Telnet login integration, richer role enforcement, durable accounting/retry and 802.1X/EAP. TACACS+
-   and protected transports require their own implementations and validation.
-2. IPv6: the bounded SVI/subinterface, OSPFv3, relay/PD, forwarding-firewall
-   and RA Guard increments below have dedicated evidence. Remaining work is
-   broader IPv4/IPv6 and service/security coexistence, subinterface service
-   combinations and separately scoped local-input firewall behavior.
-3. Switching: physical/carrier failure coverage, remaining kernel validation,
-   broader topology/security interactions and separately scoped MSTP/PVST.
-4. Services: broader DNS/file services, service coexistence, and HTTPS/Syslog certificate lifecycle/durable retry;
-   improve diagnostics, lifecycle, save/restore and documentation.
-5. GUI: connect the native lifecycle, configuration and observations to the UI
-   after the above profiles are ready.
+Firecracker host manifests now accept contiguous eth0..eth3 (1..4 static IPv4
+interfaces) with non-overlapping subnets. Each port owns its own TAP and bridge;
+the host never merges those bridges. The primary boot IP/gateway stays on eth0;
+additional ports are configured through the guest agent before startup succeeds.
+`microvm-example --multinic --kernel PATH --disk PATH` creates three guests:
+VM1 on two isolated segments and VM2/VM3 as endpoints. This is not a router role.
+
+`microvm-link --interface eth1` and `microvm-address --interface eth1` target the
+selected port with bounded argument validation. Static route mutation and extra
+address/route capture remain scoped to eth0. Declared primary IPv4 addresses for
+all ports are restored; unexpected extra addresses on secondary ports reject
+save. All declared ports must be up for the current save adapter.
+
+Dedicated KVM acceptance now also tests three guests, distinct bridge membership,
+selective eth1 link/address loss, unaffected eth0 traffic, no implicit cross-subnet
+forwarding even with endpoint routes, and cold restore. Local focused suite:
+39 passed, one GUI test skipped. Native acceptance **PASS** at `942d460d3188266c6213aa417eb375b312ced092`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43645330648/job/132601690477).
+Both real KVM suites passed in 20.157 seconds, including the three-guest dual-NIC
+scenario, selective port failures, no implicit forwarding and cold restore.
+[Results](evidence/microvm-multinic-2026-11-15/result.json),
+[provenance](evidence/microvm-multinic-2026-11-15/provenance.json) and guest logs
+are retained. [Actual workbench screenshot](evidence/microvm-multinic-2026-11-15/workbench.png)
+shows the draft three-node topology with repositioned nodes, not locally booted
+guests. Full local regression: 1109 tests, 143 skips, no failures (88.165 seconds).
+One and two NICs have native acceptance evidence; the schema allows up to four,
+but three/four NIC guests do not yet have dedicated native certification. GUI resource copy
+now describes 1..4 ports; live GUI mutation controls remain future work.
+Next: multi-interface route/role translation (router/switch/firewall) and GUI
+integration. VMware/VirtualBox attachment and VXLAN remain tracked.
+
+
+## Guest startup capture and cold restore — 2026-11-14
+
+`sudo python3 -m network_labs.appliances microvm-save LAB` captures supported
+observed IPv4 state from every guest in a running VM-only lab and atomically
+writes its startup manifest. `stop LAB` then `restore LAB` boots new private
+disk copies and reapplies saved extra addresses/routes through vsock, with
+readback before startup succeeds. The original base image is not modified.
+
+New optional Firecracker-only `guest_network` contains bounded `addresses` and
+`routes` lists. Saving requires eth0 up, its declared primary address present,
+and representable static routes. Unsupported state or unavailable agents reject
+save; startup application errors abort and clean up the lab. General `save` now
+checks guest drift instead of silently skipping VM nodes. Explicit `microvm-save`
+captures live changes; it does not rewrite the currently running declaration.
+Keep raw guest edits quiescent while saving: a double read detects drift but is
+not a distributed transaction. Existing startup is preserved on capture failure.
+
+Scope: IPv4 on eth0 only, no filesystem/IPv6/down-state snapshot. Default gateway
+continues to use the existing primary boot setting. Native test now saves an
+extra address and route, stops both guests, reloads startup.json, boots fresh
+guests and checks restored state and real packets. Native acceptance **PASS** at `5ed6a002097fa5992ad3f019ef33db315cfa29c2`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43643416167/job/132595735281).
+The real test completed in 9.039 seconds, including fresh-guest restore and
+post-restore packet delivery. [Results](evidence/microvm-startup-2026-11-14/result.json),
+[provenance](evidence/microvm-startup-2026-11-14/provenance.json), before/after guest
+console logs and cleanup evidence are retained. The
+[report screenshot](evidence/microvm-startup-2026-11-14/report.png) renders these
+actual artifacts; it is not a live GUI screenshot. Full local regression at the
+initial implementation: 1104 tests, 142 skips, no failures (113.083 seconds),
+including actual browser flows. Final stricter capture validation: six focused
+tests passed. The workspace remains without local KVM; native proof is from CI.
+GUI mutation/save binding, multi-NIC and node role translation remain next work;
+VXLAN remains deferred.
+
+
+## Guest static routes — 2026-11-14
+
+`microvm-route --socket /private/node/guest.vsock --network 198.51.100.0/24
+--gateway 192.0.2.20 add` (or `delete`) changes a live IPv4 route through eth0.
+The client requires a canonical IPv4 network and explicit IPv4 next hop; the
+guest validates both fields and executes fixed BusyBox argv without a shell.
+Default routes use `0.0.0.0/0`. Linux command failures propagate to CLI status.
+No automatic retries, persistence or GUI mutation integration is claimed.
+Inspect routes after a transport timeout before retrying an uncertain change.
+
+Expanded KVM acceptance places an off-subnet /32 address on VM2, proves initial
+unreachability from VM1, installs a route through VM2, proves packet delivery,
+then deletes it and proves loss while original on-link traffic continues.
+Local focused tests: 30 passed, one GUI test skipped. Native acceptance **PASS** at `e41f872f78936617631051652829f604ea89bc68`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43598010155/job/132456550827),
+4.907-second real guest test. [Results](evidence/microvm-route-2026-11-14/result.json)
+and [provenance](evidence/microvm-route-2026-11-14/provenance.json) retain the source
+artifacts. [Report screenshot](evidence/microvm-route-2026-11-14/report.png) is a
+rendering of those actual results, not a live GUI screenshot. The [HTML report](evidence/microvm-route-2026-11-14/report.html)
+is retained too. The existing GUI was recaptured and its Chromium resource-editor
+test passed; no product GUI feature changed in this increment.
+The GUI remains unchanged in this increment; screenshots show a draft, not
+local runtime observations. Next: persisted guest configuration and restart
+validation, then multi-NIC and node roles. VXLAN remains on the later roadmap.
+
+
+## Guest IPv4 address control — 2026-11-14
+
+`microvm-address --socket /private/node/guest.vsock --cidr 192.0.2.11/24 add`
+(or `delete`) changes an explicit IPv4 address on guest eth0 using fixed argv.
+Both sides validate input; stdio diagnostics reject mutations. Errors propagate
+to the CLI. Changes are live only, not saved to manifests/startup. A duplicate
+add/delete can return a Linux error; this operation is not claimed idempotent.
+After a transport timeout, inspect addresses before deciding whether to retry.
+
+Expanded native acceptance adds a secondary address, verifies peer ping, removes
+it, verifies packet failure, and verifies original-address connectivity throughout.
+UI terminology now says runtime instead of OCI for the shared node status table.
+Screenshots show the current draft GUI, not a locally booted guest; network
+mutation controls are not yet bound to this UI. Native acceptance **PASS** at `fd469e2e41c9b2be31ad055c385ce2ef2d6116c8`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43595978010/job/132450437959),
+7.523-second actual guest test. [Results](evidence/microvm-address-2026-11-14/result.json)
+and [provenance](evidence/microvm-address-2026-11-14/provenance.json) retain the evidence.
+Local focused suite: 29 passed, one GUI test skipped; the separate actual Chromium
+resource editor test passed. Current draft GUI captures:
+[topology](images/microvm-progress-2026-11-14/workbench.png) and
+[resources](images/microvm-progress-2026-11-14/resources.png), with capture provenance
+in that directory. These screenshots do not claim local guest boot or GUI network
+mutation integration. Next: typed routes and configuration persistence, multi-NIC
+and role translation. VXLAN remains deferred.
+
+
+## Guest interface control — 2026-11-14
+
+`microvm-link --socket /private/node/guest.vsock down` (or `up`) changes the
+live guest eth0 through vsock using fixed BusyBox `ip link set dev eth0` argv.
+Only eth0/up/down are accepted in the client and guest. Diagnostic stdio mode
+rejects mutations. A failed guest command returns a failing CLI status.
+
+This is transient guest state: no manifest/startup persistence or GUI binding.
+A transport timeout leaves the outcome unknown; inspect `addresses` before
+retrying. Setting the same desired state is idempotent. Expanded `microvm-kvm`
+checks guest down/up, duplicate requests, retained vsock access, unaffected host
+fabric, failed peer ping while down and restored bidirectional delivery.
+Native acceptance **PASS** at source `563f99f64f0743dfec01d86a05a24323943f3dfc`:
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43595151867/job/132447966413).
+The real two-guest test completed in 3.883 seconds, including guest eth0 down/up,
+repeated requests, retained vsock control and host fabric, and traffic recovery.
+Evidence: [results](evidence/microvm-link-2026-11-14/result.json),
+[provenance](evidence/microvm-link-2026-11-14/provenance.json), and console/cleanup
+logs in the same directory. Local tests: 28 passing, one GUI test skipped.
+Next: typed guest IP/route configuration and persistence, followed by multi-NIC
+and role translation. This does not certify every node or overall LAN completion.
+
+
+## Real two-guest KVM acceptance — PASS (2026-11-13)
+
+Source `e96bb7f685442aa693092524bcdc8fcc0d643f3a` passed the dedicated
+[Actions run](https://github.com/sou1915/Network-LABS/actions/runs/43456371572/job/131991482785).
+Two independent Firecracker guests booted our built image with 128 MiB/1 vCPU
+configured per guest. Both vsock agents replied and reported their own static
+IPv4 addresses; bidirectional ping passed. Link-down produced 100% loss and
+link-up restored delivery. Base-image immutability and process/namespace/bundle
+cleanup passed. The native test completed in 2.991 seconds (job: 46 seconds).
+
+Retained evidence: [results](evidence/microvm-kvm-2026-11-13/result.json),
+[cleanup](evidence/microvm-kvm-2026-11-13/cleanup.txt),
+[provenance](evidence/microvm-kvm-2026-11-13/provenance.json),
+and both guest console logs in that directory. Image build flags and READY's
+`network_verified: false` describe their narrower stages; the subsequent live
+packet probes establish this run's networking result.
+
+The first native runs exposed kernel-auto-mounted devtmpfs and Ubuntu BusyBox's
+missing mountpoint applet. Bootstrap now detects `/dev` through `/proc/mounts`
+using shell built-ins and retains serial diagnostics on failure.
+
+This validates two static IPv4 host guests, not every node role or overall LAN
+completion. Next: typed guest network configuration, multi-NIC support and
+router/switch/firewall role translation; then GUI integration and external
+VMware/VirtualBox attachment. VXLAN remains deferred. Actual resource consumption
+and broader isolation/security hardening are not certified by this smoke test.
+
+
+## User clarification overrides earlier architecture assumptions
+
+Read [PROJECT_VISION.md](PROJECT_VISION.md) first. The required product is one
+lightweight Linux micro-VM per node, with real RAM/vCPU allocation. Device CLI
+and web experiences translate to Linux guest operations; a Windows-like node
+implements networking behavior, not a full Windows OS. Original vendor firmware
+is not the chosen solution. VMware/VirtualBox attachment remains a required
+integration target. Existing OCI/Wasm work is reusable but does not fulfill
+per-node micro-VM isolation. The old LAN 7/7 gate is limited implementation
+acceptance, not project completion. Prioritize guest execution/control over
+further expansion of OCI-only forms. Keep VXLAN on the later roadmap.
+
+
+## KVM acceptance harness — 2026-11-13
+
+Agent/image CI passed: run `43442607192`. Added dedicated `microvm-kvm`
+workflow selection with pinned official VMM/kernel assets and a real two-guest
+boot/vsock/ping/link-loss/recovery/cleanup test. Bounded IPv4 ping is now a guest
+operation. No local KVM exists; dispatch result/artifacts must establish boot
+acceptance. See PROJECT_VISION.md for reproduction. Guest configuration changes,
+role translation, external VM attachment and VXLAN remain future work.
+
+
+## Guest diagnostics checkpoint — 2026-11-13
+
+Previous image CI passed (run `43308396376`, job `131497652171`). Optional
+`microvm-rootfs --with-agent` adds a compiled static C vsock agent; each VMM
+gets its own socket in a private node bundle. `microvm-diagnostic --socket PATH
+ready|addresses|routes` supports bounded read-only operations, not arbitrary
+exec or network changes. See [PROJECT_VISION.md](PROJECT_VISION.md) for protocol,
+kernel requirements and test boundaries. Next: real KVM boot and two-guest
+traffic validation, then typed guest network changes; no KVM device here.
+
+
+## Guest image builder checkpoint — 2026-11-12
+
+`microvm-rootfs` now builds minimal BusyBox ext4 userspace without root/mounts.
+Six focused tests passed locally, including actual ext4 inspection. Dedicated
+CI selection: `microvm-image`. See [PROJECT_VISION.md](PROJECT_VISION.md) for
+commands and kernel requirements. No KVM boot or guest control is certified;
+next work is typed guest control/readiness and a real two-guest KVM smoke test.
+
+
+## Micro-VM foundation checkpoint
+
+Source `ab41d30abfa3b2d330a1ad1eb9073bebc6453f82` adds explicit Firecracker
+vcpus (1..32; default 1 for older VM manifests), mapped to actual VMM
+machine-config alongside memory_mib. OCI rejects this VM-specific field and
+keeps its existing CPU quota. Read-only plan output reports configured VM
+vCPU totals separately from RAM allocations; status labels configured resources
+without claiming actual guest consumption or readiness.
+
+The new `microvm-example --kernel PATH --disk PATH --memory-mib 128 --vcpus 1`
+command generates two connected Firecracker host nodes. Their existing backend
+uses distinct namespaces, VMM processes and writable disk copies. This remains
+a one-interface/static-IPv4 guest profile; role conversion, guest agent and
+multi-NIC configuration are not implemented by this increment.
+
+The resource web editor is now available for Firecracker nodes only. RAM and
+vCPU writes validate the full lab atomically, preserving peer settings/assets;
+basic guest networking remains read-only. The actual
+[resource screenshot](images/native-microvm-resources.png) and
+[provenance](images/native-microvm-resources-provenance.json) are a draft session,
+not a booted guest. Full local regression passed 1083 tests in 86.260 seconds
+(141 environment/opt-in skips), including five actual Chromium workflows.
+The CLI example/plan path also ran without reading assets or changing the host.
+
+No /dev/kvm is available in this workspace. Real guest boot, packets and
+resource measurements remain unverified. Next: reproducible minimal guest
+image plus typed guest control/readiness, then move existing Linux operations
+and command translators into that guest executor. VMware/VirtualBox attachment
+and product-like network experiences remain required in PROJECT_VISION.md;
+VXLAN stays later. The old OCI gate must not be described as completion of
+this architecture.
+
+## Latest bounded PCAP entry checkpoint
+
+Source `b89c4cbea6b09a28fa47fb635fd333ae3b81dbaa` adds the desktop PCAP tab:
+node interface, duration, packet cap, BPF and a new output file. It calls the
+existing namespace-pinned tcpdump engine through a typed external-terminal
+wrapper. Authentication, progress and final JSON stay in the terminal. The
+GUI records only a launch request. Existing paths/symlinks, invalid bounds,
+unknown/stopped/non-OCI nodes and mismatched labs are refused; caller-owned
+mode-0600 output and namespace/interface enforcement remain engine guarantees.
+The panel scrolls so instructions are accessible in the reference layout.
+
+Full local regression passed 1078 cases in 84.322 s (141 skips), including four
+actual Chromium workflows. New tests verify literal paths/BPF arguments,
+no-overwrite, auth denial, limits and real Tk selection/busy guards. The actual
+[PCAP screenshot](images/native-capture-management.png) shows an unobserved
+node with launch disabled; see [provenance](images/native-capture-provenance.json).
+The native CHILD compiles and adds capture during actual permitted ICMP traffic,
+PCAP parsing/count and output ownership checks. No native capture success is
+claimed yet. Expected artifacts become seven (prior six plus native-capture-running.png),
+activity count 16, cumulative private results unchanged at 12/19.
+
+Previous run 43099192111 at 09ce90e finished: wired job 130785103566 passed;
+general tests job 130785103841 failed after 1074 cases because the new local
+screenshot test unconditionally imported PIL, absent from the CI venv. This
+blocked the privileged GUI scenario. The correction gates only optional local
+screenshots on NETWORK_LABS_GUI_SCREENSHOTS=1; all behavioral assertions still
+run. Dedicated native screenshot dependencies remain mandatory/installed.
+
+New [run 43220028478](https://github.com/sou1915/Network-LABS/actions/runs/43220028478)
+is queued at b89c4cb with suite=dot1x, including native GUI console/capture tests.
+Inspect this run before another dispatch. The usage-limit approval-review
+failure from the previous turn was resolved after its stated reset time; normal
+GitHub access and push worked again. Existing source-bound native artifacts
+still belong to 271303a until new native evidence is accepted.
+LAN's earlier 7/7 gate stays accepted; VXLAN remains later. Embedded consoles,
+packet viewing, integrated capture result handling, continuous monitoring and
+wired provisioning/authentication actions remain open.
+
+## Previous external native console checkpoint
+
+Source `09ce90e97b4443443a563b6b62513baed1850ade` adds a desktop CLI tab
+that opens the selected running OCI node's real /bin/sh through the existing
+native exec --tty path. Sudo authentication and guest I/O stay in the external
+terminal. No browser command endpoint or embedded terminal is introduced.
+Unknown/stopped/non-OCI selections, pending operations and mismatched labs
+are refused. Terminal launch is recorded as requested, not connected. Close
+with exit before another native operation because the CLI holds the lab lock.
+Active shell changes do not rewrite the draft.
+
+Local full regression passed 1074 tests in 73.795 s (141 skips), including
+four actual Chromium workflows. Console tests verify typed arguments, inherited
+stdio, auth-denial short-circuit and GUI selection/busy guards. The actual
+[CLI screenshot](images/native-console-management.png) shows the disabled
+unobserved state; its [provenance](images/native-console-provenance.json) records
+test-only correction 5bada44 clearing mocked event history before capture.
+The focused capture/guard test passed again in 1.747 s.
+
+Run 43097993685 ended with startup_failure and no jobs; it did not validate
+any counter or console behavior. New [native run 43099192111](https://github.com/sou1915/Network-LABS/actions/runs/43099192111)
+finished at 09ce90e with wired success and a general-test PIL import failure (see above). Its GUI scenario opens a real PTY via the same unprivileged
+wrapper/sudo/native CLI, checks a guest-shell marker and a network namespace
+different from the host, exits and captures native-console-running.png.
+The native CHILD compiled, but actual PTY success remains pending. Its event
+expectation is now 15; result ownership remains 12/19. A successful artifact
+will contain six files (the previous five plus native-console-running.png).
+Do not substitute local screenshots for native evidence.
+
+Previous wired interoperability passed at d05ad41; current full native GUI
+validation remains unresolved. LAN's earlier 7/7 acceptance is unchanged;
+VXLAN stays later. Embedded console, packet capture, supervised sessions,
+continuous observations and wired provisioning/actions remain open.
+
+## Previous firewall/MAC observation checkpoint
+
+Source `294decee4e49f37117885aebde1b5b0c42f7c83e` fixes MAC admission
+projection to use actual per-port accepted/dropped counts and the engine's
+available/fingerprint_matches fields. The previous generic shape displayed no
+MAC counters. It also exposes only the managed IPv4 firewall table's chains,
+policies and rule/NAT counters, excluding raw expressions and unrelated tables.
+Missing, negative or boolean counts remain unavailable. No throughput, session
+count or equality with draft policy is inferred.
+
+Local regression passed 1070 cases in 81.700 s (141 skips), including all four
+actual Chromium workflows. HTTP tests use actual engine field shapes; browser
+rendering tests check escaped rule labels and MAC counts with a deliberately
+injected fixture that is never retained as live evidence. The actual
+[firewall screenshot](images/native-firewall-observations.png) and
+[provenance](images/native-firewall-observations-provenance.json) show the
+unobserved state. Native GUI assertions now require real firewall permit/drop
+counts and MAC admission counts through HTTP; result ownership expectations
+are 12 for campus and 19 cumulatively after access-security validation.
+
+Run 43051762126 at d05ad41 finished: wired interoperability check 130630504821
+**passed**, general tests check 130630504969 **failed** with exit code 100.
+Detailed job/log requests returned HTTP 502/timeouts; do not invent a precise
+package failure. Workflow review found suite=dot1x excluded native GUI steps,
+so earlier handoff language claiming that run covered GUI was incorrect.
+CI correction `a33546cee8c8944426c20089e802076b752f9ed9` pins the desktop
+job to Ubuntu 24.04, uses the existing bounded official-mirror APT helper and
+includes native GUI install/test/artifact steps in suite=dot1x. YAML and all
+three step conditions were checked. No protocol assertions were weakened.
+
+Corrected [run 43097993685](https://github.com/sou1915/Network-LABS/actions/runs/43097993685)
+ended with startup_failure and no jobs at a33546c. Current native
+counter assertions are not yet certified; retained native screenshots still
+belong to 271303a. LAN's previous 7/7 gate stays accepted; VXLAN remains later.
+Remaining work includes native console/capture, continuous observations,
+conntrack/session views and wired provisioning/authentication actions.
+
+## Previous Linux observation page checkpoint
+
+Source `d05ad41d3389568b00d40ddd02fd2db58c5c08eb` adds a read-only
+Observations Linux page for the latest successful desktop inspection. It shows
+UTC capture time, links/MAC/MTU, IPv4 routes and allowlisted admission-policy
+verification/counters. Missing counts remain unavailable. Tokens, secrets and
+arbitrary nested runtime data are not returned. Different nodes/labs, changed
+drafts, pending operations and later non-inspection results hide the snapshot.
+This is not continuous monitoring or proof that the draft is active in Linux.
+
+Local regression passed 1069 tests in 81.661 seconds (141 skips), including
+four real Chromium workflows. HTTP fixtures cover counter projection, missing
+values, redaction and invalidation; browser coverage checks the honest empty
+state and read-only controls. The actual [local screenshot](images/native-observations-management.png)
+and [provenance](images/native-observations-provenance.json) show no inspection,
+not simulated live counters. No native lab was started locally.
+
+The dedicated native GUI test now checks that a real IP Source Guard drop
+counter is returned by the HTTP observation projection. Validation was requested
+in [run 43051762126](https://github.com/sou1915/Network-LABS/actions/runs/43051762126)
+(suite dot1x: wired interoperability plus general tests; GUI steps were excluded,
+corrected in a33546c as noted above). Earlier run
+43049668368 never obtained a runner and was cancelled in favor of this source;
+no failure or native success is claimed. Do not dispatch a duplicate; inspect
+this run first. Retained native evidence still belongs to source 271303a.
+There remain 18 configuration sections plus this read-only page. LAN acceptance
+remains the previous 7/7; VXLAN stays later. Native consoles/capture, continuous
+observations, firewall/session counters and wired provisioning/actions remain.
+
+## Previous wired-policy web checkpoint
+
+Source `f6c6172628998280823228ef95bfd07b99e1fe5e` adds section 18 for an
+existing wired 802.1X NAS: allowed identities, 1..30-second authorization
+ceiling and 0..3 additional authentications. Port/peer/backend/SVI are displayed
+but preserved; no RADIUS secret, password asset or hash is returned by the API.
+This remains the dedicated finite EAP-MD5 profile. Provisioning accounts and
+launching authentication remain native operations, not web draft actions.
+
+Local regression passed 1068 tests in 81.724 s (141 environment/opt-in skips),
+including four real Chromium workflows. Thirteen HTTP tests passed separately;
+new checks cover unchanged private backend, rejected invalid policy/topology
+fields and secret redaction. The first local run used an undersized dummy
+RADIUS secret in two new fixtures; corrected fixtures passed the full rerun.
+The actual [browser screenshot](images/native-dot1x-management.png) has
+[source-bound provenance](images/native-dot1x-provenance.json); no native lab
+was started for this local capture.
+
+Dedicated [wired CI run 43049668368](https://github.com/sou1915/Network-LABS/actions/runs/43049668368)
+was dispatched on this source. The managed-peer integration now obtains its
+lease/renewal settings through the same configure_section path as the web API.
+This queued run was superseded by run 43051762126; previous LAN 7/7 acceptance remains historical,
+not a claim about this revision. VXLAN remains after LAN/GUI. Remaining work:
+wired provisioning/authentication actions, runtime tables, interactive native
+consoles/capture and richer per-role service controls.
+
+## Previous multicast web checkpoint
+
+Source `f039c067b893a76b2a1991e0aa78be09d9e9332b` adds the seventeenth
+management section: Linux IGMPv2 snooping/querier and per-port multicast
+router mode, unknown flooding and fast leave. Existing whole-lab validation
+requires one common access VLAN; OVS is hidden. Removing the explicit policy
+restores engine defaults, not an implied snooping shutdown.
+
+Local regression passed 1066 tests in 75.146 seconds (141 environment/opt-in
+skips), including all three real Chromium workflows. HTTP tests verify policy
+roundtrip/removal, invalid querier rejection, wrong role and incompatible
+campus refusal without mutation. Browser tests verify Tk draft synchronization
+and rejected-edit recovery. The actual [browser screenshot](images/native-multicast-management.png)
+has [source-bound provenance](images/native-multicast-provenance.json).
+No new native multicast packet scenario was run for this editor increment;
+the previous native admission/campus evidence remains bound to source 271303a.
+Do not interpret this draft screenshot as observed MDB membership or delivery.
+LAN core stays accepted 7/7; VXLAN remains later. Next work includes wired
+802.1X controls, runtime observations, interactive console/capture and further
+per-role service forms; see [coverage roadmap](NODE_MANAGEMENT_ROADMAP.md).
+
+## Previous access-security management checkpoint
+
+Source `271303a989bf8a39cf039b123b6b93939b9e6319` adds DHCP snooping,
+Dynamic ARP Inspection and IP Source Guard web editors (16 sections total).
+Shared static bindings have add/edit/delete controls; snooping shutdown refuses
+active dependents unless explicitly cleared atomically, preserving bindings.
+The native access-only profile is enforced; OVS/trunk/bond combinations are
+not advertised as supported. Fichier → LAN sécurité access creates a five-node,
+four-link VLAN-10 template, with no security or fake DHCP enabled by default.
+
+The [native CI job](https://github.com/sou1915/Network-LABS/actions/runs/42364702892/job/128380204270)
+passed 1065 general cases (70.595 s, 119 skips) and the real native scenario
+(36.418 s). HTTP-configured policies allowed PC1 ↔ SRV1, blocked PC2 through
+DAI (7 denied ARP packets), and blocked PC3 through IP Source Guard (4 denied
+IPv4 packets). The allowed source-guard rule counted 4 packets. All three
+installed security policies verified against Linux. This static-IP scenario
+does not claim dynamic DHCP lease acquisition or rogue-DHCP packet testing.
+The preceding ten-node campus firewall/routing/MAC-admission checks also passed.
+Eighteen result files remained UID 1001; stop and callback/host cleanup passed.
+
+All ten selected jobs in run 42364702892 succeeded; 52 profiles skipped.
+Wired 802.1X job 128380203970 passed, and LAN aggregate 128381244933 confirms
+7/7. Local regression passed 1065 cases (71.690 s, 141 skips), including three
+actual Chromium workflows. LAN core remains frozen; VXLAN remains after LAN/GUI.
+
+Current native screenshots/reports are bound by
+[provenance](images/native-gui-provenance.json) to artifact 13570754205;
+ZIP SHA-256 `f0ffdc6400c4cc608055324d33f95ff51e27c47ada7976d79e1b881da35a514c`.
+The [IP Source Guard](images/native-admission-management.png) and
+[DAI](images/native-arp-management.png) browser captures are actual local draft
+sessions, not live guest observations; see their
+[separate provenance](images/native-admission-browser-provenance.json).
+Remaining work includes wired-802.1X/multicast web controls, actual runtime
+tables, native interactive consoles/capture and richer per-role service forms.
+Full commercial firewall firmware parity remains unimplemented; see
+[NODE_MANAGEMENT_ROADMAP.md](NODE_MANAGEMENT_ROADMAP.md).
+
+
+Current user direction: finish the essentials quickly, defer optional detail
+and advanced extensions, then start native GUI integration. The frozen
+[LAN core acceptance gate](LAN_CORE_ACCEPTANCE.md) is now the authoritative
+first-release boundary. Do not extend that gate with new protocols or more
+micro-increments. Its seven existing functional checks are now passed on the same revision;
+fix only observed regressions in this scope. The historical roadmap below remains extension tracking,
+not an instruction to finish the whole catalogue before GUI.
+
+Static VXLAN mapping remains after LAN/GUI; EVPN/BGP and WAN are separate
+later stages. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and
+[LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) for bounded capabilities.
+
+The native GUI now also supports basic validated topology creation/cabling,
+removal and session-only movement. Basic OCI identity/IPv4/gateway/admin forms are also now implemented. Continue
+richer supported forms and the
+actual [user-supplied visual target](images/agreed-gui-reference.jpg), not more
+advanced LAN prerequisites. See NATIVE_GUI_FLOW.md for edited-topology proof.
+
+The native GUI now opens a real ten-node campus matching the supplied layout:
+routed VLANs 10/20/30, two switches, router, default-drop firewall and server
+endpoint. Bright reference palette, full-height catalogue and management
+interface table are implemented; native inter-VLAN and firewall-path probes
+passed. Continue interactive consoles/capture and richer supported GUI within
+the supplied visual reference; do not reopen advanced LAN as a prerequisite.
+
+## Core closure and next phase — 2026-11-06
+
+The [consolidated gate](https://github.com/sou1915/Network-LABS/actions/runs/42262198799/job/128047268789)
+passed **7/7 essentials** at `16bce142fe312dc654ee404d726971cf825f2935`.
+All ten selected jobs passed; 52 were intentionally skipped. The six existing
+core packet scenarios passed in 166.885 seconds, alongside switching,
+SSH/RADIUS, wired admission/managed peer, 20-node headless reference and
+general regression. See [LAN_CORE_ACCEPTANCE.md](LAN_CORE_ACCEPTANCE.md)
+for per-job evidence and exact limits. No runtime/test assertions were relaxed.
+
+The [first native GUI flow](NATIVE_GUI_FLOW.md) is now verified (run
+42267670327): topology, lifecycle, kernel observations and real ICMP from an
+unprivileged GUI. Basic native topology editing is now verified too. The
+actual visual target is the [user-supplied mockup](images/agreed-gui-reference.jpg),
+superseding workspace_design.png. Continue supported device forms and the
+remaining reference layout while preserving the working native backend.
+Do not resume advanced LAN implementation
+or small validation refinements as prerequisites. Keep the remaining catalogue
+tracked for later and repair only demonstrated core regressions.
 
 ## Current IPv6 sequence
 
@@ -833,3 +1329,1652 @@ The initial rejected run is retained as evidence rather than reported as passing
 This does not grant access or implement EAPOL/802.1X controlled ports. That wired
 port milestone, stronger EAP methods and broader AAA/service/security work remain
 before GUI; static VXLAN and later EVPN/BGP stay separately tracked.
+
+
+## Finite wired EAPOL / controlled-port increment
+
+An explicit three-node `--dot1x` reference adds one pinned wired peer, one Linux
+bridge NAS/SVI and the separate EAP-MD5 backend. A default-closed nftables gate
+is applied before ports join the bridge or become UP. One finite `dot1x-auth`
+worker passes actual EAPOL to verified RADIUS challenge/State/Success, then
+installs a kernel timeout admission element. The command releases the lab lock
+so traffic can be observed concurrently; teardown owns its process group.
+Logoff/normal completion close the gate, and kernel expiry bounds even SIGKILL
+admission to at most the configured 1..30 seconds. Saved configuration never
+restores an admission. See [DOT1X_WIRED.md](DOT1X_WIRED.md).
+The original handoff passed 896 local cases with 138 environment-dependent
+skips; it had no native admission proof. The validation and repair evidence
+below supersedes that pending checkpoint. This finite single-port MD5 profile does not implement persistent
+reauthentication, TLS, dynamic VLANs, multi-client ports or broader compositions.
+Broader AAA/service/security work remains before GUI; static VXLAN and later
+EVPN/BGP remain separately planned.
+
+
+## Wired admission native validation and teardown repair
+
+The finite wired profile now has successful
+[dedicated native CI evidence](https://github.com/sou1915/Network-LABS/actions/runs/41860209419/job/126679612230)
+at validation commit `4fafe9a02d69bc07fa8595a55bd6152ede252d05`:
+one real native scenario passed in **43.829 seconds** on Ubuntu 24.04.
+Unmodified wired wpa_supplicant and FreeRADIUS completed Identity/MD5/Success
+with captured opaque RADIUS State. The scenario verified the uncontrolled
+uplink, blocked data in both directions before authentication and after closure,
+bidirectional admitted delivery, wrong password/identity, Logoff, worker SIGKILL
+with kernel lease expiry, backend outage, cold restore starting closed,
+separate-CLI stop during active admission with confirmed worker death and no
+runtime resurrection, gate-drift refusal and host namespace/link/route/rule
+isolation.
+
+The original handoff commit `d1e6bfcaa135186d04b13464342c6549c4410de1`
+[failed its native job](https://github.com/sou1915/Network-LABS/actions/runs/41857169910/job/126668804525)
+after admission/data delivery: startup save through a cached Manager overwrote
+the worker record registered by another CLI, invalidating the generation.
+Repair `d4d725fb2507b97f8050e9b94ba1b68d9f96a6f8` reloads current state for
+save/stop/authentication and confirms death after final SIGKILL before allowing
+namespace teardown. Its first native scenario passed in 32.116 seconds;
+the later validation above adds separate-process teardown and bidirectional
+closed-port checks. Authenticator finalization also rechecks directory existence
+inside the lock so concurrent stop cannot cause stale state resurrection.
+The original failed run remains failed evidence.
+
+Local tests passed **901 cases in 26.609 seconds**, with 137 environment-dependent
+skips; these skips are not native proof. Syntax compilation and diff checks
+passed. Added local regressions cover cached save preserving worker ownership,
+unowned group refusal, confirmed/unconfirmed SIGKILL death, namespace/interface
+and runtime generation changes, replayed Identity and queued Logoff taking
+precedence over a backend Success. The general `tests` job also passed on
+`4fafe9a`; broader native/switching jobs were still running at this checkpoint.
+
+This completes this finite single-port wired EAP-MD5 increment only. Admission
+is a 1..30-second kernel lease; SIGKILL permits the remaining lease, not instant
+revocation. Persistent reauthentication, managed supplicants, stronger EAP,
+dynamic VLANs, multiple clients, accounting and broader service/security
+compositions remain separate LAN work. Continue the AAA/IPv6/switching/service
+sequence above before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings
+remains required on the roadmap; EVPN/BGP is a later separate increment.
+
+
+## Opt-in finite closed-port reauthentication
+
+`dot1x.reauthentications:0..3` adds an explicit finite sequence of at most four
+complete authentications to the existing one-peer wired profile. Omission or 0
+retains one lease. At every boundary the worker confirms gate closure before
+sending a fresh Identity, clears the previous RADIUS transaction and State,
+and requires another verified MD5/Success before reopening. The first accepted
+username and physical peer remain pinned; even another allowlisted identity
+cannot replace that username within the command. Each exchange has its own
+1..5-second deadline, each kernel lease remains 1..30 seconds, and the whole
+command retains the shared 64-discard budget. No previous success authorizes
+traffic through an outage or rejection in a later exchange.
+
+Local tests passed 905 cases in 26.837 seconds with 137 environment-dependent
+skips. Unit coverage includes the 0/1/3 finite budgets, fresh State boundaries,
+closure before each new grant, timeout and verified rejection after earlier
+success, and identity-change refusal. Syntax and diff checks passed.
+Native validation of implementation `a6e20f9fdf164a0c832acb6d4998418ca23936b3`
+is pending in the
+[dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/41864390885/job/126694713007).
+The extended scenario requires two actual EAPOL/MD5/Success cycles and four
+RADIUS requests, separate request authenticators/State, second-lease
+bidirectional traffic, backend loss between cycles with closed timeout, and
+cold restore/recovery of the declared budget. A queued or skipped job is not
+native proof; the earlier single-lease evidence does not validate this extension.
+
+This remains a finite foreground command with intentional closed intervals,
+not a persistent supplicant/authenticator daemon or uninterrupted admission.
+Managed supplicants, unbounded reauthentication, stronger EAP methods, dynamic
+VLANs, multiple clients, accounting and broader LAN combinations remain separate.
+Continue LAN before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings and
+later separate EVPN/BGP remain required roadmap work.
+
+
+### Targeted native validation dispatch
+
+CI commit `952d15442c731170efa5ffcb4ca5c055b5a0230a` adds manual scope
+selection to the existing workflow. Push/PR still select every job. To validate
+wired admission without launching the other 35 native/service jobs:
+
+```bash
+gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dot1x
+```
+
+The replacement [targeted run](https://github.com/sou1915/Network-LABS/actions/runs/41864390885)
+selects `dot1x-wired-interop` and `tests`; the other 35 jobs were observed skipped
+by the explicit manual selection. Both selected jobs remained queued with empty
+steps and no runner assigned at the last check. No deployment approval was
+pending. Superseded queued/full duplicate matrices were requested to cancel;
+this does not supply native proof or indicate that the selected tests passed.
+The runtime code remains the implementation at `a6e20f9`; validation is still
+pending until the real selected native job executes successfully.
+
+
+### Official Actions service incident observed
+
+On 2026-11-04 the public GitHub Status API reported Actions as
+`degraded_performance`. The unresolved
+[Incident with Actions and Pages](https://stspg.io/pjgptg3cfc6n)
+was investigating from 16:05:31 UTC; its 16:12:55 UTC update also included
+Webhooks. This is consistent with the selected jobs remaining queued without
+runners, but is not proof of an account-specific queue cause. Neither selected
+check had annotations, and no deployment approval was pending. Reading repository
+Actions settings through the configured integration returned HTTP 403; local
+execution has no sudo or effective capabilities for native namespace tests.
+
+Keep targeted run `41864390885` pending and follow its result when service
+recovers; do not repeatedly dispatch duplicate matrices. Native validation is
+still unconfirmed. No authentication/gate checks or native prerequisites were
+relaxed to work around the incident.
+
+
+## Finite reauthentication: successful native validation
+
+This supersedes the pending/queue observations above. Validation commit
+`b350281e625da65745725c726de57047cf88a02d` passed the
+[dedicated native wired job](https://github.com/sou1915/Network-LABS/actions/runs/41873926458/job/126728123068)
+in **97.788 seconds** on Ubuntu 24.04. The general `tests` job passed on the
+same commit. Local tests passed 906 cases in 26.697 seconds, with 137
+environment-dependent skips; compilation and diff checks passed. The 35 other
+jobs were intentionally skipped in this targeted manual dispatch and are not
+claimed as passing native coverage.
+
+Real wpa_supplicant/FreeRADIUS completed two Identity/MD5/Success cycles with
+four captured RADIUS requests, fresh request authenticators/State and two
+captured EAPOL Success packets. Actual second-lease bidirectional traffic,
+finite completion/closure, backend loss after the first lease with no fallback,
+closed timeout and saved-budget cold restore/recovery passed. The original
+single-lease wrong-credential/identity, Logoff, SIGKILL expiry, separate-CLI
+teardown, drift refusal and host isolation scenarios also remained passing.
+
+Failure history is retained:
+
+- Run `41864390885`, job `126694713007`, failed with a gate
+  `CalledProcessError` during the second verified RADIUS exchange. The original
+  report did not contain a kernel errno, so the precise cause is unconfirmed.
+  Diagnostic-only commit `c116c19` passed natively in 97.046 seconds; that retry
+  alone was not treated as a repair of an intermittent failure.
+- Commit `6bfdf12` now atomically replaces the verified gate with the identical
+  policy and exactly one finite admission for every verified grant. This removes
+  reliance on reclaiming previous timeout-set elements without increasing set
+  capacity, extending a lease or accepting policy drift. Unit coverage checks
+  the single transaction, retained size-one policy and pre-mutation drift refusal.
+- Its native run `41873562663`, job `126726862756`, failed the first immediate
+  positive ping after cold restore, before the added reauthentication scenario.
+  The final test consistently uses the original bounded positive delivery
+  criterion: actual traffic must succeed inside a verified admitted lease.
+  Default-closed and bidirectional negative checks were not relaxed.
+
+This completes the optional finite reauthentication increment only. Every
+renewal deliberately closes before a new complete exchange; historical success
+never authorizes traffic through later timeout/rejection. Persistent services,
+managed supplicants, stronger EAP, dynamic VLANs, multi-client ports, accounting
+and broader LAN compositions remain separate work. LAN remains ahead of GUI;
+static VXLAN VTEP/VNI/VLAN mapping and later EVPN/BGP remain on the roadmap.
+
+
+## Maximum-budget and later-lease crash validation extension
+
+Test-only commit `d5fdba582c5c45e8972c8daee4d57758256a4beb` extends the wired
+scenario to the maximum `reauthentications:3` with three-second leases. It
+requires four real successful authentications, exactly eight captured RADIUS
+requests, eight distinct Request Authenticators, four fresh State values with
+matching continuation echoes, actual final-lease delivery and bounded completion
+with no fifth grant. It then kills the original worker during its second lease
+with renewal budget remaining and requires kernel expiry, blocked data in both
+directions beyond expiry/another exchange interval, no live original worker
+and no replacement worker record.
+
+The [targeted native/general run](https://github.com/sou1915/Network-LABS/actions/runs/41878259282)
+returned queued snapshots during earlier polling. Final logs/timestamps below
+supersede those stale status reads; they do not establish actual queue duration.
+Public GitHub Status reported Actions operational; no account-specific queue
+cause was established. Syntax and diff checks and all
+15 focused local dot1x tests passed. The earlier superseded test-only run
+`41878221476` was requested to cancel after correcting the capture helper's
+list-valued State comparison to use tuples.
+
+Runtime behavior is unchanged from the successful `b350281` evidence above;
+that two-cycle native proof remains valid. The completed boundary evidence
+below now validates this test extension.
+LAN remains ahead of GUI, with static VXLAN and separate EVPN/BGP tracked.
+
+
+### Maximum-budget and renewed-lease SIGKILL: completed evidence
+
+At `d5fdba582c5c45e8972c8daee4d57758256a4beb`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41878259282/job/126743630911)
+passed in **128.898 seconds** on Ubuntu 24.04, finishing at 17:34 UTC on
+2026-11-04. The general `tests` job also passed on that commit. The selected
+manual dispatch intentionally skipped the other 35 jobs; no broader native
+matrix result is claimed. Syntax/diff checks and 15 focused local tests passed.
+
+The real maximum-budget scenario completed four verified authentications,
+exactly eight captured requests with distinct Request Authenticators and four
+fresh State values echoed only in their matching continuations, actual final-
+lease delivery and finite closure with no fifth grant. Killing the original
+worker during the second lease with budget remaining returned unknown, left no
+live original worker or replacement record, and allowed only the remaining
+three-second kernel lease before bidirectional traffic stayed blocked across
+another exchange interval. All preceding native lifecycle, outage, restore,
+drift and host-isolation checks in the same scenario also passed.
+
+Earlier polling returned queued snapshots even after the actual completion
+time. Those observations were stale; they are not evidence of an ongoing queue
+or an account-specific runner problem. Use the final job/log timestamps above.
+The superseded capture-comparison fixture run is not counted as validation.
+
+This adds boundary/crash proof for the existing finite profile and changes no
+runtime policy. It is not persistent reauthentication, broader EAP, dynamic
+VLANs, multi-client admission or accounting. Remaining AAA/IPv6/switching/service
+compositions continue before GUI; static VXLAN and separate EVPN/BGP stay tracked.
+
+
+## IPv6-only DNS across static router subinterfaces
+
+An explicit `example --ipv6-dns-subinterfaces` adds a separate IPv6-only DNS
+host to the existing static ROAS/tagged-transit reference. `listen_ipv6:true`
+on an IPv6-only single-interface host renders only its explicit IPv6 listener;
+PC1's explicit IPv6 resolver reaches PC4 across VLAN 10, R1's VLAN 100 transit
+and R2. Existing A-record policy remains required and AAAA records remain
+optional: an A answer is DNS data, not an IPv4 connectivity claim. No non-loopback
+IPv4 addresses or forwarding/routes are added. See
+[IPV6_DNS_SUBINTERFACES.md](IPV6_DNS_SUBINTERFACES.md) for setup and limits.
+
+At implementation/validation commit
+`bb17f52207a33fc73887db4342775761214c747f`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41890023350/job/126784651019)
+passed in **17.131 seconds** on Ubuntu 24.04. Real dnsmasq served A/AAAA over
+IPv6 UDP/TCP, with only IPv6 DNS listener sockets and non-loopback addresses,
+actual VLAN 10/100 DNS captures, NXDOMAIN, and a successful managed IPv6 TCP
+DNS probe. DNS outage/recovery, independent same-VLAN delivery during service,
+static-route and VLAN faults, route/VLAN/config drift refusal, declarative cold
+restore and host namespace/link/route/rule/forwarding invariants passed.
+The existing dual-stack DNS and static IPv6 subinterface native jobs, plus
+general CI, also passed on the same commit. The other 34 jobs were intentionally
+skipped in this targeted manual dispatch; no broader native coverage is claimed.
+Local tests passed 910 cases in 26.539 seconds with 138 environment-dependent
+skips; syntax and diff checks passed.
+
+The first native run `41889505356`, job `126782818112`, passed its service/wire/
+fault checks but failed save because the test restored a deleted route with the
+kernel's default protocol instead of the engine's declared `proto static`.
+Fixture repair `9fedba9` restores that exact protocol. Drift checks were retained;
+the initial run remains failed evidence. The final implementation also explicitly
+refuses RADIUS access in the IPv6-only DNS composition and tests that exclusion.
+
+The broader mixed dual-stack profile retains full physical numbering and rejects
+partially numbered networks. IPv6-only DNS permits static physical and existing
+router dot1Q routing only; AAA, dynamic IPv6, SVIs and security/firewall
+compositions remain separate work. This completes one tracked IPv6 subinterface
+service composition, not all IPv6/LAN services. Continue the remaining
+AAA/IPv6/switching/service sequence before GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mappings and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns`.
+
+
+## IPv6-only DNS with stateful forwarding firewall
+
+`example --ipv6-dns-firewall` adds an explicit physical IPv6-only service/security
+composition: PC1 queries a separate dnsmasq endpoint through FW1. The reference
+allows UDP/TCP destination port 53 only between the declared /128 endpoints and
+ports, plus client-originated echo; conntrack admits returns and default drop
+covers other forwarded traffic. IPv6-only DNS can now coexist with the existing
+static physical `firewall_ipv6` profile. Mixed dual-stack, subinterfaces, SVIs,
+dynamic IPv6, AAA and other security combinations retain their exclusions.
+See [IPV6_DNS_FIREWALL.md](IPV6_DNS_FIREWALL.md) for setup and precise scope.
+
+At implementation/validation commit
+`9df4670e82f600005136741a58e0705f92a0691a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41893486552/job/126796720048)
+passed in **21.408 seconds** on Ubuntu 24.04. Real dnsmasq UDP/TCP A/AAAA
+responses and the managed IPv6 TCP DNS probe passed, with actual DNS packets
+on both firewall interfaces, positive DNS/state/default-drop counters and
+matching UDP/TCP conntrack observations. A proven local HTTP listener was
+unreachable across forwarding, with ingress SYNs and no egress SYNs. DNS outage
+left allowed echo working; disabling forwarding left local DNS working and
+refused save. Extra-table drift refusal and declarative cold restore passed.
+
+A separately recreated stateless policy with an explicit echo-return rule kept
+routed echo working, but both DNS transports failed across forwarding while
+both succeeded locally on the live server. Restoring the saved stateful policy
+restored DNS. Host namespace/link/IPv4+IPv6 route/rule/forwarding/nftables
+invariants passed. Existing IPv6 firewall and IPv6 DNS/subinterface native jobs,
+plus general CI, all passed on the same commit. The other 35 jobs were skipped
+by the explicit manual selection and are not claimed as validated here.
+Local tests passed 914 cases in 26.738 seconds with 139 environment-dependent
+skips; compilation and diff checks passed. No native failure preceded this
+successful implementation checkpoint.
+
+This is forwarding policy and service coexistence, not local-input filtering,
+DNS server authentication, encrypted DNS, DNSSEC, NAT66 or dynamic/dual-stack/
+subinterface firewall support. The A answer remains DNS data, not an IPv4
+route or delivery claim. Remaining AAA/IPv6/switching/service compositions
+continue before GUI. Static VXLAN with explicit VTEP/VNI/VLAN mappings remains
+required; EVPN/BGP remains a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-firewall`.
+
+
+## Separately opted-in IPv6 local-input firewall
+
+`example --ipv6-input-firewall` adds `firewall_ipv6.input` on the existing
+static physical IPv6-only firewall. It has its own default/stateful/rules,
+accepts the bounded forwarding rule fields except `out`, and refuses nested
+input policies. Omission renders no input chain and retains forward-only
+behavior. The forward chain and local output remain independent. The reference
+permits PC1 to reach FW1's client-side address with echo and TCP/8080; it does
+not create a persistent local HTTP service. DNS remains on the separate PC2.
+See [IPV6_INPUT_FIREWALL.md](IPV6_INPUT_FIREWALL.md) for setup and scope.
+
+Input always permits loopback and ICMPv6 Neighbor Solicitation/Advertisement
+with immediate ICMPv6 next-header and hop limit 255 on declared physical ports,
+before configurable filtering. These exceptions keep static DAD/NDP working;
+they are not neighbor authentication, comprehensive fragment/extension handling,
+RA Guard or dynamic/multicast service support. The combined table is installed
+before physical links/services, fingerprinted as a whole, and restored from
+declared startup policy without conntrack/fixture snapshots.
+
+At implementation/validation commit
+`bb4d071538ca6e9a43d8b81b38a2aa41921a41b1`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/41902272895/job/126827572558)
+passed in **33.861 seconds** on Ubuntu 24.04. Proven local listeners, allowed
+client/port versus denied port/opposite-side client, actual ingress packets
+without denied-port response packets, and positive loopback/NDP/state/allow/drop
+input counters passed. Neighbor cache flush forced fresh NDP under the policy.
+DNS forwarded through FW1 and DNS initiated by FW1 both worked; separately
+recreated stateless input blocked FW1's DNS replies while forwarded DNS and
+local HTTP allowance remained working with a proven live server.
+
+External input-rule drift opened a proven denied listener and refused save;
+cold restore restored denial. Omitting input restored the old forward-only
+local-access behavior, followed by restoration of the protected policy. Host
+namespace/link/IPv4+IPv6 route/rule/forwarding/nftables invariants passed.
+Existing IPv6 forward-firewall and DNS/firewall native regressions plus general
+CI all passed on the same commit. The other 36 jobs were skipped by this manual
+selection and are not claimed as passing native coverage. Local tests passed
+917 cases in 26.864 seconds with 140 environment-dependent skips; compilation
+and diff checks passed.
+
+The first run `41901966354`, job `126826500117`, passed input/state/drift checks
+but failed the immediate DNS probe in its final legacy-policy recreation
+control. Test repair `bb4d071` uses the same bounded actual-DNS readiness check
+as the other recreated modes. No packet success is fabricated and no denial or
+policy check was relaxed. That first run remains failed evidence.
+
+This completes a bounded local-input increment on static physical firewalls,
+not generic host ACLs, local-output policy, NAT66, dual-stack/subinterface/SVI/
+dynamic/AAA security combinations or application authentication. Remaining LAN
+AAA/IPv6/switching/services continue before GUI. Static VXLAN VTEP/VNI/VLAN
+mapping remains required, with EVPN/BGP a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-input-firewall`.
+
+
+## Explicit AAAA-only DNS zone increment
+
+An explicit empty `dns_server.records:{}` is now accepted when valid
+`records_ipv6` supplies at least one AAAA record. Omitted/null/non-map A data
+and a zone with neither A nor AAAA remain refused. Existing 256-record-per-
+family, 64 KiB config, name/zone/address/uniqueness bounds remain. Listener
+selection is unchanged and independent of record family. The new
+`example --ipv6-dns-aaaa` reference removes dummy A data from the static
+IPv6 ROAS/tagged-transit DNS composition. See
+[DNS_AAAA_ONLY.md](DNS_AAAA_ONLY.md) for usage and exact scope. This supersedes
+the earlier requirement for a nonempty A map, not the other DNS bounds.
+
+At implementation/validation commit
+`9306d24d57f90949947a76aa9cd9c81e5ae92c47`, both extended native scenarios passed:
+
+- [Physical dual-stack DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053927),
+  **43.186 seconds**: actual AAAA answers and A/NODATA over IPv4/IPv6 UDP/TCP,
+  NXDOMAIN for missing names, captures on both transport families, explicit
+  IPv6-family managed probe success through the selected IPv4 resolver, and
+  IPv4-family probe failure rather than record-family fallback. Saved empty A
+  maps and successful AAAA-only behavior after cold restore were verified.
+- [IPv6-only subinterface DNS](https://github.com/sou1915/Network-LABS/actions/runs/41903234244/job/126831053243),
+  **23.898 seconds**: AAAA-only UDP/TCP answers, A/NODATA, managed IPv6 TCP
+  DNS probe, retained empty A map and cold restore across static tagged routing.
+
+The previous A/AAAA service, fault, drift and host-isolation scenarios within
+both native jobs remained passing. General CI also passed on the same commit;
+the other 37 jobs were skipped by manual suite selection and are not claimed
+as passing native coverage. Local tests passed 920 cases in 26.763 seconds,
+with 140 environment-dependent skips. Compilation and diff checks passed.
+
+No listener family, upstream resolver, cache persistence, CNAME traversal,
+DNSSEC, DNS64 or dynamic registration is inferred from this record-data change.
+IPv4-only and mixed-record defaults remain intact; routing/security combination
+limits remain as documented for each profile. Remaining LAN services and
+AAA/IPv6/switching work precede GUI. Static VXLAN with VTEP/VNI/VLAN mapping
+and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dns-aaaa`.
+
+
+## Explicit IPv6 read-only TFTP increment — 2026-11-05
+
+`example --ipv6-tftp` adds one separate IPv6-only dnsmasq TFTP server on the
+existing static physical two-router reference. The server opts in through
+`tftp_server.family:ipv6`; the client independently chooses
+`tftp-read --family ipv6`. Omitted families retain IPv4 defaults. The client
+validates literal addresses against the explicit family, performs a matching
+route lookup with the observed IPv6 source, binds that source, and uses a
+v6-only socket. No DNS or family fallback is added. Peer tuple/TID pinning,
+65536-byte/256-datagram bounds, finite retries/deadline, blksize negotiation,
+final-ACK dally and optional expected SHA-256 retain their existing semantics.
+See [IPV6_TFTP.md](IPV6_TFTP.md) for setup and limits.
+
+At implementation/validation commit
+`cc2361876e6869e4e6674c721f027f3ba05b7891`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42028445357/job/127248456722)
+passed in **26.111 seconds** on Ubuntu 24.04. Real dnsmasq served empty,
+exact-block, binary-tail and 64-KiB content across the static IPv6 two-router
+path with classic/negotiated blocks and verified hashes. Actual IPv6 UDP
+captures contained the selected client/server addresses and blksize wire bytes.
+Wrong expected hash and missing-file errors, unchanged declared runtime state,
+service outage/recovery, forwarding failure with a successful local server
+wire control, forwarding/file-drift save refusal, saved IPv6-family retention,
+64-KiB cold restore and host namespace/link/IPv4+IPv6 route/rule/forwarding
+invariants passed.
+
+Existing IPv4 TFTP/blksize and static IPv6 subinterface native regressions,
+plus general CI, all passed on the same commit. The other 37 jobs were skipped
+by targeted manual selection and are not claimed as passing native coverage.
+Local tests passed 925 cases in 28.157 seconds with 141 environment-dependent
+skips. Added local IPv6 UDP wire coverage verified wrong-TID rejection,
+duplicate final-DATA acknowledgement and unchanged binary length/hash. Syntax
+and diff checks passed. No failed native run preceded this checkpoint.
+
+The managed IPv6 server profile requires exactly one static IPv6-only
+single-interface server, physical hosts/routers and static routes. It excludes
+mixed/dual-stack, switches, SVIs/subinterfaces, dynamic IPv6, DNS/AAA/management
+and firewall/security compositions. This is unauthenticated read-only TFTP,
+not writes, encryption, generic external-server interoperability, path-MTU
+coverage or confirmed final-ACK receipt. No received file is stored by the
+managed client. Broader file services and remaining AAA/IPv6/switching/service
+compositions continue before GUI. Static VXLAN with VTEP/VNI/VLAN mapping
+remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp`.
+
+
+## Managed IPv6 isolated NTP reference — 2026-11-05
+
+`example --ipv6-ntp` adds `ntp_server.family:ipv6` for one separate static
+IPv6-only local reference, using chronyd `-6 -x`, an explicit bind address,
+private Unix control socket and /128 client ACLs. The IPv6 profile requires
+`local_stratum` and refuses upstream/hierarchy configurations. IPv4 defaults,
+including upstream/relay support, retain their existing behavior. Passive
+selected-family UDP socket observation now supports Linux /proc/net/udp6 with
+native 32-bit word order while preserving /proc/net/udp behavior for IPv4.
+See [IPV6_NTP.md](IPV6_NTP.md) for setup and scope.
+
+At implementation/validation commit
+`cdcd58c4213c5c7d495a017e8f2305d8b7cb54b8`, the
+[dedicated IPv6 native job](https://github.com/sou1915/Network-LABS/actions/runs/42030027136/job/127253825568)
+passed in **16.291 seconds** on Ubuntu 24.04. Actual managed chronyd stratum-10
+SNTP replies passed origin/version/mode/stratum checks. Allowed and denied
+client requests and allowed replies were captured on IPv6 UDP/123; the denied
+client had an independently proven routed ICMPv6 path. Config/PID/argv and
+exact UDP6 binding observations, fixed read-only tracking, no IPv4 UDP/123
+listener and all five live capability sets without CAP_SYS_TIME were verified.
+The fixture added one explicitly permitted R2 source for a successful independent
+wire control while R1 forwarding was disabled. No clock-setting command or
+client adjustment was invoked.
+
+Service outage/recovery, truthful socket-absent versus config-conformant evidence,
+stopped-control-socket refusal, forwarding/config drift save refusal, retained
+IPv6 family/client policy, cold restore and host namespace/link/IPv4+IPv6 route/
+rule/forwarding invariants passed. The existing IPv4 local-reference/relay/client
+native scenario, IPv6 service-probe and IPv6 TFTP regressions, plus general CI,
+all passed on the same commit. The other 38 jobs were skipped by the explicit
+manual selection and are not claimed as passing native coverage. Local tests
+passed 929 cases in 27.596 seconds with 142 environment-dependent skips;
+compilation/diff checks passed. No failed native run preceded this checkpoint.
+
+This is an isolated unauthenticated local reference, not accurate/external time,
+NTS, an IPv6 upstream hierarchy or automatic clock synchronization. The managed
+IPv6 profile excludes mixed dual-stack, switches, SVIs/subinterfaces, dynamic
+IPv6 and DNS/TFTP/AAA/management/firewall/security compositions. Broader LAN
+services and remaining AAA/IPv6/switching work continue before GUI. Static
+VXLAN with explicit VTEP/VNI/VLAN mappings remains required; EVPN/BGP remains
+a separate later increment.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp`.
+
+
+## Bounded managed IPv6 NTP relay — 2026-11-05
+
+`example --ipv6-ntp-relay` adds one IPv6 relay following another managed local
+reference. PC4 (`2001:db8:40::40`) serves local stratum 10 to PC2; PC2
+(`2001:db8:20::20`) serves derived stratum 11 to PC1. PC1 cannot query the
+source directly, and PC3 cannot query the relay. Upstream must be the bound
+address of another managed IPv6 NTP server whose ACL permits the relay's
+source. Self/unknown/non-NTP/unallowed upstreams, cycles, more than two servers
+and two independent roots in a two-server profile are refused. One standalone
+local reference remains supported. Relay acquisition binds its declared IPv6
+address. Both servers retain `-6 -x`, no CAP_SYS_TIME and private read-only
+control paths. See [IPV6_NTP_RELAY.md](IPV6_NTP_RELAY.md) for usage and limits.
+
+At implementation/validation commit
+`6db2e15853b357ab224012a47500cf17d1ea4888`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42032733623/job/127262984424)
+passed in **35.755 seconds** on Ubuntu 24.04. Actual stratum-10 source and
+stratum-11 relay/client responses, chronyc selected-source observation, upstream/
+downstream IPv6 UDP/123 captures, independently reachable but denied clients,
+PID/argv/socket evidence and all live capability sets without CAP_SYS_TIME
+passed. Source loss followed by a fresh relay produced an explicit rejected
+unsynchronised NTP response and `Not synchronised` tracking, not usable time or
+local fallback. Restored source/restarted acquisition, config drift refusal,
+declarative cold restore and host namespace/link/IPv4+IPv6 route/rule/forwarding
+invariants passed.
+
+Standalone IPv6 NTP, existing IPv4 reference/relay/client, IPv6 service-probe
+regressions and general CI all passed on the same commit. The other 39 jobs
+were skipped by explicit suite selection and are not claimed as passing native
+coverage. Local tests passed 932 cases in 28.261 seconds with 143 environment-
+dependent skips; compilation and diff checks passed.
+
+The first native run `42032370786`, job `127261769688`, failed because the
+fresh-source-loss control expected `failed` while the existing SNTP parser
+classifies invalid/unsynchronised replies as `unknown`. Fixture repair
+`6db2e15` requires `unknown`, `INVALID_RESPONSE`, an explicit `Unsynchronised`
+detail and independent `Not synchronised` tracking. Runtime probe semantics
+were not relaxed; the first run remains failed evidence.
+
+A live chronyd relay may retain its previous estimate after source loss.
+No immediate revocation or finite holdover timeout is claimed; only the fresh-
+relay/no-local-fallback boundary above is validated. This remains local lab
+reference behavior, not externally accurate time, clock adjustment, NTS,
+arbitrary external/multi-hop NTP hierarchies or broader service/security/dynamic
+compositions. Remaining LAN work precedes GUI; static VXLAN VTEP/VNI/VLAN
+mapping remains required, with EVPN/BGP separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-ntp-relay`.
+
+
+## IPv6 read-only TFTP over static dot1Q routing — 2026-11-05
+
+`example --ipv6-tftp-subinterfaces` adds a separate PC4 IPv6 TFTP service
+at `2001:db8:30::10` behind the existing ROAS VLANs 10/20 and tagged VLAN-100
+static transit. The validation now permits Linux VLAN switches and static
+router dot1Q children in the IPv6 TFTP profile. All routed host/router ports
+must remain explicitly IPv6-numbered; dot1Q parents remain unnumbered.
+Partial numbering, IPv4 physical/child addressing, dynamic services, SVIs,
+other services/security and multiple TFTP servers remain refused. Existing
+physical IPv6 and default IPv4 references retain their behavior. Public binary
+imports, bounded octet reads, hashes, family/source/peer selection and transfer
+limits are unchanged. See [IPV6_TFTP_SUBINTERFACES.md](IPV6_TFTP_SUBINTERFACES.md).
+
+At implementation/validation commit
+`c8ad4031512625b9b6471f11aa202e028816a725`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42035723814/job/127273252102)
+passed in **33.705 seconds** on Ubuntu 24.04. Actual IPv6 UDP request and reply
+packets were captured on the R1 parent with VLANs 10 and 100, alongside real
+blksize bytes and successful hash-checked transfer. Clients on VLANs 10 and 20
+both read successfully. Empty/exact-block/binary-tail/64-KiB transfers, classic
+and negotiated block sizes, wrong-hash and missing-file failures, unchanged
+runtime declarations, service outage/recovery, forwarding loss with an
+independent successful local server wire control, deleted static route and
+pruned transit VLAN with continued same-VLAN delivery all passed. Restored
+routes retain the declared static protocol. Forwarding/route/VLAN/file drift
+refused save; declarative cold restore retained service/family/topology and
+passed a 64-KiB transfer. Host namespaces, links, IPv4/IPv6 routes/rules and
+IPv6 forwarding invariants remained unchanged.
+
+Physical IPv6 TFTP, IPv4 TFTP/blksize, static IPv6 subinterface and general CI
+jobs also passed on the same commit. The other 40 jobs were skipped by the
+explicit manual selection and are not claimed as passing native coverage.
+Local tests passed 935 cases in 28.127 seconds with 144 environment-dependent
+skips; compilation and diff checks passed. No failed native run preceded this
+checkpoint.
+
+This is static tagged routing with read-only unauthenticated TFTP, not dynamic
+IPv6, SVIs, mixed/dual-stack service routing, STP/bundles, firewall/security,
+other service coexistence, writes, encryption or generic path-MTU coverage.
+Remaining LAN AAA/IPv6/switching/service work continues before GUI. Static
+VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains
+separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-tftp-subinterfaces`.
+
+
+## Separate managed IPv6 DNS and TFTP services — 2026-11-05
+
+`example --ipv6-dns-tftp` combines PC4 DNS (`2001:db8:30::10`) behind R2 and
+PC3 read-only TFTP (`2001:db8:20::10`) on ROAS VLAN 20. PC1 on VLAN 10 uses
+only PC4 as its declared resolver. The AAAA-only zone maps `files.lab.test`
+to PC3; TFTP reads still use the explicit selected IPv6 literal. There is no
+automatic name resolution, name-to-transfer binding, DNS cache or family
+fallback. When DNS/resolvers coexist with IPv6 TFTP, validation requires one
+separate managed IPv6 DNS server and refuses unknown/alternate client resolvers,
+resolvers on the TFTP node and cohosted services. Static physical/dot1Q/Linux
+VLAN scope, complete routed numbering and other exclusions remain. See
+[IPV6_DNS_TFTP.md](IPV6_DNS_TFTP.md) for usage and topology.
+
+At implementation/validation commit
+`4a8cb132a9640d92ef6e99d3a16d119b75bb07ce`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42037833110/job/127280504290)
+passed in **32.381 seconds** on Ubuntu 24.04. Real DNS UDP/TCP AAAA answers,
+A/NODATA, NXDOMAIN, a managed DNS probe, separate DNS/TFTP listener observations,
+concurrently scheduled DNS and TFTP operations, and actual request/reply captures
+on VLANs 10/100 for DNS and 10/20 for TFTP passed. Empty, exact-block, binary-tail
+and 64-KiB transfers with classic/negotiated blocks, lengths and SHA-256 checks
+passed without changing runtime declarations.
+
+Stopping DNS left explicit-literal TFTP working and made both DNS transports
+and the managed name probe fail. Stopping TFTP left both DNS transports and
+the managed DNS probe working. Deleting the static subnet-30 route isolated
+DNS while TFTP remained healthy; pruning VLAN 20 isolated TFTP while DNS
+remained healthy. Same-VLAN PC1/PC2 traffic continued through these controls.
+Both service restarts and exact route/VLAN restoration recovered operation.
+Route/VLAN and either service-config drift refused save. Declarative cold
+restore retained the exact combined specification and both services, including
+a successful 64-KiB transfer. Host namespaces, links, IPv4/IPv6 routes/rules
+and IPv6 forwarding invariants remained unchanged.
+
+Standalone tagged IPv6 DNS, tagged IPv6 TFTP and general CI also passed on
+that commit. The other 42 jobs were skipped by explicit manual selection and
+are not claimed as passing native coverage.
+
+Local confirmation passed 938 tests in 28.277 seconds with 145 environment-
+dependent skips; compilation and diff checks passed. The first full local run
+failed one existing RADIUS retry socket case with a peer timeout. No accounting
+or retry code/assertion changed: the seven-case retry module passed unchanged
+in 1.514 seconds, then the full confirming run passed. The initial local failure
+is retained here; its timing cause was not established. No failed native run
+preceded this checkpoint.
+
+This validates separate managed DNS/TFTP coexistence on static IPv6 paths,
+not authenticated/encrypted DNS/files, TFTP name resolution or writes, DNS
+recursion/CNAME/DNSSEC, mixed/dual-stack, dynamic IPv6, SVIs, AAA/NTP or firewall
+combinations. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-tftp`.
+
+
+## Offline HTTPS identity validation and explicit replacement — 2026-11-05
+
+HTTPS image build and startup now perform a bounded memory-BIO TLS self-check
+against only the supplied CA bundle. OpenSSL validates local leaf/chain trust,
+current host-clock validity and server purpose. Expired, future, untrusted and
+client-only identities fail before lab allocation, even with matching public
+file pins. No sockets, host roots or external CA fetching are used. Existing
+private-key checks, public pins and recreate-only policy remain; live clients
+still verify the actual peer and IP/DNS identity. Inspection does not become
+continuous certificate monitoring or a live-handshake verdict. See
+[HTTPS_IDENTITY_LIFECYCLE.md](HTTPS_IDENTITY_LIFECYCLE.md).
+
+The explicit replacement workflow builds a new immutable image and generates
+new manifest pins before stop/start. Leaf/key replacement under one CA retains
+client CA choice; CA replacement requires an explicit new client trust bundle.
+Stale pins refuse changed assets. Cold restore uses retained replacement
+assets. Rollback is explicit recreation from the old manifest/image with its
+corresponding client CA, without modifying retained base-image identities.
+There is downtime; no live reload or automatic renewal is added.
+
+At implementation/validation commit
+`a0cac5c5a20cbe68647b0891a0ee7b077522ab8b`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42039875899/job/127287578185)
+passed in **5.581 seconds** on Ubuntu 24.04. Correctly pinned expired/future/
+client-only/untrusted offline identities refused startup before any lab state
+or namespace allocation. Real verified TLS/HTTP and served-leaf DER SHA-256
+matched the original certificate, a new leaf and private key under the same CA,
+and a replacement CA/leaf/key. Repointing the old manifest at valid new assets
+with stale pins refused startup. The replacement CA served successfully to a
+client explicitly trusting it, while the old-only CA was rejected. Cold
+restore retained the new image/pins and trust behavior. Explicit rollback to
+the retained old manifest/image restored the old exact served-leaf fingerprint
+and old CA acceptance, with the newer CA rejected. Client key isolation,
+unchanged retained base-image CA/cert/key hashes and host namespace/link/
+IPv4+IPv6 route/rule invariants passed.
+
+The original persistent HTTPS native scenario and general CI also passed on
+that commit. The other 44 jobs were intentionally skipped by manual selection
+and are not claimed as passing coverage. No failed native run preceded this
+checkpoint.
+
+Local tests passed 941 cases in 29.014 seconds with 146 environment-dependent
+skips; compilation and diff checks passed. Real local crypto fixtures verify
+expired/future/client-only/untrusted refusals, leaf rekey and refusal of an
+explicitly pinned expired rootfs identity. Socket creation is trapped during
+the offline self-check to verify that it remains network-free.
+
+Syslog TLS certificate lifecycle/durable retry and broader service work remain
+separate. No ACME, revocation, CA/intermediate fetching, unattended rotation,
+generic PKI interoperability, user website/application authentication or GUI
+is added. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=https-identity-lifecycle`.
+
+
+## Opted-in Syslog TLS peer validation and explicit replacement — 2026-11-05
+
+`example --syslog-tls --syslog-tls-preflight` adds
+`verify_peer_on_start:true` to both the sender and collector TLS policies.
+Validation requires exactly one declared reciprocal TLS pair, both opted in.
+Startup performs a bounded offline mutual TLS exchange with only the supplied
+peer CA bundles. It checks current host-clock validity, collector serverAuth,
+sender clientAuth and both exact DNS SANs before allocating lab resources.
+There are no sockets, host trust roots, external CA fetches, wildcard or
+legacy CN-only authorization in this opted-in profile. The default remains
+runtime-handshake validation, including deliberate TLS name/trust failure labs.
+Each CA bundle trusts the peer; it need not issue the local identity. Existing
+pins, key checks and recreate-only edits remain. HTTPS now shares the same
+bounded memory-BIO exchange helper without changing its identity-check scope.
+See [SYSLOG_TLS_LIFECYCLE.md](SYSLOG_TLS_LIFECYCLE.md).
+
+The explicit lifecycle builds fresh sender/collector images and public pins,
+then stops/recreates the lab. Same-CA leaf/key replacement can retain trust;
+CA replacement updates the corresponding reciprocal trust. Cold restore needs
+the saved replacement assets; rollback requires retained old assets and the
+old declaration. This adds downtime, not live reload or unattended renewal.
+
+At implementation/validation commit
+`9831449340f3f57571f8cf12cb946f22e12f9ed8`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42041335915/job/127292631585)
+passed in **10.022 seconds** on Ubuntu 24.04. Correctly pinned expired/future
+certificates on either role, swapped client/server purposes, wrong trust and
+wrong peer names were refused before lab state/namespace allocation. Stale
+pins on a valid replacement were also refused. Actual guest logger storage
+and independent mutually verified octet-framed syslog messages passed with
+original identities, new leaf/keys under the same CA, a new CA, cold restore,
+distinct reciprocal issuing CAs and explicit rollback. Served collector leaf
+DER SHA-256 matched the selected certificate at each stage; both renewed
+private keys differed from the originals. Old-only client trust and old client
+credentials were rejected by the healthy new-CA profile, with their markers
+absent from stored logs. Rollback rejected the newer client credentials.
+
+Service configuration/identity conformity, non-TLS switch key isolation,
+unchanged retained image CA/certificate/key hashes and host namespace/link/
+IPv4+IPv6 route/rule invariants passed. Cold restore did not restore earlier
+volatile logs. This does not prove continuous observation of the sender's
+live peer certificate or delivery acknowledgement; the independent wire
+client presents the chosen fixture credentials and the guest sender's asset/
+configuration conformity is checked separately.
+
+Original Syslog TLS (including its default wrong-name/wrong-trust labs),
+HTTPS lifecycle, persistent HTTPS and general CI all passed on that commit.
+The other 43 jobs were intentionally skipped by manual selection and are not
+claimed as passing native coverage.
+
+Local tests passed 944 cases in 31.685 seconds with 147 environment-dependent
+skips; compilation and diff checks passed. Local real-crypto controls include
+both roles' validity/purpose/trust/name failures and distinct reciprocal CAs.
+Socket creation is trapped during offline validation. No failed native run
+preceded this checkpoint.
+
+OpenSSL offline verification remains an extra local preflight; real rsyslog/
+GnuTLS remains authoritative for live protocol behavior. Generic cross-library
+PKI compatibility, runtime expiry monitoring, ACME, CRL/OCSP, live reload,
+unattended renewal, durable sender retry and delivery acknowledgements remain
+separate. Remaining LAN work precedes GUI. Static VXLAN with explicit
+VTEP/VNI/VLAN mapping remains required; EVPN/BGP remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-tls-lifecycle`.
+
+
+## Opt-in node-overlay Syslog disk action queue — 2026-11-05
+
+`--syslog-disk-queue` / `management.syslog_disk_queue:true` adds a pure disk
+action queue for existing TCP/TLS forwarding. Defaults remain volatile; UDP
+refuses the field. The fixed spool lives at `/var/spool/network-labs-syslog`
+on the owned node overlay, outside `/run` tmpfs. Startup refuses imported
+base-image spool paths, including symlinks. Directory ownership/mode is
+root:root/0700; private umask 0077 yields native-checked root-owned 0600 queue
+files. The queue requests max disk space 1 MiB, max segment size 64 KiB,
+checkpoint interval one, synchronous queue files, one worker/batch one,
+zero enqueue timeout and save-on-shutdown. These are rsyslog settings with
+record/metadata/segment overshoot, not a filesystem quota. Full queues and
+resource failures can discard messages. See [SYSLOG_DISK_QUEUE.md](SYSLOG_DISK_QUEUE.md).
+
+At implementation/validation commit
+`5068997708973ea70b752982918ba92e127115ae`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42045057015/job/127305646601)
+passed in **21.711 seconds** on Ubuntu 24.04 / rsyslog 8.2312.0. Both TCP and
+mutually authenticated TLS profiles completed real guest logger delivery,
+fresh collector suspension, three fixture markers observed in queue records,
+actual directory/file permissions, exact sender PID/argv observation, SIGKILL
+and observed process death. Queue records remained in place. The fixture
+removed only the verified dead PID file and volatile local output, invoked
+the existing sender start function, and verified the same container init PID
+survived with a new sender PID. Without re-emitting markers or copying queue
+bytes, collector recovery stored all three markers. Actual replay packets
+contained the TCP marker while TLS captures contained packets but no plaintext
+markers. New automatic delivery continued and declared runtime state remained
+unchanged.
+
+Spool permission and generated-config drift refused save. A second confirmed
+spooled marker was absent from exported declarations, queue files and logs
+after lab stop/cold restore; new delivery then worked. Host namespaces, links,
+IPv4/IPv6 routes and rules remained unchanged. Inspection stayed conformant
+while the sender was dead, explicitly demonstrating that file conformity is
+not daemon liveness or delivery evidence.
+
+Default plain-TCP forwarding, default mutual-TLS forwarding and general CI
+also passed on that commit. The other 45 jobs were intentionally skipped by
+manual selection and are not claimed as passing native coverage.
+
+The first native run `42044564699`, job `127303904974`, failed actual daemon
+config validation because rsyslog 8.2312.0 has no `queue.fileCreateMode`
+parameter. Repair `5068997` uses supported private `$umask 0077` and adds an
+actual mode-0600 check on all observed queue files. No SIGKILL, replay,
+permission or restore control was removed. The original run remains failed
+evidence; no fallback daemon or memory queue was substituted.
+
+Local tests passed 949 cases in 30.025 seconds with 148 environment-dependent
+skips; compilation and diff checks passed. Local coverage also refuses imported
+base-image queue records/symlinks and invalid policy/UDP combinations, preserves
+default queue rendering and checks conservative spool observations.
+
+Only the action spool has this sender-process recovery boundary. Main queue,
+Unix socket buffering, local logs and in-flight network data remain volatile;
+logger success is not a durable-enqueue or collector acknowledgement. TCP/TLS
+still permits duplicates/loss around in-flight/dequeue/disconnect boundaries.
+Spool records are plaintext at rest. No automatic supervisor/restart command,
+lab-stop queue retention, host power-loss/filesystem durability proof, corrupt
+queue repair or certificate-migration guarantee is added. Broader durable
+retry/RELP remains separate work. Remaining LAN work precedes GUI; static
+VXLAN with explicit VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain
+required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-disk-queue`.
+
+
+## Guarded operator recovery for a dead Syslog sender — 2026-11-05
+
+`syslog-forward-recover LAB NODE` makes sender-process recovery an explicit
+public CLI operation for an opted-in disk-queue TCP/TLS sender in a retained
+running OCI node. It refreshes state under the existing lab lock, refuses
+pending configuration or the wrong node/profile, requires managed config/TLS/
+spool conformity and reapplies opted-in peer checks with pinned offline assets.
+An in-container bounded process census detects a live PID owner or rsyslog
+executable even with a missing PID file. Malformed/non-regular/symlink PID files,
+unavailable evidence, excess process count and changed PID/inode snapshots
+refuse recovery. A second census and comparison precede removal of only the
+unchanged dead/zombie/absent process's regular stale PID file. No process is
+signalled. The existing start function tests config and launches the fixed
+sender; bounded live PID/argv observations are required before returning
+`status:started`. No policy or queue/log contents are rewritten by the helper.
+See [SYSLOG_FORWARD_RECOVERY.md](SYSLOG_FORWARD_RECOVERY.md).
+
+At implementation/validation commit
+`c68850c3070aae41473771348d9fd91ec8fa265a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42048879065/job/127319255687)
+passed in **21.454 seconds** on Ubuntu 24.04. Both TCP and TLS exercised the
+public CLI in separate processes. A live sender with its PID file was refused;
+with the file missing, the process census specifically identified live rsyslog
+and still refused. PID 1, malformed PID and symlink cases were refused with
+the supplied file/link intact and the original sender alive. After actual
+SIGKILL and observed death, config/spool drift refused before stale-file
+cleanup. TCP recovered a stale PID file; TLS recovered without a PID file.
+Both returned the actual new sender PID, and duplicate calls refused without
+replacing it.
+
+The original disk-queue protocol scenario remains shared, with its original
+manual-restart implementation separately selected as a regression. New CLI
+recovery preserved the same container init PID and on-disk fixture records,
+with exact new PID/argv observations. The fixture removed volatile local
+output but did not resubmit markers or rewrite queue bytes; collector recovery
+stored all three queued markers. Actual TCP replay contained plaintext while
+TLS captures contained packets without plaintext markers. New automatic
+delivery, unchanged declared state, permission/config drift-save refusal,
+cold-restore non-retention and host network invariants all passed.
+
+Original disk-queue, default TCP forwarding, default mutual-TLS forwarding and
+general CI all passed on that commit. The other 45 jobs were intentionally
+skipped by manual selection and are not claimed as passing native coverage.
+Local tests passed 952 cases in 30.346 seconds with 149 environment-dependent
+skips; compilation and diff checks passed. No failed native run preceded this
+checkpoint. Local checks also refuse invalid profile/state/drift before any
+container mutations and reject ambiguous census output.
+
+The lab lock serializes cooperating CLI actors, not a malicious root process
+racing arbitrary in-node changes. Failed readiness verification after a start
+request can leave an unverified daemon present; operators must inspect before
+retrying. Started is process evidence, not a delivery receipt. No automatic
+supervisor, delivery acknowledgement, exactly-once semantics or queue retention
+across lab stop/recreation is added. Remaining LAN work precedes GUI; static
+VXLAN with explicit VTEP/VNI/VLAN mapping remains required, with EVPN/BGP
+separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=syslog-recover`.
+
+
+## IPv6 DNS over a physical OSPFv3 pair — 2026-11-05
+
+`example --ipv6-dns-ospfv3` combines one separate managed IPv6 DNS server
+with exactly two physical OSPFv3 routers. Router static-route lists remain
+empty; hosts retain explicit default gateways. Every numbered router port
+participates, with one directly paired active transit and passive LAN ports.
+Router IDs differ and hello/dead timers match. Clients use only the managed
+IPv6 resolver. Mixed/AAA, switches/SVIs/subinterfaces, security, TFTP/NTP and
+dynamic addressing remain excluded. The reference zone is AAAA-only, with
+A/NODATA and NXDOMAIN behavior. See [IPV6_DNS_OSPFV3.md](IPV6_DNS_OSPFV3.md).
+
+At implementation/validation commit
+`d320b987b0a75e84a2899a480e0dc7996e69398a`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42052137810/job/127330744403)
+passed in **40.685 seconds** on Ubuntu 24.04. Full adjacencies, both remote
+LAN kernel routes with BIRD protocol/link-local gateways, actual OSPFv3 and
+bidirectional UDP/TCP DNS packets, AAAA/A-NODATA/NXDOMAIN and managed DNS probes
+passed. No non-loopback IPv4 addresses were present. DNS shutdown left both
+OSPF routes/adjacencies and routed echo working. Stopping R2 BIRD withdrew R1's
+remote route and broke routed DNS, while both DNS transports still succeeded
+from R2's directly connected LAN to the independently live server. Restart
+reconverged both directions and restored DNS without inserting a static service
+route.
+
+Unmanaged static-route injection and DNS/BIRD config drift refused save.
+Cold restore retained exact declarations, empty router static-route lists and
+freshly learned routes/DNS behavior. Host namespaces, links, IPv4/IPv6 routes/
+rules and IPv6 forwarding invariants remained unchanged. Local tests passed
+956 cases in 31.056 seconds with 150 environment-dependent skips; compilation
+and diff checks passed. No failed native run preceded this checkpoint.
+
+Standalone physical/SVI OSPFv3, static tagged IPv6 DNS, physical dual-stack
+DNS and general CI all passed on that commit. The other 46 jobs were
+intentionally skipped by manual selection and are not claimed as passing
+native coverage.
+
+This physical dynamic-routing/service composition does not enable DNS over
+OSPFv3 subinterfaces/SVIs, alternative-path failover, redistribution, authenticated
+OSPF, encrypted DNS, DNSSEC or dynamic registration. Remaining LAN work precedes
+GUI. Static VXLAN with explicit VTEP/VNI/VLAN mapping remains required; EVPN/BGP
+remains separate later work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3`.
+
+
+## Costed parallel OSPFv3 transits for IPv6 DNS — 2026-11-05
+
+`example --ipv6-dns-ospfv3-failover` extends the same two-router physical
+DNS profile with primary subnet-100 transit cost 10 and backup subnet-200
+transit cost 100. Validation now permits one or two directly paired active
+transits, every numbered port in OSPF and passive LAN ports. Two-link profiles
+require symmetric per-link costs and a distinct preferred link. Existing
+single-link endpoint costs remain independently configurable. Router IDs/timers,
+managed resolver and other composition bounds remain. No router static fallback
+or ECMP is added. See [IPV6_DNS_OSPFV3_FAILOVER.md](IPV6_DNS_OSPFV3_FAILOVER.md).
+
+At implementation/validation commit
+`8c2978f05f324662665e5e9a3dfa06c6f31555d3`, the
+[dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42055074653/job/127341141821)
+passed in **51.123 seconds** on Ubuntu 24.04. Both Full adjacencies and
+bidirectional lower-cost FIB selection passed. Temporary ingress IPv6 drops
+on both ends of the primary caused automatic backup selection with working
+UDP/TCP DNS and managed probes. Actual simultaneous captures on both R1
+transits required request/reply DNS packets only on the selected path. Removing
+primary drops restored preference for the primary. Dropping both transits
+withdrew both remote LAN prefixes and broke routed DNS while direct R2-to-DNS
+UDP/TCP controls remained successful. Restoring only the backup recovered
+service while the primary remained blocked.
+
+Admin/carrier stayed UP, and positive drop counters were required at both
+ends of each blocked link. Router/DNS PIDs stayed unchanged and alive through
+the faults, with declared runtime state unchanged. No address/route injection
+or daemon restart repaired connectivity. BIRD-file drift and unrelated static
+route injection refused save. External tc faults remain outside managed/save
+audit; saving with DNS on the backup exported only exact declarations and
+empty router static-route lists. Cold restore created fresh namespaces,
+relearned two adjacencies, selected the primary, passed DNS wire checks and
+restored baseline qdiscs. Host namespaces, links, IPv4/IPv6 routes/rules and
+IPv6 forwarding invariants remained unchanged.
+
+Single-transit DNS/OSPFv3, standalone physical/SVI OSPFv3 and general CI also
+passed on that commit. The other 48 jobs were intentionally skipped by manual
+selection and are not claimed as passing native coverage.
+
+Local tests passed 959 cases in 30.380 seconds with 151 environment-dependent
+skips; compilation and diff checks passed. Local controls refuse equal-cost,
+asymmetric-cost, unpaired/half-active or third-transit profiles, while retaining
+the prior single-link behavior. No failed native run preceded this checkpoint.
+
+This proves one two-link virtual graph with carrier-up bidirectional IPv6
+blackholes, not physical cable-pull, every-kernel/one-way coverage, zero-loss
+or fixed-time convergence, ECMP, a larger routing graph, redistribution or
+OSPF authentication. Other service/security/SVI/subinterface combinations
+remain separate. Remaining LAN work precedes GUI; static VXLAN with explicit
+VTEP/VNI/VLAN mapping and later separate EVPN/BGP remain required roadmap work.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-ospfv3-failover`.
+
+## LAN readiness regression and current inventory — 2026-11-05
+
+The full audit at `f3146a0912fb77f59cd12bd3f20c87dc929d5f14`
+([run 42056055804](https://github.com/sou1915/Network-LABS/actions/runs/42056055804))
+completed with 50 successful jobs and two setup cancellations. The native
+container suite passed 51 test cases in 1600.113 seconds; dedicated wired
+802.1X passed in 112.327 seconds. Strict LACP exercised the positive
+STRICT_VERIFIED path on kernel 7.0.0-1017-azure with pinned iproute2 7.1.0
+and passed its scenario in 701.725 seconds.
+
+Tagged IPv6 TFTP and reverse STP/LACP control loss never reached tests in
+that attempt: Ubuntu Azure mirror package indexes stalled until setup/job
+timeouts. Repair `c145a9e0962178ab7ede0093f32b08d086d329aa` adds a CI-only
+official HTTPS Ubuntu archive helper with bounded APT retries/timeouts to
+those two jobs. It also corrects stale runtime-plan wording about optional
+OVS RSTP; no protocol implementation or test assertions were relaxed.
+
+The [targeted repaired replay](https://github.com/sou1915/Network-LABS/actions/runs/42059320195)
+passed all three selected jobs at that repair commit: tagged IPv6 TFTP
+(one native scenario, 33.669 seconds), reverse STP/LACP control loss
+(one native scenario, 165.158 seconds), and general CI. Its other 49 jobs
+were intentionally skipped. All 52 workflow job profiles therefore have
+passing evidence across the baseline and replay, not in one green attempt.
+
+Local full tests passed 959 cases in 31.021 seconds with 151 environment
+skips. After the wording correction, runtime-plan tests passed 13 cases with
+one environment skip. Compilation, shell syntax, documentation link and
+diff checks passed. Skipped local cases are not native evidence.
+
+[PROJECT_STATUS.md](PROJECT_STATUS.md) records the current working inventory,
+remaining scope and explicitly approximate estimates: native LAN about 80%
+(75–85 range), whole product about 45–50%. Its checklist and assumed phase
+weights are planning aids, not measured coverage, elapsed effort or an ETA.
+[LAN_PROTOCOL_COVERAGE.md](LAN_PROTOCOL_COVERAGE.md) now distinguishes recent
+implemented profiles from the old unimplemented entries. Complete remaining
+LAN scope/acceptance before full native GUI integration. Static VXLAN mapping,
+then separate EVPN/BGP and later WAN remain tracked.
+
+## Managed static IPv6 HTTPS — 2026-11-05
+
+At implementation commit `81ba8ba63e1b844142e670f75a27a55645ba4895`,
+`example --ipv6-https` adds one persistent NGINX server behind two numbered
+static IPv6 physical routers. Distinct client/server rootfs images keep the
+identity on its server; explicit `https_server.family: ipv6` renders only
+the declared IPv6 eth0 listener with `ipv6only=on`. Omitted family retains
+the IPv4 policy. No wildcard/plaintext listener or IPv4 fallback is added.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42073646773/job/127407962710)
+passed in 13.213 seconds. It verified trusted IPv6 IP SAN/CA and DNS-name
+connections, wrong CA/name rejection, fixed GET body and HEAD, 404/405,
+IPv6-only addressing/listener and actual encrypted wire traffic. Disabling
+R1 forwarding broke the remote client while a direct R2 TLS control worked
+and the server PID stayed unchanged. Restoring forwarding recovered service.
+Stopping NGINX broke HTTPS while routed ICMPv6 still worked; inspection stayed
+explicitly config-only and an explicit restart recovered service. Forwarding/
+config drift refused save. Exact declarations and public pins survived saved
+cold restore, fresh TLS passed, and host namespaces/links/routes/rules/IPv6
+forwarding invariants remained unchanged.
+
+Existing IPv4 HTTPS server and identity-lifecycle jobs passed in 7.943 and
+5.090 seconds. General CI also passed in run 42073646773: four selected jobs
+succeeded, 49 other jobs intentionally skipped. Local tests passed
+962 cases in 30.469 seconds with 152 environment-dependent skips after
+allowing existing loopback test sockets; compilation/diff checks passed.
+No failed native run preceded this result.
+
+The [guide](IPV6_HTTPS.md) documents the bounded one-server IPv6-only profile.
+Dual-stack, dynamic routing/addressing, DNS/other services, firewall/security,
+SVI/subinterfaces and multiple-server compositions remain refused. Mutual
+TLS, automatic identity lifecycle, application content and automatic process
+supervision remain separate work. Remaining LAN work precedes native GUI;
+static VXLAN mapping, then separate EVPN/BGP and WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https`.
+
+## Managed IPv6 HTTPS with forwarding firewall — 2026-11-05
+
+Implementation `8ce6321df0e06cee37bc5413478d7e20253288c3` adds
+`example --ipv6-https-firewall`. A distinct default-deny FW1 routes PC1 to
+the managed IPv6 HTTPS PC2. Its explicit source/destination/interface rules
+allow TCP/443 and echo requests, with invalid-state rejection and
+established/related return acceptance. Local-input and broader service,
+dynamic, dual-stack and VLAN/SVI/subinterface compositions remain refused.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42079365366/job/127428042126)
+passed in 22.128 seconds. It verified trusted TLS and GET body, wrong CA
+rejection, real IPv6 TLS on both firewall ports without plaintext body,
+positive HTTPS/state/default-drop counters and IPv6 TCP conntrack. A separate
+live TCP/8080 listener was reachable on PC2 but blocked remotely, with actual
+ingress packets and no egress packets. Forwarding loss broke remote HTTPS
+while direct FW1-to-PC2 TLS worked and server PID stayed unchanged; restoring
+forwarding recovered service. NGINX outage left independent allowed echo
+working, and explicit restart restored TLS. Forwarding/extra nftables table
+drift refused save. Exact saved policy/identity cold-restored with verified
+TLS. A stateless variant kept outbound HTTPS permission and explicit echo
+return but broke remote HTTPS while direct TLS/echo worked. Restoring the
+stateful saved profile recovered service. Host namespaces, links, IPv4/IPv6
+routes/rules, forwarding and nftables invariants remained unchanged.
+
+Baseline IPv6 HTTPS (12.919 seconds), standalone IPv6 firewall (20.469
+seconds), DNS/firewall (22.223 seconds) and general CI also passed in
+run 42079365366. Five selected jobs passed; 49 other jobs were intentionally
+skipped, not new native evidence. Local tests passed 965 cases in 32.219
+seconds with 153 environment-dependent skips; compilation/diff/link checks
+passed. No failed native run preceded this result.
+
+See [IPV6_HTTPS_FIREWALL.md](IPV6_HTTPS_FIREWALL.md) for commands and scope.
+The firewall allows ports, not trusted TLS identities; certificate checking
+remains a separate client action. This reference does not claim a complete
+production PMTU/error-traffic policy. Remaining LAN work precedes native GUI;
+static VXLAN mapping and separate EVPN/BGP/WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-https-firewall`.
+
+## Same-port HTTPS source-isolation proof — 2026-11-05
+
+At test/validation commit `72b0732f90be9a93dd9075f42071486dae4b0e1a`,
+the existing IPv6 HTTPS/firewall native scenario adds a same-port negative
+source control. The temporary `2001:db8:10::99` address shares PC1's interface,
+destination and TCP/443. Completed DAD, source-bound gateway echo and the
+expected default route prove a usable source. A source-bound HTTPS connect
+must time out before TLS, with actual ingress SYNs and no egress packets,
+plus increasing default-drop counters. Authorized client and direct verified
+TLS controls stay successful with the same server PID. Extra addressing is
+observed as drift and refuses save, then is removed before normal save.
+The same source-isolation control passes after cold restore.
+
+The [expanded native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42086361238/job/127452432140)
+passed in 35.461 seconds. Baseline IPv6 HTTPS, standalone IPv6 firewall,
+DNS/firewall and general CI also passed: five selected jobs succeeded;
+49 other jobs were intentionally skipped. Four focused local policy/CLI
+tests and compilation/diff/link checks passed. No failed native run preceded
+this checkpoint. This is added evidence for the existing bounded profile,
+not new protocol behavior, authenticated client identity or anti-spoofing.
+
+Remaining broader AAA/switching/service compositions and resource acceptance
+stay ahead of full native GUI integration. Static VXLAN mapping and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%; added negative coverage does not justify a measured
+completion increase.
+
+## Separate IPv6 DNS and named HTTPS — 2026-11-05
+
+At implementation commit `05953899d1187f73a177e8e632704d5ab0cb6f90`,
+`example --ipv6-dns-https` adds a separate DNS PC3 at `2001:db8:30::30`
+and HTTPS PC2 at `2001:db8:20::20`, behind two physical routers. PC1 uses
+only the managed resolver and requests AAAA for `secure.lab.test`; HTTPS
+verifies that original DNS identity against only the explicit CA. No
+IPv4, host resolver, alternate resolver or literal-address fallback is added.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42087775672/job/127457432669)
+passed in 15.027 seconds. It verified named HTTPS using both UDP/TCP IPv6
+DNS, actual DNS and encrypted TLS packets, GET body and wrong CA/name/unknown
+DNS-name controls. Stopping DNS broke named HTTPS while literal verified TLS
+and the same HTTPS PID remained live. Explicit DNS restart recovered service.
+Stopping HTTPS preserved live DNS answers and its PID; explicit HTTPS restart
+recovered service. Resolver/DNS/HTTPS config drift refused save; exact
+declarations/public pins survived cold restore and verified named HTTPS
+returned. Host namespace/link/IPv4/IPv6 route/rule/forwarding invariants passed.
+
+Baseline IPv6 HTTPS, tagged IPv6 DNS, dual-stack DNS and general CI also
+passed in run 42087775672: five selected jobs succeeded; 50 other jobs
+were intentionally skipped, not new native proof. Local tests passed 968 cases in 30.478 seconds with 154 environment-dependent skips;
+compilation/diff checks passed. No failed native run preceded this result.
+The [guide](IPV6_DNS_HTTPS.md) documents scope and required DNS SAN/assets.
+Firewall+DNS+HTTPS, service co-location, external/service-node resolvers,
+dynamic, dual-stack, VLAN/SVI/subinterfaces and broader service compositions
+remain refused. DNS address resolution does not establish certificate trust.
+Remaining LAN work precedes full native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ipv6-dns-https`.
+
+## Explicit SSH host identity and cold restore — 2026-11-05
+
+At implementation commit `1ac714da5e0e6dceef004e4fda98d3d9a9777340`,
+optional `management.ssh_host_key` references an offline Dropbear ed25519
+private key and declares its public identity. The generator option
+`example --management --ssh-host-key-file PATH --ssh-authorized-key PUB
+--ssh-action identity` creates a standalone restricted IPv4 SSH profile
+without its usual syslog sender. Missing/invalid assets fail pre-allocation.
+A bounded mode-0600 snapshot is parsed by host `dropbearkey`, compared to
+the public declaration and installed only in the selected node's fresh
+`/run` as root/mode 0600. Explicit `-r` replaces default `-R` generation only
+when selected. Save exports public identity/path references, not raw private
+bytes; source assets remain a restore prerequisite. Runtime file type, mode,
+ownership and digest drift refuse save. Wider AAA/IPv6/co-location and
+automatic key lifecycle remain separate work.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42089486906/job/127463481874)
+passed in 2.703 seconds. Strict known_hosts provisioned from the declared
+public identity worked without keyscan and stayed identical across cold
+restore. Restricted command and uid-65532 unreadability checks passed.
+Runtime content/mode/symlink drift refused save; missing/malformed/changed/
+symlink/mode-invalid offline assets refused startup before allocation.
+Explicit new identity refused old trust, worked after explicit client trust
+update, then cold-restored. Other nodes had no key copy; host namespaces,
+links and IPv4/IPv6 routes/rules remained unchanged.
+
+SSH access, RADIUS/SSH and general CI regressions also passed in run
+42089486906: all four selected jobs succeeded; 52 other jobs were intentionally
+skipped, not new native proof. Local tests passed 972 cases in 30.003 seconds
+with 155 environment skips; compilation/diff checks passed. No failed native
+run preceded this result. See [SSH_HOST_IDENTITY.md](SSH_HOST_IDENTITY.md).
+Remaining LAN precedes native GUI; static VXLAN mapping and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%,
+whole product about 45–50%, not measured test coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-host-key`.
+
+## Pinned SSH host identity with RADIUS diagnostics — 2026-11-05
+
+At implementation commit `19c853f6c504d6f137d756aa64624aeb5c717aaf`,
+the IPv4 `--radius --radius-ssh` generator accepts `--ssh-host-key-file`
+for fixed diagnostics. Host public identity, client SSH key and fresh
+verified RADIUS authorization remain separate checks. Direct-user and
+reusable-role declarations are allowed, but shell grants anywhere in the
+access policy, accounting, Telnet, syslog, IPv6 and NAS server co-location
+remain refused. Existing standalone pinned and ephemeral AAA defaults remain.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42091389971/job/127470040092)
+passed in 5.793 seconds. It reuses the SSH/FreeRADIUS reference suite with
+pre-provisioned pinned known_hosts and no keyscan. Wrong host trust and
+wrong client key denied access; valid client transport still required correct
+RADIUS credentials and per-user action permission. Unknown/malformed/
+incomplete credentials, shell/SCP/SFTP/injection, backend outage, dead bridge
+and unprivileged bridge impersonation controls passed. Private host-key
+unreadability/conformity passed. Cold restore preserved the exact trust file,
+created a fresh bridge token and recovered authorized diagnostics. Host
+namespace/link/IPv4/IPv6 route/rule invariants passed. The native grants are
+direct-user; local role checks do not prove every native role combination.
+
+All three selected native jobs passed in run 42091389971, but general CI
+failed the new CLI fixture: password/secret files inherited mode 0644 with
+runner umask 022, so the CLI correctly refused them. Fixture-only repair
+`72ae65a79fb4c8eb8576997344c80201d000e2f1` creates those files with
+mode 0600 from creation. Protocol/runtime checks and assertions are unchanged.
+The [repaired replay](https://github.com/sou1915/Network-LABS/actions/runs/42125394285)
+passed all four selected jobs: pinned RADIUS SSH, standalone pinned SSH,
+existing RADIUS/SSH and general CI. The other 53 jobs were intentionally
+skipped, not new native proof. The new native scenario passed again in
+6.174 seconds ([job](https://github.com/sou1915/Network-LABS/actions/runs/42125394285/job/127588151990)).
+Local full tests under explicit umask 022 passed 976 cases in 30.301 seconds
+with 156 environment skips; compilation/diff/link checks passed. No native
+scenario failed; the first general-CI fixture failure remains recorded.
+See [SSH_RADIUS_HOST_IDENTITY.md](SSH_RADIUS_HOST_IDENTITY.md).
+Remaining LAN work precedes native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%, not measured coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
+
+## Pinned dual-stack SSH with IPv4 RADIUS — 2026-11-05
+
+At implementation commit `8c776020e21b88d57a6cb3d7e4c2730216f36949`,
+`--radius --radius-ssh --radius-dual-stack --ssh-host-key-file PATH` uses
+the declared offline ed25519 host identity on both IPv4 and IPv6 SSH listeners.
+RADIUS remains a separate IPv4 backend. Strict known_hosts can be provisioned
+for both literal addresses before the first connection and reused unchanged
+after cold restore. Standalone IPv6 pinned SSH, shell grants/accounting,
+DNS coexistence, dynamic protocols and broader service combinations remain
+refused. The IPv6 validator explicitly refuses combined DNS with pinned SSH;
+existing unpinned DNS/AAA coexistence remains separate.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42126484317/job/127591903712)
+passed in 37.598 seconds. It reuses the native routed dual-stack RADIUS suite
+with pinned host identity: both SSH families verify the same declared key,
+wrong host trust/client keys fail, and RADIUS credentials/actions stay enforced.
+Captures showed actual IPv4/IPv6 SSH and IPv4 RADIUS, with no plaintext
+credentials on TCP/22. Disabling IPv4 forwarding broke RADIUS authorization
+over reachable IPv6 SSH while IPv6 echo remained healthy. Disabling IPv6
+forwarding broke IPv6 SSH while verified IPv4 diagnostics continued. Backend
+loss/recovery, management/backend/forwarding drift refusal, exact declarative
+cold restore with unchanged known_hosts and a fresh bridge token passed.
+Host namespaces/links/IPv4/IPv6 routes/rules, forwarding and unprivileged-port
+invariants remained unchanged.
+
+Pinned IPv4 RADIUS SSH, old unpinned dual-stack RADIUS and general CI also
+passed in run 42126484317: all four selected jobs succeeded; 54 other jobs
+were intentionally skipped, not new native proof. Local full tests under
+umask 022 passed 980 cases in 30.981 seconds with 157 environment skips;
+compilation/diff/link checks passed. No failed native run preceded this
+checkpoint. See [DUAL_STACK_SSH_HOST_IDENTITY.md](DUAL_STACK_SSH_HOST_IDENTITY.md).
+Remaining LAN precedes full native GUI; static VXLAN mapping and separate
+EVPN/BGP/WAN stay tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%, not measured test coverage or an ETA.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=dual-stack-ssh-host-key`.
+
+## Kernel memory peak and 20-node headless checkpoint — 2026-11-05
+
+At implementation commit `1ad4241d651fa3ebf6e70d3b10017aa028100712`,
+benchmark report v2 adds the optional kernel cgroup lifetime `memory.peak`
+beside phase samples, explicit fresh/prior-parent provenance and current-run
+assessment only when a fresh parent/kernel counter is available. Unsupported
+is null, not zero; inaccessible/corrupt counters fail. Populated pre-existing
+parents refuse before allocation, and no peak counter is reset. Parent OOM
+events now complement per-node events. Full app acceptance stays unverified.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42129277749/job/127601472273)
+passed two new scenarios in 29.601 seconds. A 12 MiB allocation freed before
+sampling was caught by a 14.965 MiB kernel peak versus a 2.098 MiB idle sample
+peak. The fresh 20-node reference ran 10 seconds idle and 10 seconds ICMP,
+12 clients/100 requests each. All 1,200 requests returned; all nodes stayed
+running and no OOM kill was observed. Kernel peak was 9,588,736 bytes
+(9.145 MiB), versus idle/load sampled peaks of 5.449/9.141 MiB. Kernel was
+7.0.0-1017-azure, x86_64, four logical CPUs. Host namespace/link/route/rule/
+forwarding/nftables invariants and stopped-runtime cleanup passed. The old
+enterprise benchmark plus actual HTTP/NAT/return-route/save-restore test
+also passed in 21.131 seconds, and general CI passed. Both selected jobs
+passed; 57 other jobs were intentionally skipped, not new native evidence.
+
+The artifact ZIP matched GitHub SHA-256 metadata. Exact JSON copies and
+per-member/source provenance are committed in docs/benchmarks; see
+[BENCHMARK_KERNEL_PEAK.md](BENCHMARK_KERNEL_PEAK.md). Local full tests under
+umask 022 passed 985 cases in 30.977 seconds with 159 environment skips;
+compilation/diff/link checks passed. No failed native run preceded this result.
+
+This closes a cgroup measurement blind spot, not GUI/heavy-service/full-app
+or 8-GB-laptop 2 GiB acceptance. Broader LAN/AAA/switching combinations remain
+before native GUI; static VXLAN mapping and separate EVPN/BGP/WAN stay tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=benchmark-kernel-peak`.
+
+## Pinned IPv4 SSH shell with full journaled accounting — 2026-11-06
+
+At implementation commit `9146031a8cddcb11a5987fa1d3a5ff02162f3fc9`,
+the explicit host identity is permitted with an IPv4 RADIUS SSH shell only
+when accounting, durable Stop outbox and session journal are all enabled.
+The CLI requires the complete lifecycle explicitly. Diagnostics-only profiles
+still refuse unselected shell grants/accounting. IPv6 pinned shells, partial
+lifecycles, Telnet, syslog and NAS service co-location remain refused.
+
+The [dedicated native scenario](https://github.com/sou1915/Network-LABS/actions/runs/42173268692/job/127745802977)
+passed in 10.636 seconds. It reuses the real journaled SSH shell reference
+with pre-provisioned strict known_hosts and no keyscan. Wrong-host trust
+failed without a second intent; an authenticated shell left a live payload
+after supervisor SIGKILL. Live-owner and populated-session cleanup refused.
+Explicit reconciliation terminated the payload and durably queued Stop
+without sending network traffic. A bounded explicit flush sent one observed
+Stop with the expected session/status/cause and real backend records.
+Restarts preserved host trust but created fresh bridge tokens; stale-runtime
+reconciliation still refused. Healthy completion followed Stop acknowledgement.
+Host namespace/link/IPv4/IPv6 route/rule invariants passed. Native grants are
+direct-user; wider role/topology combinations remain unproven.
+
+The suite reuses `ssh-radius-host-key`, now selecting new pinned shell,
+old unpinned journal, pinned diagnostics, standalone pinned SSH, RADIUS/SSH
+and general CI. All six selected jobs passed in run 42173268692; 54 other
+jobs were intentionally skipped, not new native evidence.
+Local full tests under umask 022 passed 989 cases in 31.490 seconds with
+160 environment skips; compilation/diff checks passed. No failed native run
+preceded this result. See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md).
+Remaining LAN precedes GUI; static VXLAN mapping and separate EVPN/BGP/WAN
+stay tracked. Estimates remain LAN about 80%, whole product about 45–50%.
+
+Targeted command: `gh workflow run tests.yml --ref handoff/codex-dot1x-2026-11-04 -f suite=ssh-radius-host-key`.
+
+## Pinned shell PTY, expiry, disconnect and complete accounting — 2026-11-06
+
+At test/validation commit `91997a938d33eb54b48428dca9db981abd455caa`,
+the real shell lifecycle reference also runs with pinned host identity and
+the full accounting/outbox/journal profile. No protocol or manifest-scope
+change is claimed. Wrong RADIUS credentials/actions created no payload;
+explicit exit status 7 propagated. Real PTY, no-new-privileges, empty
+capabilities and no password echo passed. Normal exit, duration expiry and
+client disconnect removed background payloads and transport directories.
+Healthy completions left journal/outbox empty. Backend records contained
+four Start/four Stop entries with matching session IDs and cause set 1/5/6/9.
+Cold restore reused exact known_hosts without keyscan and executed a verified
+shell. Host namespace/link/IPv4/IPv6 route/rule/forwarding/unprivileged-port
+invariants remained unchanged.
+
+The [expanded native job](https://github.com/sou1915/Network-LABS/actions/runs/42203206143/job/127843341125)
+passed the lifecycle scenario in 7.773 seconds and repeated orphan-journal
+controls in 9.935 seconds. All six selected jobs in run 42203206143 passed;
+54 other jobs were intentionally skipped. Local full tests under umask 022
+passed 990 cases in 30.036 seconds with 161 environment skips; compilation,
+diff and link checks passed. No failed native run preceded this validation.
+See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md). Remaining LAN
+precedes GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked. Planning
+estimates remain LAN about 80%, whole product about 45–50%.
+
+## Pinned shell accounting ACK loss — 2026-11-06
+
+Corrected test commit `3a5b15a85e3a8ee051f1103ee2c4d69c8ab66b6b`
+adds native packet-loss validation without runtime or protocol scope changes.
+Lost Start ACK prevented payload execution (SSH 126) and durably queued a
+zero-duration compensating Stop/cause 9. Lost Stop ACK after an admitted
+shell returned uncertainty (125), retained Stop/cause 1 and recovered only
+through explicit flush. Captures/session IDs, actual backend duplicate Stops,
+empty journal/session groups, exact host trust through cold restore and
+host namespace/link/IPv4/IPv6 route/rule/nftables invariants passed. Duplicate
+delivery is expected; this does not claim exactly-once accounting.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42209558186/job/127864535740)
+passed ACK-loss in 20.104 seconds, orphan-journal in 9.479 seconds and pinned
+lifecycle in 7.596 seconds. All six selected jobs passed; 54 intentionally
+skipped. Local tests passed 991 cases in 30.594 seconds with 162 environment
+skips. Initial run 42209349058 at `504371a` passed the loss/recovery checks
+but failed final saved-spec equality because the expanded fixture lacked
+default canonicalization. The corrected fixture uses the standard validator
+before startup and retains the exact equality assertion; no runtime behavior
+or acceptance assertion was relaxed.
+
+See [SSH_SHELL_HOST_IDENTITY.md](SSH_SHELL_HOST_IDENTITY.md). Remaining LAN
+precedes native GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
+## Wired 802.1X controlled-link revocation — 2026-11-06
+
+Implementation `73a3c56497d95b58dafd8998c598d8151fb0a0f7` adds
+controlled-link revocation to the existing finite wired EAP-MD5 profile.
+The live worker subscribes to pinned-namespace Linux link events before
+sampling flags, checks administrative/carrier state around its bounded wait
+and before granting backend Success, and remembers queued down/up loss.
+Observed link loss terminates the command with `blocked/LINK_LOST`, closes
+the verified gate and discards unused reauthentication cycles. Historical
+`authenticated:true` does not mean the peer remains admitted. Link return
+requires a new explicit authentication. Truncated/overrun/excessive events
+fail closed with an unknown result; runtime/interface generation and gate
+closure checks still apply. Scheduling/cleanup latency and the independent
+kernel lease after worker death remain explicit limits.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42232715325/job/127942385678)
+passed the full extended scenario in 128.714 seconds. Real supplicant/RADIUS
+admission with a 30-second lease and unused renewals was revoked after both
+sustained peer-down and rapid down/up, before lease expiry. Both returned
+LINK_LOST with one completed admission/two RADIUS requests and confirmed
+closure; neither resumed authorization on link return. The uncontrolled
+NAS/backend path survived. Saved recreation started closed; a new explicit
+exchange captured two Access-Requests and Challenge/Accept and restored
+bidirectional traffic, then Logoff closed the gate. Existing expiry, denial,
+reauthentication, worker-kill, teardown, drift and host-isolation checks passed.
+Both selected jobs passed, including general CI; 58 others were intentionally
+skipped. Local tests passed 998 cases in 30.643 seconds with 162 environment
+skips; compilation, diff and documentation-link checks passed. No failed
+native run preceded this result.
+
+See [DOT1X_WIRED.md](DOT1X_WIRED.md). Persistent authenticators/supplicants,
+stronger EAP/TLS, multi-client/dynamic VLAN/accounting and wider switching
+remain open. LAN precedes native GUI; static VXLAN and separate EVPN/BGP/WAN
+remain tracked. Planning estimates stay LAN about 80%, whole product 45–50%.
+
+## Wired 802.1X verified backend session duration — 2026-11-06
+
+Implementation `d71a8ba7c2e95fbfaa3040aab6c96db9b0aae185` and
+correction `78b44e1acbac047a2aa5fe7cb1e6246e781b814f` add verified
+RADIUS Session-Timeout enforcement to finite wired admission. EAP-enabled
+backend users may declare a positive uint32 `session_timeout`; the managed
+server emits the standard attribute. Only after authenticated Access-Accept
+and EAP Success does the NAS grant `min(local seconds, server timeout)`.
+Presence of the attribute ends the finite command after that admission,
+discarding unused renewals. Results report effective/server seconds and
+SERVER_SESSION_TIMEOUT or the earlier local LEASE_EXPIRED. Missing attributes
+preserve existing finite reauthentication. Zero/duplicate/malformed durations
+and unsupported or ambiguous Termination-Action are refused before admission.
+PAP-only server user configuration rejects the new field.
+
+The [dedicated native job](https://github.com/sou1915/Network-LABS/actions/runs/42240831488/job/127970370968)
+passed the extended real supplicant/FreeRADIUS scenario in 160.962 seconds at
+`78b44e1`. Captured Access-Accept carried timeout 3; the kernel element used
+3 seconds under a 30-second NAS bound, before and after cold restore. Each
+command completed only one admission/two requests despite unused renewals.
+SIGKILL still expired the shortened kernel lease. A 20-second backend limit
+could not extend a 2-second NAS limit. A foreign 10-second element under that
+2-second policy invalidated observation and refused save/new authentication.
+Existing denial/reauthentication/carrier/expiry/Logoff/drift/teardown controls
+and host namespace/link/IPv4/IPv6 route/rule invariants passed. Both selected
+jobs passed; 58 others were intentionally skipped. Local full tests passed
+1003 cases in 30.905 seconds with 162 environment skips; compile/diff/link
+checks passed.
+
+Initial run 42239853939 at `d71a8ba` failed the new native assertion expecting
+3000 where nft JSON returned 3. Review of libnftables documentation/source
+confirmed whole-second timeout/expiration output. Correction `78b44e1` fixes
+both the test and pre-existing runtime inspection's milliseconds assumption,
+checks strict integer bounds, and uses the actual set default when an element
+omits its timeout. The new real oversized-element refusal verifies the runtime
+repair. JSON whole-second precision does not certify fractional edits by an
+external privileged writer; managed leases use explicit integer seconds.
+
+See [DOT1X_WIRED.md](DOT1X_WIRED.md). Persistent authenticator/supplicant
+service, stronger EAP/TLS, multi-client/dynamic VLAN/accounting and wider
+switching remain open. LAN precedes native GUI; static VXLAN and separate
+EVPN/BGP/WAN remain tracked. Planning estimates stay LAN about 80%, whole
+product about 45–50%.
+
+## Wired 802.1X bounded server-requested reauthentication — 2026-11-06
+
+Implementation `9329910fd9fd4b61a4c6ad8ab4e6f01d0aa9e9aa` adds
+verified Termination-Action=RADIUS-Request (1) to the finite wired EAP-MD5
+profile. EAP-enabled backend users may declare `termination_action` 0/1
+alongside required `session_timeout`. Action 1 permits fresh authentication
+after the effective lease expires, within the existing local 0..3 renewal
+budget only. Each old gate closes before a fresh EAP exchange; request/State
+and per-exchange policy reset, with identity pinned. Action 0/default keeps
+one admission when Session-Timeout is present. Missing duration with action 1,
+unsupported values and malformed/duplicate policy attributes refuse admission.
+The result also reports `server_termination_action`; there is no grace lease,
+implicit worker restart or fallback to a previous success.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42243831204/job/127980741652)
+passed the full extended scenario in 196.309 seconds. Real wpa_supplicant and
+FreeRADIUS produced two MD5/Success cycles and exactly four Access-Requests
+with four distinct request authenticators and two fresh State values. Both
+Accepts carried Session-Timeout 3 and Termination-Action 1 under a 30-second
+NAS ceiling and local budget 1. Second-lease bidirectional data worked; budget
+exhaustion completed closed after two admissions. Backend loss after the first
+grant returned unknown/AUTH_TIMEOUT with one admission, three requests,
+historical authenticated=true and confirmed closure. Saved recreation started
+closed, retained both policy fields/budget and completed two healthy admissions
+with four requests. Previous duration/SIGKILL/carrier/denial/reauthentication/
+drift/teardown controls and host namespace/link/IPv4/IPv6 route/rule invariants
+passed. Both selected jobs passed; 58 others were intentionally skipped.
+Local full tests passed 1006 cases in 30.862 seconds with 162 environment
+skips; compile/diff/link checks passed. Unit coverage includes budgets 0/1/3,
+fresh State/closed transitions, backend outage/rejection and identity changes.
+No failed native run preceded this increment.
+
+See [DOT1X_WIRED.md](DOT1X_WIRED.md). Persistent authenticator/supplicant
+service, stronger EAP/TLS, multi-client/dynamic VLAN/accounting and wider
+switching remain open. LAN precedes native GUI; static VXLAN and separate
+EVPN/BGP/WAN stay tracked. Planning estimates remain LAN about 80%, whole
+product about 45–50%.
+
+## Wired 802.1X engine-owned supplicant peer — 2026-11-06
+
+Implementation `f4ebb509df3d901ec3265b1665287a852d1783ab` adds an
+optional `dot1x_supplicant` policy to the existing wired PC1 peer. A trusted
+foreground host wpa_supplicant runs in that peer's namespace across finite
+NAS commands. The schema pins identity/interface and a private password-file
+hash; preflight rejects invalid assets before allocation. Configuration is
+passed through a sealed mode-0600 memfd, with no secret in argv, runtime peer
+files or startup JSON. Inspection checks owned process, namespace/interface,
+control readiness and original handoff/asset pins; save refuses dead or
+unverifiable peers. Normal CLI hash redaction is added by `22a0844`.
+Teardown stops the NAS first, then signals the owned peer group and confirms
+peer process death before namespace removal. PID reuse/foreign groups do not authorize signalling.
+Cold restore preserves policy only and starts a new peer with the gate closed.
+The authenticator remains explicit/finite; there is no automatic peer restart
+or persistent NAS authentication service.
+
+At final validation commit `ff4b08a7d96d62ce81dfe027ef1383b57b58a704`,
+the [dedicated wired job](https://github.com/sou1915/Network-LABS/actions/runs/42253373302/job/128014020814)
+passed the new managed-peer scenario in 45.443 seconds and the existing full
+authenticator scenario in 193.528 seconds. The new reference verified two real
+EAPOL Success/four RADIUS requests, data in both directions, active save,
+a second CLI auth reusing the same peer, peer SIGKILL followed by closed
+authentication timeout/save refusal, changed-asset refusal before allocation,
+cold restore, separate-CLI teardown during admission and actual wrong-password
+rejection while the peer stayed running. Host namespace/link/IPv4/IPv6
+route/rule invariants passed. Both selected jobs passed; 58 others were
+intentionally skipped. Local full tests passed 1015 cases in 30.441 seconds
+with 163 environment skips; compile/diff/link checks passed.
+
+Initial run 42252777315 at `f4ebb50` passed both jobs (managed peer 44.769
+seconds, old authenticator 219.613 seconds). Run 42253118016 at `22a0844`
+passed general CI but failed the first admitted ping in the new fixture.
+Fixture-only correction `ff4b08a` uses the existing reference's bounded data/
+ARP readiness pattern: real traffic must succeed within two seconds and a
+verified admitted lease, otherwise it fails. Duration, packet, credential and
+cleanup assertions were retained; no admission/runtime policy was relaxed.
+
+See [DOT1X_MANAGED_PEER.md](DOT1X_MANAGED_PEER.md). Persistent NAS supervision,
+automatic peer recovery, stronger EAP/TLS, multi-client/dynamic VLAN/accounting
+and wider switching remain open. LAN precedes native GUI; static VXLAN and
+separate EVPN/BGP/WAN remain tracked. Planning estimates stay LAN about 80%,
+whole product about 45–50%.
+
+## Wired 802.1X guarded in-place peer recovery — 2026-11-06
+
+Implementation `af6723cac8613278bfc921b191db58b8ac2bcd20` adds
+`dot1x-peer-recover LAB PC1 --json` for explicit in-place recovery of a dead
+recorded supplicant. It requires a stable running lab, no authenticator worker
+and a verified closed NAS gate. Original namespace/interface/MAC, credential/
+handoff and control directory/socket ownership identities must match. Live
+peers, active auth, drift, foreign entries/replaced sockets and responsive
+sockets without a matching owner are refused before replacement. Legacy
+active state without the new startup ownership metadata requires recreation.
+Only verified stale control objects are removed; namespaces, backend and
+policy remain. Startup uses the same sealed private handoff and ends with
+confirmed closure and authentication_required=true. Fresh explicit auth is
+still required. A failed restart retains recovering-peer phase and any
+recorded resources; auth/save refuse it until explicit stop/restore. Known dead
+children are reaped without waiting for or signalling a live reused PID.
+
+The [dedicated wired native job](https://github.com/sou1915/Network-LABS/actions/runs/42257561787/job/128028719091)
+passed the extended managed-peer/recovery scenario in 56.219 seconds and
+repeated the full independent-supplicant authenticator scenario in 193.355
+seconds. Recovery refused a live peer, active auth, changed credentials and
+a foreign regular file replacing the old socket, preserving records/files.
+A separate CLI then replaced only the dead peer: its namespace identity,
+all lab namespace names and the actual backend PID remained unchanged. The
+gate stayed closed until a new finite authentication produced four fresh
+RADIUS requests and bidirectional data; save retained the original manifest.
+Existing peer death, wrong-password, cold restore, teardown and host namespace/
+link/IPv4/IPv6 route/rule invariants passed. Both selected jobs passed; 58 others
+were intentionally skipped. Local full tests passed 1024 cases in 30.440
+seconds with 163 environment skips; the 17 focused peer cases, compile/diff/
+link checks passed. Unit coverage includes failed-restart auth/save refusal,
+missing clean-exit control paths and live reused-PID cache isolation. No failed
+native run preceded this increment.
+
+See [DOT1X_MANAGED_PEER.md](DOT1X_MANAGED_PEER.md). Recovery remains explicit;
+automatic peer recovery/persistent NAS supervision, stronger EAP/TLS,
+multi-client/dynamic VLAN/accounting and wider switching remain open. LAN
+precedes native GUI; static VXLAN and separate EVPN/BGP/WAN remain tracked.
+Planning estimates stay LAN about 80%, whole product about 45–50%.
+
+
+The GUI now has privately loaded Inter typography, rounded controls/cards and
+actual topology wheel zoom, middle-button/Shift-drag pan, hover highlighting and
+double-click configuration. View changes do not alter the manifest or invoke
+sudo. Preserve these interactions and the supplied reference while continuing
+the remaining native console/capture workflow. LAN core remains frozen 7/7;
+static VXLAN is still an explicit later roadmap item.
+
+
+Native device **Gestion web** now opens actual loopback HTTP management of
+the shared project draft (name/physical IPv4/gateway/admin); routes/firewall
+policy are readable. It does not provide vendor firmware or a guest web
+service. Retain the real web → draft → start → kernel-probe validation while
+continuing the GUI; no new LAN-core prerequisite is added.
+
+
+Current user priority is rich, functional management for every node, not just
+minimal IP forms. Native editors now cover nine validated configuration
+sections with role-based navigation. Continue the
+[per-node management roadmap](NODE_MANAGEMENT_ROADMAP.md), expose only real
+backend behavior, and preserve the accepted LAN core/VXLAN ordering.
+
+
+The switch web manager now includes STP/component edits, paired LACP, LLDP and
+static MAC admission, using existing engine validators. Continue exposing the
+remaining security/observation modules without expanding the accepted LAN gate.

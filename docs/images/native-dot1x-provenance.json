@@ -1,0 +1,14 @@
+{
+  "source_commit": "f6c6172628998280823228ef95bfd07b99e1fe5e",
+  "capture": "actual local Chromium native-management session",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-dot1x-management.png": "e3a0ab26ebf2634f4c1a0bd7d6db12fab1d0c1d9cb0e4f1ad8ffc0a42d48ce45"
+  },
+  "browser_acceptance": [
+    "existing NAS allowed identities, lease and renewal edits",
+    "invalid duration rejected without changing draft",
+    "reload restores validated settings"
+  ],
+  "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
+}

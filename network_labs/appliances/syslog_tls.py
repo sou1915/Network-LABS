@@ -22,7 +22,9 @@ def config(node):
 
 def validate_policy(value):
     from .spec import keys
-    keys(value, ('peer', 'ca_sha256', 'certificate_sha256'), 'Syslog TLS policy')
+    keys(value, ('peer', 'ca_sha256', 'certificate_sha256','verify_peer_on_start'), 'Syslog TLS policy')
+    if type(value.get('verify_peer_on_start',False)) is not bool:
+        raise ValueError('Syslog TLS verify_peer_on_start must be a boolean.')
     peer = value.get('peer')
     if not isinstance(peer, str) or len(peer) > 253 or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+', peer):
         raise ValueError('Syslog TLS peer must be an explicit lowercase DNS certificate name, without wildcards.')
@@ -78,6 +80,49 @@ def preflight(node):
         return hashlib.sha256(actual[KEY]).hexdigest()
     except (OSError, ValueError, ssl.SSLError) as error:
         raise RuntimeFailure(node['name'] + ': syslog TLS identity/trust assets unavailable or invalid: ' + str(error)) from error
+
+
+def paired_nodes(spec):
+    """Opt-in proof describes exactly one declared sender/collector pair."""
+    nodes=[n for n in spec['nodes'] if config(n) is not None]
+    if not any(config(n).get('verify_peer_on_start',False) for n in nodes):return None
+    servers=[n for n in nodes if (n.get('syslog_server') or {}).get('transport')=='tls']
+    clients=[n for n in nodes if (n.get('management') or {}).get('syslog_transport')=='tls']
+    if len(nodes)!=2 or len(servers)!=1 or len(clients)!=1 or servers[0] is clients[0] or not all(config(n).get('verify_peer_on_start',False) for n in nodes):
+        raise ValueError('Syslog TLS peer preflight requires exactly one sender and one collector, both explicitly opted in.')
+    import ipaddress
+    server,client=servers[0],clients[0]
+    from .syslog_server import listen_address
+    local=str(ipaddress.IPv4Interface(client['interfaces'][client['management']['interface']]).ip)
+    if client['management']['syslog_remote']!=listen_address(server) or server['syslog_server']['senders']!=[local]:
+        raise ValueError('Syslog TLS peer preflight requires the declared sender and collector to target each other.')
+    return server,client
+
+
+def preflight_pair(spec):
+    pair=paired_nodes(spec)
+    if pair is None:return
+    from .runtime import RuntimeFailure
+    from .tls_identity import handshake
+    server,client=pair
+    try:
+        contexts=[]
+        for node,protocol in ((server,ssl.PROTOCOL_TLS_SERVER),(client,ssl.PROTOCOL_TLS_CLIENT)):
+            root=Path(node['rootfs']);context=ssl.SSLContext(protocol)
+            context.minimum_version=ssl.TLSVersion.TLSv1_2
+            context.verify_mode=ssl.CERT_REQUIRED
+            context.load_verify_locations(cadata=read_asset(root/CA.lstrip('/')).decode('ascii'))
+            context.load_cert_chain(str(root/CERT.lstrip('/')),str(root/KEY.lstrip('/')),password='')
+            contexts.append(context)
+        peers=handshake(*contexts,server_hostname=config(client)['peer'])
+        # This opted-in profile requires exact DNS SANs in both leaves. It
+        # deliberately adds no wildcard or legacy CN matching implementation.
+        for peer,node in zip(peers,(client,server)):
+            expected=config(node)['peer']
+            if not any(kind=='DNS' and name.lower()==expected for kind,name in peer.getpeercert().get('subjectAltName',())):
+                raise ValueError(node['name']+': peer requires exact DNS SAN '+expected)
+    except (OSError,ValueError,ssl.SSLError) as error:
+        raise RuntimeFailure('Syslog TLS offline peer validation failed: '+str(error)) from error
 
 
 def global_options():

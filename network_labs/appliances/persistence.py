@@ -21,7 +21,21 @@ def drift(manager):
     errors = []
     for index, node in enumerate(manager.read()['spec']['nodes']):
         if node['runtime'] != 'oci':
+            from .guest_startup import observe
+            try:
+                if observe(manager.directory / node['name'] / 'guest.vsock', node) != node.get('guest_network', {'addresses': [], 'routes': []}):
+                    errors.append(node['name'] + ': guest IPv4 differs; use microvm-save to capture observed state')
+            except (OSError, ValueError) as error:
+                errors.append(node['name'] + ': guest verification unavailable: ' + str(error))
             continue
+        if node.get('dot1x_supplicant'):
+            from .dot1x_supplicant import observe as observe_supplicant
+            if not observe_supplicant(manager,index,node)['configuration_verified']:
+                errors.append(node['name'] + ': managed wired peer differs or is unavailable')
+        if node.get('dot1x'):
+            from .dot1x import observe as observe_dot1x
+            if not observe_dot1x(manager,index,node)['configuration_verified']:
+                errors.append(node['name'] + ': controlled-port gate differs or is unavailable')
         from .https_server import drift as https_drift
         errors.extend(https_drift(manager, node))
         from .ipv6 import drift as ipv6_drift

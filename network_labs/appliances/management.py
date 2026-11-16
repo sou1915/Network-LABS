@@ -33,10 +33,12 @@ def validate_node(node):
     from .spec import keys
     config = node.setdefault('management', None)
     if config is None: return
-    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'telnet_radius', 'telnet_actions', 'syslog_remote', 'syslog_transport', 'syslog_tls'), 'Management')
+    keys(config, ('interface', 'ssh_keys', 'ssh_actions', 'ssh_host_key', 'ssh_radius', 'ssh_ipv6', 'telnet_password_hash', 'telnet_radius', 'telnet_actions', 'syslog_remote', 'syslog_transport', 'syslog_tls','syslog_disk_queue'), 'Management')
     transport = config.get('syslog_transport', 'udp')
     if transport not in ('udp', 'tcp', 'tls'):
         raise ValueError('Syslog forwarding transport: udp, tcp or tls.')
+    if type(config.get('syslog_disk_queue',False)) is not bool or ('syslog_disk_queue' in config and transport not in ('tcp','tls')):
+        raise ValueError('syslog_disk_queue requires a boolean and explicit TCP/TLS forwarding.')
     if transport in ('tcp', 'tls') and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'} or node.get('syslog_server')):
         raise ValueError('TCP syslog forwarding requires a single-interface OCI host without a co-located collector.')
     if transport == 'tls':
@@ -111,6 +113,8 @@ def validate_node(node):
         raise ValueError('TCP syslog forwarding requires syslog_remote.')
     if not (config['ssh_keys'] or password or remote or telnet_radius):
         raise ValueError('Enable at least one management service.')
+    from .ssh_host_key import validate as validate_host_key
+    validate_host_key(node)
 
 
 def validate_lab(spec):
@@ -153,7 +157,9 @@ def commands(node):
         result['syslog'] = command() if enabled(node) else ['/bin/busybox', 'syslogd', '-n', '-O', '/run/messages', '-s', '64', '-b', '1',
                             '-R', config['syslog_remote'] + ':514', '-L']
     if config['ssh_keys']:
-        result['ssh'] = [DROPBEAR, '-F', '-E', '-R', '-s', '-w', '-j', '-k',
+        from .ssh_host_key import KEY,selected
+        identity=['-r',KEY] if selected(node) is not None else ['-R']
+        result['ssh'] = [DROPBEAR, '-F', '-E', *identity, '-s', '-w', '-j', '-k',
                          '-p', listen_address(node) + ':22', '-P', '/run/dropbear.pid']
     if config.get('ssh_ipv6'):
         address6 = str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip)
@@ -301,6 +307,10 @@ def observe(manager, node):
         checks['ssh_policy_permissions'] = {'configuration_verified': verified}
     from .syslog_tls import observe as observe_tls
     tls = observe_tls(manager, node)
+    from .syslog_forward import observe_spool
+    spool=observe_spool(manager,node)
+    from .ssh_host_key import observe as observe_host_key
+    host_key=observe_host_key(manager,node)
     bridge_available = None
     if config.get('ssh_radius'):
         from .ssh_radius import alive
@@ -309,7 +319,9 @@ def observe(manager, node):
     if config.get('telnet_radius'):
         from .ssh_radius import alive
         telnet_bridge = alive(manager.read().get('telnet_radius_workers', {}).get(node['name']))
-    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']), 'tls': tls,
+    return {'configuration_verified': all(v['configuration_verified'] for v in checks.values()) and (tls is None or tls['configuration_verified']) and (spool is None or spool['configuration_verified']) and (host_key is None or host_key['configuration_verified']), 'tls': tls,
+            'ssh_host_key':host_key,
+            'syslog_spool':spool,
             'files': checks, 'address': listen_address(node), 'ssh': bool(config['ssh_keys']),
             'telnet': bool(config['telnet_password_hash'] or config.get('telnet_radius')), 'telnet_radius': config.get('telnet_radius', False),
             'telnet_actions': config.get('telnet_actions'), 'telnet_radius_worker_available': telnet_bridge, 'syslog_remote': config['syslog_remote'],
@@ -317,7 +329,7 @@ def observe(manager, node):
             'ssh_actions': config.get('ssh_actions'), 'ssh_radius': config.get('ssh_radius', False),
             'ssh_radius_worker_available': bridge_available, 'ssh_ipv6': config.get('ssh_ipv6', False),
             'ssh_address_ipv6': str(ipaddress.IPv6Interface(node['ipv6'][config['interface']]).ip) if config.get('ssh_ipv6') else None,
-            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Optional standalone Telnet RADIUS admits a fixed diagnostic or an explicitly permitted bounded shell, without local-password fallback. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded volatile queues and retry, with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
+            'note': 'Managed file conformity only; not daemon liveness, authentication, received logs, queue depth or vendor CLI fidelity. SSH/Telnet use uid 65532. An explicit ssh_actions list confines SSH to declared diagnostics and an optional explicitly authorized RADIUS shell; SSH forwarding stays disabled. SSH key authentication is followed by RADIUS when selected. Optional standalone Telnet RADIUS admits a fixed diagnostic or an explicitly permitted bounded shell, without local-password fallback. Syslog defaults to UDP/514; optional TCP uses rsyslog with bounded queues and retry (volatile by default, optional node-overlay disk action queue), with optional mutually authenticated TLS and no application acknowledgement. Runtime logs, queues and host keys are not saved.'}
 
 
 def drift(manager, node):

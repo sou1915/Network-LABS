@@ -1,0 +1,14 @@
+{
+  "source_commit": "f039c067b893a76b2a1991e0aa78be09d9e9332b",
+  "capture": "actual local Chromium native-management session",
+  "native_lab_started_locally": false,
+  "file_sha256": {
+    "native-multicast-management.png": "f02ca7d53fc7e076aaaa0143f732b789b7109f7fa81fdfdbbbae4c6b3b611a12"
+  },
+  "browser_acceptance": [
+    "IGMP snooping and querier saved to Tk draft",
+    "per-port router, flood and fast leave saved",
+    "invalid querier without snooping rejected; reload restores valid policy"
+  ],
+  "reproducible_test": "NETWORK_LABS_BROWSER_TESTS=1 python3 -m unittest discover -s tests -p test_native_web_browser.py -v"
+}

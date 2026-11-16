@@ -1,0 +1,9 @@
+{
+  "source_commit": "942d460d3188266c6213aa417eb375b312ced092",
+  "run": 43645330648,
+  "job": 132601690477,
+  "artifact": 14134065743,
+  "archive_sha256": "a129d090800182f5bfdd29cb26ea8dcb0966dfa513e36ebf6f048796e4de99f7",
+  "scope": "Three real guests, dual NIC host, distinct TAP/bridge fabric, selective link/address failure, no implicit forwarding, cold restore. Existing two-guest suite also passed.",
+  "screenshot": "Actual Tk workbench draft from this code revision. Nodes repositioned for readability. Not a local VM boot or live observation."
+}

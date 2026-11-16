@@ -1,0 +1,8 @@
+{
+  "source_commit": "563f99f64f0743dfec01d86a05a24323943f3dfc",
+  "run": 43595151867,
+  "job": 132447966413,
+  "artifact": 14113849039,
+  "archive_sha256": "3e2a5db69900dc50650639188095b19a43adbe8c3570246f67e09babf98bddbf",
+  "scope": "Live guest eth0 down/up, idempotent repeated requests, vsock retained, host fabric up, packet loss/recovery, baseline two-guest KVM acceptance and cleanup."
+}

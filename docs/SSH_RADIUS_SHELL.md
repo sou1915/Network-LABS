@@ -5,6 +5,10 @@ profile. The SSH key authenticates the transport account `lab`; a fresh RADIUS
 username/password and the user's local `shell` permission are then required.
 The default diagnostic profile still denies shell and PTY requests.
 
+An optional [pinned server identity](SSH_SHELL_HOST_IDENTITY.md) preserves
+strict known_hosts through cold restore for IPv4 shells with accounting,
+durable Stop outbox and session journal all explicitly enabled.
+
 Build the small unprivileged relay from the repository's trusted source:
 
 ```bash

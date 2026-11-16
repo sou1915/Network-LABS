@@ -74,15 +74,20 @@ def validate_node(node):
     from .spec import keys
     policy = node.setdefault('tftp_server', None)
     if policy is None: return
-    keys(policy, ('interface', 'files'), 'TFTP server')
+    keys(policy, ('interface', 'files','family'), 'TFTP server')
+    family=policy.get('family','ipv4')
+    if family not in ('ipv4','ipv6'):raise ValueError('TFTP server family must be ipv4 or ipv6.')
     port = policy.get('interface'); known = addresses(node)
     if (node['runtime'] != 'oci' or node['role'] != 'host' or not isinstance(port, str) or
-            port not in node['interfaces'] or not known.get(port) or port in node['shutdown'] or node.get('startup')):
+            port not in node['interfaces'] or (not known.get(port) if family=='ipv4' else not node.get('ipv6',{}).get(port)) or port in node['shutdown'] or node.get('startup')):
         raise ValueError('TFTP requires an UP, numbered physical OCI host interface and no unmanaged startup.')
-    local = ipaddress.IPv4Interface(known[port])
-    if (local.ip.is_unspecified or local.ip.is_multicast or local.ip.is_loopback or local.ip.is_reserved or
-            (local.network.prefixlen < 31 and local.ip in (local.network.network_address, local.network.broadcast_address))):
-        raise ValueError('TFTP requires a usable unicast IPv4 address.')
+    if family=='ipv4':
+        local = ipaddress.IPv4Interface(known[port])
+        if (local.ip.is_unspecified or local.ip.is_multicast or local.ip.is_loopback or local.ip.is_reserved or
+                (local.network.prefixlen < 31 and local.ip in (local.network.network_address, local.network.broadcast_address))):
+            raise ValueError('TFTP requires a usable unicast IPv4 address.')
+    elif set(node['interfaces'])!={'eth0'} or any(known.values()):
+        raise ValueError('IPv6 TFTP server requires one static IPv6-only physical eth0.')
     if any(node.get(key) for key in ('dns_server', 'dhcp_server', 'dhcp_pools', 'dhcp_relay', 'dhcpv6_server',
                                      'router_advertisements', 'management', 'ntp_server', 'snmp_agent', 'snmp_receiver', 'syslog_server')):
         raise ValueError('Initial TFTP server profile requires a separate service node.')
@@ -97,10 +102,13 @@ def validate_node(node):
 
 def config_text(node):
     policy = node['tftp_server']
-    return '\n'.join(['port=0', 'interface=' + policy['interface'], 'bind-interfaces',
+    lines=['port=0', 'interface=' + policy['interface'], 'bind-interfaces',
                       'enable-tftp=' + policy['interface'], 'tftp-root=' + ROOT,
                       'tftp-secure', 'tftp-max=4', 'pid-file=/run/tftp-dnsmasq.pid',
-                      'user=root', 'group=root', 'log-facility=-', ''])
+                      'user=root', 'group=root', 'log-facility=-']
+    if policy.get('family','ipv4')=='ipv6':
+        lines.append('listen-address='+str(ipaddress.IPv6Interface(node['ipv6'][policy['interface']]).ip))
+    return '\n'.join(lines+[''])
 
 
 def prepare_files(bundle, node):
@@ -112,8 +120,11 @@ def prepare_files(bundle, node):
 
 
 def start_servers(manager):
-    for node in manager.state['spec']['nodes']:
+    for index,node in enumerate(manager.state['spec']['nodes']):
         if node.get('tftp_server') is None: continue
+        if node['tftp_server'].get('family','ipv4')=='ipv6':
+            from .ipv6 import wait_addresses
+            wait_addresses(manager,index,node)
         log = manager.directory / node['name'] / 'tftp.log'
         manager.crun('exec', node['name'], BINARY, '--test', '--conf-file=' + CONFIG, log=log)
         manager.crun('exec', '--detach', node['name'], BINARY, '--keep-in-foreground', '--conf-file=' + CONFIG, log=log)
@@ -142,6 +153,7 @@ def observe(manager, node):
     files = {name: observe_file(manager, node, name, file_bytes(content))
              for name, content in node['tftp_server']['files'].items()}
     return {'configuration_verified': config['configuration_verified'] and all(item['configuration_verified'] for item in files.values()),
+            'family':node['tftp_server'].get('family','ipv4'),
             'config': config, 'files': files,
             'note': 'File conformity only, not daemon liveness, delivery or authentication. Read-only TFTP exposes declared files to reachable clients.'}
 

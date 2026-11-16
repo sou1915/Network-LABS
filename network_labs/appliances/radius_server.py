@@ -57,8 +57,15 @@ def validate_node(node):
     for username, user in users.items():
         if not isinstance(username, str) or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', username):
             raise ValueError('RADIUS usernames require 1..64 ASCII login characters.')
-        keys(user, ('password_sha256', 'password_file') if policy.get('eap_md5') else ('password_sha256',), 'RADIUS user')
+        keys(user, ('password_sha256', 'password_file', 'session_timeout', 'termination_action') if policy.get('eap_md5') else ('password_sha256',), 'RADIUS user')
         if policy.get('eap_md5'):
+            if 'session_timeout' in user:
+                from .spec import integer
+                integer(user['session_timeout'],1,4294967295,'EAP Session-Timeout')
+            if 'termination_action' in user:
+                from .spec import integer
+                integer(user['termination_action'],0,1,'EAP Termination-Action')
+                if 'session_timeout' not in user:raise ValueError('EAP Termination-Action requires Session-Timeout.')
             path = user.get('password_file')
             if not isinstance(path, str) or not Path(path).is_absolute() or '..' in Path(path).parts or '\0' in path or len(path) > 4096:
                 raise ValueError('EAP-MD5 requires an absolute private password-file path per user.')
@@ -78,10 +85,12 @@ def validate_lab(spec):
     for node in spec['nodes']:
         if not node.get('radius_server'): continue
         for client in node['radius_server']['clients']:
+            from .lan import addresses
             matches = [other for other in spec['nodes'] if any(value and str(ipaddress.IPv4Interface(value).ip) == client['address']
-                       for value in other['interfaces'].values())]
+                       for value in addresses(other).values())]
             if (len(matches) != 1 or matches[0]['name'] == node['name'] or matches[0]['runtime'] != 'oci' or
-                    matches[0]['role'] != 'host' or set(matches[0]['interfaces']) != {'eth0'}):
+                    not ((matches[0]['role'] == 'host' and set(matches[0]['interfaces']) == {'eth0'}) or
+                         (matches[0].get('dot1x') and node['radius_server'].get('eap_md5')))):
                 raise ValueError('Each RADIUS client must identify exactly one other managed OCI host.')
 
 
@@ -123,9 +132,12 @@ def config_text(node, *, modules=MODULES, run_directory='/run', port=1812, accou
     users = '\n'.join('''        if (&User-Name == "%s") {
             update control {
                 %s := %s
-            }
+            }%s
         }''' % (name, 'Cleartext-Password' if policy.get('eap_md5') else 'SHA2-Password',
-                  eap_literal(user) if policy.get('eap_md5') else '0x' + user['password_sha256'])
+                  eap_literal(user) if policy.get('eap_md5') else '0x' + user['password_sha256'],
+                  ('\n            update reply {\n                Session-Timeout := %d\n' % user['session_timeout']
+                   + ('                Termination-Action := %d\n' % user['termination_action'] if 'termination_action' in user else '')
+                   + '            }') if 'session_timeout' in user else '')
                       for name, user in policy['users'].items())
     eap_module = eap_authorize = eap_authenticate = ''
     if policy.get('eap_md5'):
@@ -262,6 +274,8 @@ def redact(value):
     if isinstance(value, list): return [redact(item) for item in value]
     if not isinstance(value, dict): return value
     result = {key: redact(item) for key, item in value.items()}
+    if isinstance(result.get('dot1x_supplicant'),dict) and 'password_sha256' in result['dot1x_supplicant']:
+        result['dot1x_supplicant']['password_sha256']='[redacted]'
     if isinstance(result.get('radius_server'), dict):
         policy = result['radius_server']
         for client in policy.get('clients', []):

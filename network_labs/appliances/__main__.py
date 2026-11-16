@@ -18,6 +18,38 @@ def main(arguments=None):
     labs.add_argument('--json', action='store_true')
     manifests = commands.add_parser('manifests', help='List native JSON manifests in the current directory; no lab changes.')
     manifests.add_argument('--json', action='store_true')
+    vm_sample=commands.add_parser('microvm-example',help='Print two independent Linux micro-VM nodes; no host changes or firmware download.')
+    vm_sample.add_argument('--kernel',type=Path,required=True)
+    vm_sample.add_argument('--disk',type=Path,required=True)
+    vm_sample.add_argument('--memory-mib',type=int,default=128)
+    vm_sample.add_argument('--vcpus',type=int,default=1)
+    vm_sample.add_argument('--multinic',action='store_true',help='Three guests with two isolated segments and a dual-interface host.')
+    guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
+    guest.add_argument('--busybox', type=Path, required=True)
+    guest.add_argument('--output', type=Path, required=True)
+    guest.add_argument('--size-mib', type=int, default=64)
+    guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
+    control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
+    control.add_argument('--socket', type=Path, required=True)
+    control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping'])
+    control.add_argument('--destination', help='IPv4 address required for ping.')
+    link = commands.add_parser('microvm-link', help='Set live guest eth0..eth3 up/down via vsock; not saved to the manifest.')
+    link.add_argument('--socket', type=Path, required=True)
+    link.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], default='eth0')
+    link.add_argument('state', choices=['up', 'down'])
+    address = commands.add_parser('microvm-address', help='Add/delete a live IPv4 address on a guest interface; not persisted.')
+    address.add_argument('--socket', type=Path, required=True)
+    address.add_argument('--cidr', required=True)
+    address.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'])
+    address.add_argument('action', choices=['add', 'delete'])
+    route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through a guest port (default eth0); not persisted.')
+    route.add_argument('--socket', type=Path, required=True)
+    route.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], help='Other ports need a guest image built with the current agent.')
+    route.add_argument('--network', required=True)
+    route.add_argument('--gateway', required=True)
+    route.add_argument('action', choices=['add', 'delete'])
+    vm_save = commands.add_parser('microvm-save', help='Capture live IPv4 addresses/routes for cold restore of a VM-only lab.')
+    vm_save.add_argument('lab')
     sample = commands.add_parser('example', help='Print a three-node OCI manifest; no host changes.')
     sample.add_argument('--rootfs', type=Path, required=True)
     sample.add_argument('--ntp', action='store_true', help='Isolated chronyd relay and educational local reference.')
@@ -25,6 +57,7 @@ def main(arguments=None):
     sample.add_argument('--radius-telnet-shell', action='store_true', help='Explicit bounded Telnet RADIUS shell; requires --radius --radius-telnet.')
     sample.add_argument('--radius-telnet', action='store_true', help='Standalone RADIUS-gated Telnet fixed diagnostics; no SSH; shell requires --radius-telnet-shell.')
     sample.add_argument('--radius-roles', action='store_true', help='Use explicit named local roles in the standalone RADIUS CLI/SSH reference profile.')
+    sample.add_argument('--dot1x', action='store_true', help='Finite single-port wired EAP-MD5 admission reference; requires RADIUS credentials and private asset.')
     sample.add_argument('--radius-eap-md5', action='store_true', help='Explicit EAP-MD5 diagnostic backend with a pinned private password file; not 802.1X port control.')
     sample.add_argument('--radius-user', help='Username for --radius.')
     sample.add_argument('--radius-password-file', type=Path, help='Private password file for --radius; only SHA-256 is stored.')
@@ -54,8 +87,13 @@ def main(arguments=None):
     sample.add_argument('--snmp-privacy-passphrase-file', type=Path, help='SNMPv3 privacy passphrase file; converted to a master key.')
     sample.add_argument('--snmp', action='store_true', help='Real read-only SNMPv2c agent and separate monitored LAN; requires --snmpd rootfs.')
     sample.add_argument('--snmp-community-file', type=Path, help='8..64 character community token for --snmp; default is the documented lab token.')
+    sample.add_argument('--ipv6-dns-https', action='store_true', help='Separate IPv6 DNS and HTTPS across static routers; requires --https-client-rootfs.')
+    sample.add_argument('--ipv6-https-firewall', action='store_true', help='Managed IPv6 HTTPS behind a default-deny forwarding firewall; requires --https-client-rootfs.')
+    sample.add_argument('--ipv6-https', action='store_true', help='Persistent HTTPS across static IPv6 routers; requires --https-client-rootfs.')
     sample.add_argument('--https', action='store_true', help='Persistent NGINX HTTPS with offline identity; requires --https-client-rootfs.')
     sample.add_argument('--https-client-rootfs', type=Path)
+    sample.add_argument('--syslog-disk-queue', action='store_true', help='Disk-backed action queue within the running sender node; TCP/TLS only.')
+    sample.add_argument('--syslog-tls-preflight', action='store_true', help='Opt both managed TLS syslog peers into offline certificate validation before startup.')
     sample.add_argument('--syslog-tls', action='store_true', help='Mutual TLS syslog; needs separately provisioned server/client TLS rootfs assets.')
     sample.add_argument('--syslog-client-rootfs', type=Path)
     sample.add_argument('--syslog-server-name', help='Explicit collector certificate DNS name.')
@@ -64,6 +102,7 @@ def main(arguments=None):
     sample.add_argument('--syslog-tcp', action='store_true', help='Plain TCP rsyslog collector and diagnostic client; needs --rsyslog-tcp rootfs.')
     sample.add_argument('--syslog', action='store_true', help='Real UDP syslog sender and rsyslog collector; requires --rsyslog rootfs.')
     sample.add_argument('--management', action='store_true', help='Real SSH/Telnet and UDP syslog sender on an internal IPv4 LAN.')
+    sample.add_argument('--ssh-host-key-file', type=Path, help='Explicit offline Dropbear ed25519 host key for restricted --management or --radius --radius-ssh diagnostics.')
     sample.add_argument('--ssh-authorized-key', type=Path, help='Public OpenSSH ed25519 key for --management; never a private key.')
     sample.add_argument('--ssh-action', action='append', choices=('identity', 'hostname', 'security-context'), help='Repeat to restrict --management SSH to fixed diagnostics, with no shell or PTY.')
     sample.add_argument('--telnet-password-hash-file', type=Path, help='SHA-512 crypt password hash for --management Telnet login.')
@@ -75,6 +114,17 @@ def main(arguments=None):
     sample.add_argument('--ra-guard-dhcpv6', action='store_true', help='Local IA_NA DHCPv6 and RA across a guarded access VLAN.')
     sample.add_argument('--ra-guard', action='store_true', help='Conservative access-port RA Guard with real SLAAC.')
     sample.add_argument('--ipv6-firewall', action='store_true', help='Static IPv6 forwarding firewall with stateful return traffic.')
+    sample.add_argument('--ipv6-ntp-relay', action='store_true', help='Clockless IPv6 NTP relay following one managed local reference.')
+    sample.add_argument('--ipv6-ntp', action='store_true', help='Isolated IPv6 chronyd local reference with explicit allowed clients; no clock adjustment.')
+    sample.add_argument('--ipv6-dns-ospfv3-failover', action='store_true', help='IPv6 DNS over two costed physical OSPFv3 transits.')
+    sample.add_argument('--ipv6-dns-ospfv3', action='store_true', help='IPv6-only DNS over a physical two-router OSPFv3 path.')
+    sample.add_argument('--ipv6-dns-tftp', action='store_true', help='Separate IPv6 DNS and read-only TFTP across static tagged routing.')
+    sample.add_argument('--ipv6-tftp-subinterfaces', action='store_true', help='Read-only IPv6 TFTP across static dot1Q routing and VLANs.')
+    sample.add_argument('--ipv6-tftp', action='store_true', help='Read-only TFTP over static IPv6-only physical routing.')
+    sample.add_argument('--ipv6-dns-aaaa', action='store_true', help='AAAA-only DNS zone over the static IPv6 ROAS reference, without A records.')
+    sample.add_argument('--ipv6-input-firewall', action='store_true', help='Opt-in local IPv6 input filtering on FW1 alongside forwarded DNS.')
+    sample.add_argument('--ipv6-dns-firewall', action='store_true', help='IPv6-only DNS through a stateful physical forwarding firewall.')
+    sample.add_argument('--ipv6-dns-subinterfaces', action='store_true', help='Static IPv6-only DNS across router dot1Q subinterfaces and tagged transit.')
     sample.add_argument('--ipv6-subinterfaces', action='store_true', help='Static IPv6 router-on-a-stick and tagged route transit.')
     sample.add_argument('--ipv6-svi', action='store_true', help='Two internal IPv6 VLANs routed by real Linux switch SVIs across a trunk.')
     sample.add_argument('--ipv6-routed', action='store_true', help='Two internal static IPv6 LANs across two routers.')
@@ -164,6 +214,8 @@ def main(arguments=None):
     show.add_argument('--json', action='store_true')
     inspect = commands.add_parser('inspect', help='Read actual kernel interfaces/routes/VLAN/FDB state.')
     inspect.add_argument('name'); inspect.add_argument('node')
+    sender_recover=commands.add_parser('syslog-forward-recover',help='Start a confirmed dead disk-queue sender in its retained node; refuses live processes or drift.')
+    sender_recover.add_argument('name');sender_recover.add_argument('node')
     route = commands.add_parser('route', help='Observe the actual Linux IPv4 route decision; sends no test packets.')
     route.add_argument('name'); route.add_argument('node'); route.add_argument('destination')
     route.add_argument('--source', help='Local source, or original remote source with --ingress.')
@@ -187,10 +239,15 @@ def main(arguments=None):
     service.add_argument('--json', action='store_true')
     tftp = commands.add_parser('tftp-read', help='Read a bounded TFTP file from a managed host without saving it.')
     tftp.add_argument('name'); tftp.add_argument('source'); tftp.add_argument('server'); tftp.add_argument('filename')
+    tftp.add_argument('--family', choices=('ipv4','ipv6'), default='ipv4', help='Explicit server/source family; no DNS or family fallback.')
     tftp.add_argument('--timeout', type=int, default=5, help='Total transfer deadline, 1..10 seconds.')
     tftp.add_argument('--sha256', help='Optional expected SHA-256 of the complete transfer.')
     tftp.add_argument('--block-size', type=int, help='Request blksize negotiation, 512..1428 bytes; omitted keeps classic 512.')
     tftp.add_argument('--json', action='store_true')
+    authport = commands.add_parser('dot1x-auth', help='Authenticate one pinned wired peer and hold finite controlled-port leases with optional bounded reauthentication.')
+    authport.add_argument('name'); authport.add_argument('node'); authport.add_argument('--timeout',type=int,default=5); authport.add_argument('--json',action='store_true')
+    peer_recovery = commands.add_parser('dot1x-peer-recover', help='Recover one dead owned wired peer only after verified NAS closure; no authentication grant.')
+    peer_recovery.add_argument('name'); peer_recovery.add_argument('node'); peer_recovery.add_argument('--json',action='store_true')
     radius = commands.add_parser('radius-auth', help='One explicit PAP authentication request to an existing RADIUS server; no node access changes.')
     radius.add_argument('name'); radius.add_argument('source'); radius.add_argument('server')
     radius.add_argument('--username', required=True)
@@ -299,19 +356,56 @@ def main(arguments=None):
             result = list_manifests()
             print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
             return 0
+        elif args.command == 'microvm-save':
+            from .guest_startup import save_observed
+            with Manager(args.lab).locked() as manager:
+                result = save_observed(manager)
+        elif args.command == 'microvm-route':
+            from .guest_control import request
+            result = request(args.socket, 'route-' + args.action, network=args.network, gateway=args.gateway, interface=args.interface)
+        elif args.command == 'microvm-address':
+            from .guest_control import request
+            result = request(args.socket, 'address-' + args.action, cidr=args.cidr, interface=args.interface)
+        elif args.command == 'microvm-link':
+            from .guest_control import request
+            result = request(args.socket, 'link', interface=args.interface, state=args.state)
+        elif args.command == 'microvm-diagnostic':
+            from .guest_control import request
+            result = request(args.socket, args.operation, destination=args.destination)
+        elif args.command == 'microvm-rootfs':
+            from .guest_image import build
+            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)
+        elif args.command == 'microvm-example':
+            from .microvm import example as microvm_example
+            if args.multinic:
+                from .microvm import multinic_example
+                result=multinic_example(args.kernel,args.disk)
+                for node in result['nodes']:
+                    node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
+                from .spec import validate
+                result=validate(result)
+            else:
+                result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
         elif args.command == 'example':
-            if args.https != (args.https_client_rootfs is not None):
-                raise ValueError('--https requires --https-client-rootfs; omit this option otherwise.')
+            pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
+            if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):
+                raise ValueError('--ssh-host-key-file requires restricted --management or --radius --radius-ssh, an authorized key/action, with no combined DNS; shells additionally require accounting, outbox and journal.')
+            if (args.https or args.ipv6_https or args.ipv6_https_firewall or args.ipv6_dns_https) != (args.https_client_rootfs is not None):
+                raise ValueError('--https, --ipv6-https, --ipv6-https-firewall or --ipv6-dns-https requires --https-client-rootfs; omit this option otherwise.')
             if args.syslog_tls != all(v is not None for v in (args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name)) or (not args.syslog_tls and any(v is not None for v in (args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name))):
                 raise ValueError('--syslog-tls requires --syslog-client-rootfs, --syslog-server-name and --syslog-client-name; omit these otherwise.')
+            if args.syslog_disk_queue and not (args.syslog_tls or (args.syslog_tcp and args.syslog_tcp_forward)):
+                raise ValueError('--syslog-disk-queue requires --syslog-tls or --syslog-tcp --syslog-tcp-forward.')
+            if args.syslog_tls_preflight and not args.syslog_tls:
+                raise ValueError('--syslog-tls-preflight requires --syslog-tls.')
             if args.syslog_tcp_forward and not args.syslog_tcp:
                 raise ValueError('--syslog-tcp-forward requires --syslog-tcp.')
             if args.stp_lacp_min_links is not None and not args.stp_lacp:
                 raise ValueError('--stp-lacp-min-links requires --stp-lacp.')
             if args.stp_lacp_strict and not args.stp_lacp:
                 raise ValueError('--stp-lacp-strict requires --stp-lacp.')
-            from .examples import https_lab, syslog_tls_lab, syslog_tcp_lab, stp_lacp_lab, ra_guard_dhcpv6_lab, ra_guard_lab, ipv6_firewall_lab, ipv6_subinterfaces_lab, dhcpv6_pd_lab, dhcpv6_relay_lab, ospfv3_svi_lab, ipv6_svi_lab, ospfv3_lab, campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab, rstp_lab, svi_lab, static_routing_lab, dhcp_relay_lab, dhcp_multi_lab, ospf_lab, ospf_cli_lab, ospf_broadcast_lab, ospf_svi_lab, ospf_dhcp_lab, ospf_dhcp_multi_lab, ospf_dhcp_lldp_lab, lan_services_lab, ipv6_vlan_lab, ipv6_routed_lab, slaac_lab, dhcpv6_lab, dual_stack_lab, management_lab, syslog_lab, snmp_lab, snmpv3_lab, snmp_notifications_lab, snmpv3_informs_lab, snmpv3_traps_lab, snmp_links_lab
-            if sum((args.dual_stack_dns, args.https, args.syslog_tls, args.syslog_tcp, args.stp_lacp, args.ra_guard_dhcpv6, args.ra_guard, args.ipv6_firewall, args.ipv6_subinterfaces, args.dhcpv6_pd, args.dhcpv6_relay, args.ospfv3_svi, args.ipv6_svi, args.ospfv3, args.radius, args.tftp, args.ntp, args.snmp_link_events, args.snmpv3_traps, args.snmpv3_informs, args.snmp_notifications, args.snmpv3, args.snmp, args.syslog, args.management, args.dual_stack, args.dhcpv6, args.slaac, args.ipv6_routed, args.ipv6_vlan, args.lan_services, args.ospf_dhcp_lldp, args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp, args.svi, args.static_routing, args.dhcp_relay, args.dhcp_multi, args.ospf, args.ospf_cli, args.ospf_broadcast, args.ospf_svi, args.ospf_dhcp, args.ospf_dhcp_multi)) > 1:
+            from .examples import ipv6_dns_https_lab, ipv6_https_firewall_lab, ipv6_https_lab, https_lab, syslog_tls_lab, syslog_tcp_lab, stp_lacp_lab, ra_guard_dhcpv6_lab, ra_guard_lab, ipv6_firewall_lab, ipv6_subinterfaces_lab, dhcpv6_pd_lab, dhcpv6_relay_lab, ospfv3_svi_lab, ipv6_svi_lab, ospfv3_lab, campus, firewall_lab, enterprise, lacp_lab, stp_lab, port_security_lab, dhcp_snooping_lab, arp_inspection_lab, source_guard_lab, multicast_lab, dhcp_reservations_lab, dns_lab, lldp_lab, rstp_lab, svi_lab, static_routing_lab, dhcp_relay_lab, dhcp_multi_lab, ospf_lab, ospf_cli_lab, ospf_broadcast_lab, ospf_svi_lab, ospf_dhcp_lab, ospf_dhcp_multi_lab, ospf_dhcp_lldp_lab, lan_services_lab, ipv6_vlan_lab, ipv6_routed_lab, slaac_lab, dhcpv6_lab, dual_stack_lab, management_lab, syslog_lab, snmp_lab, snmpv3_lab, snmp_notifications_lab, snmpv3_informs_lab, snmpv3_traps_lab, snmp_links_lab
+            if sum((args.ipv6_dns_https, args.ipv6_https_firewall, args.ipv6_https, args.ipv6_dns_ospfv3_failover, args.ipv6_dns_ospfv3, args.ipv6_dns_tftp, args.ipv6_tftp_subinterfaces, args.ipv6_ntp_relay, args.ipv6_ntp, args.ipv6_tftp, args.ipv6_dns_aaaa, args.ipv6_input_firewall, args.ipv6_dns_firewall, args.ipv6_dns_subinterfaces, args.dual_stack_dns, args.https, args.syslog_tls, args.syslog_tcp, args.stp_lacp, args.ra_guard_dhcpv6, args.ra_guard, args.ipv6_firewall, args.ipv6_subinterfaces, args.dhcpv6_pd, args.dhcpv6_relay, args.ospfv3_svi, args.ipv6_svi, args.ospfv3, args.radius, args.tftp, args.ntp, args.snmp_link_events, args.snmpv3_traps, args.snmpv3_informs, args.snmp_notifications, args.snmpv3, args.snmp, args.syslog, args.management, args.dual_stack, args.dhcpv6, args.slaac, args.ipv6_routed, args.ipv6_vlan, args.lan_services, args.ospf_dhcp_lldp, args.campus, args.firewall, args.enterprise, args.lacp, args.stp, args.port_security, args.dhcp_snooping, args.arp_inspection, args.ip_source_guard, args.multicast, args.dhcp_reservations, args.dns, args.lldp, args.rstp, args.svi, args.static_routing, args.dhcp_relay, args.dhcp_multi, args.ospf, args.ospf_cli, args.ospf_broadcast, args.ospf_svi, args.ospf_dhcp, args.ospf_dhcp_multi)) > 1:
                 raise ValueError('Choose only one reference scenario.')
             if args.snmp_link_mode and not args.snmp_link_events:
                 raise ValueError('Link-event mode requires --snmp-link-events.')
@@ -334,11 +428,13 @@ def main(arguments=None):
             key = args.ssh_authorized_key.read_text().strip() if args.ssh_authorized_key else None
             password = args.telnet_password_hash_file.read_text().strip() if args.telnet_password_hash_file else ''
             from .examples import ntp_lab, tftp_lab, radius_lab
-            if args.tftp_file and not args.tftp:
-                raise ValueError('--tftp-file requires --tftp.')
+            if args.tftp_file and not (args.tftp or args.ipv6_tftp or args.ipv6_tftp_subinterfaces or args.ipv6_dns_tftp):
+                raise ValueError('--tftp-file requires a TFTP reference (--tftp, --ipv6-tftp, --ipv6-tftp-subinterfaces or --ipv6-dns-tftp).')
             from .tftp_server import import_files
             tftp_files = import_files(args.tftp_file) if args.tftp_file else None
             radius_options = (args.radius_user, args.radius_password_file, args.radius_secret_file)
+            if args.dot1x and (not args.radius or not args.radius_eap_md5 or args.radius_roles):
+                raise ValueError('--dot1x requires --radius --radius-eap-md5 without CLI roles.')
             if args.radius_eap_md5 and (not args.radius or args.radius_shell or args.radius_ssh or args.radius_telnet or args.radius_dual_stack or args.radius_accounting):
                 raise ValueError('--radius-eap-md5 requires a standalone --radius diagnostic profile.')
             if args.radius_telnet and (not args.radius or args.radius_ssh or args.radius_shell or args.radius_ssh_shell or args.radius_dual_stack):
@@ -380,7 +476,8 @@ def main(arguments=None):
             elif any(radius_options):
                 raise ValueError('RADIUS example credentials require --radius.')
             from .examples import dual_stack_dns_lab, dual_stack_radius_lab, dual_stack_services_lab
-            result = dual_stack_services_lab(args.rootfs, *radius_parameters, ssh_key=key, ssh_actions=args.ssh_action, resolver_family=args.dns_resolver_family or 'ipv4') if args.radius_dns else dual_stack_radius_lab(args.rootfs, *radius_parameters, ssh_key=key, ssh_actions=args.ssh_action) if args.radius_dual_stack else dual_stack_dns_lab(args.rootfs, resolver_family=args.dns_resolver_family or 'ipv4') if args.dual_stack_dns else https_lab(args.rootfs, args.https_client_rootfs) if args.https else syslog_tls_lab(args.rootfs, args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name) if args.syslog_tls else syslog_tcp_lab(args.rootfs, forward=args.syslog_tcp_forward) if args.syslog_tcp else stp_lacp_lab(args.rootfs, args.stp_lacp_min_links or 1, True if args.stp_lacp_strict else None) if args.stp_lacp else ra_guard_dhcpv6_lab(args.rootfs) if args.ra_guard_dhcpv6 else ra_guard_lab(args.rootfs) if args.ra_guard else ipv6_firewall_lab(args.rootfs) if args.ipv6_firewall else ipv6_subinterfaces_lab(args.rootfs) if args.ipv6_subinterfaces else dhcpv6_pd_lab(args.rootfs) if args.dhcpv6_pd else dhcpv6_relay_lab(args.rootfs) if args.dhcpv6_relay else ospfv3_svi_lab(args.rootfs) if args.ospfv3_svi else ipv6_svi_lab(args.rootfs) if args.ipv6_svi else ospfv3_lab(args.rootfs) if args.ospfv3 else radius_lab(args.rootfs, *radius_parameters, allow_shell=args.radius_shell, accounting=args.radius_accounting, ssh_key=key if args.radius_ssh else None, ssh_actions=args.ssh_action, ssh_shell=args.radius_ssh_shell, accounting_retries=args.radius_accounting_retries, accounting_outbox=args.radius_accounting_outbox, accounting_journal=args.radius_accounting_journal, role_policy=args.radius_roles, telnet=args.radius_telnet, telnet_shell=args.radius_telnet_shell, eap_password_file=args.radius_password_file if args.radius_eap_md5 else None) if args.radius else tftp_lab(args.rootfs, files=tftp_files) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password, ssh_actions=args.ssh_action) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
+            from .examples import ipv6_dns_ospfv3_failover_lab, ipv6_dns_ospfv3_lab, ipv6_dns_tftp_lab, ipv6_tftp_subinterfaces_lab, dot1x_lab, ipv6_dns_subinterfaces_lab, ipv6_dns_firewall_lab, ipv6_input_firewall_lab, ipv6_dns_aaaa_lab, ipv6_tftp_lab, ipv6_ntp_lab, ipv6_ntp_relay_lab
+            result = ipv6_dns_https_lab(args.rootfs, args.https_client_rootfs) if args.ipv6_dns_https else ipv6_https_firewall_lab(args.rootfs, args.https_client_rootfs) if args.ipv6_https_firewall else ipv6_https_lab(args.rootfs, args.https_client_rootfs) if args.ipv6_https else ipv6_dns_ospfv3_failover_lab(args.rootfs) if args.ipv6_dns_ospfv3_failover else ipv6_dns_ospfv3_lab(args.rootfs) if args.ipv6_dns_ospfv3 else ipv6_dns_tftp_lab(args.rootfs, files=tftp_files) if args.ipv6_dns_tftp else ipv6_tftp_subinterfaces_lab(args.rootfs, files=tftp_files) if args.ipv6_tftp_subinterfaces else ipv6_ntp_relay_lab(args.rootfs) if args.ipv6_ntp_relay else ipv6_ntp_lab(args.rootfs) if args.ipv6_ntp else ipv6_tftp_lab(args.rootfs, files=tftp_files) if args.ipv6_tftp else ipv6_dns_aaaa_lab(args.rootfs) if args.ipv6_dns_aaaa else ipv6_input_firewall_lab(args.rootfs) if args.ipv6_input_firewall else ipv6_dns_firewall_lab(args.rootfs) if args.ipv6_dns_firewall else ipv6_dns_subinterfaces_lab(args.rootfs) if args.ipv6_dns_subinterfaces else dot1x_lab(args.rootfs, *radius_parameters[:2], args.radius_password_file, username=args.radius_user) if args.dot1x else dual_stack_services_lab(args.rootfs, *radius_parameters, ssh_key=key, ssh_actions=args.ssh_action, resolver_family=args.dns_resolver_family or 'ipv4') if args.radius_dns else dual_stack_radius_lab(args.rootfs, *radius_parameters, ssh_key=key, ssh_actions=args.ssh_action, ssh_host_key_file=args.ssh_host_key_file) if args.radius_dual_stack else dual_stack_dns_lab(args.rootfs, resolver_family=args.dns_resolver_family or 'ipv4') if args.dual_stack_dns else https_lab(args.rootfs, args.https_client_rootfs) if args.https else syslog_tls_lab(args.rootfs, args.syslog_client_rootfs, args.syslog_server_name, args.syslog_client_name, verify_peer_on_start=args.syslog_tls_preflight, disk_queue=args.syslog_disk_queue) if args.syslog_tls else syslog_tcp_lab(args.rootfs, forward=args.syslog_tcp_forward, disk_queue=args.syslog_disk_queue) if args.syslog_tcp else stp_lacp_lab(args.rootfs, args.stp_lacp_min_links or 1, True if args.stp_lacp_strict else None) if args.stp_lacp else ra_guard_dhcpv6_lab(args.rootfs) if args.ra_guard_dhcpv6 else ra_guard_lab(args.rootfs) if args.ra_guard else ipv6_firewall_lab(args.rootfs) if args.ipv6_firewall else ipv6_subinterfaces_lab(args.rootfs) if args.ipv6_subinterfaces else dhcpv6_pd_lab(args.rootfs) if args.dhcpv6_pd else dhcpv6_relay_lab(args.rootfs) if args.dhcpv6_relay else ospfv3_svi_lab(args.rootfs) if args.ospfv3_svi else ipv6_svi_lab(args.rootfs) if args.ipv6_svi else ospfv3_lab(args.rootfs) if args.ospfv3 else radius_lab(args.rootfs, *radius_parameters, allow_shell=args.radius_shell, accounting=args.radius_accounting, ssh_key=key if args.radius_ssh else None, ssh_actions=args.ssh_action, ssh_shell=args.radius_ssh_shell, accounting_retries=args.radius_accounting_retries, accounting_outbox=args.radius_accounting_outbox, accounting_journal=args.radius_accounting_journal, role_policy=args.radius_roles, telnet=args.radius_telnet, telnet_shell=args.radius_telnet_shell, eap_password_file=args.radius_password_file if args.radius_eap_md5 else None, ssh_host_key_file=args.ssh_host_key_file) if args.radius else tftp_lab(args.rootfs, files=tftp_files) if args.tftp else ntp_lab(args.rootfs) if args.ntp else snmp_links_lab(args.rootfs, user, args.snmp_link_mode or 'trap') if args.snmp_link_events else snmpv3_traps_lab(args.rootfs, user) if args.snmpv3_traps else snmpv3_informs_lab(args.rootfs, user) if args.snmpv3_informs else snmp_notifications_lab(args.rootfs, args.snmp_notification_mode or 'trap') if args.snmp_notifications else snmpv3_lab(args.rootfs, user) if args.snmpv3 else snmp_lab(args.rootfs, args.snmp_community_file.read_text().strip() if args.snmp_community_file else 'network-labs-ro') if args.snmp else syslog_lab(args.rootfs) if args.syslog else management_lab(args.rootfs, key, password, ssh_actions=args.ssh_action, ssh_host_key_file=args.ssh_host_key_file) if args.management else dual_stack_lab(args.rootfs) if args.dual_stack else dhcpv6_lab(args.rootfs) if args.dhcpv6 else slaac_lab(args.rootfs) if args.slaac else ipv6_routed_lab(args.rootfs) if args.ipv6_routed else ipv6_vlan_lab(args.rootfs) if args.ipv6_vlan else lan_services_lab(args.rootfs) if args.lan_services else ospf_dhcp_lldp_lab(args.rootfs) if args.ospf_dhcp_lldp else ospf_dhcp_multi_lab(args.rootfs) if args.ospf_dhcp_multi else ospf_dhcp_lab(args.rootfs) if args.ospf_dhcp else ospf_svi_lab(args.rootfs) if args.ospf_svi else ospf_broadcast_lab(args.rootfs) if args.ospf_broadcast else ospf_cli_lab(args.rootfs) if args.ospf_cli else ospf_lab(args.rootfs) if args.ospf else dhcp_multi_lab(args.rootfs) if args.dhcp_multi else dhcp_relay_lab(args.rootfs) if args.dhcp_relay else static_routing_lab(args.rootfs) if args.static_routing else svi_lab(args.rootfs) if args.svi else rstp_lab(args.rootfs) if args.rstp else lldp_lab(args.rootfs) if args.lldp else dns_lab(args.rootfs) if args.dns else dhcp_reservations_lab(args.rootfs) if args.dhcp_reservations else multicast_lab(args.rootfs) if args.multicast else source_guard_lab(args.rootfs) if args.ip_source_guard else arp_inspection_lab(args.rootfs) if args.arp_inspection else dhcp_snooping_lab(args.rootfs) if args.dhcp_snooping else port_security_lab(args.rootfs) if args.port_security else stp_lab(args.rootfs) if args.stp else lacp_lab(args.rootfs) if args.lacp else enterprise(args.rootfs) if args.enterprise else firewall_lab(args.rootfs) if args.firewall else campus(args.rootfs) if args.campus else example(args.rootfs)
         elif args.command == 'rootfs':
             result = {'rootfs': str(static_busybox_rootfs(args.busybox, args.output, dnsmasq=args.dnsmasq, lldpd=args.lldpd, lldpcli=args.lldpcli, openvswitch=args.openvswitch, bird=args.bird, birdc=args.birdc, dropbear=args.dropbear, ssh_relay=args.ssh_relay, telnet_login=args.telnet_login, rsyslog=args.rsyslog, rsyslog_modules=args.rsyslog_modules, rsyslog_tcp=args.rsyslog_tcp, rsyslog_forward=args.rsyslog_forward, rsyslog_tls=args.rsyslog_tls, syslog_ca=args.syslog_ca_file, syslog_certificate=args.syslog_certificate_file, syslog_private_key=args.syslog_private_key_file, nginx=args.nginx, https_ca=args.https_ca_file, https_certificate=args.https_certificate_file, https_private_key=args.https_private_key_file, snmpd=args.snmpd, snmptrapd=args.snmptrapd, chronyd=args.chronyd, chronyc=args.chronyc, freeradius=args.freeradius, freeradius_modules=args.freeradius_modules, freeradius_dictionaries=args.freeradius_dictionaries, freeradius_eap_md5=args.freeradius_eap_md5, kea_dhcp6=args.kea_dhcp6, dhcpv6_pd_hook=args.dhcpv6_pd_hook))}
         elif args.command == 'benchmark':
@@ -419,6 +516,15 @@ def main(arguments=None):
                              ready=lambda: print(f'Capture active : {args.node}/{args.interface}. Vous pouvez lancer le trafic dans un autre terminal.', file=sys.stderr, flush=True))
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 130 if result['stop_reason'] == 'interrupted' else 0
+        elif args.command == 'dot1x-peer-recover':
+            from .dot1x_supplicant import recover
+            result=recover(Manager(args.name),args.node)
+        elif args.command == 'dot1x-auth':
+            if __import__('os').geteuid()!=0: raise RuntimeFailure('802.1X authenticator requires root.')
+            from .dot1x import authenticate
+            result=authenticate(Manager(args.name),args.node,timeout=args.timeout)
+            print(json.dumps(result,indent=2))
+            return 0 if result['status']=='passed' else 1
         elif args.command in ('radius-accounting-sessions', 'radius-accounting-reconcile'):
             import os
             if os.geteuid() != 0: raise RuntimeFailure('Private accounting session operations require sudo.')
@@ -455,6 +561,9 @@ def main(arguments=None):
                     return 0 if result['status'] == 'observed' else 1
                 elif args.command == 'inspect':
                     result = manager.inspect(args.node)
+                elif args.command == 'syslog-forward-recover':
+                    from .syslog_recover import recover as recover_sender
+                    result=recover_sender(manager,args.node)
                 elif args.command == 'verify':
                     from .verify import verify, render
                     result = verify(manager, args.source, args.destination, count=args.count, bidirectional=args.bidirectional, family=args.family)
@@ -507,7 +616,7 @@ def main(arguments=None):
                     return 130 if result['status'] == 'interrupted' else 124 if result['status'] == 'expired' else 0 if result['status'] == 'passed' else 1
                 elif args.command == 'tftp-read':
                     from .tftp import read, render
-                    result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256, **({'block_size': args.block_size} if args.block_size is not None else {}))
+                    result = read(manager, args.source, args.server, args.filename, timeout=args.timeout, expected_sha256=args.sha256, **({'block_size': args.block_size} if args.block_size is not None else {}), **({'family':args.family} if args.family!='ipv4' else {}))
                     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else render(result))
                     return 0 if result['status'] == 'passed' else 1
                 elif args.command == 'sntp-demo':
@@ -562,7 +671,7 @@ def main(arguments=None):
             from .radius_server import redact
             result = redact(result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
+        return 1 if args.command in ('microvm-link', 'microvm-address', 'microvm-route') and result['exit_code'] else 0
     except (RuntimeFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         print('Native lab: ' + str(error), file=sys.stderr)
         return 1

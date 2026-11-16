@@ -3,8 +3,12 @@
 Objectif de ce jalon : une configuration de base qui agit correctement sur de
 vrais paquets, avec erreurs explicites et sauvegarde/restauration. Le scénario
 de référence contient **8 containers** : 4 PC, 2 switches, un routeur et un serveur
-DHCP. La validation à 20 nodes et le budget global de 2 Gio restent des étapes
-ultérieures ; les allocations du manifest ne constituent pas un benchmark.
+DHCP. Un scénario à 20 nodes et un court benchmark headless ont été ajoutés
+depuis ce premier jalon ; ils ne valident pas le budget global de 2 Gio.
+Les allocations du manifest ne constituent pas un benchmark. Voir
+[la couverture actuelle](LAN_PROTOCOL_COVERAGE.md) et
+[le point d'avancement](PROJECT_STATUS.md) pour distinguer ce jalon historique
+des profils plus récents et des étapes restantes.
 
 ## Architecture et périmètre
 
@@ -348,9 +352,10 @@ et sous charge, résultat des paquets et nettoyage. Le JSON complet inclut :
 | Mesure | Ce qu'elle couvre | Limite d'interprétation |
 | --- | --- | --- |
 | Cgroup parent du lab | `memory.current`, swap et `cpu.stat` avec descendants | Ne pas ajouter une seconde fois les valeurs par node ; certaines allocations réseau/kernel et helpers sont ailleurs |
+| Pic kernel, rapport v2 | `memory.peak` cumulé jusqu'à la photo après charge, avec provenance du parent | Inclut les charges cgroup de startup et les pics brefs ; historique antérieur possible, null si non supporté ; pas la RAM totale de l'app |
 | PSS et CPU du runner | Processus Python de mesure | Pas la GUI finale ni tous les helpers transitoires ; PSS et mémoire cgroup ne sont pas deux termes directement additionnables |
 | Host avant/après et pendant | `MemAvailable`, swap, ticks CPU globaux | Comprend les autres applications et l'activité de fond ; delta bruité, non attribuable exclusivement au lab |
-| Chaque node après charge | Mémoire courante, swap, CPU cumulé et événements OOM | Photo après charge, pas un pic de RAM de chaque node |
+| Chaque node après charge | Mémoire courante, pic kernel optionnel v2, swap, CPU cumulé et événements OOM | Photo après charge ; le pic kernel, si disponible, garde sa portée cumulée |
 | Paquets | Code retour, compteurs envoyés/reçus, sortie réelle de ping | Une perte rend le test négatif même si ping reçoit quelques réponses |
 
 CPU du lab : `100 × Δusage_usec / (durée × 1 000 000)` ; **100 % = un cœur**,
@@ -367,6 +372,10 @@ globale imposée. Le rapport garde `total_application_under_target: unverified`,
 même si le pic cgroup est inférieur à 2048 Mio. Il faut encore mesurer la GUI,
 les services plus lourds et les futurs backends avant de valider le budget total.
 Le benchmark ne sauvegarde aucune session ni configuration de lab à sa fermeture.
+Le [rapport v2 et son checkpoint natif](BENCHMARK_KERNEL_PEAK.md) ajoutent la
+mesure kernel des pics et un test de transient avant échantillonnage. Le
+checkpoint à 20 nodes utilise 10 secondes idle et 10 secondes ICMP ; les
+anciens résultats ci-dessous restent une mesure historique distincte.
 
 ### Routes statiques du manifest
 
@@ -4111,11 +4120,16 @@ sudo python3 -m network_labs.appliances exec --tty management-lan PC1 -- \
 
 SSH binds the selected node IPv4 address on TCP/22. Password/root logins and
 local/remote TCP forwarding are disabled. This first profile accepts up to 16
-OpenSSH ed25519 public keys, without authorized_keys options. Host keys are
+OpenSSH ed25519 public keys, without authorized_keys options. By default, host keys are
 created inside the writable node overlay. They are not part of declarative
 save/restore; recreated nodes have fresh host keys. Verify a recreated node's
 new key before updating the dedicated known-hosts file; host checking is not
 silently disabled by the application.
+An optional [explicit offline SSH host identity](SSH_HOST_IDENTITY.md) instead
+keeps the declared public identity through cold restore for its documented
+restricted SSH profiles, including a separately scoped
+[journaled IPv4 RADIUS shell](SSH_SHELL_HOST_IDENTITY.md). It references a separately retained mode-0600 private
+asset; the startup JSON does not contain or back up that key.
 
 Telnet binds the same node address on TCP/23 and invokes real `/bin/login`.
 The manifest contains a SHA-512 crypt hash, never a plaintext password. Login

@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8"><title>Network LABS — cold restore</title><style>
+*{box-sizing:border-box}body{font:16px Arial,sans-serif;background:#edf3f9;color:#18314c;margin:0;padding:32px}.page{max-width:1360px;margin:auto}header{background:#213748;color:white;padding:24px 30px;border-radius:20px;display:flex;justify-content:space-between;align-items:center}h1{font-size:25px;margin:6px 0}small{color:#b9cadd}.badge{background:#d8f5e7;color:#116440;padding:12px 20px;border-radius:24px;font-weight:bold}.flow{margin:22px 0;background:white;border-radius:18px;padding:24px;display:flex;justify-content:space-around;align-items:center}.node{text-align:center}.node b{display:block;font-size:22px;margin:6px}.arrow{color:#2185d7;font-size:26px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}article,.route{background:white;border:1px solid #d9e4ef;border-radius:18px;padding:22px}h3{font-size:17px;margin:0 0 16px}.ok{color:#15784d}.loss{color:#a34e1b}pre{font:13px/1.55 monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f8fc;border-radius:12px;padding:16px;margin-bottom:0}.route{margin-top:18px}.foot{font-size:13px;line-height:1.6;color:#53697e;margin:18px 4px}.caption{font-size:14px;color:#53697e;margin-top:6px} .grid{grid-template-columns:1fr 1fr}.flow{font-weight:bold;gap:20px}.node{font-size:17px}pre{font-size:14px} </style><div class="page"><header><div><small>NETWORK LABS · RAPPORT DE VALIDATION</small><h1>Sauvegarde et restauration des micro-VMs</h1></div><span class="badge">KVM natif · PASS</span></header><div class="flow"><div class="node">IPv4 observé<br>↓<br>startup.json</div><div class="arrow">→</div><div class="node">Arrêt des invités<br>Disques privés supprimés</div><div class="arrow">→</div><div class="node">Nouveaux invités<br>Configuration relue</div><div class="arrow">→</div><div class="node">Ping vérifié<br>après restauration</div></div><div class="grid"><article><h3>VM1 · configuration restaurée</h3><pre>{
+  &quot;addresses&quot;: [],
+  &quot;routes&quot;: [
+    {
+      &quot;network&quot;: &quot;198.51.100.20/32&quot;,
+      &quot;gateway&quot;: &quot;192.0.2.20&quot;
+    }
+  ]
+}</pre></article><article><h3>VM2 · configuration restaurée</h3><pre>{
+  &quot;addresses&quot;: [
+    &quot;198.51.100.20/32&quot;
+  ],
+  &quot;routes&quot;: []
+}</pre></article></div><div class="grid" style="margin-top:18px"><article><h3>Ping après recréation des invités</h3><b class="ok">Réponse reçue</b><pre>PING 198.51.100.20 (198.51.100.20): 56 data bytes
+64 bytes from 198.51.100.20: seq=0 ttl=127 time=1.109 ms
+
+--- 198.51.100.20 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 1.109/1.109/1.109 ms
+</pre></article><article><h3>Ping après recréation des invités</h3><b class="ok">Réponse reçue</b><pre>PING 192.0.2.10 (192.0.2.10): 56 data bytes
+64 bytes from 192.0.2.10: seq=0 ttl=127 time=0.222 ms
+
+--- 192.0.2.10 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.222/0.222/0.222 ms
+</pre></article></div><div class="foot">Capture d’un rapport issu des artefacts GitHub Actions — pas une vue temps réel de l’application.<br>Source 5ed6a002097fa5992ad3f019ef33db315cfa29c2 · Run 43643416167<br>Portée : IPv4 sur eth0 actif. Pas de snapshot disque, de persistance IPv6 ou d’intégration de ces commandes à la GUI.</div></div>

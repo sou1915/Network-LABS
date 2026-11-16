@@ -81,8 +81,77 @@ def validate_lab(spec):
         raise ValueError('Initial dual-stack routing requires static IPv6; RA/SLAAC/DHCPv6 coexistence is not in this profile.')
     from .firewall_ipv6 import validate_lab as validate_firewall_lab
     validate_firewall_lab(spec)
+    if any(n.get('https_server') for n in spec['nodes']):
+        servers=[n for n in spec['nodes'] if n.get('https_server')]
+        excluded=('svis','subinterfaces','ra_guard','ospfv3','slaac','router_advertisements',
+                  'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
+                  'dhcpv6_pd_server','tftp_server','ntp_server','management',
+                  'radius_server','radius_access','dot1x')
+        dns_servers=[n for n in spec['nodes'] if n.get('dns_server')]
+        if any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes']):
+            if (len(dns_servers)!=1 or not dns_servers[0]['dns_server'].get('listen_ipv6') or
+                    any(n.get('firewall_ipv6') is not None for n in spec['nodes'])):
+                raise ValueError('IPv6 HTTPS/DNS requires one separate managed IPv6 DNS server without a firewall composition.')
+            dns=dns_servers[0]
+            resolver=str(ipaddress.IPv6Interface(dns['ipv6'][dns['dns_server']['interface']]).ip)
+            if dns in servers or not any(n.get('resolvers') for n in spec['nodes']) or any(
+                    n.get('resolvers') and (n in servers or n is dns or n['resolvers']!=[resolver]) for n in spec['nodes']):
+                raise ValueError('IPv6 HTTPS/DNS requires separate service nodes and clients using only the managed IPv6 resolver.')
+        if len(servers)!=1 or servers[0]['https_server'].get('family')!='ipv6' or any(
+                n['role'] not in ('host','router','firewall') or any(n.get(k) for k in excluded) or
+                (n.get('firewall_ipv6') is not None and 'input' in n['firewall_ipv6']) or
+                any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
+                set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
+            raise ValueError('IPv6 HTTPS requires one explicit IPv6 server and static IPv6-only physical hosts/routers, with separately scoped DNS or forwarding-only firewall coexistence.')
+    if any(n.get('ntp_server') for n in spec['nodes']):
+        servers=[n for n in spec['nodes'] if n.get('ntp_server')]
+        excluded=('svis','subinterfaces','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
+                  'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
+                  'dhcpv6_pd_server','dns_server','resolvers','tftp_server','management','radius_server','radius_access')
+        if not 1<=len(servers)<=2 or any(n['ntp_server'].get('family')!='ipv6' for n in servers) or (len(servers)==2 and sum('upstream' in n['ntp_server'] for n in servers)!=1) or any(
+                n['role'] not in ('host','router') or any(n.get(k) for k in excluded) or
+                any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
+                set(n['ipv6'])!=set(n['interfaces']) for n in spec['nodes']):
+            raise ValueError('IPv6 NTP requires a managed local reference with at most one relay and static IPv6-only physical hosts/routers without other service/security compositions.')
+    tftp_ipv6=any(n.get('tftp_server') for n in spec['nodes'])
+    if tftp_ipv6:
+        servers=[n for n in spec['nodes'] if n.get('tftp_server')]
+        excluded=('svis','firewall_ipv6','ra_guard','ospfv3','slaac','router_advertisements',
+                  'dhcpv6_clients','dhcpv6_server','dhcpv6_relay','dhcpv6_remote_server','dhcpv6_pd_client',
+                  'dhcpv6_pd_server','management','radius_server','radius_access')
+        dns_servers=[n for n in spec['nodes'] if n.get('dns_server')]
+        if any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes']):
+            if len(dns_servers)!=1 or not dns_servers[0]['dns_server'].get('listen_ipv6'):
+                raise ValueError('IPv6 TFTP/DNS coexistence requires one separate managed IPv6 DNS server.')
+            dns=dns_servers[0]
+            resolver=str(ipaddress.IPv6Interface(dns['ipv6'][dns['dns_server']['interface']]).ip)
+            if dns in servers or any(n.get('resolvers') and (n in servers or n['resolvers']!=[resolver]) for n in spec['nodes']):
+                raise ValueError('IPv6 TFTP/DNS requires separate service nodes and clients using only the managed IPv6 resolver.')
+        def tftp_numbering(node):
+            # Static dot1Q parents are unnumbered; every routed child and
+            # other physical host/router port still needs explicit IPv6.
+            parents={sub['parent'] for sub in node['subinterfaces'].values()}
+            routed=(set(node['interfaces'])-parents)|set(node['subinterfaces'])
+            return set(node['ipv6'])==routed
+        if len(servers)!=1 or servers[0]['tftp_server'].get('family')!='ipv6' or any(
+                n['role'] not in ('host','router','switch') or any(n.get(k) for k in excluded) or
+                any(n['interfaces'].values()) or n['forwarding'] or n.get('gateway') or n['routes'] or
+                (n['role']!='switch' and not tftp_numbering(n)) for n in spec['nodes']):
+            raise ValueError('IPv6 TFTP requires one explicit IPv6 server and static IPv6-only hosts, dot1Q routers or Linux VLAN switches, with only separately managed DNS coexistence.')
     dns_coexistence = any(n.get('dns_server') or n.get('resolvers') for n in spec['nodes'])
     aaa_coexistence = any(n.get('radius_server') or n.get('management') for n in spec['nodes'])
+    if dns_coexistence and any((n.get('management') or {}).get('ssh_host_key') is not None for n in spec['nodes']):
+        raise ValueError('Pinned dual-stack SSH identity excludes DNS coexistence; use the separately scoped RADIUS diagnostic profile.')
+    from .lan import addresses
+    ipv6_only_dns = dns_coexistence and not aaa_coexistence and all(
+        not any(addresses(n).values()) and not n['forwarding'] and not n.get('gateway') and not n['routes']
+        for n in spec['nodes'])
+    ospfv3_dns=dns_coexistence and any(n.get('ospfv3') for n in spec['nodes'])
+    if ospfv3_dns:
+        if not ipv6_only_dns:
+            raise ValueError('OSPFv3/DNS requires IPv6-only service routing without dual-stack or AAA.')
+        from .ospfv3 import validate_dns_lab
+        validate_dns_lab(spec)
     if aaa_coexistence:
         if not any(n.get('radius_server') for n in spec['nodes']):
             raise ValueError('Dual-stack AAA requires a separate managed RADIUS server.')
@@ -101,18 +170,20 @@ def validate_lab(spec):
                 raise ValueError('Dual-stack AAA shell/accounting combinations require separate validation.')
     if dns_coexistence or aaa_coexistence:
         for node in spec['nodes']:
+            if ipv6_only_dns and node.get('radius_access'):
+                raise ValueError('IPv6-only DNS composition excludes RADIUS access policy.')
             if any(node.get(k) for k in ('slaac', 'router_advertisements', 'dhcpv6_clients', 'dhcpv6_server',
                                         'dhcpv6_relay', 'dhcpv6_remote_server', 'dhcpv6_pd_client', 'dhcpv6_pd_server',
-                                        'ospfv3', 'svis', 'subinterfaces', 'firewall_ipv6', 'ra_guard')):
+                                        'svis', 'ra_guard')) or (node.get('ospfv3') and not ospfv3_dns) or (node.get('firewall_ipv6') is not None and not ipv6_only_dns) or (node['subinterfaces'] and not ipv6_only_dns):
                 raise ValueError('Dual-stack service coexistence requires static physical routing without dynamic IPv6, SVIs, subinterfaces or firewall profiles.')
-            if node['role'] in ('host', 'router') and (set(node['ipv6']) != set(node['interfaces']) or not all(node['interfaces'].values())):
+            if node['role'] in ('host', 'router') and not (ipv6_only_dns and node['subinterfaces']) and (set(node['ipv6']) != set(node['interfaces']) or (not ipv6_only_dns and not all(node['interfaces'].values()))):
                 raise ValueError('Dual-stack services require IPv4 and static IPv6 on every physical host/router port.')
             if (node.get('dns_server') or node.get('resolvers')) and (node['role'] != 'host' or set(node['interfaces']) != {'eth0'}):
                 raise ValueError('Dual-stack DNS service/resolvers require single-interface OCI hosts.')
     seen = set()
     for node in spec['nodes']:
         # Deliberately do not imply IPv6 firewall/security coverage from IPv4 policy.
-        forbidden = ('https_server', 'tftp_server', 'ntp_server', 'snmp_receiver', 'snmp_agent', 'syslog_server', 'startup', 'port_channels', 'firewall',
+        forbidden = ('snmp_receiver', 'snmp_agent', 'syslog_server', 'startup', 'port_channels', 'firewall',
                      'dhcp_server', 'dhcp_clients', 'dhcp_pools', 'dhcp_relay',
                      'ospf', 'lldp', 'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')
         if (node['runtime'] != 'oci' or (node['role'] not in ('host', 'switch', 'router') and not (node['role'] == 'firewall' and node.get('firewall_ipv6') is not None)) or
