@@ -1,0 +1,5 @@
+# Network LABS additions to Firecracker's CI guest config (v1.10.1, 5.10).
+# 802.1Q tagged interfaces for router-on-a-stick and switch trunks.
+CONFIG_VLAN_8021Q=y
+# Per-port VLAN membership on the switch guest's br0.
+CONFIG_BRIDGE_VLAN_FILTERING=y

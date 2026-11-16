@@ -11,6 +11,7 @@ on:
         options:
           - all
           - microvm-kvm
+          - guest-kernel
           - microvm-image
           - benchmark-kernel-peak
           - dual-stack-ssh-host-key
@@ -37,10 +38,39 @@ on:
           - ipv6-ntp
           - ipv6-ntp-relay
 jobs:
-  microvm-kvm:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'microvm-kvm'
+  guest-kernel:
+    # The pinned Network LABS guest kernel (Firecracker CI config + 802.1Q). Cached by the
+    # hash of tools/guest_kernel, so it is rebuilt only when its pins or fragment change.
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'guest-kernel' || inputs.suite == 'microvm-kvm')
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/guest-kernel
+          key: guest-kernel-${{ hashFiles('tools/guest_kernel/**') }}
+      - name: Install kernel build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh curl xz-utils make gcc flex bison bc libelf-dev libssl-dev
+      - name: Build the guest kernel
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash tools/guest_kernel/build.sh /tmp/guest-kernel
+      - name: Show the guest kernel and its options
+        run: |
+          cat /tmp/guest-kernel/*.sha256
+          grep -E '^CONFIG_(VLAN_8021Q|BRIDGE_VLAN_FILTERING|BRIDGE|NF_NAT|IP_PNP|VIRTIO_VSOCKETS)=' /tmp/guest-kernel/*.config
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guest-kernel
+          path: /tmp/guest-kernel
+  microvm-kvm:
+    needs: guest-kernel
+    # Runs on the Firecracker CI kernel even if the guest kernel build fails.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.suite == 'microvm-kvm' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Require real KVM
@@ -61,6 +91,19 @@ jobs:
       - name: Verify actual guests with the direct launch used when no jailer is installed
         if: always()
         run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v
+      - name: Fetch the Network LABS guest kernel built in this run
+        id: own-kernel
+        if: always() && needs.guest-kernel.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: guest-kernel
+          path: /tmp/guest-kernel
+      - name: Verify actual guests on the Network LABS guest kernel (802.1Q), under the jailer
+        if: always() && steps.own-kernel.outcome == 'success'
+        run: |
+          kernel="$(ls /tmp/guest-kernel/vmlinux-*-network-labs)"
+          (cd /tmp/guest-kernel && sha256sum -c ./*.sha256)
+          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/own-kernel NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v
       - name: Report what the guest kernel supports
         if: always()
         run: |
