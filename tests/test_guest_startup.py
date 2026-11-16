@@ -18,7 +18,7 @@ class GuestStartupTests(unittest.TestCase):
             with self.subTest(profile=profile), self.assertRaises((ValueError, TypeError)): validate(spec)
 
     def test_observation_captures_only_supported_ipv4(self):
-        with patch('network_labs.appliances.guest_startup.query', side_effect=[ADDRESSES, ROUTES]):
+        with patch('network_labs.appliances.guest_startup.query', side_effect=[ADDRESSES, ROUTES, '0\n']):
             self.assertEqual(observe('/socket',self.node()),PROFILE)
         for text in (ADDRESSES.replace('BROADCAST,UP','BROADCAST'), ADDRESSES.replace('192.0.2.10/24','192.0.2.12/24'), ADDRESSES+'3: eth1: <UP>\n'):
             with patch('network_labs.appliances.guest_startup.query', return_value=text), self.assertRaises(ValueError): observe('/socket',self.node())
@@ -59,7 +59,7 @@ class GuestStartupTests(unittest.TestCase):
         node=self.node();node['interfaces']['eth1']='198.51.100.10/24'
         text=ADDRESSES.replace('    inet 198.51.100.1/32 scope global eth0\n','')+'3: eth1: <BROADCAST,UP>\n    inet 198.51.100.10/24 scope global eth1\n'
         routes='192.0.2.0/24 dev eth0 scope link src 192.0.2.10\n198.51.100.0/24 dev eth1 scope link src 198.51.100.10\n'
-        with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes]):
+        with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes,'0\n']):
             self.assertEqual(observe('/socket',node),{'addresses':[],'routes':[]})
         with patch('network_labs.appliances.guest_startup.query') as query, patch('network_labs.appliances.guest_startup.observe',return_value={'addresses':[],'routes':[]}):
             apply('/socket',node)
@@ -71,7 +71,7 @@ class GuestStartupTests(unittest.TestCase):
         text=ADDRESSES.replace('    inet 198.51.100.1/32 scope global eth0\n','')+'3: eth1: <BROADCAST,UP>\n    inet 198.51.100.10/24 scope global eth1\n    inet 198.51.100.11/24 scope global secondary eth1\n'
         routes='192.0.2.0/24 dev eth0 scope link src 192.0.2.10\n198.51.100.0/24 dev eth1 scope link src 198.51.100.10\n203.0.113.0/24 via 198.51.100.20 dev eth1\n'
         profile={'addresses':[],'routes':[{'network':'203.0.113.0/24','gateway':'198.51.100.20'}],'port_addresses':{'eth1':['198.51.100.11/24']}}
-        with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes]):
+        with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes,'0\n']):
             self.assertEqual(observe('/socket',node),profile)
         # A next hop on eth1's subnet reported through eth0 cannot be replayed faithfully.
         with patch('network_labs.appliances.guest_startup.query',side_effect=[text,routes.replace('dev eth1\n','dev eth0\n')]), self.assertRaises(ValueError):
@@ -96,3 +96,46 @@ class GuestStartupTests(unittest.TestCase):
         with patch('network_labs.appliances.guest_startup.query',side_effect=OSError('no socket')) as query, self.assertRaisesRegex(ValueError,'VMM exited'):
             apply('/socket',self.node(),alive=lambda:query.call_count<2)
         self.assertEqual(query.call_count,2)
+
+    def test_router_guest_must_forward_and_host_guest_must_not(self):
+        from network_labs.appliances.microvm import router_example
+        from network_labs.appliances.guest_startup import check_forwarding, forwarding
+        spec=router_example('/kernel','/disk');router,host=spec['nodes'][0],spec['nodes'][1]
+        self.assertEqual((router['role'],host['gateway'],spec['nodes'][2]['gateway']),('router','192.0.2.1','198.51.100.1'))
+        unsupported=ValueError('Guest forwarding failed: unsupported operation')
+        for node,answer,accepted in [(router,'1\n',True),(router,'0\n',False),(router,unsupported,False),(host,'0\n',True),(host,'1\n',False),(host,unsupported,True)]:
+            with self.subTest(role=node['role'],answer=answer),patch('network_labs.appliances.guest_startup.query',side_effect=[answer]):
+                if accepted:check_forwarding('/socket',node)
+                else:
+                    with self.assertRaises(ValueError):check_forwarding('/socket',node)
+        with patch('network_labs.appliances.guest_startup.query',side_effect=ValueError('Guest forwarding failed: forwarding state unavailable')),self.assertRaises(ValueError):
+            forwarding('/socket')
+        # Forwarding is switched on last, after every address and route it depends on.
+        with patch('network_labs.appliances.guest_startup.query') as query,patch('network_labs.appliances.guest_startup.observe',return_value={'addresses':[],'routes':[]}):
+            apply('/socket',router)
+        self.assertEqual((query.call_args_list[-1].args[1],query.call_args_list[-1].kwargs),('forward',{'state':'on'}))
+        with patch('network_labs.appliances.guest_startup.query') as query,patch('network_labs.appliances.guest_startup.observe',return_value={'addresses':[],'routes':[]}):
+            apply('/socket',self.node())
+        self.assertNotIn('forward',[c.args[1] for c in query.call_args_list])
+
+    def test_router_role_needs_two_ports_and_stays_a_micro_vm_role(self):
+        from network_labs.appliances.microvm import router_example
+        spec=router_example('/kernel','/disk');spec['nodes'][0]['interfaces']={'eth0':'192.0.2.1/24'}
+        with self.assertRaisesRegex(ValueError,'two ports'):validate(spec)
+        for role in ('switch','firewall'):
+            spec=router_example('/kernel','/disk');spec['nodes'][0]['role']=role
+            with self.subTest(role=role),self.assertRaises(ValueError):validate(spec)
+
+    def test_router_chain_declares_one_transit_route_per_router_on_the_right_port(self):
+        from network_labs.appliances.microvm import router_chain_example
+        from network_labs.appliances.guest_startup import route_port
+        spec=router_chain_example('/kernel','/disk');first,second=spec['nodes'][:2]
+        self.assertEqual([n['name'] for n in spec['nodes']],['R1','R2','VM2','VM3'])
+        self.assertEqual(route_port(first,first['guest_network'],'203.0.113.2'),'eth1')
+        self.assertEqual(route_port(second,second['guest_network'],'203.0.113.1'),'eth0')
+        # R1 reaches its next hop through its second port, so replay must name that port; forwarding still comes last.
+        with patch('network_labs.appliances.guest_startup.query') as query,patch('network_labs.appliances.guest_startup.observe',return_value=first['guest_network']):
+            apply('/socket',first)
+        calls=[(c.args[1],c.kwargs) for c in query.call_args_list]
+        self.assertIn(('route-add',{'network':'198.51.100.0/24','gateway':'203.0.113.2','interface':'eth1'}),calls)
+        self.assertEqual(calls[-1],('forward',{'state':'on'}))

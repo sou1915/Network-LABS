@@ -169,6 +169,35 @@ class LifecycleTests(unittest.TestCase):
                 manager.stop()
                 kill.assert_not_called()
 
+    def test_vmm_usage_measures_the_process_or_its_cgroup_and_tolerates_exit(self):
+        from network_labs.appliances.runtime import vmm_usage
+        own = vmm_usage({'pid': os.getpid()})
+        self.assertEqual(own['vmm_memory_source'], 'process resident set')
+        self.assertGreater(own['vmm_memory_bytes'], 1024 * 1024); self.assertGreaterEqual(own['vmm_cpu_seconds'], 0)
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'memory.current').write_text('123456789\n')
+            jailed = vmm_usage({'pid': os.getpid(), 'cgroup': folder})
+            self.assertEqual((jailed['vmm_memory_bytes'], jailed['vmm_memory_source']), (123456789, 'cgroup'))
+        self.assertEqual(vmm_usage({'pid': 2 ** 22 + 7}), {'vmm_memory_bytes': None, 'vmm_memory_source': None, 'vmm_cpu_seconds': None})
+
+    def test_stop_retains_state_when_a_vmm_survives_sigkill(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manager = Manager('test'); manager.directory = Path(folder) / 'test'; manager.directory.mkdir()
+            manager.state = {'spec': {}, 'vms': [{'name': 'VM1', 'pid': 123, 'starttime': 'same'}],
+                             'containers': [], 'namespaces': ['nl-owned'], 'host_links': [], 'mounts': []}
+            state = manager.state
+            def read_state():
+                manager.state = state
+                return state
+            with patch.object(manager, 'read', side_effect=read_state), patch('network_labs.appliances.runtime.process_identity', return_value='same'), \
+                 patch('os.kill') as kill, patch('os.waitpid', side_effect=ChildProcessError), patch('time.sleep'), \
+                 patch('network_labs.appliances.runtime.run', side_effect=AssertionError('fabric removed under a live VMM')):
+                with self.assertRaisesRegex(RuntimeFailure, 'VMM VM1 .pid 123. is still running'):
+                    manager.stop()
+                kill.assert_called_once()
+            # Nothing owned was torn down, so a later stop can still find and remove it.
+            self.assertTrue(manager.directory.exists())
+
 
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
 class NativeGUITests(unittest.TestCase):

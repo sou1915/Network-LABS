@@ -24,3 +24,41 @@ def multinic_example(kernel, disk):
     spec['nodes'].append(right)
     spec['links'].append([['VM1', 'eth1'], ['VM3', 'eth0']])
     return validate(spec)
+
+
+def router_example(kernel, disk):
+    """R1 forwards IPv4 between two segments; VM2 and VM3 reach each other only through it."""
+    spec = multinic_example(kernel, disk)
+    spec['name'] = 'microvm-router'
+    router, left, right = spec['nodes']
+    router.update(name='R1', role='router', interfaces={'eth0': '192.0.2.1/24', 'eth1': '198.51.100.1/24'})
+    left['gateway'] = '192.0.2.1'
+    right['gateway'] = '198.51.100.1'
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)
+
+
+def router_chain_example(kernel, disk):
+    """VM2 - R1 - R2 - VM3: each router holds one declared static route across the transit link."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-router-chain'
+    first, left, right = spec['nodes']
+    first['interfaces']['eth1'] = '203.0.113.1/30'
+    first['guest_network'] = {'addresses': [], 'routes': [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}]}
+    second = dict(first, name='R2', interfaces={'eth0': '203.0.113.2/30', 'eth1': '198.51.100.1/24'},
+                  guest_network={'addresses': [], 'routes': [{'network': '192.0.2.0/24', 'gateway': '203.0.113.1'}]})
+    spec['nodes'] = [first, second, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)
+
+
+def firewall_example(kernel, disk):
+    """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-firewall'
+    spec['nodes'][0].update(name='FW1', role='firewall', firewall={
+        'default': 'drop', 'stateful': True,
+        'rules': [{'name': 'inside-ping-out', 'in': 'eth0', 'out': 'eth1', 'source': '192.0.2.0/24', 'protocol': 'icmp', 'action': 'accept'}],
+        'nat': []})
+    spec['links'] = [[['FW1', 'eth0'], ['VM2', 'eth0']], [['FW1', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

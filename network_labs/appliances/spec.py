@@ -111,8 +111,14 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role != 'host' or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
-                raise ValueError('Firecracker host requires one static IPv4 per port, contiguous eth0..eth3.')
+            if role not in ('host', 'router', 'firewall') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
+                raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port, contiguous eth0..eth3.')
+            if role in ('router', 'firewall') and len(interfaces) < 2:
+                raise ValueError('Firecracker router or firewall requires at least two ports; a single-port guest is a host.')
+            if role == 'firewall' and node.get('firewall') is None:
+                raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
+            if role != 'firewall' and node.get('firewall') is not None:
+                raise ValueError('A firewall policy requires role firewall.')
             interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
             networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values()]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):

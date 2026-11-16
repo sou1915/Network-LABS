@@ -3,12 +3,53 @@ import ipaddress
 import socket
 import time
 
-OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL'}
+OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
+              'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE'}
 
 
-def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, timeout=6):
+def _firewall_command(operation, state, rule):
+    """Typed forward-filter requests; the guest validates every field again."""
+    command = OPERATIONS[operation]
+    choices = {'firewall-policy': ('accept', 'drop'), 'firewall-state': ('invalid', 'established')}.get(operation)
+    if choices:
+        if state not in choices or rule is not None:
+            raise ValueError(f'Guest {operation} requires state ' + ' or '.join(choices) + '.')
+        return command + ' ' + state
+    if operation != 'firewall-rule':
+        if state is not None or rule is not None:
+            raise ValueError(f'Guest {operation} accepts no arguments.')
+        return command
+    if state is not None or not isinstance(rule, dict) or set(rule) - {'action', 'in', 'out', 'protocol', 'source', 'destination', 'dport'}:
+        raise ValueError('Guest firewall rule requires action and optional in/out/protocol/source/destination/dport.')
+    protocol = rule.get('protocol', 'any')
+    if rule.get('action') not in ('accept', 'drop') or protocol not in ('any', 'tcp', 'udp', 'icmp'):
+        raise ValueError('Guest firewall rule: action accept/drop and protocol any/tcp/udp/icmp.')
+    fields = [rule['action']]
+    for key in ('in', 'out'):
+        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
+            raise ValueError('Guest firewall interface must be eth0..eth3.')
+        fields.append(rule.get(key, '-'))
+    fields.append(protocol)
+    for key in ('source', 'destination'):
+        fields.append(str(ipaddress.IPv4Network(rule[key], strict=True)) if key in rule else '-')
+    if 'dport' in rule:
+        if type(rule['dport']) is not int or not 1 <= rule['dport'] <= 65535 or protocol not in ('tcp', 'udp'):
+            raise ValueError('Guest firewall dport requires tcp or udp and 1..65535.')
+        fields.append(str(rule['dport']))
+    else:
+        fields.append('-')
+    return command + ' ' + ' '.join(fields)
+
+
+def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('firewall-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway)):
+            raise ValueError('Guest firewall operations accept only state or rule.')
+        return _exchange(path, operation, _firewall_command(operation, state, rule), timeout)
+    if rule is not None:
+        raise ValueError('Only firewall-rule accepts a rule.')
     command = OPERATIONS[operation]
     if operation == 'ping':
         command += ' ' + str(ipaddress.IPv4Address(destination))
@@ -18,6 +59,10 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state not in ('up', 'down'):
             raise ValueError('Guest link requires interface eth0..eth3 and state up or down.')
         command += ' ' + interface + ' ' + state
+    elif operation == 'forward':
+        if interface is not None or state not in ('on', 'off'):
+            raise ValueError('Guest forwarding requires state on or off and no interface.')
+        command += ' ' + state
     elif state is not None or (interface is not None and operation not in ('address-add', 'address-delete', 'route-add', 'route-delete')):
         raise ValueError('Only link, address and route operations accept an interface; only link accepts a state.')
     if operation in ('address-add', 'address-delete'):
@@ -40,6 +85,10 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         command += ' ' + str(ipaddress.IPv4Network(network, strict=True)) + ' ' + str(ipaddress.IPv4Address(gateway))
     elif network is not None or gateway is not None:
         raise ValueError('Only route operations accept network/gateway.')
+    return _exchange(path, operation, command, timeout)
+
+
+def _exchange(path, operation, command, timeout):
     if not 0 < timeout <= 30:
         raise ValueError('Guest timeout must be between 0 and 30 seconds.')
     deadline = time.monotonic() + timeout

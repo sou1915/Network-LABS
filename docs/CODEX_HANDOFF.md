@@ -1,11 +1,57 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Firewall micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+Measured guest kernel (Firecracker CI 5.10): bridging, iptables, conntrack and IPv6
+forwarding present; nf_tables and 802.1Q absent. A Firecracker node may therefore
+declare `role: firewall` with the same `firewall` policy schema as container
+firewalls (default, stateful, ordered named rules), enforced with iptables in the
+guest instead of nftables. `microvm-rootfs --with-agent --with-firewall` copies the
+host's legacy iptables program, its libraries and four match modules into the image.
+The agent gains typed `FW_LIST`, `FW_FLUSH`, `FW_POLICY`, `FW_STATE` and `FW_RULE`
+requests. Startup installs the policy while the chain defaults to drop, verifies an
+exact readback, and only then enables forwarding; `microvm-save` refuses drift.
+Not available on guests yet: address translation (`nat` entries are rejected), live
+`firewall` reconfiguration, sessions view, IPv6 filtering. `microvm-example
+--firewall` prints FW1 between an inside and an outside endpoint.
+
+## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16
+
+`capture LAB NODE ethN` now accepts micro-VM nodes: it records on the host-side
+`tapN` of the chosen guest port inside the node's namespace, with the same bounds
+and no-overwrite rules as container capture; nothing runs in the guest. `status`
+adds `vmm_memory_bytes`, its source (`cgroup` when jailed with cgroup v2, else the
+process resident set) and `vmm_cpu_seconds` per live VMM. The agent answers a new
+read-only `KERNEL` request (`microvm-diagnostic kernel`) reporting whether the
+guest kernel has bridging, 802.1Q, iptables, nf_tables, conntrack and IPv6
+forwarding; switch and firewall guest roles will be designed from that report.
+
+## Router micro-VM guests — 2026-11-15
+
+A Firecracker node may now declare `role: router` (at least two ports). After its
+addresses and routes are applied, startup switches IPv4 forwarding on in the guest
+kernel through two new typed agent requests, `FORWARDING` (read) and `FORWARD on|off`
+(write `/proc/sys/net/ipv4/ip_forward` directly; no shell, no sysctl applet). Startup
+readback and `microvm-save` fail closed unless a router forwards and a host does not;
+a host on an image whose agent predates these requests is accepted as not forwarding.
+`microvm-example --router --kernel PATH --disk PATH` prints R1 between VM2 and VM3,
+whose boot gateways point at R1. `tests/test_native_microvm_router.py` is the KVM
+acceptance: routed pings both ways, exactly one TTL lost per hop, no traffic with
+forwarding off, loss of the far port, save and cold restore. This is IPv4 static
+forwarding only: no NAT, firewall, dynamic routing or IPv6, and no switch role.
+
+The single-router acceptance passed on real KVM under the jailer and with the direct
+launch ([run 43776383073](https://github.com/sou1915/Network-LABS/actions/runs/43776383073)).
+`microvm-example --router-chain` adds VM2 - R1 - R2 - VM3 with one declared static
+route per router across a /30 transit link; its acceptance covers a route installed
+through a second port, two TTLs lost over two hops, live route withdrawal and cold
+restore. A unit test now covers stop retaining state when a VMM survives SIGKILL.
+
 ## Micro-VM hardening and multi-port routes — 2026-11-15
 
 The real-KVM acceptance tests passed under the jailer and with the direct launch
-(manual `microvm-kvm` workflow run). Still unit-tested only: a route through
-eth1..eth3 in a real guest, and the stop error for a VMM that survives SIGKILL.
-Guest images must be rebuilt with `microvm-rootfs --with-agent` before routes
+(manual `microvm-kvm` workflow run). A route through a second port is covered by
+the router-chain acceptance above. Guest images must be rebuilt with `microvm-rootfs --with-agent` before routes
 through eth1..eth3 can be used.
 
 - **vCPU budget.** The total of micro-VM `vcpus` must fit the optional lab key

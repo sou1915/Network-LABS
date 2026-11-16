@@ -99,20 +99,3 @@ class MicroVMFoundationTests(unittest.TestCase):
             self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+2*VM_UID_BLOCK)
             (root/'c'/'state.json').unlink()
             self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+VM_UID_BLOCK)
-
-    def test_stop_keeps_lab_state_while_a_vmm_survives_sigkill(self):
-        import tempfile
-        from network_labs.appliances import runtime
-        with tempfile.TemporaryDirectory() as root:
-            manager=runtime.Manager('lab');manager.directory=Path(root)/'lab';manager.directory.mkdir()
-            state={'spec':example('/kernel','/disk'),'vms':[{'name':'VM1','pid':4242,'starttime':'77','jailed':False}],
-                   'containers':[],'namespaces':['nlxn0'],'host_links':[],'mounts':[]}
-            (manager.directory/'state.json').write_text(json.dumps(state))
-            with patch.object(runtime,'process_identity',return_value='77'),patch.object(runtime.os,'kill') as kill, \
-                 patch.object(runtime.os,'waitpid',side_effect=ChildProcessError),patch.object(runtime.time,'sleep'), \
-                 patch.object(runtime,'run',side_effect=AssertionError('fabric removed under a live VMM')), \
-                 patch('network_labs.appliances.dot1x.stop'),patch('network_labs.appliances.dot1x_supplicant.stop'), \
-                 patch('network_labs.appliances.stp_carrier.stop'):
-                with self.assertRaisesRegex(runtime.RuntimeFailure,'VMM VM1 .pid 4242. is still running'):manager.stop()
-            kill.assert_called_once_with(4242,runtime.signal.SIGKILL)
-            self.assertEqual(json.loads((manager.directory/'state.json').read_text()),state)

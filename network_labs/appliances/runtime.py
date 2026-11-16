@@ -328,6 +328,22 @@ def process_identity(pid):
         return None
 
 
+def vmm_usage(vm):
+    """Measured host cost of one VMM: its cgroup when jailed, else the process itself."""
+    usage = {'vmm_memory_bytes': None, 'vmm_memory_source': None, 'vmm_cpu_seconds': None}
+    try:
+        fields = Path(f'/proc/{vm["pid"]}/stat').read_text().rsplit(')', 1)[1].split()
+        usage['vmm_cpu_seconds'] = round((int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK'), 2)
+        if vm.get('cgroup') and Path(vm['cgroup'], 'memory.current').is_file():
+            usage.update(vmm_memory_bytes=int(Path(vm['cgroup'], 'memory.current').read_text()), vmm_memory_source='cgroup')
+        else:
+            rss = next(line for line in Path(f'/proc/{vm["pid"]}/status').read_text().splitlines() if line.startswith('VmRSS:'))
+            usage.update(vmm_memory_bytes=int(rss.split()[1]) * 1024, vmm_memory_source='process resident set')
+    except (OSError, ValueError, IndexError, StopIteration):
+        pass  # A process that just exited has nothing to measure; liveness is reported separately.
+    return usage
+
+
 class Manager:
     def __init__(self, name):
         self.name = identifier(name)
@@ -464,7 +480,7 @@ class Manager:
             for node in spec['nodes']:
                 if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
-        if any(n.get('dot1x') or n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+        if any(n.get('dot1x') or (n.get('firewall') is not None and n['runtime'] == 'oci') or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed 802.1X/firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
@@ -502,7 +518,7 @@ class Manager:
                 ns = namespace(spec, i)
                 run(['ip', 'netns', 'add', ns]); self.state['namespaces'].append(ns); self.save()
                 self.ns(i, 'ip', 'link', 'set', 'lo', 'up')
-                if node.get('firewall') is not None:
+                if node.get('firewall') is not None and node['runtime'] == 'oci':
                     from .firewall import apply
                     self.state['firewall_fingerprints'][node['name']] = apply(self, i, node)
                     self.save()
@@ -713,12 +729,12 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1:
+            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host':
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
                 except (OSError, ValueError) as error:
-                    raise RuntimeFailure(f'{node["name"]}: guest startup failed: {error} Console tail: {tail()}') from error
+                    raise RuntimeFailure(f'{node["name"]}: guest startup failed. Console tail: {tail()}\nReason: {error}') from error
             return
         raise RuntimeFailure(f'Firecracker exited ({code}): {tail()}')
 
@@ -753,11 +769,13 @@ class Manager:
                 report['configured_memory_mib']=node['memory_mib'];report['configured_vcpus']=node.get('vcpus',1)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
                 report['vmm_jailed'] = bool(vm and vm.get('jailed'))
+                if report['vmm_alive']:
+                    report.update(vmm_usage(vm))
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')
             nodes.append(report)
         return {'name': self.name, 'phase': state['phase'], 'revision': state.get('revision', 0), 'nodes': nodes,
-                'memory_note': 'OCI cgroup memory only; not total app/VM/host usage.'}
+                'memory_note': 'OCI cgroup memory and, per micro-VM, measured VMM memory/CPU; not total app or host usage.'}
 
     def inspect(self, name):
         from .lan import observe
@@ -857,6 +875,8 @@ class Manager:
         index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
+        if state['spec']['nodes'][index]['runtime'] != 'oci':
+            raise ValueError('Live firewall changes are not available for micro-VM firewalls yet; edit the lab file and restart.')
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index]['firewall'] = policy
         candidate = validate(candidate)
@@ -879,7 +899,7 @@ class Manager:
 
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
-            if node['name'] == name and node.get('firewall') is not None:
+            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'oci':
                 result = self.ns(index, 'conntrack', '-F' if clear else '-L', '-f', 'ipv4')
                 return {'node': name, 'cleared': clear, 'output': result.stdout, 'summary': result.stderr}
         raise ValueError('An existing managed firewall node is required.')

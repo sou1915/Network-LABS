@@ -5,6 +5,14 @@
 #include <linux/vm_sockets.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
+#include <linux/if_bridge.h>
+#include <linux/netlink.h>
+#include <linux/netfilter/nfnetlink.h>
+#include <linux/netfilter/nf_tables.h>
+#include <sys/time.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
@@ -27,6 +35,31 @@ static int valid_cidr(const char *value) {
     for (size_t i = 0; i < digits; i++) if (prefix[i] < '0' || prefix[i] > '9') return 0;
     return atoi(prefix) <= 32;
 }
+/* Ask nf_tables for its generation: a read-only request that only an nf_tables kernel answers. */
+static int has_nftables(void) {
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
+    if (fd < 0) return 0;
+    struct { struct nlmsghdr header; struct nfgenmsg generic; } query;
+    memset(&query, 0, sizeof(query));
+    query.header.nlmsg_len = sizeof(query);
+    query.header.nlmsg_type = (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_GETGEN;
+    query.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    query.generic.version = NFNETLINK_V0;
+    struct timeval limit = {1, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+    char answer[512]; int present = 0;
+    if (send(fd, &query, sizeof(query), 0) == (ssize_t)sizeof(query)) {
+        ssize_t n = recv(fd, answer, sizeof(answer), 0);
+        if (n >= (ssize_t)sizeof(struct nlmsghdr)) {
+            struct nlmsghdr *header = (struct nlmsghdr *)answer;
+            if (header->nlmsg_type != NLMSG_ERROR) present = 1;
+            else if (n >= (ssize_t)(sizeof(struct nlmsghdr) + sizeof(struct nlmsgerr)))
+                present = ((struct nlmsgerr *)NLMSG_DATA(header))->error == 0;
+        }
+    }
+    close(fd);
+    return present;
+}
 static int send_all(int fd, const char *data, size_t size) {
     while (size) {
         ssize_t n = write(fd, data, size);
@@ -42,7 +75,7 @@ static void reply(int fd, int code, const char *data, size_t size) {
     if (!send_all(fd, header, (size_t)n)) (void)send_all(fd, data, size);
 }
 static void serve(int input, int output, int mutations) {
-    char request[64]; size_t used = 0;
+    char request[160]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
     while (used < sizeof(request) - 1) {
         char c; ssize_t n = read(input, &c, 1);
@@ -56,6 +89,38 @@ static void serve(int input, int output, int mutations) {
     if (!strcmp(request, "NL1 READY")) {
         const char *ready = "{\"protocol\":1,\"agent_ready\":true,\"network_verified\":false}";
         reply(output, 0, ready, strlen(ready)); return;
+    }
+    if (!strcmp(request, "NL1 KERNEL")) {
+        /* What this guest kernel can do, probed without changing anything. */
+        unsigned long version[3] = {BRCTL_GET_VERSION, 0, 0};
+        int probe = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        int bridge = probe >= 0 && ioctl(probe, SIOCGIFBR, version) >= 0;
+        if (probe >= 0) close(probe);
+        char report[256];
+        int n = snprintf(report, sizeof(report),
+            "bridge=%d\nvlan=%d\niptables=%d\nnftables=%d\nconntrack=%d\nipv6_forwarding=%d\n",
+            bridge, !access("/proc/net/vlan", F_OK), !access("/proc/net/ip_tables_names", F_OK),
+            has_nftables(),
+            !access("/proc/sys/net/netfilter/nf_conntrack_max", F_OK),
+            !access("/proc/sys/net/ipv6/conf/all/forwarding", F_OK));
+        reply(output, 0, report, (size_t)n); return;
+    }
+    /* IPv4 forwarding is one kernel switch: read or write it directly, never through a command line. */
+    const char *forward_path = "/proc/sys/net/ipv4/ip_forward";
+    if (!strcmp(request, "NL1 FORWARDING")) {
+        char value[4]; int fd = open(forward_path, O_RDONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value));
+        if (fd >= 0) close(fd);
+        if (n < 1) { reply(output, 1, "forwarding state unavailable", 28); return; }
+        reply(output, 0, value, (size_t)n); return;
+    }
+    int forward_on = !strcmp(request, "NL1 FORWARD on"), forward_off = !strcmp(request, "NL1 FORWARD off");
+    if (mutations && (forward_on || forward_off)) {
+        int fd = open(forward_path, O_WRONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : write(fd, forward_on ? "1\n" : "0\n", 2);
+        if (fd >= 0) close(fd);
+        if (n != 2) { reply(output, 1, "forwarding change failed", 24); return; }
+        reply(output, 0, "", 0); return;
     }
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};
     char *const routes[] = {"busybox", "ip", "route", "show", NULL};
@@ -101,6 +166,44 @@ static void serve(int input, int output, int mutations) {
     char *const route_remove[] = {"busybox", "ip", "route", "del", route_network, "via", route_gateway, "dev", "eth0", NULL};
     if (route_gateway && route_add) args = route_insert;
     if (route_gateway && route_delete) args = route_remove;
+    /* IPv4 forward filtering through the image's iptables; every argument is typed and validated here. */
+    const char *program = "/bin/busybox";
+    char fw_action[7], fw_in[5], fw_out[5], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
+    char *firewall[24]; int count = 0;
+    #define FW(word) firewall[count++] = (char *)(word)
+    FW("iptables"); FW("-w");
+    int fw_ready = 0;
+    if (!strcmp(request, "NL1 FW_LIST")) { FW("-S"); FW("FORWARD"); fw_ready = 1; }
+    else if (mutations && !strcmp(request, "NL1 FW_FLUSH")) { FW("-F"); FW("FORWARD"); fw_ready = 1; }
+    else if (mutations && (!strcmp(request, "NL1 FW_POLICY accept") || !strcmp(request, "NL1 FW_POLICY drop"))) {
+        FW("-P"); FW("FORWARD"); FW(request[14] == 'a' ? "ACCEPT" : "DROP"); fw_ready = 1;
+    } else if (mutations && (!strcmp(request, "NL1 FW_STATE invalid") || !strcmp(request, "NL1 FW_STATE established"))) {
+        int invalid = request[13] == 'i';
+        FW("-A"); FW("FORWARD"); FW("-m"); FW("conntrack"); FW("--ctstate");
+        FW(invalid ? "INVALID" : "RELATED,ESTABLISHED"); FW("-j"); FW(invalid ? "DROP" : "ACCEPT"); fw_ready = 1;
+    } else if (mutations && sscanf(request, "NL1 FW_RULE %6s %4s %4s %4s %19s %19s %5s %c", fw_action, fw_in, fw_out,
+                                   fw_proto, fw_source, fw_destination, fw_port, &extra) == 7) {
+        int accept = !strcmp(fw_action, "accept"), tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
+        int has_port = strcmp(fw_port, "-") != 0, port_ok = !has_port;
+        if (has_port && (tcp || udp) && fw_port[0] != '0' && strspn(fw_port, "0123456789") == strlen(fw_port)) {
+            long value = atol(fw_port); port_ok = value >= 1 && value <= 65535;
+        }
+        if ((accept || !strcmp(fw_action, "drop")) && port_ok &&
+            (!strcmp(fw_in, "-") || valid_port(fw_in)) && (!strcmp(fw_out, "-") || valid_port(fw_out)) &&
+            (tcp || udp || !strcmp(fw_proto, "icmp") || !strcmp(fw_proto, "any")) &&
+            (!strcmp(fw_source, "-") || valid_cidr(fw_source)) && (!strcmp(fw_destination, "-") || valid_cidr(fw_destination))) {
+            FW("-A"); FW("FORWARD");
+            if (strcmp(fw_in, "-")) { FW("-i"); FW(fw_in); }
+            if (strcmp(fw_out, "-")) { FW("-o"); FW(fw_out); }
+            if (strcmp(fw_proto, "any")) { FW("-p"); FW(fw_proto); }
+            if (strcmp(fw_source, "-")) { FW("-s"); FW(fw_source); }
+            if (strcmp(fw_destination, "-")) { FW("-d"); FW(fw_destination); }
+            if (has_port) { FW("--dport"); FW(fw_port); }
+            FW("-j"); FW(accept ? "ACCEPT" : "DROP"); fw_ready = 1;
+        }
+    }
+    #undef FW
+    if (fw_ready) { firewall[count] = NULL; args = firewall; program = "/sbin/xtables-legacy-multi"; }
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }
@@ -111,7 +214,7 @@ static void serve(int input, int output, int mutations) {
         if (dup2(pipes[1], 1) < 0 || dup2(pipes[1], 2) < 0) _exit(126);
         close(pipes[1]);
         char *const env[] = {"PATH=/bin", "LC_ALL=C", NULL};
-        execve("/bin/busybox", args, env); _exit(127);
+        execve(program, args, env); _exit(127);
     }
     close(pipes[1]);
     if (child < 0) { close(pipes[0]); reply(output, 3, "fork failed", 11); return; }
