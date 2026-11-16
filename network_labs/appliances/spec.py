@@ -111,7 +111,21 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role not in ('host', 'router', 'firewall') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
+            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
+                raise ValueError('Firecracker host, router, firewall or switch requires contiguous ports eth0..eth3.')
+            if role == 'switch':
+                # The measured guest kernel bridges but has no 802.1Q: one untagged segment, no addressing.
+                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node or node['svis']
+                        or node['vlans'] != [1] or any(port != {'mode': 'access', 'vlan': 1} for port in node['switchports'].values())):
+                    raise ValueError('Firecracker switch: 2..4 unnumbered ports in one untagged VLAN 1 (no 802.1Q in the guest kernel); '
+                                     'no addresses, gateway, SVIs or guest_network.')
+                if node.get('firewall') is not None:
+                    raise ValueError('A firewall policy requires role firewall.')
+                node['interfaces'] = dict(sorted(interfaces.items()))
+                from .guest_startup import validate_profile
+                validate_profile(node)
+                continue
+            if not all(interfaces.values()):
                 raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port, contiguous eth0..eth3.')
             if role in ('router', 'firewall') and len(interfaces) < 2:
                 raise ValueError('Firecracker router or firewall requires at least two ports; a single-port guest is a host.')

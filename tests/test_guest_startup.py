@@ -139,3 +139,63 @@ class GuestStartupTests(unittest.TestCase):
         calls=[(c.args[1],c.kwargs) for c in query.call_args_list]
         self.assertIn(('route-add',{'network':'198.51.100.0/24','gateway':'203.0.113.2','interface':'eth1'}),calls)
         self.assertEqual(calls[-1],('forward',{'state':'on'}))
+
+    def switch(self):
+        from network_labs.appliances.microvm import switch_example
+        return switch_example('/kernel', '/disk')['nodes'][0]
+
+    BRIDGED = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
+               '2: eth0: <BROADCAST,UP,LOWER_UP>\n3: eth1: <BROADCAST,UP,LOWER_UP>\n4: eth2: <BROADCAST,UP,LOWER_UP>\n'
+               '5: br0: <BROADCAST,UP,LOWER_UP>\n')
+
+    def test_switch_guest_bridges_every_declared_port_and_nothing_else(self):
+        from network_labs.appliances.guest_startup import check_switch
+        node = self.switch()
+        with patch('network_labs.appliances.guest_startup.query') as query:
+            query.side_effect = lambda socket, operation, **kw: {'bridge-ports': 'eth2\neth0\neth1\n', 'addresses': self.BRIDGED, 'forwarding': '0\n'}.get(operation, '')
+            apply('/socket', node)
+        calls = [(c.args[1], c.kwargs.get('interface')) for c in query.call_args_list]
+        self.assertEqual(calls[:7], [('ready', None), ('link', 'eth0'), ('bridge-add', 'eth0'), ('link', 'eth1'), ('bridge-add', 'eth1'), ('link', 'eth2'), ('bridge-add', 'eth2')])
+        self.assertNotIn('address-add', [c[0] for c in calls]); self.assertNotIn('forward', [c[0] for c in calls])
+        bad = {'missing port': ('eth0\neth1\n', self.BRIDGED, '0\n'),
+               'address on bridge': ('eth0\neth1\neth2\n', self.BRIDGED + '    inet 192.0.2.99/24 scope global br0\n', '0\n'),
+               'port down': ('eth0\neth1\neth2\n', self.BRIDGED.replace('4: eth2: <BROADCAST,UP,LOWER_UP>', '4: eth2: <BROADCAST>'), '0\n'),
+               'routing': ('eth0\neth1\neth2\n', self.BRIDGED, '1\n'),
+               'extra port': ('eth0\neth1\neth2\n', self.BRIDGED + '6: eth3: <BROADCAST,UP>\n', '0\n')}
+        for label, (ports, text, forwarding) in bad.items():
+            replies = {'bridge-ports': ports, 'addresses': text, 'forwarding': forwarding}
+            with self.subTest(label), patch('network_labs.appliances.guest_startup.query', side_effect=lambda s, o, **k: replies[o]), self.assertRaises(ValueError):
+                check_switch('/socket', node)
+
+    def test_switch_save_rebuilds_from_declared_ports_and_keeps_no_guest_network(self):
+        from types import SimpleNamespace
+        from pathlib import Path
+        from network_labs.appliances.microvm import switch_example
+        from network_labs.appliances.guest_startup import save_observed
+        spec = switch_example('/kernel', '/disk')
+        manager = SimpleNamespace(name='microvm-switch', directory=Path('/private'), state=None, read=lambda: {'phase': 'running', 'spec': copy.deepcopy(spec)})
+        empty = {'addresses': [], 'routes': []}
+        with patch('network_labs.appliances.guest_startup.check_switch') as check, patch('network_labs.appliances.guest_startup.observe', return_value=empty), \
+             patch('network_labs.appliances.persistence.save_startup') as save:
+            save_observed(manager)
+        self.assertEqual(check.call_count, 2)
+        saved = save.call_args.args[1]
+        self.assertNotIn('guest_network', saved['nodes'][0])
+        self.assertEqual([n['guest_network'] for n in saved['nodes'][1:]], [empty] * 3)
+
+    def test_switch_role_is_one_untagged_unnumbered_segment(self):
+        from network_labs.appliances.microvm import switch_example
+        from network_labs.appliances.runtime import firecracker_config
+        from pathlib import Path
+        spec = switch_example('/kernel', '/disk')
+        self.assertNotIn('ip=', firecracker_config(spec['nodes'][0], Path('/k'), Path('/d'))['boot-source']['boot_args'])
+        changes = {'numbered port': lambda n: n['interfaces'].update(eth0='192.0.2.1/24'),
+                   'one port': lambda n: n.update(interfaces={'eth0': ''}, switchports={}),
+                   'gateway': lambda n: n.update(gateway='192.0.2.1'),
+                   'second vlan': lambda n: n.update(vlans=[1, 10]),
+                   'trunk': lambda n: n['switchports'].update(eth0={'mode': 'trunk', 'native_vlan': 1, 'allowed': 'all'}),
+                   'guest network': lambda n: n.update(guest_network={'addresses': [], 'routes': []}),
+                   'firewall': lambda n: n.update(firewall={'default': 'drop', 'stateful': True, 'rules': [], 'nat': []})}
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec); change(bad['nodes'][0])
+            with self.subTest(label), self.assertRaises(ValueError): validate(bad)

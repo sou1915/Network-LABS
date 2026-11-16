@@ -113,11 +113,12 @@ def oci_config(spec, node, index, rootfs):
 
 
 def firecracker_config(node, kernel, disk):
-    interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
-    gateway = node.get('gateway', '')
+    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
+    if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
+        interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
+        boot += f' ip={interface.ip}::{node.get("gateway", "")}:{interface.netmask}:{node["name"]}:eth0:off'
     return {
-        'boot-source': {'kernel_image_path': str(kernel),
-                        'boot_args': f'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ip={interface.ip}::{gateway}:{interface.netmask}:{node["name"]}:eth0:off'},
+        'boot-source': {'kernel_image_path': str(kernel), 'boot_args': boot},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
         'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:]} for port in sorted(node['interfaces'])],

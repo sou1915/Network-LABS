@@ -52,6 +52,15 @@ def router_chain_example(kernel, disk):
     return validate(spec)
 
 
+def switch_example(kernel, disk):
+    """SW1 bridges three endpoint guests into one segment; it holds no address and routes nothing."""
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()), 'memory_mib': 128, 'vcpus': 1}
+    nodes = [dict(base, name='SW1', role='switch', interfaces={f'eth{i}': '' for i in range(3)})]
+    nodes += [dict(base, name=f'VM{i + 1}', role='host', interfaces={'eth0': f'192.0.2.{11 + i}/24'}) for i in range(3)]
+    return validate({'version': 1, 'name': 'microvm-switch', 'budget_mib': 2048, 'reserve_mib': 512, 'nodes': nodes,
+                     'links': [[['SW1', f'eth{i}'], [f'VM{i + 1}', 'eth0']] for i in range(3)]})
+
+
 def firewall_example(kernel, disk):
     """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
     spec = router_example(kernel, disk)

@@ -77,8 +77,17 @@ class GuestAgentTests(unittest.TestCase):
         self.assertEqual(Path('/proc/sys/net/ipv4/ip_forward').read_text(), before)
 
     def test_stdio_cannot_mutate_interfaces(self):
+        for data in (b'NL1 BRIDGE_ADD eth0\n', b'NL1 BRIDGE_ADD eth9\n', b'NL1 BRIDGE_ADD eth0 x\n', b'NL1 BRIDGE_PORTS x\n'):
+            self.assertEqual(self.invoke(data)[0], 2, data)
         for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 ROUTE_ADD 198.51.100.0/24 192.0.2.20\n', b'NL1 ROUTE_DEL 198.51.100.0/24 192.0.2.20\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
+
+    def test_bridge_ports_are_read_only_and_absent_bridge_is_reported(self):
+        code, body = self.invoke(b'NL1 BRIDGE_PORTS\n')
+        if Path('/sys/class/net/br0/brif').is_dir():
+            self.assertEqual(code, 0)
+        else:
+            self.assertEqual((code, body), (1, b'no bridge'))
 
     def test_partial_request_times_out(self):
         with subprocess.Popen([str(self.binary), '--stdio'], stdin=subprocess.PIPE,

@@ -4,6 +4,7 @@ import socket
 import time
 
 OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
+              'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
               'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE'}
 
 
@@ -59,6 +60,10 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state not in ('up', 'down'):
             raise ValueError('Guest link requires interface eth0..eth3 and state up or down.')
         command += ' ' + interface + ' ' + state
+    elif operation == 'bridge-add':
+        if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state is not None:
+            raise ValueError('Guest bridge-add requires interface eth0..eth3 and no state.')
+        command += ' ' + interface
     elif operation == 'forward':
         if interface is not None or state not in ('on', 'off'):
             raise ValueError('Guest forwarding requires state on or off and no interface.')

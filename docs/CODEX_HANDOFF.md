@@ -1,5 +1,23 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Switch micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+A Firecracker node may declare `role: switch` with 2..4 unnumbered ports. The
+measured guest kernel bridges but has no 802.1Q, so a switch guest is one
+untagged VLAN 1 learning bridge: `vlans` stays `[1]`, every switchport stays
+access VLAN 1, and addresses, gateway, SVIs and `guest_network` are refused.
+Its kernel boots without IP autoconfiguration. Startup brings each port up and
+joins it to `br0` through the new typed agent request `BRIDGE_ADD ethN` (bridge
+ioctls in the agent; no brctl applet), then verifies with the read-only
+`BRIDGE_PORTS`: exactly the declared ports, all up, no IPv4 anywhere and IPv4
+forwarding off. `microvm-save` re-checks that and stores nothing for the
+switch; a cold restore rebuilds the bridge from the declared ports.
+`microvm-example --switch` prints SW1 joining VM1..VM3 on 192.0.2.0/24, and
+`tests/test_native_microvm_switch.py` is the KVM acceptance: pings between all
+three endpoints, loss of one port, save and cold restore. Not available yet:
+VLANs/trunks (needs a guest kernel with 802.1Q), STP, LACP and the OCI switch
+security features.
+
 ## Firewall micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
 
 Measured guest kernel (Firecracker CI 5.10): bridging, iptables, conntrack and IPv6

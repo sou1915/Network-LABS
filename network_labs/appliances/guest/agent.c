@@ -13,6 +13,8 @@
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/time.h>
+#include <net/if.h>
+#include <dirent.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
@@ -120,6 +122,39 @@ static void serve(int input, int output, int mutations) {
         ssize_t n = fd < 0 ? -1 : write(fd, forward_on ? "1\n" : "0\n", 2);
         if (fd >= 0) close(fd);
         if (n != 2) { reply(output, 1, "forwarding change failed", 24); return; }
+        reply(output, 0, "", 0); return;
+    }
+    /* One untagged learning bridge (the guest kernel has no 802.1Q): typed ioctls, no brctl applet. */
+    if (!strcmp(request, "NL1 BRIDGE_PORTS")) {
+        DIR *directory = opendir("/sys/class/net/br0/brif");
+        if (!directory) { reply(output, 1, "no bridge", 9); return; }
+        char list[256]; size_t size = 0; struct dirent *entry;
+        while ((entry = readdir(directory))) {
+            if (entry->d_name[0] == '.') continue;
+            int n = snprintf(list + size, sizeof(list) - size, "%s\n", entry->d_name);
+            if (n < 0 || (size_t)n >= sizeof(list) - size) { closedir(directory); reply(output, 3, "too many bridge ports", 21); return; }
+            size += (size_t)n;
+        }
+        closedir(directory);
+        reply(output, 0, list, size); return;
+    }
+    char bridge_port[5], bridge_extra;
+    if (mutations && sscanf(request, "NL1 BRIDGE_ADD %4s %c", bridge_port, &bridge_extra) == 1 && valid_port(bridge_port)) {
+        int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
+        if (!failure && ioctl(fd, SIOCBRADDBR, "br0") < 0 && errno != EEXIST) failure = errno;
+        struct ifreq change;
+        memset(&change, 0, sizeof(change)); strncpy(change.ifr_name, "br0", IFNAMSIZ - 1);
+        change.ifr_ifindex = (int)if_nametoindex(bridge_port);
+        if (!failure && (!change.ifr_ifindex || ioctl(fd, SIOCBRADDIF, &change) < 0)) failure = change.ifr_ifindex ? errno : ENODEV;
+        memset(&change, 0, sizeof(change)); strncpy(change.ifr_name, "br0", IFNAMSIZ - 1);
+        if (!failure && ioctl(fd, SIOCGIFFLAGS, &change) < 0) failure = errno;
+        change.ifr_flags |= IFF_UP;
+        if (!failure && ioctl(fd, SIOCSIFFLAGS, &change) < 0) failure = errno;
+        if (fd >= 0) close(fd);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bridge change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
         reply(output, 0, "", 0); return;
     }
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};

@@ -209,7 +209,9 @@ def validate_lan(node):
     validate_https(node)
     from .dhcpv6_pd import validate_node as validate_pd
     validate_pd(node)
-    if node['runtime'] != 'oci' and any((ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
+    # A Firecracker switch keeps its default untagged switchports; spec.py rejects any other port mode there.
+    vm_switch_ports = node['runtime'] == 'firecracker' and role == 'switch'
+    if node['runtime'] != 'oci' and any((ports and not vm_switch_ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
 

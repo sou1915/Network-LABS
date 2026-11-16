@@ -94,6 +94,26 @@ def check_forwarding(socket, node):
         raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
 
 
+def check_switch(socket, node):
+    """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
+    ports = sorted(query(socket, 'bridge-ports').split())
+    if ports != sorted(node['interfaces']):
+        raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
+    up = set(); interface = None
+    for line in query(socket, 'addresses').splitlines():
+        header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
+        if header:
+            interface = header[1]
+            if interface not in ('lo', 'br0') and interface not in node['interfaces']:
+                raise ValueError('Guest has an undeclared interface.')
+            if 'UP' in header[2].split(','): up.add(interface)
+        elif line.split()[:1] == ['inet'] and interface != 'lo':
+            raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
+    if not {'br0', *node['interfaces']} <= up:
+        raise ValueError('Switch guest bridge and all declared ports must be up.')
+    check_forwarding(socket, node)
+
+
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
@@ -160,6 +180,12 @@ def apply(socket, node, timeout=40, alive=None):
         except (OSError, ValueError):
             if time.monotonic() >= deadline: raise
             time.sleep(.1)
+    if node.get('role') == 'switch':
+        for port in node['interfaces']:
+            query(socket, 'link', interface=port, state='up')
+            query(socket, 'bridge-add', interface=port)
+        check_switch(socket, node)
+        return
     for port, address in node['interfaces'].items():
         if port != 'eth0':
             query(socket, 'address-add', interface=port, cidr=address)
@@ -194,10 +220,14 @@ def save_observed(manager):
         raise ValueError('microvm-save requires a running VM-only lab.')
     candidate = copy.deepcopy(state['spec'])
     for node in candidate['nodes']:
+        if node['role'] == 'switch':  # Nothing to capture: the bridge is rebuilt from the declared ports.
+            check_switch(manager.directory / node['name'] / 'guest.vsock', node); continue
         node['guest_network'] = observe(manager.directory / node['name'] / 'guest.vsock', node)
     candidate = validate(candidate)
     # Re-read before publishing: do not accept drift across the capture window.
     for node in candidate['nodes']:
+        if node['role'] == 'switch':
+            check_switch(manager.directory / node['name'] / 'guest.vsock', node); continue
         if observe(manager.directory / node['name'] / 'guest.vsock', node) != node['guest_network']:
             raise ValueError('Guest changed during save; no startup configuration written.')
     save_startup(manager.name, candidate)
