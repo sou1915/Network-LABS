@@ -1,3 +1,5 @@
+> **Historical checkpoint (2026-11-06).** For what works now, read [STATUS.md](STATUS.md).
+
 # Project checkpoint and planning estimate — 2026-11-06
 
 **Architecture correction:** the user's target is one Linux micro-VM per node,

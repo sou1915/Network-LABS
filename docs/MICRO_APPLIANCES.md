@@ -17,7 +17,7 @@ ne sont pas encore portées.
 Depuis une copie du dépôt, avec Python 3.12+ :
 
 ```bash
-git switch prototype/linux-simulator
+git switch main
 git pull --ff-only
 python3 -m venv .venv-micro
 .venv-micro/bin/python -m pip install -r experiments/micro_appliances/requirements.txt

@@ -1,3 +1,5 @@
+> **Archived development log.** The current state is in [../STATUS.md](../STATUS.md); this file is kept unchanged for history.
+
 # Network-LABS: Codex handoff — 2026-11-04
 
 ## DHCP inside micro-VM guests — 2026-11-16 (real-KVM acceptance pending)

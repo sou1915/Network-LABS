@@ -757,6 +757,17 @@ jobs:
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius.py -v
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
+  added-lines:
+    # Review-friendliness of the lines a pull request adds. Warn-only until the
+    # micro-VM role work (PR #4) is merged; then drop --warn-only to make it blocking.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check added Python lines
+        run: python3 tools/check_added_lines.py --warn-only "origin/${{ github.base_ref }}"
   tests:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'dual-stack-ssh-host-key' || inputs.suite == 'benchmark-kernel-peak'
     runs-on: ubuntu-24.04
