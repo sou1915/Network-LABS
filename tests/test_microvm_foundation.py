@@ -72,13 +72,42 @@ class MicroVMFoundationTests(unittest.TestCase):
         from network_labs.appliances.runtime import jailer_command,jailer_path,VM_UID_BASE
         from network_labs.appliances.spec import namespace,prefix
         spec=example('/kernel','/disk',vcpus=2,memory_mib=192)
-        command=jailer_command(spec,spec['nodes'][1],1,'/usr/bin/jailer','/usr/bin/firecracker',Path('/private/VM2/jail'))
+        command=jailer_command(spec,spec['nodes'][1],1,'/usr/bin/jailer','/usr/bin/firecracker',Path('/private/VM2/jail'),VM_UID_BASE+257)
         pairs=dict(zip(command[1:command.index('--')][::2],command[1:command.index('--')][1::2]))
-        self.assertEqual((pairs['--uid'],pairs['--gid'],pairs['--id']),(str(VM_UID_BASE+1),str(VM_UID_BASE+1),'vm1'))
+        self.assertEqual((pairs['--uid'],pairs['--gid'],pairs['--id']),(str(VM_UID_BASE+257),str(VM_UID_BASE+257),'vm1'))
         self.assertEqual(pairs['--netns'],'/run/netns/'+namespace(spec,1))
         self.assertEqual(pairs['--parent-cgroup'],'network-labs/'+prefix(spec))
         self.assertIn('memory.max='+str((192+128)*1024*1024),command);self.assertIn('cpu.max=200000 100000',command)
         self.assertEqual(command[command.index('--'):],['--','--no-api','--config-file','/firecracker.json'])
-        self.assertNotIn('--cgroup',jailer_command(spec,spec['nodes'][0],0,'/j','/f',Path('/b'),cgroup=False))
+        self.assertNotIn('--cgroup',jailer_command(spec,spec['nodes'][0],0,'/j','/f',Path('/b'),VM_UID_BASE,cgroup=False))
         with patch.dict('os.environ',{'NETWORK_LABS_VM_JAILER':'0'}),patch('shutil.which',return_value='/usr/bin/jailer'):self.assertIsNone(jailer_path())
         with patch.dict('os.environ',{},clear=True),patch('shutil.which',return_value='/usr/bin/jailer'):self.assertEqual(jailer_path(),'/usr/bin/jailer')
+
+    def test_each_running_lab_gets_its_own_vmm_uid_block(self):
+        import tempfile
+        from network_labs.appliances.runtime import allocate_vm_uid_base,VM_UID_BASE,VM_UID_BLOCK
+        with tempfile.TemporaryDirectory() as root:
+            root=Path(root);(root/'vm-uids.lock').touch()
+            self.assertEqual(allocate_vm_uid_base(root,'a'),VM_UID_BASE)
+            (root/'a').mkdir();(root/'a'/'state.json').write_text(json.dumps({'vm_uid_base':VM_UID_BASE}))
+            self.assertEqual(allocate_vm_uid_base(root,'a'),VM_UID_BASE)
+            self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+VM_UID_BLOCK)
+            (root/'c').mkdir();(root/'c'/'state.json').write_text(json.dumps({'vm_uid_base':VM_UID_BASE+VM_UID_BLOCK}))
+            self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+2*VM_UID_BLOCK)
+            # A lab without a recorded block (older runtime, or state not yet written) may hold the first one.
+            (root/'a'/'state.json').write_text('{}');(root/'d').mkdir()
+            self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+2*VM_UID_BLOCK)
+            (root/'c'/'state.json').unlink()
+            self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+VM_UID_BLOCK)
+
+    def test_quad_router_uses_all_four_guest_ports(self):
+        from network_labs.appliances.microvm import quad_router_example
+        spec=quad_router_example('/kernel','/disk');router=spec['nodes'][0]
+        self.assertEqual(router['role'],'router');self.assertEqual(sorted(router['interfaces']),['eth0','eth1','eth2','eth3'])
+        config=firecracker_config(router,Path('/kernel'),Path('/disk'))
+        self.assertEqual([i['host_dev_name'] for i in config['network-interfaces']],['tap0','tap1','tap2','tap3'])
+        self.assertEqual([n['gateway'] for n in spec['nodes'][1:]],['192.0.2.1','198.51.100.1','203.0.113.1','100.64.0.1'])
+        self.assertEqual(plan(spec)['allocated_node_mib'],5*128)
+        output=io.StringIO()
+        with patch('sys.stdout',output):self.assertEqual(main(['microvm-example','--router-quad','--kernel','/k','--disk','/d']),0)
+        self.assertEqual(json.loads(output.getvalue())['name'],'microvm-router-quad')

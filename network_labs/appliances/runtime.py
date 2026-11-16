@@ -113,11 +113,12 @@ def oci_config(spec, node, index, rootfs):
 
 
 def firecracker_config(node, kernel, disk):
-    interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
-    gateway = node.get('gateway', '')
+    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
+    if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
+        interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
+        boot += f' ip={interface.ip}::{node.get("gateway", "")}:{interface.netmask}:{node["name"]}:eth0:off'
     return {
-        'boot-source': {'kernel_image_path': str(kernel),
-                        'boot_args': f'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ip={interface.ip}::{gateway}:{interface.netmask}:{node["name"]}:eth0:off'},
+        'boot-source': {'kernel_image_path': str(kernel), 'boot_args': boot},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
         'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:]} for port in sorted(node['interfaces'])],
@@ -126,6 +127,8 @@ def firecracker_config(node, kernel, disk):
 
 
 VM_UID_BASE = 200000   # One unprivileged numeric uid/gid per VMM; no passwd entry is needed.
+VM_UID_BLOCK = 256     # One block per running lab (a lab has at most 256 nodes), so no two labs share a VMM uid.
+VM_UID_BLOCKS = 4096
 VM_OVERHEAD_MIB = 128  # VMM process headroom above guest RAM inside its memory cgroup.
 
 
@@ -138,9 +141,26 @@ def vm_cgroup(spec, index):
     return Path('/sys/fs/cgroup/network-labs') / prefix(spec) / f'vm{index}'
 
 
-def jailer_command(spec, node, index, jailer, firecracker, base, *, cgroup=True):
+def allocate_vm_uid_base(state_root, own):
+    """Lowest uid block no other lab under state_root holds. Caller holds the allocation lock."""
+    taken = set()
+    for directory in state_root.iterdir():
+        if not directory.is_dir() or directory.name == own:
+            continue
+        try:
+            taken.add(json.loads((directory / 'state.json').read_text())['vm_uid_base'])
+        except (OSError, ValueError, KeyError, TypeError):
+            # Unreadable state, or a lab started before blocks existed: it may hold the first block.
+            taken.add(VM_UID_BASE)
+    for block in range(VM_UID_BLOCKS):
+        if VM_UID_BASE + block * VM_UID_BLOCK not in taken:
+            return VM_UID_BASE + block * VM_UID_BLOCK
+    raise RuntimeFailure('No free micro-VM uid block; stop another lab first.')
+
+
+def jailer_command(spec, node, index, jailer, firecracker, base, uid, *, cgroup=True):
     """Chroot, private uid/gid, lab netns and (cgroup v2) RAM/CPU caps for one VMM."""
-    uid = str(VM_UID_BASE + index)
+    uid = str(uid)
     limits = ['--cgroup-version', '2', '--parent-cgroup', f'network-labs/{prefix(spec)}',
               '--cgroup', f'memory.max={(node["memory_mib"] + VM_OVERHEAD_MIB) * MIB}',
               '--cgroup', f'cpu.max={node.get("vcpus", 1) * 100000} 100000'] if cgroup else []
@@ -309,6 +329,22 @@ def process_identity(pid):
         return None
 
 
+def vmm_usage(vm):
+    """Measured host cost of one VMM: its cgroup when jailed, else the process itself."""
+    usage = {'vmm_memory_bytes': None, 'vmm_memory_source': None, 'vmm_cpu_seconds': None}
+    try:
+        fields = Path(f'/proc/{vm["pid"]}/stat').read_text().rsplit(')', 1)[1].split()
+        usage['vmm_cpu_seconds'] = round((int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK'), 2)
+        if vm.get('cgroup') and Path(vm['cgroup'], 'memory.current').is_file():
+            usage.update(vmm_memory_bytes=int(Path(vm['cgroup'], 'memory.current').read_text()), vmm_memory_source='cgroup')
+        else:
+            rss = next(line for line in Path(f'/proc/{vm["pid"]}/status').read_text().splitlines() if line.startswith('VmRSS:'))
+            usage.update(vmm_memory_bytes=int(rss.split()[1]) * 1024, vmm_memory_source='process resident set')
+    except (OSError, ValueError, IndexError, StopIteration):
+        pass  # A process that just exited has nothing to measure; liveness is reported separately.
+    return usage
+
+
 class Manager:
     def __init__(self, name):
         self.name = identifier(name)
@@ -445,7 +481,7 @@ class Manager:
             for node in spec['nodes']:
                 if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
-        if any(n.get('dot1x') or n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+        if any(n.get('dot1x') or (n.get('firewall') is not None and n['runtime'] == 'oci') or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed 802.1X/firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
@@ -470,14 +506,20 @@ class Manager:
         self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
                       'phase': 'starting', 'namespaces': [], 'mounts': [],
                       'containers': [], 'vms': [], 'host_links': [], 'firewall_fingerprints': {}}
-        jailed = jailer_path() is not None
+        jailed = jailer_path() is not None and any(n['runtime'] == 'firecracker' for n in spec['nodes'])
+        if jailed:
+            # Labs start concurrently under per-lab locks; the block must be on disk before this lock is released.
+            with (STATE_ROOT / 'vm-uids.lock').open('a') as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                self.state['vm_uid_base'] = allocate_vm_uid_base(STATE_ROOT, self.name)
+                self.save()
         self.save()
         try:
             for i, node in enumerate(spec['nodes']):
                 ns = namespace(spec, i)
                 run(['ip', 'netns', 'add', ns]); self.state['namespaces'].append(ns); self.save()
                 self.ns(i, 'ip', 'link', 'set', 'lo', 'up')
-                if node.get('firewall') is not None:
+                if node.get('firewall') is not None and node['runtime'] == 'oci':
                     from .firewall import apply
                     self.state['firewall_fingerprints'][node['name']] = apply(self, i, node)
                     self.save()
@@ -489,7 +531,7 @@ class Manager:
                     for port in node['interfaces']:
                         tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
                         # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
-                        owner = ['user', str(VM_UID_BASE + i), 'group', str(VM_UID_BASE + i)] if jailed else []
+                        owner = ['user', str(self.state['vm_uid_base'] + i), 'group', str(self.state['vm_uid_base'] + i)] if jailed else []
                         self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap', *owner)
                         self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
                         self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
@@ -655,7 +697,7 @@ class Manager:
             command = ['ip', 'netns', 'exec', namespace(spec, index), 'firecracker', '--no-api', '--config-file', str(bundle / 'firecracker.json')]
         else:
             firecracker = Path(shutil.which('firecracker')).resolve()
-            uid = VM_UID_BASE + index
+            uid = self.state['vm_uid_base'] + index
             root = bundle / 'jail' / firecracker.name / f'vm{index}' / 'root'
             root.mkdir(parents=True, mode=0o700)
             # One read-only kernel copy per lab, hard-linked into each chroot; the user's asset is never chowned.
@@ -675,7 +717,7 @@ class Manager:
             cgroup = Path('/sys/fs/cgroup/cgroup.controllers').is_file()
             if cgroup:
                 record['cgroup'] = str(vm_cgroup(spec, index))
-            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', cgroup=cgroup)
+            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', uid, cgroup=cgroup)
         with (bundle / 'console.log').open('ab') as log:
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         record.update(pid=process.pid, starttime=process_identity(process.pid))
@@ -688,12 +730,12 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1:
+            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host' or node.get('dhcp_server') or node.get('dhcp_clients'):
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
                 except (OSError, ValueError) as error:
-                    raise RuntimeFailure(f'{node["name"]}: guest startup failed: {error} Console tail: {tail()}') from error
+                    raise RuntimeFailure(f'{node["name"]}: guest startup failed. Console tail: {tail()}\nReason: {error}') from error
             return
         raise RuntimeFailure(f'Firecracker exited ({code}): {tail()}')
 
@@ -728,11 +770,13 @@ class Manager:
                 report['configured_memory_mib']=node['memory_mib'];report['configured_vcpus']=node.get('vcpus',1)
                 report['vmm_alive'] = bool(vm and vm['starttime'] and process_identity(vm['pid']) == vm['starttime'])
                 report['vmm_jailed'] = bool(vm and vm.get('jailed'))
+                if report['vmm_alive']:
+                    report.update(vmm_usage(vm))
                 report['guest_ready'] = 'unverified; inspect console.log and test packets'
                 report['console'] = str(self.directory / node['name'] / 'console.log')
             nodes.append(report)
         return {'name': self.name, 'phase': state['phase'], 'revision': state.get('revision', 0), 'nodes': nodes,
-                'memory_note': 'OCI cgroup memory only; not total app/VM/host usage.'}
+                'memory_note': 'OCI cgroup memory and, per micro-VM, measured VMM memory/CPU; not total app or host usage.'}
 
     def inspect(self, name):
         from .lan import observe
@@ -832,6 +876,12 @@ class Manager:
         index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
+        guest = state['spec']['nodes'][index]['runtime'] == 'firecracker'
+        if guest:
+            # Inside the guest the chain is rebuilt while closed: forwarding drops until the new policy is read back.
+            from .guest_firewall import apply as apply_guest
+            socket = self.directory / name / 'guest.vsock'
+            apply = lambda manager, i, node: apply_guest(socket, node)
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index]['firewall'] = policy
         candidate = validate(candidate)
@@ -841,20 +891,36 @@ class Manager:
             baseline = apply(self, index, candidate['nodes'][index])
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as original:
             try:
-                state.setdefault('firewall_fingerprints', {})[name] = apply(self, index, previous)
+                restored = apply(self, index, previous)
+                if not guest:
+                    state.setdefault('firewall_fingerprints', {})[name] = restored
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as rollback:
                 state['phase'] = 'configuration-failed'; self.save()
                 raise RuntimeFailure(f'Firewall apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
             state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
             raise RuntimeFailure(f'Firewall failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
-        state.setdefault('firewall_fingerprints', {})[name] = baseline
+        if not guest:  # A guest policy is checked by readback over vsock, not by a host-side fingerprint.
+            state.setdefault('firewall_fingerprints', {})[name] = baseline
         state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
+        if guest:
+            return {'configured': name, 'revision': state['revision'],
+                    'note': 'Guest IPv4 policy rebuilt with the chain closed, then read back; forwarding paused for the change. Existing conntrack sessions retained.'}
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
-            if node['name'] == name and node.get('firewall') is not None:
+            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'firecracker':
+                if clear:
+                    raise ValueError('Clearing sessions is not available on micro-VM firewalls yet; the guest has no conntrack tool.')
+                from .guest_control import request
+                result = request(self.directory / name / 'guest.vsock', 'firewall-sessions')
+                if result['exit_code']:
+                    raise RuntimeFailure(f'{name}: guest sessions unavailable: ' + result['output'].strip())
+                entries = [line for line in result['output'].splitlines() if line.startswith('ipv4 ')]
+                return {'node': name, 'cleared': False, 'output': '\n'.join(entries) + ('\n' if entries else ''),
+                        'summary': f'{len(entries)} IPv4 tracked connections, read from the guest kernel.'}
+            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'oci':
                 result = self.ns(index, 'conntrack', '-F' if clear else '-L', '-f', 'ipv4')
                 return {'node': name, 'cleared': clear, 'output': result.stdout, 'summary': result.stderr}
         raise ValueError('An existing managed firewall node is required.')
@@ -867,7 +933,7 @@ class Manager:
         target = state.get('pending_node')
         if 'pending_node' in state:
             current, pending_nodes = state['spec']['nodes'], state['pending_spec']['nodes']
-            if (not isinstance(target, str) or not any(n['name'] == target and n['runtime'] == 'oci' for n in current)
+            if (not isinstance(target, str) or not any(n['name'] == target and (n['runtime'] == 'oci' or n.get('firewall') is not None) for n in current)
                     or {k: v for k, v in state['spec'].items() if k != 'nodes'} !=
                        {k: v for k, v in state['pending_spec'].items() if k != 'nodes'}
                     or len(current) != len(pending_nodes)
@@ -875,6 +941,11 @@ class Manager:
                            for n, p in zip(current, pending_nodes))):
                 raise RuntimeFailure('Invalid scoped recovery journal; no node configuration was applied.')
         for index, node in enumerate(state['spec']['nodes']):
+            if node['runtime'] == 'firecracker' and node['name'] == target and node.get('firewall') is not None:
+                # An interrupted guest firewall change: restore the declared policy, still closed while it is rebuilt.
+                from .guest_firewall import apply as apply_guest
+                apply_guest(self.directory / node['name'] / 'guest.vsock', node)
+                continue
             if node['runtime'] == 'oci' and (target is None or node['name'] == target):
                 if node.get('firewall') is not None:
                     from .firewall import apply

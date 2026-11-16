@@ -55,9 +55,47 @@ class GuestAgentTests(unittest.TestCase):
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
+    def test_firewall_changes_and_malformed_rules_are_refused_over_stdio(self):
+        for data in (b'NL1 FW_FLUSH\n', b'NL1 FW_POLICY accept\n', b'NL1 FW_STATE invalid\n',
+                     b'NL1 FW_RULE accept eth0 eth1 icmp 192.0.2.0/24 - -\n', b'NL1 FW_LIST extra\n'):
+            with self.subTest(data=data): self.assertEqual(self.invoke(data)[0], 2)
+
+    def test_kernel_capabilities_are_reported_without_changing_anything(self):
+        code, body = self.invoke(b'NL1 KERNEL\n')
+        self.assertEqual(code, 0)
+        report = dict(line.split('=') for line in body.decode().splitlines())
+        self.assertEqual(sorted(report), ['bridge', 'conntrack', 'iptables', 'ipv6_forwarding', 'nftables', 'vlan'])
+        self.assertTrue(all(value in ('0', '1') for value in report.values()), report)
+        self.assertEqual(self.invoke(b'NL1 KERNEL bridge\n')[0], 2)
+
+    def test_forwarding_is_readable_but_never_writable_over_stdio(self):
+        code, body = self.invoke(b'NL1 FORWARDING\n')
+        self.assertEqual(code, 0); self.assertIn(body.strip(), (b'0', b'1'))
+        before = Path('/proc/sys/net/ipv4/ip_forward').read_text()
+        for data in (b'NL1 FORWARD on\n', b'NL1 FORWARD off\n', b'NL1 FORWARD maybe\n', b'NL1 FORWARD on \n'):
+            self.assertEqual(self.invoke(data)[0], 2)
+        self.assertEqual(Path('/proc/sys/net/ipv4/ip_forward').read_text(), before)
+
     def test_stdio_cannot_mutate_interfaces(self):
+        for data in (b'NL1 BRIDGE_ADD eth0\n', b'NL1 BRIDGE_ADD eth9\n', b'NL1 BRIDGE_ADD eth0 x\n', b'NL1 BRIDGE_PORTS x\n'):
+            self.assertEqual(self.invoke(data)[0], 2, data)
         for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 ROUTE_ADD 198.51.100.0/24 192.0.2.20\n', b'NL1 ROUTE_DEL 198.51.100.0/24 192.0.2.20\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
+
+    def test_bridge_ports_are_read_only_and_absent_bridge_is_reported(self):
+        code, body = self.invoke(b'NL1 BRIDGE_PORTS\n')
+        if Path('/sys/class/net/br0/brif').is_dir():
+            self.assertEqual(code, 0)
+        else:
+            self.assertEqual((code, body), (1, b'no bridge'))
+
+    def test_sessions_are_read_only_and_a_missing_table_is_reported(self):
+        code, body = self.invoke(b'NL1 FW_SESSIONS\n')
+        if Path('/proc/net/nf_conntrack').exists():
+            self.assertEqual(code, 0)
+        else:
+            self.assertEqual((code, body), (1, b'no conntrack listing in this guest kernel'))
+        self.assertEqual(self.invoke(b'NL1 FW_SESSIONS clear\n')[0], 2)
 
     def test_partial_request_times_out(self):
         with subprocess.Popen([str(self.binary), '--stdio'], stdin=subprocess.PIPE,
@@ -144,6 +182,14 @@ class GuestTransportTests(unittest.TestCase):
             self.assertEqual(result['exit_code'], 0)
         with self.assertRaises(ValueError): request('/missing', 'route-add', network='203.0.113.0/24', gateway='198.51.100.20', interface='eth4')
         with self.assertRaises(ValueError): request('/missing', 'ping', destination='192.0.2.20', interface='eth1')
+
+    def test_forwarding_wire_and_validation(self):
+        self.assertEqual(self.exchange(b'NL1 0 2\n1\n', operation='forwarding', arguments={}, wire=b'NL1 FORWARDING\n')['output'], '1\n')
+        for state in ('on', 'off'):
+            self.assertEqual(self.exchange(b'NL1 0 0\n', operation='forward', arguments={'state': state}, wire=('NL1 FORWARD ' + state + '\n').encode())['exit_code'], 0)
+        for arguments in ({}, {'state': 'up'}, {'state': 'on', 'interface': 'eth0'}):
+            with self.assertRaises(ValueError): request('/missing', 'forward', **arguments)
+        with self.assertRaises(ValueError): request('/missing', 'forwarding', state='on')
 
     def test_multinic_address_and_link_wire(self):
         for operation, arguments, wire in [('address-add', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_ADD eth1 198.51.100.10/24\n'), ('address-delete', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_DEL eth1 198.51.100.10/24\n'), ('link', {'interface':'eth1','state':'down'}, b'NL1 LINK eth1 down\n')]:

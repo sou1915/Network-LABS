@@ -1,16 +1,128 @@
+> **Archived development log.** The current state is in [../STATUS.md](../STATUS.md); this file is kept unchanged for history.
+
 # Network-LABS: Codex handoff — 2026-11-04
 
-## Micro-VM hardening and multi-port routes — 2026-11-15 (not yet run on KVM)
+## DHCP inside micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
 
-Unit-tested only; the real-KVM acceptance tests still have to be re-run on a
-Firecracker host, and guest images must be rebuilt with `microvm-rootfs
---with-agent` before routes through eth1..eth3 can be used.
+Firecracker nodes accept the existing `dhcp_server` and `dhcp_clients` fields. A
+host, router or firewall guest runs BusyBox `udhcpd` on one numbered port (local
+pool only; remote `network` pools and `reservations` are refused on guests for
+now). A host guest may leave a port unnumbered and list it in `dhcp_clients`; it
+then boots without kernel IP autoconfiguration and runs `udhcpc` with the same
+client script containers use. The agent starts both detached (own session, no
+inherited output) from typed requests `DHCP_SERVE` and `DHCP_CLIENT`, and lists
+leases with `DHCP_LEASES` (`microvm-dhcp-leases --socket ... --interface ethN`).
+Startup does not wait for a lease (the server may boot later), but waits for the
+server's pid file. Save never stores a leased address or the DHCP default route,
+and fails if a declared server is not running. `microvm-example --dhcp` and
+`tests/test_native_microvm_dhcp.py` (lease in pool, route, reachability through
+the router, lease listing, save and cold restore) are the reference.
+
+## Address translation on firewall micro-VMs — 2026-11-16 (real-KVM acceptance pending)
+
+A firewall guest's `nat` entries (masquerade, snat, dnat with optional `to_port`)
+now run in the guest's iptables nat table through typed agent requests `FW_NAT`,
+`FW_NAT_FLUSH` and `FW_NAT_LIST`: destination NAT in PREROUTING, source NAT in
+POSTROUTING. They are installed while forwarding still drops, read back exactly
+(chain policies included), and replaced by a live `firewall` change. A guest kernel
+without the nat table is reported as such; a policy without NAT never needs it.
+Source NAT on a guest matches the outbound port only (`in` is refused). Images now
+carry the DNAT, SNAT and MASQUERADE target modules under the names iptables loads;
+the builder previously copied a linked module under its target's name only.
+`microvm-example --firewall-nat` hides VM2 behind FW1's outside address and
+publishes VM2's ICMP on it; `tests/test_native_microvm_firewall_nat.py` checks the
+translated addresses by capture on the endpoint ports, a live NAT change and restore.
+
+## Four-port micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+`microvm-example --router-quad` prints R1 using all four guest ports (eth0..eth3,
+four /24 segments), each the gateway of one endpoint guest.
+`tests/test_native_microvm_router_quad.py` is the first dedicated real-KVM test
+of a four-port guest: all twelve routed paths, each port failing alone without
+affecting the others, save and cold restore.
+
+## Switch micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+A Firecracker node may declare `role: switch` with 2..4 unnumbered ports. The
+measured guest kernel bridges but has no 802.1Q, so a switch guest is one
+untagged VLAN 1 learning bridge: `vlans` stays `[1]`, every switchport stays
+access VLAN 1, and addresses, gateway, SVIs and `guest_network` are refused.
+Its kernel boots without IP autoconfiguration. Startup brings each port up and
+joins it to `br0` through the new typed agent request `BRIDGE_ADD ethN` (bridge
+ioctls in the agent; no brctl applet), then verifies with the read-only
+`BRIDGE_PORTS`: exactly the declared ports, all up, no IPv4 anywhere and IPv4
+forwarding off. `microvm-save` re-checks that and stores nothing for the
+switch; a cold restore rebuilds the bridge from the declared ports.
+`microvm-example --switch` prints SW1 joining VM1..VM3 on 192.0.2.0/24, and
+`tests/test_native_microvm_switch.py` is the KVM acceptance: pings between all
+three endpoints, loss of one port, save and cold restore. Not available yet:
+VLANs/trunks (needs a guest kernel with 802.1Q), STP, LACP and the OCI switch
+security features.
+
+## Firewall micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+Measured guest kernel (Firecracker CI 5.10): bridging, iptables, conntrack and IPv6
+forwarding present; nf_tables and 802.1Q absent. A Firecracker node may therefore
+declare `role: firewall` with the same `firewall` policy schema as container
+firewalls (default, stateful, ordered named rules), enforced with iptables in the
+guest instead of nftables. `microvm-rootfs --with-agent --with-firewall` copies the
+host's legacy iptables program, its libraries and four match modules into the image.
+The agent gains typed `FW_LIST`, `FW_FLUSH`, `FW_POLICY`, `FW_STATE` and `FW_RULE`
+requests. Startup installs the policy while the chain defaults to drop, verifies an
+exact readback, and only then enables forwarding; `microvm-save` refuses drift.
+Live `firewall LAB FW1 --file policy.json` now works on a firewall guest: the chain is
+rebuilt closed (forwarding paused), read back, and on failure the previous policy is
+restored; an interrupted change is restored by `recover`. `sessions LAB FW1` lists the guest's own IPv4 conntrack table (read from
+/proc/net/nf_conntrack over vsock); `clear-sessions` is refused on guests. Not
+available on guests yet: IPv6 filtering. `microvm-example
+--firewall` prints FW1 between an inside and an outside endpoint.
+
+## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16
+
+`capture LAB NODE ethN` now accepts micro-VM nodes: it records on the host-side
+`tapN` of the chosen guest port inside the node's namespace, with the same bounds
+and no-overwrite rules as container capture; nothing runs in the guest. `status`
+adds `vmm_memory_bytes`, its source (`cgroup` when jailed with cgroup v2, else the
+process resident set) and `vmm_cpu_seconds` per live VMM. The agent answers a new
+read-only `KERNEL` request (`microvm-diagnostic kernel`) reporting whether the
+guest kernel has bridging, 802.1Q, iptables, nf_tables, conntrack and IPv6
+forwarding; switch and firewall guest roles will be designed from that report.
+
+## Router micro-VM guests — 2026-11-15
+
+A Firecracker node may now declare `role: router` (at least two ports). After its
+addresses and routes are applied, startup switches IPv4 forwarding on in the guest
+kernel through two new typed agent requests, `FORWARDING` (read) and `FORWARD on|off`
+(write `/proc/sys/net/ipv4/ip_forward` directly; no shell, no sysctl applet). Startup
+readback and `microvm-save` fail closed unless a router forwards and a host does not;
+a host on an image whose agent predates these requests is accepted as not forwarding.
+`microvm-example --router --kernel PATH --disk PATH` prints R1 between VM2 and VM3,
+whose boot gateways point at R1. `tests/test_native_microvm_router.py` is the KVM
+acceptance: routed pings both ways, exactly one TTL lost per hop, no traffic with
+forwarding off, loss of the far port, save and cold restore. This is IPv4 static
+forwarding only: no NAT, firewall, dynamic routing or IPv6, and no switch role.
+
+The single-router acceptance passed on real KVM under the jailer and with the direct
+launch ([run 43776383073](https://github.com/sou1915/Network-LABS/actions/runs/43776383073)).
+`microvm-example --router-chain` adds VM2 - R1 - R2 - VM3 with one declared static
+route per router across a /30 transit link; its acceptance covers a route installed
+through a second port, two TTLs lost over two hops, live route withdrawal and cold
+restore. A unit test now covers stop retaining state when a VMM survives SIGKILL.
+
+## Micro-VM hardening and multi-port routes — 2026-11-15
+
+The real-KVM acceptance tests passed under the jailer and with the direct launch
+(manual `microvm-kvm` workflow run). A route through a second port is covered by
+the router-chain acceptance above. Guest images must be rebuilt with `microvm-rootfs --with-agent` before routes
+through eth1..eth3 can be used.
 
 - **vCPU budget.** The total of micro-VM `vcpus` must fit the optional lab key
   `budget_vcpus` (default 64, maximum 1024). `plan` reports the budget.
 - **Jailer.** When Firecracker's `jailer` binary is on `PATH`, each VMM starts
   through it: chroot under the node's private state directory, its own
-  unprivileged uid/gid (200000 + node index), the node's network namespace, and
+  unprivileged uid/gid (the lab's block of 256 from 200000 upward, recorded as
+  `vm_uid_base`, plus the node index; no two running labs share a block), the
+  node's network namespace, and
   with cgroup v2 a memory cap (guest RAM + 128 MiB) and a CPU cap (one core per
   vCPU). TAP devices are owned by that uid. `status` reports `vmm_jailed`, and
   `doctor` lists `jailer`. Without the binary, or with `NETWORK_LABS_VM_JAILER=0`,

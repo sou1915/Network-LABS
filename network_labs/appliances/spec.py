@@ -111,13 +111,39 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role != 'host' or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))} or not all(interfaces.values()):
-                raise ValueError('Firecracker host requires one static IPv4 per port, contiguous eth0..eth3.')
+            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
+                raise ValueError('Firecracker host, router, firewall or switch requires contiguous ports eth0..eth3.')
+            if role == 'switch':
+                # The measured guest kernel bridges but has no 802.1Q: one untagged segment, no addressing.
+                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node or node['svis']
+                        or node['vlans'] != [1] or any(port != {'mode': 'access', 'vlan': 1} for port in node['switchports'].values())):
+                    raise ValueError('Firecracker switch: 2..4 unnumbered ports in one untagged VLAN 1 (no 802.1Q in the guest kernel); '
+                                     'no addresses, gateway, SVIs or guest_network.')
+                if node.get('firewall') is not None:
+                    raise ValueError('A firewall policy requires role firewall.')
+                node['interfaces'] = dict(sorted(interfaces.items()))
+                from .guest_startup import validate_profile
+                validate_profile(node)
+                continue
+            dynamic = set(node['dhcp_clients'])
+            if any(not address for port, address in interfaces.items() if port not in dynamic):
+                raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port (or a DHCP client port), contiguous eth0..eth3.')
+            if dynamic and role != 'host':
+                raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
+            server = node.get('dhcp_server')
+            if server and ('network' in server or server['reservations']):
+                raise ValueError('Firecracker DHCP server: local pool only; remote networks and reservations are not available on guests yet.')
+            if role in ('router', 'firewall') and len(interfaces) < 2:
+                raise ValueError('Firecracker router or firewall requires at least two ports; a single-port guest is a host.')
+            if role == 'firewall' and node.get('firewall') is None:
+                raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
+            if role != 'firewall' and node.get('firewall') is not None:
+                raise ValueError('A firewall policy requires role firewall.')
             interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
-            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values()]
+            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values() if a]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
                 raise ValueError('Firecracker interface subnets must not overlap.')
-            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in networks[0]:
+            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network:
                 raise ValueError('Firecracker boot gateway must be on eth0.')
         from .guest_startup import validate_profile
         validate_profile(node)

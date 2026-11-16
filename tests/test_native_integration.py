@@ -2995,8 +2995,9 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                 rows = json.loads(manager.ns(5, 'ip', '-j', 'route', 'show', '198.51.100.0/24').stdout)
                 return rows[0] if rows else {}
             def traffic():
-                wait(lambda: route().get('gateway') == '10.0.100.4', 'R3 kernel next hop directly to R4, not through DR')
-                self.assertIn(route().get('protocol'), ('bird', 192, '192'))
+                # One read for both fields: during re-election BIRD may withdraw and reinstall the route between two reads.
+                wait(lambda: (lambda row: row.get('gateway') == '10.0.100.4' and row.get('protocol') in ('bird', 192, '192'))(route()),
+                     'R3 kernel next hop directly to R4, not through DR, installed by BIRD')
                 def ping():
                     result = manager.crun('exec', 'PC1', '/bin/ping', '-c', '1', '-W', '1', '198.51.100.10', check=False)
                     return result.returncode == 0 and 'ttl=62' in result.stdout

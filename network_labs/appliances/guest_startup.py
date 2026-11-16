@@ -9,7 +9,8 @@ from .guest_control import request
 def _port_networks(node, profile):
     """Every IPv4 network configured on each declared port, primary first."""
     extras = {'eth0': profile['addresses'], **profile.get('port_addresses', {})}
-    return {port: [ipaddress.IPv4Interface(a).network for a in [primary, *extras.get(port, [])]]
+    # A DHCP client port has no declared primary; its leased address is never part of the profile.
+    return {port: [ipaddress.IPv4Interface(a).network for a in [*([primary] if primary else []), *extras.get(port, [])]]
             for port, primary in node['interfaces'].items()}
 
 
@@ -36,6 +37,10 @@ def validate_profile(node):
     if any(not isinstance(values, list) for values in by_port.values()) or sum(map(len, by_port.values())) > 32 or not isinstance(routes, list) or len(routes) > 32:
         raise ValueError('Guest startup supports at most 32 addresses and 32 routes.')
     for port, values in by_port.items():
+        if not node['interfaces'][port]:
+            if values:
+                raise ValueError('A DHCP client port takes no extra static addresses.')
+            continue
         primary = str(ipaddress.IPv4Interface(node['interfaces'][port]))
         normalized = [str(ipaddress.IPv4Interface(a)) for a in values if isinstance(a, str) and '/' in a]
         if len(normalized) != len(values) or len(set(normalized)) != len(normalized) or primary in normalized:
@@ -73,6 +78,65 @@ def query(socket, operation, **kwargs):
     return result['output']
 
 
+def forwarding(socket):
+    """True/False from the guest kernel; None for an image whose agent predates routers."""
+    try:
+        return query(socket, 'forwarding').strip() == '1'
+    except ValueError as error:
+        # Such an agent cannot have enabled forwarding either, so a host on it is still off.
+        if 'unsupported operation' in str(error):
+            return None
+        raise
+
+
+def check_forwarding(socket, node):
+    state = forwarding(socket)
+    if node.get('role') in ('router', 'firewall'):
+        if state is not True:
+            raise ValueError('Router or firewall guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
+                             else 'Router or firewall guest is not forwarding IPv4.')
+    elif state:
+        raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
+
+
+def dhcp_pool(node):
+    server = node['dhcp_server']
+    return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
+            'lease_seconds': server['lease_seconds'], 'netmask': ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network.prefixlen}
+
+
+def leases(socket, interface):
+    """The guest DHCP server's current leases as [{mac, address, hostname}]; fails if the server is not running."""
+    rows = []
+    for line in query(socket, 'dhcp-leases', interface=interface).splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 2 and re.fullmatch(r'[0-9a-f]{2}(:[0-9a-f]{2}){5}', fields[0]):
+            rows.append({'mac': fields[0], 'address': str(ipaddress.IPv4Address(fields[1])),
+                         # "Expires in" may read "1 days 02:00:00": a lone number before "days" is not a hostname.
+                         'hostname': fields[2] if len(fields) > 3 and fields[3] != 'days' else ''})
+    return rows
+
+
+def check_switch(socket, node):
+    """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
+    ports = sorted(query(socket, 'bridge-ports').split())
+    if ports != sorted(node['interfaces']):
+        raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
+    up = set(); interface = None
+    for line in query(socket, 'addresses').splitlines():
+        header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
+        if header:
+            interface = header[1]
+            if interface not in ('lo', 'br0') and interface not in node['interfaces']:
+                raise ValueError('Guest has an undeclared interface.')
+            if 'UP' in header[2].split(','): up.add(interface)
+        elif line.split()[:1] == ['inet'] and interface != 'lo':
+            raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
+    if not {'br0', *node['interfaces']} <= up:
+        raise ValueError('Switch guest bridge and all declared ports must be up.')
+    check_forwarding(socket, node)
+
+
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
@@ -88,11 +152,18 @@ def observe(socket, node):
         fields = line.split()
         if fields and fields[0] == 'inet' and interface in by_port:
             by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
+    dynamic = set(node.get('dhcp_clients', []))
     for port, primary_address in node['interfaces'].items():
+        if port in dynamic:
+            if port not in active:
+                raise ValueError('Save requires all declared guest interfaces up.')
+            continue
         primary_address = str(ipaddress.IPv4Interface(primary_address))
         if port not in active or primary_address not in by_port[port]:
             raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
-    extras = {port: [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))] for port, values in by_port.items()}
+    # Leased addresses come from the DHCP server on every boot; they are never saved as static ones.
+    extras = {port: [] if port in dynamic else [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))]
+              for port, values in by_port.items()}
     routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
@@ -107,6 +178,8 @@ def observe(socket, node):
         if len(fields) != 5 or fields[1] != 'via' or fields[3] != 'dev' or fields[4] not in by_port:
             raise ValueError('Unsupported guest static route: ' + line)
         gateway = str(ipaddress.IPv4Address(fields[2]))
+        if network == '0.0.0.0/0' and fields[4] in dynamic:
+            continue  # Installed by the DHCP client from the lease's router option.
         if network == '0.0.0.0/0' and node.get('gateway'):
             if gateway != node['gateway'] or fields[4] != 'eth0': raise ValueError('Guest primary gateway differs.')
             default_seen = True
@@ -120,6 +193,12 @@ def observe(socket, node):
         # A next hop reached through another port than its own subnet cannot be replayed.
         if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
             raise ValueError('Unsupported guest static route device for ' + route['network'])
+    check_forwarding(socket, node)
+    if node.get('role') == 'firewall':
+        from .guest_firewall import check
+        check(socket, node)
+    if node.get('dhcp_server'):
+        leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
     return candidate['guest_network']
 
 
@@ -135,9 +214,16 @@ def apply(socket, node, timeout=40, alive=None):
         except (OSError, ValueError):
             if time.monotonic() >= deadline: raise
             time.sleep(.1)
+    if node.get('role') == 'switch':
+        for port in node['interfaces']:
+            query(socket, 'link', interface=port, state='up')
+            query(socket, 'bridge-add', interface=port)
+        check_switch(socket, node)
+        return
     for port, address in node['interfaces'].items():
-        if port != 'eth0':
+        if port != 'eth0' and address:
             query(socket, 'address-add', interface=port, cidr=address)
+        if port != 'eth0' or not address:
             query(socket, 'link', interface=port, state='up')
     profile = node.get('guest_network', {'addresses': [], 'routes': []})
     for address in profile['addresses']:
@@ -149,6 +235,25 @@ def apply(socket, node, timeout=40, alive=None):
         port = route_port(node, profile, route['gateway'])
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
+    if node.get('role') == 'firewall':
+        # Filter first: forwarding is never switched on before the declared policy is in place.
+        from .guest_firewall import apply as apply_firewall
+        apply_firewall(socket, node)
+    if node.get('role') in ('router', 'firewall'):
+        query(socket, 'forward', state='on')
+    if node.get('dhcp_server'):
+        port = node['dhcp_server']['interface']
+        query(socket, 'dhcp-serve', interface=port, dhcp=dhcp_pool(node))
+        # The daemon writes its pid file just after the request returns: wait for it before reading back.
+        started = time.monotonic() + 5
+        while True:
+            try: leases(socket, port); break
+            except ValueError:
+                if time.monotonic() >= started: raise
+                time.sleep(.1)
+    for port in node.get('dhcp_clients', []):
+        # Started, not awaited: the server may be a guest that boots later in this lab.
+        query(socket, 'dhcp-client', interface=port)
     if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
 
@@ -163,10 +268,14 @@ def save_observed(manager):
         raise ValueError('microvm-save requires a running VM-only lab.')
     candidate = copy.deepcopy(state['spec'])
     for node in candidate['nodes']:
+        if node['role'] == 'switch':  # Nothing to capture: the bridge is rebuilt from the declared ports.
+            check_switch(manager.directory / node['name'] / 'guest.vsock', node); continue
         node['guest_network'] = observe(manager.directory / node['name'] / 'guest.vsock', node)
     candidate = validate(candidate)
     # Re-read before publishing: do not accept drift across the capture window.
     for node in candidate['nodes']:
+        if node['role'] == 'switch':
+            check_switch(manager.directory / node['name'] / 'guest.vsock', node); continue
         if observe(manager.directory / node['name'] / 'guest.vsock', node) != node['guest_network']:
             raise ValueError('Guest changed during save; no startup configuration written.')
     save_startup(manager.name, candidate)

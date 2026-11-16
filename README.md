@@ -21,7 +21,7 @@ Sous Ubuntu/Debian/Mint :
 ```bash
 sudo apt update
 sudo apt install -y git python3 python3-tk
-git clone --branch prototype/linux-simulator https://github.com/sou1915/Network-LABS.git
+git clone https://github.com/sou1915/Network-LABS.git
 cd Network-LABS
 python3 -m network_labs
 ```
@@ -29,7 +29,7 @@ python3 -m network_labs
 Pour une copie déjà installée :
 
 ```bash
-git switch prototype/linux-simulator
+git switch main
 git pull --ff-only
 python3 -m network_labs
 ```
@@ -39,7 +39,7 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 
 ## Micro-nodes Linux natifs et microVMs (expérimental)
 
-[État actuel du projet, estimation et travail restant](docs/PROJECT_STATUS.md)
+[État actuel du projet](docs/STATUS.md), [estimation historique](docs/PROJECT_STATUS.md)
 et [couverture exacte des profils LAN natifs](docs/LAN_PROTOCOL_COVERAGE.md).
 Les estimations de progression ne sont pas des pourcentages de couverture des tests.
 

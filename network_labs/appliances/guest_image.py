@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -34,7 +35,44 @@ INITTAB = '''# No unauthenticated shell or network management listener.
 '''
 
 
-def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc'):
+# libxt_standard implements the plain ACCEPT/DROP verdicts; without it no rule can be added at all.
+FIREWALL_MODULES = ('libxt_standard.so', 'libxt_conntrack.so', 'libxt_tcp.so', 'libxt_udp.so', 'libipt_icmp.so',
+                    'libxt_DNAT.so', 'libxt_SNAT.so', 'libxt_MASQUERADE.so')
+
+
+def install_iptables(root, program):
+    """Copy the legacy iptables program, its shared libraries and the match modules a policy can use."""
+    program = Path(program).resolve()
+    listing = subprocess.run(['ldd', str(program)], capture_output=True, text=True, timeout=30)
+    if listing.returncode:
+        raise ValueError('Guest firewall program is not a dynamic executable that ldd can read: ' + listing.stderr.strip())
+    libraries = []
+    for line in listing.stdout.splitlines():
+        words = line.split()
+        path = words[2] if '=>' in words and len(words) >= 3 else words[0] if words and words[0].startswith('/') else None
+        if '=>' in words and (path is None or not path.startswith('/')):
+            raise ValueError('Guest firewall program has an unresolved library: ' + line.strip())
+        if path:
+            libraries.append(Path(path))
+    modules = next((folder for folder in sorted({library.parent / 'xtables' for library in libraries})
+                    if all((folder / name).is_file() for name in FIREWALL_MODULES)), None)
+    if modules is None:
+        raise ValueError('Guest firewall match modules not found next to the iptables libraries.')
+    for source in [*libraries, *(modules / name for name in FIREWALL_MODULES)]:
+        # The host may reach one file through /lib and /usr/lib; the image has no such link, and iptables
+        # looks for its modules under the path it was built with. Provide both spellings as plain files.
+        # Resolve the folder, not the file: a module such as libxt_MASQUERADE.so is a link to libxt_NAT.so,
+        # and iptables loads it by the link's own name.
+        for location in {source, source.parent.resolve() / source.name}:
+            target = root / location.relative_to('/')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                shutil.copyfile(source, target); target.chmod(0o755)
+    target = root / 'sbin/xtables-legacy-multi'
+    shutil.copyfile(program, target); target.chmod(0o755)
+
+
+def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False, iptables=None):
     """Publish a complete ext4 image exclusively; never overwrite an existing path."""
     if type(size_mib) is not int or not 16 <= size_mib <= 1024:
         raise ValueError('Guest disk size must be an integer between 16 and 1024 MiB.')
@@ -58,8 +96,20 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             if agent.read_bytes()[4:6] != (root / 'bin/busybox').read_bytes()[4:6] or agent.read_bytes()[18:20] != (root / 'bin/busybox').read_bytes()[18:20]:
                 raise ValueError('Guest agent and BusyBox architectures differ.')
             agent.chmod(0o755)
+            # The DHCP client hook the agent's DHCP_CLIENT request names; the same script containers use.
+            from .dhcp import CLIENT_SCRIPT
+            (root / 'etc/network-labs').mkdir(parents=True, exist_ok=True)
+            (root / 'etc/network-labs/dhcp-client.sh').write_text(CLIENT_SCRIPT)
+            (root / 'etc/network-labs/dhcp-client.sh').chmod(0o755)
             inittab = inittab.replace('::respawn:/bin/busybox sleep 3600',
                                       '::respawn:/sbin/network-labs-agent')
+        if with_firewall:
+            if not with_agent:
+                raise ValueError('A firewall guest image needs the agent; add --with-agent.')
+            program = iptables or shutil.which('xtables-legacy-multi') or shutil.which('iptables-legacy')
+            if not program:
+                raise ValueError('Guest firewall needs legacy iptables on this machine (package iptables).')
+            install_iptables(root, program)
         (root / 'etc/inittab').write_text(inittab)
         (root / 'etc/shadow').write_text('root:!:0:0:99999:7:::\n')
         (root / 'etc/shadow').chmod(0o600)
@@ -88,4 +138,4 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         os.link(disk, output)  # Atomic and fails closed if destination appeared meanwhile.
     return {'disk': str(output), 'size_mib': size_mib, 'sha256': digest,
-            'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent)}
+            'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent), 'guest_firewall_installed': bool(with_firewall)}

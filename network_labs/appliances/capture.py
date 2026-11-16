@@ -97,20 +97,31 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
             if state['phase'] != 'running':
                 raise RuntimeFailure('Lab must be running before capture.')
             match = next(((i, n) for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
-            if match is None or match[1]['runtime'] != 'oci':
-                raise ValueError('Capture requires an existing OCI node; guest VM capture has no adapter.')
+            if match is None:
+                raise ValueError('Capture requires an existing node.')
             index, node = match
-            allowed = set(node['interfaces']) | set(node['port_channels']) | {'lo'}
-            allowed.update(node.get('svis', {}))
-            allowed.update(p for p, sub in node['subinterfaces'].items() if sub['vlan'] is not None)
-            if node['role'] == 'switch':
-                allowed.add('br0')
-            if interface not in allowed:
-                raise ValueError('Capture interface must belong to this node; any/host interfaces are not accepted.')
-            status = manager.crun('state', name, check=False)
-            if status.returncode or json.loads(status.stdout).get('status') != 'running':
-                raise RuntimeFailure('Node container must be running before capture.')
-            manager.ns(index, 'ip', 'link', 'show', 'dev', interface)
+            device = interface
+            if node['runtime'] == 'firecracker':
+                # A guest's frames cross its private TAP in the node namespace: record there, outside the guest.
+                if interface not in node['interfaces']:
+                    raise ValueError('Capture interface must be a declared port of this micro-VM.')
+                vm = next((v for v in state['vms'] if v['name'] == name), None)
+                from .runtime import process_identity
+                if not vm or not vm['starttime'] or process_identity(vm['pid']) != vm['starttime']:
+                    raise RuntimeFailure('Micro-VM must be running before capture.')
+                device = 'tap' + interface[3:]
+            else:
+                allowed = set(node['interfaces']) | set(node['port_channels']) | {'lo'}
+                allowed.update(node.get('svis', {}))
+                allowed.update(p for p, sub in node['subinterfaces'].items() if sub['vlan'] is not None)
+                if node['role'] == 'switch':
+                    allowed.add('br0')
+                if interface not in allowed:
+                    raise ValueError('Capture interface must belong to this node; any/host interfaces are not accepted.')
+                status = manager.crun('state', name, check=False)
+                if status.returncode or json.loads(status.stdout).get('status') != 'running':
+                    raise RuntimeFailure('Node container must be running before capture.')
+            manager.ns(index, 'ip', 'link', 'show', 'dev', device)
             nsname = namespace(state['spec'], index)
             # Open while holding the lab lock. The inherited descriptor pins
             # this namespace even if stop removes its name after lock release.
@@ -122,7 +133,7 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
                     os.fchown(handle.fileno(), int(uid), int(gid))
                 command = [watchdog, '--signal=INT', '--kill-after=2s', str(seconds) + 's',
                            nsenter, '--net=/proc/self/fd/' + str(netns.fileno()), '--', tcpdump,
-                           '-p', '-n', '-U', '-i', interface, '-s', str(snaplen), '-c', str(packets), '-w', '-']
+                           '-p', '-n', '-U', '-i', device, '-s', str(snaplen), '-c', str(packets), '-w', '-']
                 if expression:
                     command += ['--', expression]
                 started = time.monotonic(); deadline = started + seconds
@@ -168,7 +179,7 @@ def capture(manager, name, interface, output, *, seconds=10, packets=1000, snapl
                 'file': str(output), 'format': 'pcap', **summary, 'filter': expression,
                 'seconds_limit': seconds, 'packet_limit': packets, 'max_file_bytes': MAX_BYTES,
                 'duration_seconds': round(time.monotonic() - started, 3), 'stop_reason': reason,
-                'source': 'tcpdump/libpcap in the node network namespace', 'promiscuous_requested': False,
+                'source': 'tcpdump/libpcap in the node network namespace' + ('' if device == interface else f', on the host-side {device} of guest {interface}'), 'promiscuous_requested': False,
                 'note': 'Observed packets only; capture point/offloads/filter/snaplen may affect visibility. No connectivity or zero-loss claim.'}
     finally:
         try:

@@ -406,7 +406,7 @@ explicit desktop-entry correction, not used as final validation evidence.
 This is the user's target mockup, not an implementation screenshot. It
 supersedes workspace_design.png and enterprise_lan.png as the visual target.
 The current native workbench has verified backend functionality but does not
-implement this design yet. See CODEX_HANDOFF.md for the required layout and
+implement this design yet. See history/CODEX_HANDOFF.md for the required layout and
 capability boundaries.
 
 ## Reference shell implementation

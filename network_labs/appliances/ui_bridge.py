@@ -27,6 +27,19 @@ def public_topology(spec):
             'links':spec['links']}
 
 
+def observed_states(status):
+    """Per-node GUI state from a status report: container state, or whether a micro-VM's VMM is alive."""
+    states = {}
+    for node in status['nodes']:
+        if node.get('runtime') == 'firecracker':
+            # A live VMM is a running node; guest readiness is reported separately by the guest agent.
+            states[node['name']] = {'status': 'running' if node.get('vmm_alive') else 'stopped', 'memory': node.get('vmm_memory_bytes')}
+        else:
+            states[node['name']] = {'status': (node.get('state') or {}).get('status', 'invité non vérifié'),
+                                    'memory': node.get('memory_current_bytes')}
+    return states
+
+
 def validate_topology(graph):
     if not isinstance(graph,dict) or set(graph)!={'name','nodes','links'}:raise ValueError('Invalid native topology.')
     identifier(graph['name'])
