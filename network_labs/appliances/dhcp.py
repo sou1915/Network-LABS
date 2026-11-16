@@ -100,13 +100,16 @@ def prepare_files(bundle, node):
 
 def start_servers(manager):
     for node in manager.state['spec']['nodes']:
-        if node.get('dhcp_server'):
+        # A micro-VM guest runs its own udhcpd, started by guest startup over vsock.
+        if node.get('dhcp_server') and node['runtime'] == 'oci':
             manager.crun('exec', '--detach', node['name'], '/bin/busybox', 'udhcpd', '-f', '/lab/udhcpd.conf',
                          log=manager.directory / node['name'] / 'dhcp.log')
 
 
 def start_clients(manager):
     for node in manager.state['spec']['nodes']:
+        if node['runtime'] != 'oci':
+            continue  # Guest startup starts a micro-VM's udhcpc over vsock.
         for interface in node.get('dhcp_clients', []):
             manager.crun('exec', '--detach', node['name'], '/bin/busybox', 'udhcpc', '-f',
                          '-i', interface, '-s', '/lab/dhcp-client.sh', '-p', '/run/udhcpc.pid',

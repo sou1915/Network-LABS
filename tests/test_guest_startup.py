@@ -273,3 +273,10 @@ class GuestStartupTests(unittest.TestCase):
                                                                        {'mac': '52:54:00:00:00:01', 'address': '192.0.2.102', 'hostname': ''}])
         with patch.object(guest_startup, 'query', side_effect=ValueError('Guest dhcp-leases failed: dhcp server not running')), self.assertRaisesRegex(ValueError, 'not running'):
             guest_startup.leases('/socket', 'eth0')
+
+    def test_container_dhcp_starters_leave_micro_vms_to_guest_startup(self):
+        from types import SimpleNamespace
+        from network_labs.appliances.dhcp import start_clients, start_servers
+        manager = SimpleNamespace(state={'spec': self.dhcp_lab()}, crun=lambda *a, **k: self.fail('crun called for a micro-VM: ' + repr(a)),
+                                  directory=None)
+        start_servers(manager); start_clients(manager)
