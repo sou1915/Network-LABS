@@ -53,15 +53,21 @@ class DhcpGuestTests(unittest.TestCase):
                                     except (ValueError, OSError):
                                         if time.monotonic() >= deadline: raise
                                         time.sleep(.1)
+                            # The client hook adds the address, then the default route: wait for both.
                             deadline = time.monotonic() + 30
                             while True:
                                 text = query(sockets['VM2'], 'addresses')
-                                found = [ipaddress.IPv4Interface(w) for line in text.splitlines() for w in line.split()[1:2] if line.split()[:1] == ['inet'] and not w.startswith('127.')]
-                                if found: break
-                                if time.monotonic() >= deadline: self.fail('VM2 got no DHCP lease: ' + text)
+                                routes = query(sockets['VM2'], 'routes')
+                                found = [ipaddress.IPv4Interface(w) for line in text.splitlines() for w in line.split()[1:2]
+                                         if line.split()[:1] == ['inet'] and not w.startswith('127.')]
+                                if found and 'default via 192.0.2.1 dev eth0' in routes:
+                                    break
+                                if time.monotonic() >= deadline:
+                                    self.fail('VM2 got no complete DHCP lease: ' + text + routes)
                                 time.sleep(.5)
-                            self.assertEqual(len(found), 1, text); self.assertIn(found[0].ip, POOL); self.assertEqual(found[0].network.prefixlen, 24)
-                            self.assertIn('default via 192.0.2.1 dev eth0', query(sockets['VM2'], 'routes'))
+                            self.assertEqual(len(found), 1, text)
+                            self.assertIn(found[0].ip, POOL)
+                            self.assertEqual(found[0].network.prefixlen, 24)
                             table = leases(sockets['R1'], 'eth0'); results['leases'].append(table)
                             self.assertEqual([row['address'] for row in table], [str(found[0].ip)], table)
                             return str(found[0].ip)
