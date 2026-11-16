@@ -89,6 +89,16 @@ DHCP server, firewall policy, resources). Draft changes apply on the next start.
 for containers and micro-VMs, with rollback on failure. A micro-VM has no console by
 design (its agent takes typed requests only).
 
+**Vendor models.** The workbench library lists 56 manufacturer models from 36 brands
+(`network_labs/appliances/native_models.py`): routers, switches, firewalls, client
+workstations, servers and storage, and network peripherals. A model sets the node's
+brand and model name, a default port count from the model's layout and the drawing;
+containers also take the model's port names as aliases of their eth ports. The model
+is checked against the node's role when the lab is validated. A modelled node still
+runs Linux networking: no vendor firmware, logo or proprietary interface is loaded,
+and vendor consoles stay as listed in `device_identity` (an IOS-style subset for Cisco
+routers and switches in containers only).
+
 ## How to run
 
 ```bash

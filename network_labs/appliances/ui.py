@@ -249,29 +249,45 @@ class ApplianceWindow:
         return tk.Label(parent,text=text,bg=parent.cget('bg'),fg=color,justify='left',font=(self.font,size,'bold' if bold else 'normal'))
 
     def build_library_palette(self,parent):
-        catalog=[('Routeurs',[('router','Routeur Linux','Routage / 802.1Q','blue')]),
-                 ('Switches',[('switch','Switch Linux','VLAN / ports','blue')]),
-                 ('Pare-feu',[('firewall','Pare-feu Linux','Politique nftables','blue')]),
-                 ('Postes clients',[('host','Poste Linux','Thème bleu','blue'),('host','Poste Linux','Thème rouge','red')]),
-                 ('Serveurs',[('server','Serveur Linux','Réseau Ethernet','blue')])]
-        container=tk.Frame(parent,bg=SIDEBAR);container.pack(fill='x')
+        from .native_models import grouped,short_name
+        generic={'Routeurs':[('router',None,'Routeur Linux','Routage / 802.1Q','blue')],
+                 'Switches':[('switch',None,'Switch Linux','VLAN / ports','blue')],
+                 'Pare-feu':[('firewall',None,'Pare-feu Linux','Politique nftables','blue')],
+                 'Postes clients':[('host',None,'Poste Linux','Thème bleu','blue'),('host',None,'Poste Linux','Thème rouge','red')],
+                 'Serveurs et stockage':[('server',None,'Serveur Linux','Réseau Ethernet','blue')],'Périphériques':[]}
+        catalog=[]
+        for category,models in grouped():
+            entries=list(generic.get(category,[]))
+            for model in models:
+                kind='server' if model['presentation']=='server' else model['role']
+                entries.append((kind,model['id'],model['brand'],short_name(model),'blue'))
+            catalog.append((category,entries))
+        scroll=ScrollPanel(parent,SIDEBAR)
+        scroll.canvas.configure(bd=0,relief='flat')
+        scroll.scroll.configure(style='Native.Vertical.TScrollbar')
+        scroll.pack(fill='both',expand=True)
+        self.library_scroll=scroll
+        container=scroll.inner
         self.palette_groups=[]
         for category,entries in catalog:
             group=tk.Frame(container,bg=SIDEBAR);group.pack(fill='x');tiles=[]
             self.palette_groups.append((group,tiles))
             self.label(group,category,TEXT,8,True).pack(anchor='w',padx=9,pady=(7,2))
-            for kind,title,subtitle,variant in entries:
+            for kind,model,title,subtitle,variant in entries:
                 tile=SoftCard(group,SIDEBAR);tile.pack(fill='x',padx=7,pady=3)
                 icon=tk.Canvas(tile.inner,width=60,height=32,bg=PANEL,highlightthickness=0);icon.pack(side='left')
                 draw_device(icon,kind,31,17,scale=.46,variant=variant)
                 caption=tk.Frame(tile.inner,bg=PANEL);caption.pack(side='left',fill='x')
-                self.label(caption,title,TEXT,9).pack(anchor='w');self.label(caption,subtitle,MUTED,7).pack(anchor='w')
-                def bind(widget,r=kind,card=tile):
-                    widget.bind('<Button-1>',lambda event:self.add_device_dialog(r))
+                self.label(caption,title,TEXT,9).pack(anchor='w')
+                self.label(caption,subtitle if len(subtitle)<=17 else subtitle[:16]+'…',MUTED,7).pack(anchor='w')
+                def bind(widget,r=kind,m=model,card=tile):
+                    widget.bind('<Button-1>',lambda event:self.add_device_dialog(r,model=m))
                     widget.bind('<Enter>',lambda event:card.hover(True))
                     widget.bind('<Leave>',lambda event:card.hover(False))
-                    for child in widget.winfo_children():bind(child,r,card)
-                bind(tile);tiles.append((tile,(category+' '+title+' '+subtitle+' '+kind).casefold()))
+                    for child in widget.winfo_children():
+                        bind(child,r,m,card)
+                bind(tile)
+                tiles.append((tile,(category+' '+title+' '+subtitle+' '+kind+' '+(model or '')).casefold()))
 
     def toggle_project_list(self):
         self.project_list_open=not self.project_list_open
@@ -431,16 +447,23 @@ class ApplianceWindow:
             state=observed.get('status','non observé');memory=observed.get('memory')
             color='#21c632' if state=='running' else '#8b9cae';tags=('node','node:'+name)
             self.node_shapes[name]=rounded_box(self.canvas,x-44 if node['role']=='host' else x-58,y-34 if node['role']=='host' else y-43,x+44 if node['role']=='host' else x+58,y+66 if node['role']=='host' else y+43,fill='',outline='',width=1,tags=tags)
-            kind='server' if name in dmz or name.upper().startswith('SRV') else node['role']
+            from .native_models import MODELS,label as model_label
+            presentation=MODELS[node['model']]['presentation'] if node.get('model') in MODELS else None
+            kind='server' if presentation=='server' or name in dmz or name.upper().startswith('SRV') else node['role']
             host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
             draw_device(self.canvas,kind,x,y,scale=.85 if node['role']=='host' else .9,tags=tags,variant='red' if host_index%2 else 'blue')
             if node['role']=='host':
                 self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
-                self.canvas.create_text(x,y+49,text=', '.join(ips) or 'Linux · OCI',fill=MUTED,font=(self.font,8),tags=tags)
+                caption=', '.join(ips) or 'Linux · OCI'
+                if node.get('model') in MODELS:
+                    caption=MODELS[node['model']]['brand']+' · '+(caption if ips else MODELS[node['model']]['model'][:22])
+                self.canvas.create_text(x,y+49,text=caption,fill=MUTED,font=(self.font,8),tags=tags)
             else:
                 self.canvas.create_text(x,y-48,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
-                self.canvas.create_text(x,y-34,text={'switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}.get(node['role'],'Linux'),fill=MUTED,font=(self.font,8),tags=tags)
+                subtitle=model_label(node,short=True)
+                subtitle=subtitle if len(subtitle)<=30 else subtitle[:29]+'…'
+                self.canvas.create_text(x,y-34,text=subtitle,fill=MUTED,font=(self.font,8),tags=tags)
             self.canvas.create_oval(x+36,y+14,x+43,y+21,fill=color,outline='#ffffff',tags=tags)
             self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.node_pressed(event,n))
             self.canvas.tag_bind('node:'+name,'<Double-Button-1>',lambda event,n=name:self.open_device_config(n))
@@ -634,7 +657,8 @@ class ApplianceWindow:
             for button,roles in self.web_section_buttons:
                 button.pack_forget()
                 if node['role'] in roles:button.pack(fill='x',pady=2)
-            self.device_heading.set(node['name']+' · '+{'host':'Linux','switch':'Switch Linux','router':'Routeur Linux','firewall':'Pare-feu Linux'}[node['role']])
+            from .native_models import label as model_label
+            self.device_heading.set(node['name']+' · '+model_label(node))
             self.port_table.delete(*self.port_table.get_children())
             self.port_table.configure(height=max(1,min(4,len(node['interfaces'])+len(node.get('subinterfaces',{})))))
             for port,address in node['interfaces'].items():
@@ -737,7 +761,7 @@ class ApplianceWindow:
         self.positions[name]=(max(50,(min(box[::2])+max(box[::2]))/(2*self.zoom)),max(60,(min(box[1::2])+max(box[1::2]))/(2*self.zoom)-offset))
         self.draw(self.graph,self.states)
 
-    def add_device_dialog(self,role='host'):
+    def add_device_dialog(self,role='host',model=None):
         server=role=='server'
         if server:role='host'
         try:spec=self.editing_spec()
@@ -750,9 +774,13 @@ class ApplianceWindow:
         prefix='SRV' if server else {'host':'PC','switch':'SW','router':'R','firewall':'FW'}[role];used={n['name'] for n in spec['nodes']}
         suggested=next(prefix+str(i) for i in range(1,258) if prefix+str(i) not in used)
         default_ports={'host':'1','switch':'8','router':'3','firewall':'2'}[role]
+        runtime_default='firecracker' if vm and not rootfs else 'oci'
+        if model:
+            from .native_models import default_ports as model_ports,model_info
+            default_ports=str(model_ports(model,runtime_default))
         rows=[('name','Nom',suggested),('role','Rôle',role),('rootfs','Rootfs Linux',rootfs),
               ('ports','Nombre de ports',default_ports),('address','IPv4 eth0 / CIDR (facultatif)',''),
-              ('runtime','Exécution','firecracker' if vm and not rootfs else 'oci'),
+              ('runtime','Exécution',runtime_default),
               ('kernel','Noyau micro-VM',vm.get('kernel','')),('disk','Disque micro-VM',vm.get('disk',''))]
         choices={'role':('host','switch','router','firewall'),'runtime':('oci','firecracker')}
         for row,(key,title,initial) in enumerate(rows):
@@ -770,6 +798,11 @@ class ApplianceWindow:
         ttk.Button(form,text='Parcourir…',command=browse,style='Native.TButton').grid(row=2,column=2)
         hint=('Linux natif · pare-feu : trafic transitant bloqué par défaut.\n'
               'Micro-VM : 1 à 4 ports, une IPv4/préfixe par port séparées par des virgules, ou « dhcp ».')
+        if model:
+            info=model_info(model)
+            win.title('Ajouter · '+info['brand']+' '+info['model'])
+            hint=(f"Modèle {info['brand']} · {info['model']} : nom, ports ({', '.join(info['ports'][:3])}…) et présentation.\n"
+                  'Le nœud exécute Linux (conteneur ou micro-VM) ; ce n’est pas le système du constructeur.\n'+hint)
         ttk.Label(form,text=hint).grid(row=8,column=0,columnspan=3,pady=8)
         def apply():
             try:
@@ -777,11 +810,13 @@ class ApplianceWindow:
                 field=lambda key:values[key].get().strip()
                 if field('runtime')=='firecracker':
                     result=topology_edit.add_microvm_node(current,name=field('name'),role=field('role'),kernel=field('kernel'),
-                                                          disk=field('disk'),ports=int(field('ports')),addresses=field('address'))
+                                                          disk=field('disk'),ports=int(field('ports')),addresses=field('address'),
+                                                          model=model if field('role')==role else None)
                 else:
                     firewall={'default':'drop','stateful':True,'rules':[]} if field('role')=='firewall' else None
                     result=topology_edit.add_node(current,name=field('name'),role=field('role'),rootfs=field('rootfs'),
-                                                  address=field('address'),ports=int(field('ports')),firewall=firewall)
+                                                  address=field('address'),ports=int(field('ports')),firewall=firewall,
+                                                  model=model if field('role')==role else None)
                 self.commit_edit(result)
                 self.choose_node(field('name'))
                 win.destroy()

@@ -3,7 +3,7 @@ import copy
 from .spec import validate
 
 
-def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
+def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None,model=None):
     draft=copy.deepcopy(spec)
     if role not in ('host','switch','router','firewall'):
         raise ValueError('Création graphique : poste Linux, switch ou routeur OCI.')
@@ -11,11 +11,18 @@ def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
         raise ValueError('Choisir entre 1 et 16 interfaces.')
     draft['nodes'].append({'name':name,'role':role,'runtime':'oci','rootfs':rootfs,
                            'interfaces':{f'eth{i}':address if i==0 else '' for i in range(ports)}})
-    if firewall is not None:draft['nodes'][-1]['firewall']=copy.deepcopy(firewall)
+    if firewall is not None:
+        draft['nodes'][-1]['firewall']=copy.deepcopy(firewall)
+    if model:
+        # A vendor model: its port names become aliases of the container's eth ports (gi1/0/1 -> eth0, ...).
+        from .native_models import aliases
+        node=draft['nodes'][-1]
+        node['model']=model
+        node['interface_aliases']=aliases(model,list(node['interfaces']))
     return validate(draft)
 
 
-def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', memory_mib=128, vcpus=1):
+def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', memory_mib=128, vcpus=1, model=None):
     """Add a Firecracker node to a draft.
 
     addresses: one IPv4/prefix per port, comma-separated; "dhcp" for a one-port host that
@@ -41,6 +48,8 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
         node['interfaces'] = {f'eth{i}': value for i, value in enumerate(values)}
     if role == 'firewall':
         node['firewall'] = {'default': 'drop', 'stateful': True, 'rules': [], 'nat': []}
+    if model:
+        node['model'] = model  # Micro-VM ports keep their eth names: guests take no interface aliases.
     draft = copy.deepcopy(spec)
     draft['nodes'].append(node)
     return validate(draft)

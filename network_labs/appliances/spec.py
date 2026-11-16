@@ -60,7 +60,8 @@ def validate(data):
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'model', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command',
+                    'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -71,6 +72,8 @@ def validate(data):
         role = node.setdefault('role', 'host')
         if role not in ('host', 'switch', 'router', 'firewall'):
             raise ValueError('Unknown role: ' + str(role))
+        from .native_models import validate as validate_model
+        validate_model(node)  # A vendor model is presentation and port layout; the node still runs Linux.
         integer(node.setdefault('memory_mib', 64), 16, budget, 'memory_mib')
         interfaces = node.setdefault('interfaces', {})
         if not isinstance(interfaces, dict) or len(interfaces) > 64:

@@ -23,8 +23,8 @@ def private_json(path,value):
 
 
 def public_topology(spec):
-    return {'name':spec['name'],'nodes':[{k:node[k] for k in ('name','role','runtime','interfaces')} for node in spec['nodes']],
-            'links':spec['links']}
+    nodes=[{k:node[k] for k in ('name','role','runtime','interfaces','model') if k in node} for node in spec['nodes']]
+    return {'name':spec['name'],'nodes':nodes,'links':spec['links']}
 
 
 def observed_states(status):
@@ -46,7 +46,11 @@ def validate_topology(graph):
     if not isinstance(graph['nodes'],list) or not 1<=len(graph['nodes'])<=256:raise ValueError('Invalid topology nodes.')
     nodes={}
     for node in graph['nodes']:
-        if not isinstance(node,dict) or set(node)!={'name','role','runtime','interfaces'}:raise ValueError('Invalid topology node.')
+        required,allowed={'name','role','runtime','interfaces'},{'name','role','runtime','interfaces','model'}
+        if not isinstance(node,dict) or not required<=set(node)<=allowed:
+            raise ValueError('Invalid topology node.')
+        if 'model' in node and not isinstance(node['model'],str):
+            raise ValueError('Invalid topology model.')
         name=identifier(node['name'])
         if name in nodes or node['runtime'] not in ('oci','firecracker') or node['role'] not in ('host','switch','router','firewall'):
             raise ValueError('Invalid topology identity.')
