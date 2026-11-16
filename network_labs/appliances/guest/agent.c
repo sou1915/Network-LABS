@@ -11,6 +11,7 @@
 #include <linux/if_bridge.h>
 #include <linux/netlink.h>
 #include <linux/netfilter/nfnetlink.h>
+#include <linux/rtnetlink.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/time.h>
 #include <net/if.h>
@@ -69,6 +70,81 @@ static int spawn_detached(char *const argv[]) {
     int status;
     while (waitpid(first, &status, 0) < 0) if (errno != EINTR) return -1;
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+/* One VLAN on one bridge port, through rtnetlink as `bridge vlan add|del` does (BusyBox has no bridge tool). */
+static int bridge_vlan(int command, const char *port, unsigned vid, unsigned short flags) {
+    struct { struct nlmsghdr header; struct ifinfomsg link; char attributes[64]; } message;
+    memset(&message, 0, sizeof(message));
+    message.header.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+    message.header.nlmsg_type = (unsigned short)command;
+    message.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    message.link.ifi_family = AF_BRIDGE;
+    message.link.ifi_index = (int)if_nametoindex(port);
+    if (!message.link.ifi_index) return ENODEV;
+    struct rtattr *spec = (struct rtattr *)((char *)&message + NLMSG_ALIGN(message.header.nlmsg_len));
+    spec->rta_type = IFLA_AF_SPEC;
+    struct rtattr *entry = (struct rtattr *)RTA_DATA(spec);
+    entry->rta_type = IFLA_BRIDGE_VLAN_INFO;
+    entry->rta_len = RTA_LENGTH(sizeof(struct bridge_vlan_info));
+    struct bridge_vlan_info info = {.flags = flags, .vid = (unsigned short)vid};
+    memcpy(RTA_DATA(entry), &info, sizeof(info));
+    spec->rta_len = RTA_LENGTH(RTA_ALIGN(entry->rta_len));
+    message.header.nlmsg_len = NLMSG_ALIGN(message.header.nlmsg_len) + RTA_ALIGN(spec->rta_len);
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (fd < 0) return errno;
+    int result = EIO; char answer[512];
+    if (send(fd, &message, message.header.nlmsg_len, 0) == (ssize_t)message.header.nlmsg_len) {
+        ssize_t n = recv(fd, answer, sizeof(answer), 0);
+        struct nlmsghdr *reply_header = (struct nlmsghdr *)answer;
+        if (n >= (ssize_t)NLMSG_LENGTH(sizeof(struct nlmsgerr)) && reply_header->nlmsg_type == NLMSG_ERROR)
+            result = -((struct nlmsgerr *)NLMSG_DATA(reply_header))->error;
+    }
+    close(fd);
+    return result;
+}
+/* Every bridge VLAN entry as "port vid [pvid] [untagged]" lines, from an AF_BRIDGE link dump. */
+static size_t bridge_vlans(char *out, size_t room, int *failure) {
+    struct { struct nlmsghdr header; struct ifinfomsg link; struct rtattr mask_header; __u32 mask; } query;
+    memset(&query, 0, sizeof(query));
+    query.header.nlmsg_len = sizeof(query);
+    query.header.nlmsg_type = RTM_GETLINK;
+    query.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    query.link.ifi_family = AF_BRIDGE;
+    query.mask_header.rta_type = IFLA_EXT_MASK;
+    query.mask_header.rta_len = RTA_LENGTH(sizeof(__u32));
+    query.mask = RTEXT_FILTER_BRVLAN;
+    size_t used = 0; *failure = 0;
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (fd < 0 || send(fd, &query, sizeof(query), 0) != (ssize_t)sizeof(query)) { *failure = errno ? errno : EIO; if (fd >= 0) close(fd); return 0; }
+    static char buffer[16384];
+    for (int done = 0; !done;) {
+        ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
+        if (n <= 0) { *failure = EIO; break; }
+        for (struct nlmsghdr *header = (struct nlmsghdr *)buffer; NLMSG_OK(header, (unsigned)n); header = NLMSG_NEXT(header, n)) {
+            if (header->nlmsg_type == NLMSG_DONE) { done = 1; break; }
+            if (header->nlmsg_type == NLMSG_ERROR) { *failure = -((struct nlmsgerr *)NLMSG_DATA(header))->error; done = 1; break; }
+            if (header->nlmsg_type != RTM_NEWLINK) continue;
+            struct ifinfomsg *link = NLMSG_DATA(header);
+            char name[IF_NAMESIZE] = "";
+            if (!if_indextoname((unsigned)link->ifi_index, name)) continue;
+            int length = (int)IFLA_PAYLOAD(header);
+            for (struct rtattr *attribute = IFLA_RTA(link); RTA_OK(attribute, length); attribute = RTA_NEXT(attribute, length)) {
+                if ((attribute->rta_type & NLA_TYPE_MASK) != IFLA_AF_SPEC) continue;
+                int inner = (int)RTA_PAYLOAD(attribute);
+                for (struct rtattr *entry = RTA_DATA(attribute); RTA_OK(entry, inner); entry = RTA_NEXT(entry, inner)) {
+                    if (entry->rta_type != IFLA_BRIDGE_VLAN_INFO || RTA_PAYLOAD(entry) < sizeof(struct bridge_vlan_info)) continue;
+                    struct bridge_vlan_info *info = RTA_DATA(entry);
+                    int written = snprintf(out + used, room - used, "%s %u%s%s\n", name, info->vid,
+                                           info->flags & BRIDGE_VLAN_INFO_PVID ? " pvid" : "",
+                                           info->flags & BRIDGE_VLAN_INFO_UNTAGGED ? " untagged" : "");
+                    if (written < 0 || (size_t)written >= room - used) { *failure = ENOSPC; close(fd); return used; }
+                    used += (size_t)written;
+                }
+            }
+        }
+    }
+    close(fd);
+    return used;
 }
 static int valid_ipv4(const char *value) { struct in_addr address; return inet_pton(AF_INET, value, &address) == 1; }
 /* Ask nf_tables for its generation: a read-only request that only an nf_tables kernel answers. */
@@ -171,6 +247,36 @@ static void serve(int input, int output, int mutations) {
         }
         closedir(directory);
         reply(output, 0, list, size); return;
+    }
+    /* VLANs on the switch bridge: filtering on, per-port membership, and a read-only listing. */
+    if (!strcmp(request, "NL1 BRIDGE_VLANS")) {
+        static char listing[LIMIT]; int failure;
+        size_t size = bridge_vlans(listing, sizeof(listing), &failure);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bridge vlan listing failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, listing, size); return;
+    }
+    if (mutations && !strcmp(request, "NL1 BRIDGE_VLAN_FILTERING")) {
+        int fd = open("/sys/class/net/br0/bridge/vlan_filtering", O_WRONLY | O_CLOEXEC);
+        if (fd < 0) { reply(output, 1, "no bridge vlan filtering in this guest kernel", 45); return; }
+        ssize_t n = write(fd, "1\n", 2); close(fd);
+        if (n != 2) { reply(output, 1, "bridge vlan filtering change failed", 35); return; }
+        reply(output, 0, "", 0); return;
+    }
+    char vlan_port[5], vlan_mode[8], vlan_extra; unsigned vlan_id;
+    int vlan_fields = sscanf(request, "NL1 BRIDGE_VLAN_ADD %4s %u %7s %c", vlan_port, &vlan_id, vlan_mode, &vlan_extra);
+    int vlan_add = vlan_fields == 3 && (!strcmp(vlan_mode, "pvid") || !strcmp(vlan_mode, "tagged"));
+    int vlan_delete = !vlan_add && sscanf(request, "NL1 BRIDGE_VLAN_DEL %4s %u %c", vlan_port, &vlan_id, &vlan_extra) == 2;
+    if (mutations && (vlan_add || vlan_delete) && valid_port(vlan_port) && vlan_id >= 1 && vlan_id <= 4094) {
+        unsigned short flags = vlan_add && !strcmp(vlan_mode, "pvid") ? BRIDGE_VLAN_INFO_PVID | BRIDGE_VLAN_INFO_UNTAGGED : 0;
+        int failure = bridge_vlan(vlan_add ? RTM_SETLINK : RTM_DELLINK, vlan_port, vlan_id, flags);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bridge vlan change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, "", 0); return;
     }
     char bridge_port[5], bridge_extra;
     if (mutations && sscanf(request, "NL1 BRIDGE_ADD %4s %c", bridge_port, &bridge_extra) == 1 && valid_port(bridge_port)) {

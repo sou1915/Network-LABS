@@ -183,7 +183,7 @@ class GuestStartupTests(unittest.TestCase):
         self.assertNotIn('guest_network', saved['nodes'][0])
         self.assertEqual([n['guest_network'] for n in saved['nodes'][1:]], [empty] * 3)
 
-    def test_switch_role_is_one_untagged_unnumbered_segment(self):
+    def test_plain_switch_role_is_unnumbered_and_boots_without_ip(self):
         from network_labs.appliances.microvm import switch_example
         from network_labs.appliances.runtime import firecracker_config
         from pathlib import Path
@@ -192,8 +192,6 @@ class GuestStartupTests(unittest.TestCase):
         changes = {'numbered port': lambda n: n['interfaces'].update(eth0='192.0.2.1/24'),
                    'one port': lambda n: n.update(interfaces={'eth0': ''}, switchports={}),
                    'gateway': lambda n: n.update(gateway='192.0.2.1'),
-                   'second vlan': lambda n: n.update(vlans=[1, 10]),
-                   'trunk': lambda n: n['switchports'].update(eth0={'mode': 'trunk', 'native_vlan': 1, 'allowed': 'all'}),
                    'guest network': lambda n: n.update(guest_network={'addresses': [], 'routes': []}),
                    'firewall': lambda n: n.update(firewall={'default': 'drop', 'stateful': True, 'rules': [], 'nat': []})}
         for label, change in changes.items():
@@ -280,3 +278,99 @@ class GuestStartupTests(unittest.TestCase):
         manager = SimpleNamespace(state={'spec': self.dhcp_lab()}, crun=lambda *a, **k: self.fail('crun called for a micro-VM: ' + repr(a)),
                                   directory=None)
         start_servers(manager); start_clients(manager)
+
+
+class SwitchVlanTests(unittest.TestCase):
+    """Access and trunk ports on a switch guest: lab-file rules, wire format, startup order and readback."""
+
+    def lab(self):
+        from network_labs.appliances.microvm import switch_vlan_example
+        return switch_vlan_example('/kernel', '/disk')
+
+    LISTING = ('br0 1 pvid untagged\n'
+               'eth0 10 pvid untagged\neth1 10 pvid untagged\neth2 20 pvid untagged\n'
+               'eth3 1 pvid untagged\neth3 10\neth3 20\n')
+
+    def test_lab_rules(self):
+        spec = self.lab()
+        changes = {
+            'trunk with an undeclared VLAN': lambda nodes: nodes[0]['switchports']['eth3'].update(allowed=[10, 30]),
+            'trunk native VLAN undeclared': lambda nodes: nodes[0]['switchports']['eth3'].update(native_vlan=99),
+            'access VLAN undeclared': lambda nodes: nodes[0]['switchports']['eth0'].update(vlan=30),
+            'too many VLANs': lambda nodes: nodes[0].update(vlans=list(range(1, 40))),
+            'numbered switch port': lambda nodes: nodes[0]['interfaces'].update(eth0='192.0.2.1/24'),
+        }
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec)
+            change(bad['nodes'])
+            with self.subTest(label), self.assertRaises(ValueError):
+                validate(bad)
+        whole = copy.deepcopy(spec)
+        whole['nodes'][0]['switchports']['eth3']['allowed'] = 'all'
+        from network_labs.appliances.guest_startup import vlan_plan
+        self.assertIn(('eth3', 10, 'tagged'), vlan_plan(validate(whole)['nodes'][0]))
+
+    def test_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import _bridge_vlan_command, request
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-add', 'eth3', 10, 'tagged'), 'BRIDGE_VLAN_ADD eth3 10 tagged')
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-add', 'eth0', 20, 'pvid'), 'BRIDGE_VLAN_ADD eth0 20 pvid')
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-delete', 'eth0', 1, None), 'BRIDGE_VLAN_DEL eth0 1')
+        self.assertEqual(_bridge_vlan_command('bridge-vlans', None, None, None), 'BRIDGE_VLANS')
+        bad = [('bridge-vlan-add', 'eth9', 10, 'pvid'), ('bridge-vlan-add', 'eth0', 0, 'pvid'), ('bridge-vlan-add', 'eth0', 4095, 'pvid'),
+               ('bridge-vlan-add', 'eth0', '10', 'pvid'), ('bridge-vlan-add', 'eth0', 10, 'untagged'),
+               ('bridge-vlan-delete', 'eth0', 10, 'pvid'),
+               ('bridge-vlans', 'eth0', None, None), ('bridge-vlan-filtering', None, 1, None)]
+        for operation, interface, vlan, state in bad:
+            with self.subTest(operation=operation, interface=interface, vlan=vlan, state=state), self.assertRaises(ValueError):
+                _bridge_vlan_command(operation, interface, vlan, state)
+        with self.assertRaises(ValueError):
+            request('/missing', 'ping', destination='192.0.2.1', vlan=10)
+
+    def test_startup_enables_filtering_drops_default_vlan_and_adds_untagged_last(self):
+        from network_labs.appliances import guest_startup
+        switch = self.lab()['nodes'][0]
+        calls = []
+        replies = {'bridge-ports': 'eth0\neth1\neth2\neth3\n', 'bridge-vlans': self.LISTING, 'forwarding': '0\n',
+                   'addresses': ''.join(f'{i + 2}: eth{i}: <BROADCAST,UP>\n' for i in range(4)) + '6: br0: <BROADCAST,UP>\n'}
+
+        def fake(socket, operation, **kw):
+            calls.append((operation, kw.get('interface'), kw.get('vlan'), kw.get('state')))
+            return replies.get(operation, '')
+        with patch.object(guest_startup, 'query', side_effect=fake):
+            apply('/socket', switch)
+        names = [c[0] for c in calls]
+        self.assertLess(names.index('bridge-add'), names.index('bridge-vlan-filtering'))
+        self.assertEqual([c[1:3] for c in calls if c[0] == 'bridge-vlan-delete'], [(f'eth{i}', 1) for i in range(4)])
+        adds = [c[1:] for c in calls if c[0] == 'bridge-vlan-add']
+        self.assertEqual(sorted(adds), sorted(guest_startup.vlan_plan(switch)))
+        first_pvid = next(i for i, add in enumerate(adds) if add[2] == 'pvid')
+        self.assertTrue(all(add[2] == 'pvid' for add in adds[first_pvid:]))
+
+    def test_plain_switch_never_touches_vlans_and_a_kernel_without_filtering_is_named(self):
+        from network_labs.appliances import guest_startup
+        from network_labs.appliances.microvm import switch_example
+        plain = switch_example('/kernel', '/disk')['nodes'][0]
+        replies = {'bridge-ports': 'eth0\neth1\neth2\n', 'forwarding': '0\n',
+                   'addresses': ''.join(f'{i + 2}: eth{i}: <BROADCAST,UP>\n' for i in range(3)) + '5: br0: <BROADCAST,UP>\n'}
+        with patch.object(guest_startup, 'query', side_effect=lambda socket, operation, **kw: replies.get(operation, '')) as query:
+            apply('/socket', plain)
+        self.assertFalse([c for c in query.call_args_list if c.args[1].startswith('bridge-vlan')])
+
+        def no_filtering(socket, operation, **kw):
+            if operation == 'bridge-vlan-filtering':
+                raise ValueError('Guest bridge-vlan-filtering failed: no bridge vlan filtering in this guest kernel')
+            return ''
+        with patch.object(guest_startup, 'query', side_effect=no_filtering), self.assertRaisesRegex(ValueError, 'tools/guest_kernel'):
+            apply('/socket', self.lab()['nodes'][0])
+
+    def test_readback_compares_port_membership_exactly(self):
+        from network_labs.appliances import guest_startup
+        switch = self.lab()['nodes'][0]
+        with patch.object(guest_startup, 'query', return_value=self.LISTING):
+            self.assertEqual(guest_startup.observed_vlans('/socket', switch), guest_startup.vlan_plan(switch))
+        for wrong in (self.LISTING.replace('eth3 20\n', ''), self.LISTING + 'eth0 20\n', self.LISTING.replace('eth2 20', 'eth2 10')):
+            with patch.object(guest_startup, 'query', return_value=wrong):
+                self.assertNotEqual(guest_startup.observed_vlans('/socket', switch), guest_startup.vlan_plan(switch))
+        with patch.object(guest_startup, 'query', return_value=self.LISTING + 'eth1 30 pvid\n'):
+            with self.assertRaisesRegex(ValueError, 'Unmanaged'):
+                guest_startup.observed_vlans('/socket', switch)

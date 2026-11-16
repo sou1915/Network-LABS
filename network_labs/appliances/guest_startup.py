@@ -117,6 +117,41 @@ def leases(socket, interface):
     return rows
 
 
+def vlan_plan(node):
+    """The bridge VLAN entries a switch guest must hold, as {(port, vid, 'pvid' | 'tagged')}; None for one untagged VLAN 1.
+
+    An access port is untagged in its VLAN. A trunk carries every allowed VLAN tagged, and its
+    native VLAN untagged. A plain switch (only VLAN 1, all access) keeps the bridge without
+    VLAN filtering, so it also runs on a guest kernel without 802.1Q.
+    """
+    ports = node['switchports']
+    if node['vlans'] == [1] and all(port == {'mode': 'access', 'vlan': 1} for port in ports.values()):
+        return None
+    plan = set()
+    for name, port in ports.items():
+        if port['mode'] == 'access':
+            plan.add((name, port['vlan'], 'pvid'))
+            continue
+        allowed = node['vlans'] if port['allowed'] == 'all' else port['allowed']
+        plan.add((name, port['native_vlan'], 'pvid'))
+        plan.update((name, vid, 'tagged') for vid in allowed if vid != port['native_vlan'])
+    return plan
+
+
+def observed_vlans(socket, node):
+    """The guest bridge's VLAN entries on the declared ports, in vlan_plan() form."""
+    found = set()
+    for line in query(socket, 'bridge-vlans').splitlines():
+        fields = line.split()
+        if len(fields) < 2 or fields[0] not in node['interfaces']:
+            continue  # br0's own entries and other devices are not ports.
+        pvid, untagged = 'pvid' in fields[2:], 'untagged' in fields[2:]
+        if pvid != untagged:
+            raise ValueError('Unmanaged bridge VLAN entry: ' + line)
+        found.add((fields[0], int(fields[1]), 'pvid' if pvid else 'tagged'))
+    return found
+
+
 def check_switch(socket, node):
     """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
     ports = sorted(query(socket, 'bridge-ports').split())
@@ -134,6 +169,9 @@ def check_switch(socket, node):
             raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
     if not {'br0', *node['interfaces']} <= up:
         raise ValueError('Switch guest bridge and all declared ports must be up.')
+    plan = vlan_plan(node)
+    if plan is not None and observed_vlans(socket, node) != plan:
+        raise ValueError('Switch guest VLAN membership differs from its declared switchports.')
     check_forwarding(socket, node)
 
 
@@ -218,6 +256,17 @@ def apply(socket, node, timeout=40, alive=None):
         for port in node['interfaces']:
             query(socket, 'link', interface=port, state='up')
             query(socket, 'bridge-add', interface=port)
+        plan = vlan_plan(node)
+        if plan is not None:
+            try:
+                query(socket, 'bridge-vlan-filtering')
+            except ValueError as error:
+                raise ValueError(str(error) + ' (VLANs need the Network LABS guest kernel, tools/guest_kernel)') from error
+            for port in node['interfaces']:
+                query(socket, 'bridge-vlan-delete', interface=port, vlan=1)  # Ports join VLAN 1 untagged by default.
+            # Untagged (pvid) entries last: each one replaces the port's default VLAN.
+            for port, vid, mode in sorted(plan, key=lambda entry: (entry[2] == 'pvid', entry)):
+                query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():

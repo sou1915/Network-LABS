@@ -92,6 +92,27 @@ def switch_example(kernel, disk):
                      'links': [[['SW1', f'eth{i}'], [f'VM{i + 1}', 'eth0']] for i in range(3)]})
 
 
+def switch_vlan_example(kernel, disk):
+    """SW1 and SW2 joined by a trunk carrying VLANs 10 and 20; VM3 shares VM1's subnet but sits in VLAN 20.
+
+    VM1 (SW1, VLAN 10) reaches VM2 (SW1, VLAN 10) and VM4 (SW2, VLAN 10, across the trunk), but not
+    VM3 (SW1, VLAN 20) although all four use 192.0.2.0/24: only the VLAN separates them.
+    """
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()),
+            'memory_mib': 128, 'vcpus': 1}
+    access = lambda vid: {'mode': 'access', 'vlan': vid}
+    trunk = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+    switches = [dict(base, name='SW1', role='switch', interfaces={f'eth{i}': '' for i in range(4)}, vlans=[1, 10, 20],
+                     switchports={'eth0': access(10), 'eth1': access(10), 'eth2': access(20), 'eth3': trunk}),
+                dict(base, name='SW2', role='switch', interfaces={'eth0': '', 'eth1': ''}, vlans=[1, 10, 20],
+                     switchports={'eth0': trunk, 'eth1': access(10)})]
+    hosts = [dict(base, name=f'VM{i}', role='host', interfaces={'eth0': f'192.0.2.{10 + i}/24'}) for i in range(1, 5)]
+    links = [[['SW1', 'eth0'], ['VM1', 'eth0']], [['SW1', 'eth1'], ['VM2', 'eth0']], [['SW1', 'eth2'], ['VM3', 'eth0']],
+             [['SW1', 'eth3'], ['SW2', 'eth0']], [['SW2', 'eth1'], ['VM4', 'eth0']]]
+    return validate({'version': 1, 'name': 'microvm-switch-vlans', 'budget_mib': 2048, 'reserve_mib': 512,
+                     'nodes': switches + hosts, 'links': links})
+
+
 def firewall_example(kernel, disk):
     """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
     spec = router_example(kernel, disk)

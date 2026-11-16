@@ -37,18 +37,15 @@ the direct launch.
 | Firewall NAT (masquerade, SNAT, DNAT) | `--firewall-nat` | Source NAT matches the outbound port only |
 | Live firewall policy change | — (`firewall LAB NODE --file`) | Rebuilt with forwarding paused; rollback and `recover` |
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
-| Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest |
+| Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |
+| Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
 | Capture on a guest port | — (`capture LAB NODE ethN`) | Recorded on the host-side TAP |
 | Isolation and limits | — | Jailer chroot, per-lab uid block, cgroup memory/CPU caps, vCPU and memory budgets |
 
 ## Micro-VM guests — not yet
 
-- **VLANs and trunks on switch guests** — the Firecracker CI kernel has no 802.1Q.
-  `tools/guest_kernel/build.sh` builds Firecracker's own kernel source (Amazon Linux
-  microvm 5.10.223, pinned by commit) with its CI config plus 802.1Q (CI job
-  `guest-kernel`). A kernel.org build of the same config could not use Firecracker's
-  virtio devices, so it is not used. Switch VLAN support on top of it is the next step.
+- SVIs (an address on a switch VLAN) and router-on-a-stick subinterfaces on guests.
 - STP, LACP and switch security features on guests.
 - Routing protocols (OSPF), DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).

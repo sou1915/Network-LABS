@@ -114,11 +114,17 @@ def validate(data):
             if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
                 raise ValueError('Firecracker host, router, firewall or switch requires contiguous ports eth0..eth3.')
             if role == 'switch':
-                # The measured guest kernel bridges but has no 802.1Q: one untagged segment, no addressing.
-                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node or node['svis']
-                        or node['vlans'] != [1] or any(port != {'mode': 'access', 'vlan': 1} for port in node['switchports'].values())):
-                    raise ValueError('Firecracker switch: 2..4 unnumbered ports in one untagged VLAN 1 (no 802.1Q in the guest kernel); '
+                # Access and trunk ports on the guest bridge; VLANs other than one untagged VLAN 1 need a
+                # guest kernel with 802.1Q and bridge VLAN filtering (tools/guest_kernel). No addressing.
+                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node
+                        or node['svis'] or len(node['vlans']) > 32):
+                    raise ValueError('Firecracker switch: 2..4 unnumbered ports, at most 32 VLANs; '
                                      'no addresses, gateway, SVIs or guest_network.')
+                for port in node['switchports'].values():
+                    if port['mode'] == 'trunk':
+                        allowed = node['vlans'] if port['allowed'] == 'all' else port['allowed']
+                        if port['native_vlan'] not in node['vlans'] or set(allowed) - set(node['vlans']):
+                            raise ValueError('Firecracker switch trunk: native and allowed VLANs must be declared in vlans.')
                 if node.get('firewall') is not None:
                     raise ValueError('A firewall policy requires role firewall.')
                 node['interfaces'] = dict(sorted(interfaces.items()))

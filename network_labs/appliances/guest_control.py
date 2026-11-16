@@ -7,7 +7,11 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
               'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE',
               'firewall-nat-list': 'FW_NAT_LIST', 'firewall-sessions': 'FW_SESSIONS',
-              'dhcp-serve': 'DHCP_SERVE', 'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES', 'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT'}
+              'dhcp-serve': 'DHCP_SERVE',
+              'bridge-vlans': 'BRIDGE_VLANS', 'bridge-vlan-filtering': 'BRIDGE_VLAN_FILTERING',
+              'bridge-vlan-add': 'BRIDGE_VLAN_ADD', 'bridge-vlan-delete': 'BRIDGE_VLAN_DEL',
+              'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES',
+              'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT'}
 
 
 def _firewall_command(operation, state, rule):
@@ -98,9 +102,33 @@ def _dhcp_command(operation, interface, server):
     return ' '.join([command, str(start), str(end), netmask, router, str(server['lease_seconds']), dns])
 
 
-def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None, timeout=6):
+def _bridge_vlan_command(operation, interface, vlan, state):
+    command = OPERATIONS[operation]
+    if operation in ('bridge-vlans', 'bridge-vlan-filtering'):
+        if interface is not None or vlan is not None or state is not None:
+            raise ValueError(f'Guest {operation} accepts no arguments.')
+        return command
+    if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or type(vlan) is not int or not 1 <= vlan <= 4094:
+        raise ValueError('Guest bridge VLAN change requires interface eth0..eth3 and a VLAN 1..4094.')
+    if operation == 'bridge-vlan-add':
+        if state not in ('pvid', 'tagged'):
+            raise ValueError('Guest bridge-vlan-add requires state pvid (untagged, ingress default) or tagged.')
+        return f'{command} {interface} {vlan} {state}'
+    if state is not None:
+        raise ValueError('Guest bridge-vlan-delete accepts no state.')
+    return f'{command} {interface} {vlan}'
+
+
+def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
+            vlan=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('bridge-vlan'):
+        if any(value is not None for value in (destination, cidr, network, gateway, rule, dhcp)):
+            raise ValueError('Guest bridge VLAN operations accept only an interface, a VLAN and a state.')
+        return _exchange(path, operation, _bridge_vlan_command(operation, interface, vlan, state), timeout)
+    if vlan is not None:
+        raise ValueError('Only bridge VLAN operations accept a VLAN.')
     if operation.startswith('dhcp-'):
         if any(value is not None for value in (destination, state, cidr, network, gateway, rule)):
             raise ValueError('Guest DHCP operations accept only an interface and, for dhcp-serve, the pool.')

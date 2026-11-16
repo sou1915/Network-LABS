@@ -30,6 +30,8 @@ def main(arguments=None):
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
     vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
     vm_sample.add_argument('--dhcp',action='store_true',help='Three guests: a router guest serving DHCP to one host guest, a static host behind it.')
+    vm_sample.add_argument('--switch-vlans', action='store_true',
+                           help='Six guests: two VLAN switch guests joined by a trunk, four hosts in VLANs 10 and 20.')
     vm_sample.add_argument('--switch',action='store_true',help='Four guests: an untagged learning-bridge switch guest joining three endpoint guests.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
@@ -390,18 +392,24 @@ def main(arguments=None):
             from .guest_image import build
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
         elif args.command == 'microvm-example':
-            from .microvm import example as microvm_example
-            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad + args.firewall_nat + args.dhcp > 1:
-                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall, --firewall-nat, --dhcp or --switch.')
-            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad or args.firewall_nat or args.dhcp:
-                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example, firewall_nat_example, dhcp_example
-                result=(dhcp_example if args.dhcp else firewall_nat_example if args.firewall_nat else quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
+            from . import microvm
+            # One reference lab per flag; without a flag, the two-host pair.
+            choices = {'multinic': microvm.multinic_example, 'router': microvm.router_example,
+                       'router_chain': microvm.router_chain_example, 'router_quad': microvm.quad_router_example,
+                       'firewall': microvm.firewall_example, 'firewall_nat': microvm.firewall_nat_example,
+                       'dhcp': microvm.dhcp_example, 'switch': microvm.switch_example, 'switch_vlans': microvm.switch_vlan_example}
+            chosen = [flag for flag in choices if getattr(args, flag)]
+            if len(chosen) > 1:
+                raise ValueError('Choose one of ' + ', '.join('--' + flag.replace('_', '-') for flag in choices) + '.')
+            if chosen:
+                result = choices[chosen[0]](args.kernel, args.disk)
                 for node in result['nodes']:
-                    node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
+                    node['memory_mib'] = args.memory_mib
+                    node['vcpus'] = args.vcpus
                 from .spec import validate
-                result=validate(result)
+                result = validate(result)
             else:
-                result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
+                result = microvm.example(args.kernel, args.disk, memory_mib=args.memory_mib, vcpus=args.vcpus)
         elif args.command == 'example':
             pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
             if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):

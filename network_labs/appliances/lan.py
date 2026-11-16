@@ -209,7 +209,7 @@ def validate_lan(node):
     validate_https(node)
     from .dhcpv6_pd import validate_node as validate_pd
     validate_pd(node)
-    # A Firecracker switch keeps its default untagged switchports; spec.py rejects any other port mode there.
+    # A Firecracker switch programs its switchports on the guest bridge; spec.py keeps them to what the guest supports.
     vm_switch_ports = node['runtime'] == 'firecracker' and role == 'switch'
     # A Firecracker guest runs BusyBox DHCP itself; spec.py keeps it to the subset the guest agent supports.
     vm_dhcp = node['runtime'] == 'firecracker'
