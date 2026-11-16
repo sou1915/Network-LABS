@@ -15,6 +15,8 @@
 #include <sys/time.h>
 #include <net/if.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
@@ -42,12 +44,12 @@ static int valid_port_number(const char *value) {
     long number = atol(value); return number >= 1 && number <= 65535;
 }
 /* A running daemon is identified by its pid file and a live process. */
-static int pidfile_alive(const char *path) {
+static pid_t pidfile_alive(const char *path) {
     char text[16] = {0}; int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return 0;
     ssize_t n = read(fd, text, sizeof(text) - 1); close(fd);
     long pid = n > 0 ? atol(text) : 0;
-    return pid > 1 && kill((pid_t)pid, 0) == 0;
+    return pid > 1 && kill((pid_t)pid, 0) == 0 ? (pid_t)pid : 0;
 }
 /* Start a long-lived BusyBox service outside this request: own session, no inherited output, reparented to init. */
 static int spawn_detached(char *const argv[]) {
@@ -253,7 +255,16 @@ static void serve(int input, int output, int mutations) {
     if (sscanf(request, "NL1 DHCP_LEASES %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
         snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
         snprintf(dhcp_leases, sizeof(dhcp_leases), "/run/udhcpd.%s.leases", dhcp_port);
-        if (!pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp server not running", 23); return; }
+        pid_t server = pidfile_alive(dhcp_pid);
+        if (!server) { reply(output, 1, "dhcp server not running", 23); return; }
+        /* udhcpd writes its lease file only every auto_time seconds or on SIGUSR1: ask for a fresh one. */
+        struct stat before; long long previous = stat(dhcp_leases, &before) ? -1 : (long long)before.st_mtim.tv_sec * 1000000000LL + before.st_mtim.tv_nsec;
+        kill(server, SIGUSR1);
+        for (int tries = 0; tries < 20; tries++) {
+            struct stat now;
+            if (!stat(dhcp_leases, &now) && (long long)now.st_mtim.tv_sec * 1000000000LL + now.st_mtim.tv_nsec != previous) break;
+            struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+        }
         if (access(dhcp_leases, F_OK)) { reply(output, 0, "", 0); return; }
         lease_args = lease_list;
     }
