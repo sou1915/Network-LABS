@@ -45,8 +45,10 @@ the direct launch.
 ## Micro-VM guests — not yet
 
 - **VLANs and trunks on switch guests** — the Firecracker CI kernel has no 802.1Q.
-  `tools/guest_kernel/build.sh` builds a pinned kernel that adds it (CI job
-  `guest-kernel`); switch VLAN support on top of it is the next step.
+  `tools/guest_kernel/build.sh` builds Firecracker's own kernel source (Amazon Linux
+  microvm 5.10.223, pinned by commit) with its CI config plus 802.1Q (CI job
+  `guest-kernel`). A kernel.org build of the same config could not use Firecracker's
+  virtio devices, so it is not used. Switch VLAN support on top of it is the next step.
 - STP, LACP and switch security features on guests.
 - Routing protocols (OSPF), DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).
