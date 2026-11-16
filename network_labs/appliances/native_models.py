@@ -16,6 +16,25 @@ MICROVM_PORTS = 4
 CONTAINER_PORTS = 24
 
 
+# Each brand's documented port naming (first port first). Brands not listed keep the shared catalogue's names.
+_BRAND_PORTS = {
+    'Fortinet': lambda i: f'port{i + 1}',
+    'Palo Alto': lambda i: f'ethernet1/{i + 1}',
+    'Juniper': lambda i: f'ge-0/0/{i}',
+    'MikroTik': lambda i: f'ether{i + 1}',
+    'Check Point': lambda i: f'eth{i + 1}',
+    'Netgate': lambda i: f'igb{i}',
+    'Deciso': lambda i: f'igb{i}',
+    'Sophos': lambda i: f'Port{i + 1}',
+    'SonicWall': lambda i: f'X{i}',
+    'Huawei': lambda i: f'GE0/0/{i + 1}',
+    'Arista': lambda i: f'Ethernet{i + 1}',
+    'HPE Aruba': lambda i: f'1/1/{i + 1}',
+}
+# Native firewalls route on every port; the shared catalogue's two-port transparent layout does not apply.
+FIREWALL_PORTS = 8
+
+
 def _native_role(profile):
     role = profile_role(profile)
     # Generic entries duplicate the workbench's own Linux devices.
@@ -44,6 +63,10 @@ def _build():
         # native nodes route on every port, so they show the plain product name and a four-port router layout.
         name = profile.model.split(' · profil')[0].split(' (')[0]
         ports = [f'gi0/{i}' for i in range(4)] if role == 'router' else profile_ports(profile.id, kind)
+        if role == 'firewall':
+            ports = [f'gi0/{i}' for i in range(FIREWALL_PORTS)]
+        if profile.brand in _BRAND_PORTS and role != 'host':
+            ports = [_BRAND_PORTS[profile.brand](i) for i in range(len(ports))]
         models[profile.id] = {
             'id': profile.id, 'brand': profile.brand, 'model': name, 'role': role, 'presentation': presentation,
             'ports': ports, 'skin': face['skin'], 'title': face['title'],
@@ -118,6 +141,27 @@ def aliases(model_id, ports):
     """Model port names for a container's eth ports (eth0 -> gi0/1, ...); micro-VM ports keep their eth names."""
     names = model_info(model_id)['ports']
     return {names[i]: port for i, port in enumerate(ports) if i < len(names)}
+
+
+def port_names(node):
+    """{eth port: name shown to the user}: the node's own aliases, else the model's names by position, else eth."""
+    shown = {}
+    aliases = {eth: name for name, eth in (node.get('interface_aliases') or {}).items()}
+    names = MODELS[node['model']]['ports'] if node.get('model') in MODELS else []
+    for port in node.get('interfaces', {}):
+        index = int(port[3:]) if port.startswith('eth') and port[3:].isdigit() else None
+        if port in aliases:
+            shown[port] = aliases[port]
+        elif index is not None and index < len(names):
+            shown[port] = names[index]
+        else:
+            shown[port] = port
+    return shown
+
+
+def port_label(node, port):
+    """One port's display name ('port1' for a FortiGate's eth0); unknown ports keep their own name."""
+    return port_names(node).get(port, port)
 
 
 def validate(node):

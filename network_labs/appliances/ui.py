@@ -20,6 +20,7 @@ from .campus import campus_example
 from . import reference_theme
 from .soft_widgets import SoftCard,SoftPanel,rounded_box
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
+from .native_models import port_label,port_names
 from .workspace_art import draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
@@ -156,8 +157,11 @@ class ApplianceWindow:
         details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='État / test');details=details_card.inner
         self.config_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.config_panel,text='GUI')
         self.build_config_form(self.config_panel.inner)
-        self.console_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.console_panel,text='CLI')
-        self.label(self.console_panel.inner,'Console Linux native',TEXT,11,True).pack(anchor='w',padx=14,pady=16)
+        self.console_panel=SoftPanel(self.device_tabs,BG)
+        self.device_tabs.add(self.console_panel,text='CLI')
+        self.build_vendor_console(self.console_panel.inner)
+        self.linux_console_title=self.label(self.console_panel.inner,'Console Linux native',TEXT,11,True)
+        self.linux_console_title.pack(anchor='w',padx=14,pady=16)
         tk.Label(self.console_panel.inner,text='Ouvrir un terminal interactif dans le nœud OCI sélectionné.\n\nLe laboratoire doit être démarré et son état actualisé.\n\nAuthentification sudo dans le terminal, puis shell Linux du nœud. Taper exit pour fermer avant une autre opération sur le lab.\n\nLes commandes modifient le système actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
         self.console_button=ttk.Button(self.console_panel.inner,text='Ouvrir la console Linux',command=self.open_console,style='Native.Primary.TButton');self.console_button.pack(fill='x',padx=14,pady=12)
 
@@ -433,7 +437,8 @@ class ApplianceWindow:
                 if graph_nodes[endpoint[0]]['role']!='host':
                     if other_y<ny-45:tx,ty,anchor=nx-56,ny-19,'e'
                     else:tx,ty=px+5,ny+30+(ordinal%4)*10
-                port_labels.append(dict(x=tx,y=ty,text=endpoint[1],anchor=anchor,tag='link:'+str(index)))
+                shown=port_label(graph_nodes[endpoint[0]],endpoint[1])
+                port_labels.append(dict(x=tx,y=ty,text=shown,anchor=anchor,tag='link:'+str(index)))
             caption=link_caption(a,b,config)
             if caption:
                 lx=(ax+bx)/2;ly=((ay+by)/2 if abs(y-yy)<45 else mid)-12
@@ -599,7 +604,7 @@ class ApplianceWindow:
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
         ports_card=SoftCard(form,PANEL);ports_card.pack(fill='x',padx=7)
         self.port_table=ttk.Treeview(ports_card.inner,columns=('address','admin'),show='tree headings',height=3,style='Native.Treeview')
-        for key,label,width in [('#0','Nom',96),('address','Adresse IPv4',122),('admin','Admin',78)]:
+        for key,label,width in [('#0','Nom',116),('address','Adresse IPv4',112),('admin','Admin',54)]:
             self.port_table.heading(key,text=label);self.port_table.column(key,width=width,minwidth=35)
         self.port_table.tag_configure('enabled',foreground='#168942');self.port_table.tag_configure('disabled',foreground='#bb3646')
         self.port_table.pack(fill='x');self.port_table.bind('<<TreeviewSelect>>',self.config_table_selected)
@@ -659,11 +664,15 @@ class ApplianceWindow:
                 if node['role'] in roles:button.pack(fill='x',pady=2)
             from .native_models import label as model_label
             self.device_heading.set(node['name']+' · '+model_label(node))
+            self.load_vendor_console(spec,node)
             self.port_table.delete(*self.port_table.get_children())
             self.port_table.configure(height=max(1,min(4,len(node['interfaces'])+len(node.get('subinterfaces',{})))))
             for port,address in node['interfaces'].items():
                 enabled=port not in node.get('shutdown',[])
-                self.port_table.insert('','end',iid=port,text=port,values=(address or '—','Activé' if enabled else 'Arrêté'),tags=('enabled' if enabled else 'disabled',))
+                shown=port_names(node)[port]
+                text=port if shown==port else f'{shown} ({port})'
+                row=(address or '—','Activé' if enabled else 'Arrêté')
+                self.port_table.insert('','end',iid=port,text=text,values=row,tags=('enabled' if enabled else 'disabled',))
                 # 802.1Q subinterfaces (router-on-a-stick) are listed under their port; they are edited in Gestion web.
                 for name,sub in node.get('subinterfaces',{}).items():
                     if sub.get('parent')==port:
@@ -687,6 +696,84 @@ class ApplianceWindow:
                                      else ['disabled'])
         except (ValueError,TypeError,KeyError,StopIteration) as error:
             self.config_message.set(str(error));self.config_apply.state(['disabled'])
+
+    def build_vendor_console(self,parent):
+        """Vendor-syntax configuration (IOS, FortiOS, Junos, RouterOS) of the selected node's lab draft."""
+        frame=self.vendor_frame=tk.Frame(parent,bg=BG)
+        self.vendor_title=tk.StringVar()
+        title=self.label(frame,'',TEXT,11,True)
+        title.configure(textvariable=self.vendor_title)
+        title.pack(fill='x',padx=14,pady=(14,2))
+        title.configure(anchor='w')
+        title.bind('<Configure>',lambda event:title.configure(wraplength=max(120,event.width-4)))
+        self.vendor_hint=tk.StringVar()
+        hint=tk.Label(frame,textvariable=self.vendor_hint,bg=BG,fg=MUTED,font=(self.font,8),justify='left',anchor='w')
+        hint.pack(fill='x',padx=14)
+        hint.bind('<Configure>',lambda event:hint.configure(wraplength=max(120,event.width-4)))
+        box=tk.Frame(frame,bg='#0d1520')
+        box.pack(fill='both',expand=True,padx=14,pady=8)
+        self.vendor_text=tk.Text(box,wrap='none',font=('DejaVu Sans Mono',8),height=17,bg='#0d1520',fg='#d7e3f0',
+                                 insertbackground='#d7e3f0',bd=0,highlightthickness=0,padx=8,pady=6,undo=True)
+        scroll=ttk.Scrollbar(box,orient='vertical',command=self.vendor_text.yview,style='Native.Vertical.TScrollbar')
+        across=ttk.Scrollbar(box,orient='horizontal',command=self.vendor_text.xview)
+        self.vendor_text.configure(yscrollcommand=scroll.set,xscrollcommand=across.set)
+        across.pack(side='bottom',fill='x')
+        scroll.pack(side='right',fill='y')
+        self.vendor_text.pack(side='left',fill='both',expand=True)
+        actions=tk.Frame(frame,bg=BG)
+        actions.pack(fill='x',padx=14)
+        self.vendor_show=ttk.Button(actions,text='Afficher la configuration',command=self.show_vendor_config,style='Native.TButton')
+        self.vendor_show.pack(side='left',fill='x',expand=True,padx=(0,5))
+        self.vendor_apply=ttk.Button(actions,text='Appliquer au brouillon',command=self.apply_vendor_config,
+                                     style='Native.Primary.TButton')
+        self.vendor_apply.pack(side='right',fill='x',expand=True)
+        self.vendor_message=tk.StringVar()
+        message=tk.Label(frame,textvariable=self.vendor_message,bg=BG,fg=MUTED,font=(self.font,8),justify='left',anchor='w')
+        message.pack(fill='x',padx=14,pady=6)
+        message.bind('<Configure>',lambda event:message.configure(wraplength=max(120,event.width-4)))
+        self.vendor_node=None
+
+    def load_vendor_console(self,spec,node):
+        from . import vendor_config
+        from .native_models import label as model_label
+        syntax=vendor_config.dialect(node)
+        if syntax is None:
+            self.vendor_node=None
+            self.vendor_frame.pack_forget()
+            return
+        self.vendor_frame.pack(fill='both',expand=True,before=self.linux_console_title)
+        self.vendor_node=node['name']
+        self.vendor_title.set(f'{vendor_config.TITLES[syntax]} · {model_label(node,short=True)}')
+        self.vendor_hint.set(vendor_config.HINTS[syntax]+' Les commandes écrivent dans le brouillon du lab, '
+                             'validé comme le formulaire ; le nœud exécute Linux, pas le système du constructeur.')
+        self.show_vendor_config(spec)
+
+    def show_vendor_config(self,spec=None):
+        from . import vendor_config
+        try:
+            text=vendor_config.render(spec or self.editing_spec(),self.vendor_node)
+        except (ValueError,TypeError,KeyError) as error:
+            self.vendor_message.set(str(error))
+            return
+        self.vendor_text.delete('1.0','end')
+        self.vendor_text.insert('1.0',text)
+        self.vendor_message.set('Configuration du brouillon. Modifier ou taper des commandes, puis appliquer.')
+
+    def apply_vendor_config(self):
+        from . import vendor_config
+        name=self.vendor_node
+        try:
+            result=vendor_config.apply(self.editing_spec(),name,self.vendor_text.get('1.0','end'))
+        except (ValueError,TypeError,KeyError) as error:
+            self.vendor_message.set(str(error))
+            return False
+        self.config_key=None
+        self.commit_edit(result)
+        self.choose_node(name)
+        self.load_config(force=True)
+        self.device_tabs.select(self.console_panel)
+        self.vendor_message.set('Brouillon appliqué. Enregistrer puis arrêter / démarrer pour activer les changements.')
+        return True
 
     def config_port_selected(self,event=None):
         if self.config_baseline is None:return

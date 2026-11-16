@@ -69,11 +69,13 @@ def place_nodes(graph,members,width):
     positions={};dmz=firewall_hosts(graph)
     routers=[n for n in graph['nodes'] if n['role']=='router'];firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
     switches=[n for n in graph['nodes'] if n['role']=='switch'];upper=bool(routers or firewalls)
-    for i,n in enumerate(routers):positions[n['name']]=((i+1)*width*.8/(len(routers)+1),72)
+    # Routers and firewalls sit low enough that their titles clear the zoom bar over the canvas corner.
+    for i,n in enumerate(routers):
+        positions[n['name']]=((i+1)*width*.8/(len(routers)+1),100)
     for i,n in enumerate(firewalls):
         # Beside routers when there are any; otherwise spread across the canvas like routers.
         x=width*(.52+(i+1)*.16/len(firewalls)) if routers else (i+1)*width/(len(firewalls)+1)
-        positions[n['name']]=(x,90)
+        positions[n['name']]=(x,100)
     # Hosts cabled straight to a firewall sit in a row under it, centred on it and kept inside the canvas.
     by_firewall={}
     for host,firewall in dmz.items():

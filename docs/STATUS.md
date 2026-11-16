@@ -99,6 +99,21 @@ runs Linux networking: no vendor firmware, logo or proprietary interface is load
 and vendor consoles stay as listed in `device_identity` (an IOS-style subset for Cisco
 routers and switches in containers only).
 
+Modelled nodes show their vendor's port names (FortiGate `port1`, Junos `ge-0/0/0` /
+`xe-0/0/0`, RouterOS `ether1`, Catalyst `gi1/0/1`, Palo Alto `ethernet1/1`…) on the
+canvas and in the port table, next to the Linux port they stand for.
+
+**Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper and MikroTik models
+show their lab configuration in IOS, FortiOS, Junos or RouterOS syntax
+(`network_labs/appliances/vendor_config.py`), and commands typed there are written to the
+lab draft and validated like the forms; a refused command is reported with its line.
+Subsets: interface addresses and static routes in all four; firewall policies in FortiOS
+(`config firewall policy`) and RouterOS (`/ip firewall filter`, chain forward); VLANs and
+access/trunk switchports in IOS. They work for micro-VMs and containers alike because they
+edit the draft; the change reaches the guests on the next start (or the live firewall
+action). This is configuration syntax, not the vendor's operating system: there is no
+`show` output from a running device, and other brands keep the forms only.
+
 ## How to run
 
 ```bash
