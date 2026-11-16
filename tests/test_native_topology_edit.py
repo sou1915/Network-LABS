@@ -1,3 +1,4 @@
+import json
 """Graphical edits use native validation and never mutate their input."""
 import copy
 import unittest
@@ -67,3 +68,48 @@ class TopologyEditTests(unittest.TestCase):
         before=copy.deepcopy(scripted)
         with self.assertRaises(ValueError):edit.configure_node(scripted,'PC2',**defaults)
         self.assertEqual(scripted,before)
+
+
+class MicroVMDraftTests(unittest.TestCase):
+    """Adding Firecracker nodes to a draft, and the GUI state read from a micro-VM status report."""
+
+    def lab(self):
+        from network_labs.appliances.microvm import example
+        return example('/kernel', '/disk')
+
+    def test_each_role_and_dhcp_host_validate(self):
+        spec = self.lab()
+        spec = edit.add_microvm_node(spec, name='R9', role='router', kernel='/kernel', disk='/disk', ports=2,
+                                     addresses='10.9.0.1/24, 10.9.1.1/24')
+        spec = edit.add_microvm_node(spec, name='FW9', role='firewall', kernel='/kernel', disk='/disk', ports=2,
+                                     addresses='10.8.0.1/24,10.8.1.1/24')
+        spec = edit.add_microvm_node(spec, name='SW9', role='switch', kernel='/kernel', disk='/disk', ports=3, addresses='ignored')
+        spec = edit.add_microvm_node(spec, name='PC9', role='host', kernel='/kernel', disk='/disk', addresses='dhcp')
+        nodes = {n['name']: n for n in spec['nodes']}
+        self.assertEqual(nodes['R9']['interfaces'], {'eth0': '10.9.0.1/24', 'eth1': '10.9.1.1/24'})
+        self.assertEqual(nodes['FW9']['firewall']['default'], 'drop')
+        self.assertEqual(nodes['SW9']['interfaces'], {'eth0': '', 'eth1': '', 'eth2': ''})
+        self.assertEqual((nodes['PC9']['interfaces'], nodes['PC9']['dhcp_clients']), ({'eth0': ''}, ['eth0']))
+        self.assertTrue(all(n['runtime'] == 'firecracker' for n in spec['nodes']))
+
+    def test_bad_drafts_are_refused_and_input_is_unchanged(self):
+        spec = self.lab()
+        before = json.dumps(spec, sort_keys=True)
+        bad = [dict(role='router', ports=2, addresses='10.9.0.1/24'), dict(role='router', ports=5, addresses=''),
+               dict(role='router', ports=2, addresses='dhcp'), dict(role='host', ports=2, addresses='dhcp'),
+               dict(role='server', ports=1, addresses='10.9.0.1/24'), dict(role='host', ports=1, addresses='')]
+        for case in bad:
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                edit.add_microvm_node(spec, name='X1', kernel='/kernel', disk='/disk', **case)
+        self.assertEqual(json.dumps(spec, sort_keys=True), before)
+
+    def test_status_maps_micro_vms_by_their_vmm_and_containers_by_their_state(self):
+        from network_labs.appliances.ui_bridge import observed_states
+        status = {'nodes': [
+                            {'name': 'VM1', 'runtime': 'firecracker', 'vmm_alive': True, 'vmm_memory_bytes': 64 << 20},
+                            {'name': 'VM2', 'runtime': 'firecracker', 'vmm_alive': False},
+                            {'name': 'PC1', 'runtime': 'oci', 'state': {'status': 'running'}, 'memory_current_bytes': 1},
+                            {'name': 'PC2', 'runtime': 'oci', 'state': None}]}
+        self.assertEqual(observed_states(status), {
+            'VM1': {'status': 'running', 'memory': 64 << 20}, 'VM2': {'status': 'stopped', 'memory': None},
+            'PC1': {'status': 'running', 'memory': 1}, 'PC2': {'status': 'invité non vérifié', 'memory': None}})

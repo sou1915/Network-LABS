@@ -44,15 +44,16 @@ the direct launch.
 
 ## Micro-VM guests — not yet
 
-- **VLANs and trunks on switch guests** — the borrowed guest kernel has no 802.1Q;
-  a pinned kernel build is in progress (`tools/guest_kernel/`).
+- **VLANs and trunks on switch guests** — the Firecracker CI kernel has no 802.1Q.
+  `tools/guest_kernel/build.sh` builds a pinned kernel that adds it (CI job
+  `guest-kernel`); switch VLAN support on top of it is the next step.
 - STP, LACP and switch security features on guests.
 - Routing protocols (OSPF), DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.
 - Device-style CLI/web management on guests (only resources and firewall pages today).
-- GUI control of micro-VM labs (drafts and topology only).
+- GUI forms that change a running micro-VM (addresses, routes, firewall, DHCP), and a guest console.
 - VMware/VirtualBox attachment, VXLAN/EVPN, WAN.
 
 ## Containers (OCI) — what works
@@ -76,8 +77,11 @@ for exact limits of each.
 
 Tk desktop app (`python3 -m network_labs`) with the educational canvas, a native
 lab workbench (topology editing, lifecycle, inspection, capture and console
-entries for containers) and browser-based management pages. Micro-VM nodes appear
-in drafts but cannot yet be configured or controlled from the GUI.
+entries) and browser-based management pages. For micro-VMs the workbench can add
+host, router, firewall and switch nodes (kernel, disk, 1–4 ports, static addresses
+or `dhcp`), start and stop the lab, show each node as running while its VMM is
+alive, and capture on its ports. A micro-VM has no console by design (its agent
+takes typed requests only); forms that change a running guest are not wired yet.
 
 ## How to run
 

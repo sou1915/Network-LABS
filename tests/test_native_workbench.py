@@ -114,6 +114,46 @@ class WorkbenchGUITests(unittest.TestCase):
         self.assertIn('Authentication canceled',str(window.activity.item(window.activity.get_children()[0])['values']))
         self.assertIs(window.output_tab.master,window.dock)
 
+    def test_micro_vm_nodes_are_added_from_the_dialog_and_capture_but_never_console(self):
+        import tkinter as tk
+        from network_labs.appliances.ui_bridge import public_topology
+        window = self.window
+
+        def dialog():
+            return [w for w in window.window.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+
+        def button(win, text):
+            widgets = [w for f in win.winfo_children() for w in f.winfo_children()]
+            return next(w for w in widgets if 'text' in w.keys() and w.cget('text') == text)
+
+        window.add_device_dialog('router')
+        win = dialog()
+        form = win.winfo_children()[0]
+        entries = [(0, 'R7'), (3, '2'), (4, '10.7.0.1/24,10.7.1.1/24'), (5, 'firecracker'),
+                   (6, '/assets/vmlinux'), (7, '/assets/guest.ext4')]
+        for row, value in entries:
+            field = form.grid_slaves(row=row, column=1)[0]
+            if row == 5:
+                field.set(value)
+            else:
+                field.delete(0, 'end')
+                field.insert(0, value)
+        button(win, 'Ajouter au brouillon').invoke()
+        self.root.update()
+        router = next(n for n in window.manifest()['nodes'] if n['name'] == 'R7')
+        self.assertEqual((router['runtime'], router['role'], router['interfaces']),
+                         ('firecracker', 'router', {'eth0': '10.7.0.1/24', 'eth1': '10.7.1.1/24'}))
+        window.draw(public_topology(window.manifest()), {'R7': {'status': 'running'}})
+        self.root.update()
+        window.choose_node('R7')
+        self.root.update()
+        self.assertIn('disabled', window.console_button.state())
+        self.assertNotIn('disabled', window.capture_button.state())
+        self.assertEqual(list(window.capture_ports.cget('values')), ['eth0', 'eth1'])
+        with patch.object(window, 'error') as error:
+            self.assertFalse(window.open_console())
+        self.assertIn('micro-VM', str(error.call_args.args[0]))
+
     def test_graphical_edit_click_drag_and_pending_or_mismatched_view_guards(self):
         from network_labs.appliances import topology_edit as edit
         window=self.window;spec=window.manifest()

@@ -15,6 +15,37 @@ def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
     return validate(draft)
 
 
+def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', memory_mib=128, vcpus=1):
+    """Add a Firecracker node to a draft.
+
+    addresses: one IPv4/prefix per port, comma-separated; "dhcp" for a one-port host that
+    takes its address from a DHCP server; ignored for a switch, whose ports stay unnumbered.
+    """
+    if role not in ('host', 'switch', 'router', 'firewall'):
+        raise ValueError('Micro-VM : poste, switch, routeur ou pare-feu.')
+    if type(ports) is not int or not 1 <= ports <= 4:
+        raise ValueError('Une micro-VM a de 1 à 4 interfaces (eth0..eth3).')
+    node = {'name': name, 'role': role, 'runtime': 'firecracker', 'kernel': kernel, 'disk': disk,
+            'memory_mib': memory_mib, 'vcpus': vcpus}
+    text = addresses.strip()
+    if role == 'switch':
+        node['interfaces'] = {f'eth{i}': '' for i in range(ports)}
+    elif text.lower() == 'dhcp':
+        if role != 'host' or ports != 1:
+            raise ValueError('DHCP : uniquement pour un poste à une interface.')
+        node.update(interfaces={'eth0': ''}, dhcp_clients=['eth0'])
+    else:
+        values = [value.strip() for value in text.split(',')] if text else []
+        if len(values) != ports or not all(values):
+            raise ValueError(f'Donner une adresse IPv4/préfixe par interface ({ports}), séparées par des virgules, ou « dhcp ».')
+        node['interfaces'] = {f'eth{i}': value for i, value in enumerate(values)}
+    if role == 'firewall':
+        node['firewall'] = {'default': 'drop', 'stateful': True, 'rules': [], 'nat': []}
+    draft = copy.deepcopy(spec)
+    draft['nodes'].append(node)
+    return validate(draft)
+
+
 def connect(spec, a, b):
     draft=copy.deepcopy(spec)
     draft['links'].append([list(a),list(b)])

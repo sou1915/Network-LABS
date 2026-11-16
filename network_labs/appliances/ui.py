@@ -451,9 +451,10 @@ class ApplianceWindow:
             if self.library.selection()!=(name,):self.library.selection_set(name)
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else '',width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
-        ready=node and node['runtime']=='oci' and self.states.get(node['name'],{}).get('status')=='running' and not self.pending
-        self.console_button.state(['!disabled'] if ready else ['disabled'])
-        self.capture_button.state(['!disabled'] if ready else ['disabled'])
+        running=node and self.states.get(node['name'],{}).get('status')=='running' and not self.pending
+        # A micro-VM has no remote shell (its agent takes typed requests only), but its ports can be captured.
+        self.console_button.state(['!disabled'] if running and node['runtime']=='oci' else ['disabled'])
+        self.capture_button.state(['!disabled'] if running else ['disabled'])
         capture_ports=list(node['interfaces']) if node else []
         if node and node['runtime']=='oci':
             try:configured=next(n for n in self.manifest()['nodes'] if n['name']==node['name'])
@@ -684,26 +685,48 @@ class ApplianceWindow:
         form=ttk.Frame(win,padding=14);form.pack(fill='both',expand=True)
         values={}
         rootfs=next((n['rootfs'] for n in spec['nodes'] if n['runtime']=='oci'),'')
+        vm=next((n for n in spec['nodes'] if n['runtime']=='firecracker'),{})
         prefix='SRV' if server else {'host':'PC','switch':'SW','router':'R','firewall':'FW'}[role];used={n['name'] for n in spec['nodes']}
         suggested=next(prefix+str(i) for i in range(1,258) if prefix+str(i) not in used)
-        for row,(key,title,initial) in enumerate([('name','Nom',suggested),('role','Rôle',role),('rootfs','Rootfs Linux',rootfs),('ports','Nombre de ports',{'host':'1','switch':'8','router':'3','firewall':'2'}[role]),('address','IPv4 eth0 / CIDR (facultatif)','')]):
+        default_ports={'host':'1','switch':'8','router':'3','firewall':'2'}[role]
+        rows=[('name','Nom',suggested),('role','Rôle',role),('rootfs','Rootfs Linux',rootfs),
+              ('ports','Nombre de ports',default_ports),('address','IPv4 eth0 / CIDR (facultatif)',''),
+              ('runtime','Exécution','firecracker' if vm and not rootfs else 'oci'),
+              ('kernel','Noyau micro-VM',vm.get('kernel','')),('disk','Disque micro-VM',vm.get('disk',''))]
+        choices={'role':('host','switch','router','firewall'),'runtime':('oci','firecracker')}
+        for row,(key,title,initial) in enumerate(rows):
             ttk.Label(form,text=title).grid(row=row,column=0,sticky='w',pady=5)
             value=tk.StringVar(value=initial);values[key]=value
-            field=ttk.Combobox(form,textvariable=value,values=('host','switch','router','firewall'),state='readonly',style='Native.TCombobox',font=(self.font,9)) if key=='role' else ttk.Entry(form,textvariable=value,width=38,style='Native.TEntry',font=(self.font,9))
+            if key in choices:
+                field=ttk.Combobox(form,textvariable=value,values=choices[key],state='readonly',
+                                   style='Native.TCombobox',font=(self.font,9))
+            else:
+                field=ttk.Entry(form,textvariable=value,width=38,style='Native.TEntry',font=(self.font,9))
             field.grid(row=row,column=1,sticky='ew',padx=8)
         def browse():
             path=filedialog.askdirectory(parent=win,title='Rootfs Linux')
             if path:values['rootfs'].set(path)
         ttk.Button(form,text='Parcourir…',command=browse,style='Native.TButton').grid(row=2,column=2)
-        ttk.Label(form,text='Linux natif · pare-feu : trafic transitant bloqué par défaut.').grid(row=5,column=0,columnspan=3,pady=8)
+        hint=('Linux natif · pare-feu : trafic transitant bloqué par défaut.\n'
+              'Micro-VM : 1 à 4 ports, une IPv4/préfixe par port séparées par des virgules, ou « dhcp ».')
+        ttk.Label(form,text=hint).grid(row=8,column=0,columnspan=3,pady=8)
         def apply():
             try:
                 current=self.editing_spec()
-                result=topology_edit.add_node(current,**{k:v.get().strip() for k,v in values.items() if k!='ports'},ports=int(values['ports'].get()),firewall={'default':'drop','stateful':True,'rules':[]} if values['role'].get()=='firewall' else None)
-                self.commit_edit(result);self.choose_node(values['name'].get().strip());win.destroy()
+                field=lambda key:values[key].get().strip()
+                if field('runtime')=='firecracker':
+                    result=topology_edit.add_microvm_node(current,name=field('name'),role=field('role'),kernel=field('kernel'),
+                                                          disk=field('disk'),ports=int(field('ports')),addresses=field('address'))
+                else:
+                    firewall={'default':'drop','stateful':True,'rules':[]} if field('role')=='firewall' else None
+                    result=topology_edit.add_node(current,name=field('name'),role=field('role'),rootfs=field('rootfs'),
+                                                  address=field('address'),ports=int(field('ports')),firewall=firewall)
+                self.commit_edit(result)
+                self.choose_node(field('name'))
+                win.destroy()
             except (ValueError,TypeError,KeyError) as error:self.error(error)
-        ttk.Button(form,text='Ajouter au brouillon',command=apply,style='Native.Primary.TButton').grid(row=6,column=1,sticky='e')
-        ttk.Button(form,text='Annuler',command=win.destroy,style='Native.TButton').grid(row=6,column=0)
+        ttk.Button(form,text='Ajouter au brouillon',command=apply,style='Native.Primary.TButton').grid(row=9,column=1,sticky='e')
+        ttk.Button(form,text='Annuler',command=win.destroy,style='Native.TButton').grid(row=9,column=0)
 
     def connect_dialog(self,first,second):
         try:
@@ -788,7 +811,8 @@ class ApplianceWindow:
         try:
             selected=self.nodes.selection()
             node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
-            if not node or node['runtime']!='oci' or self.states.get(node['name'],{}).get('status')!='running':raise ValueError('Démarrer le nœud OCI puis actualiser son état avant la capture.')
+            if not node or self.states.get(node['name'],{}).get('status')!='running':
+                raise ValueError('Démarrer le nœud puis actualiser son état avant la capture.')
             if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
             interface=self.capture_interface.get()
             if interface not in self.capture_ports.cget('values'):raise ValueError('Choisir une interface du nœud.')
@@ -811,6 +835,8 @@ class ApplianceWindow:
         try:
             selected=self.nodes.selection()
             node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
+            if node and node['runtime']=='firecracker':
+                raise ValueError('Pas de console pour une micro-VM : son agent n’accepte que des requêtes typées, sans shell distant.')
             if not node or node['runtime']!='oci' or self.states.get(node['name'],{}).get('status')!='running':
                 raise ValueError('Démarrer le nœud OCI puis actualiser son état avant la console.')
             if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
@@ -881,7 +907,8 @@ class ApplianceWindow:
             self.web_inspection_time=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
         states=self.states if self.view_lab==request['lab'] else {}
         if action in ('start','status'):
-            states={n['name']:{'status':(n.get('state') or {}).get('status','invité non vérifié'),'memory':n.get('memory_current_bytes')} for n in data['nodes']}
+            from .ui_bridge import observed_states
+            states=observed_states(data)
             self.observation.set(f"{data['name']} · {data['phase']} · état observé à {time.strftime('%H:%M:%S')}")
         elif action=='stop':
             if data.get('stopped')!=request['lab']:raise ValueError('Arrêt non confirmé.')
