@@ -126,6 +126,8 @@ def firecracker_config(node, kernel, disk):
 
 
 VM_UID_BASE = 200000   # One unprivileged numeric uid/gid per VMM; no passwd entry is needed.
+VM_UID_BLOCK = 256     # One block per running lab (a lab has at most 256 nodes), so no two labs share a VMM uid.
+VM_UID_BLOCKS = 4096
 VM_OVERHEAD_MIB = 128  # VMM process headroom above guest RAM inside its memory cgroup.
 
 
@@ -138,9 +140,26 @@ def vm_cgroup(spec, index):
     return Path('/sys/fs/cgroup/network-labs') / prefix(spec) / f'vm{index}'
 
 
-def jailer_command(spec, node, index, jailer, firecracker, base, *, cgroup=True):
+def allocate_vm_uid_base(state_root, own):
+    """Lowest uid block no other lab under state_root holds. Caller holds the allocation lock."""
+    taken = set()
+    for directory in state_root.iterdir():
+        if not directory.is_dir() or directory.name == own:
+            continue
+        try:
+            taken.add(json.loads((directory / 'state.json').read_text())['vm_uid_base'])
+        except (OSError, ValueError, KeyError, TypeError):
+            # Unreadable state, or a lab started before blocks existed: it may hold the first block.
+            taken.add(VM_UID_BASE)
+    for block in range(VM_UID_BLOCKS):
+        if VM_UID_BASE + block * VM_UID_BLOCK not in taken:
+            return VM_UID_BASE + block * VM_UID_BLOCK
+    raise RuntimeFailure('No free micro-VM uid block; stop another lab first.')
+
+
+def jailer_command(spec, node, index, jailer, firecracker, base, uid, *, cgroup=True):
     """Chroot, private uid/gid, lab netns and (cgroup v2) RAM/CPU caps for one VMM."""
-    uid = str(VM_UID_BASE + index)
+    uid = str(uid)
     limits = ['--cgroup-version', '2', '--parent-cgroup', f'network-labs/{prefix(spec)}',
               '--cgroup', f'memory.max={(node["memory_mib"] + VM_OVERHEAD_MIB) * MIB}',
               '--cgroup', f'cpu.max={node.get("vcpus", 1) * 100000} 100000'] if cgroup else []
@@ -470,7 +489,13 @@ class Manager:
         self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
                       'phase': 'starting', 'namespaces': [], 'mounts': [],
                       'containers': [], 'vms': [], 'host_links': [], 'firewall_fingerprints': {}}
-        jailed = jailer_path() is not None
+        jailed = jailer_path() is not None and any(n['runtime'] == 'firecracker' for n in spec['nodes'])
+        if jailed:
+            # Labs start concurrently under per-lab locks; the block must be on disk before this lock is released.
+            with (STATE_ROOT / 'vm-uids.lock').open('a') as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                self.state['vm_uid_base'] = allocate_vm_uid_base(STATE_ROOT, self.name)
+                self.save()
         self.save()
         try:
             for i, node in enumerate(spec['nodes']):
@@ -489,7 +514,7 @@ class Manager:
                     for port in node['interfaces']:
                         tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
                         # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
-                        owner = ['user', str(VM_UID_BASE + i), 'group', str(VM_UID_BASE + i)] if jailed else []
+                        owner = ['user', str(self.state['vm_uid_base'] + i), 'group', str(self.state['vm_uid_base'] + i)] if jailed else []
                         self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap', *owner)
                         self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
                         self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
@@ -655,7 +680,7 @@ class Manager:
             command = ['ip', 'netns', 'exec', namespace(spec, index), 'firecracker', '--no-api', '--config-file', str(bundle / 'firecracker.json')]
         else:
             firecracker = Path(shutil.which('firecracker')).resolve()
-            uid = VM_UID_BASE + index
+            uid = self.state['vm_uid_base'] + index
             root = bundle / 'jail' / firecracker.name / f'vm{index}' / 'root'
             root.mkdir(parents=True, mode=0o700)
             # One read-only kernel copy per lab, hard-linked into each chroot; the user's asset is never chowned.
@@ -675,7 +700,7 @@ class Manager:
             cgroup = Path('/sys/fs/cgroup/cgroup.controllers').is_file()
             if cgroup:
                 record['cgroup'] = str(vm_cgroup(spec, index))
-            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', cgroup=cgroup)
+            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', uid, cgroup=cgroup)
         with (bundle / 'console.log').open('ab') as log:
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         record.update(pid=process.pid, starttime=process_identity(process.pid))

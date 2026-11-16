@@ -1,16 +1,20 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
-## Micro-VM hardening and multi-port routes — 2026-11-15 (not yet run on KVM)
+## Micro-VM hardening and multi-port routes — 2026-11-15
 
-Unit-tested only; the real-KVM acceptance tests still have to be re-run on a
-Firecracker host, and guest images must be rebuilt with `microvm-rootfs
---with-agent` before routes through eth1..eth3 can be used.
+The real-KVM acceptance tests passed under the jailer and with the direct launch
+(manual `microvm-kvm` workflow run). Still unit-tested only: a route through
+eth1..eth3 in a real guest, and the stop error for a VMM that survives SIGKILL.
+Guest images must be rebuilt with `microvm-rootfs --with-agent` before routes
+through eth1..eth3 can be used.
 
 - **vCPU budget.** The total of micro-VM `vcpus` must fit the optional lab key
   `budget_vcpus` (default 64, maximum 1024). `plan` reports the budget.
 - **Jailer.** When Firecracker's `jailer` binary is on `PATH`, each VMM starts
   through it: chroot under the node's private state directory, its own
-  unprivileged uid/gid (200000 + node index), the node's network namespace, and
+  unprivileged uid/gid (the lab's block of 256 from 200000 upward, recorded as
+  `vm_uid_base`, plus the node index; no two running labs share a block), the
+  node's network namespace, and
   with cgroup v2 a memory cap (guest RAM + 128 MiB) and a CPU cap (one core per
   vCPU). TAP devices are owned by that uid. `status` reports `vmm_jailed`, and
   `doctor` lists `jailer`. Without the binary, or with `NETWORK_LABS_VM_JAILER=0`,
