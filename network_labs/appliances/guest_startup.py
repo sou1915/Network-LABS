@@ -9,7 +9,8 @@ from .guest_control import request
 def _port_networks(node, profile):
     """Every IPv4 network configured on each declared port, primary first."""
     extras = {'eth0': profile['addresses'], **profile.get('port_addresses', {})}
-    return {port: [ipaddress.IPv4Interface(a).network for a in [primary, *extras.get(port, [])]]
+    # A DHCP client port has no declared primary; its leased address is never part of the profile.
+    return {port: [ipaddress.IPv4Interface(a).network for a in [*([primary] if primary else []), *extras.get(port, [])]]
             for port, primary in node['interfaces'].items()}
 
 
@@ -36,6 +37,10 @@ def validate_profile(node):
     if any(not isinstance(values, list) for values in by_port.values()) or sum(map(len, by_port.values())) > 32 or not isinstance(routes, list) or len(routes) > 32:
         raise ValueError('Guest startup supports at most 32 addresses and 32 routes.')
     for port, values in by_port.items():
+        if not node['interfaces'][port]:
+            if values:
+                raise ValueError('A DHCP client port takes no extra static addresses.')
+            continue
         primary = str(ipaddress.IPv4Interface(node['interfaces'][port]))
         normalized = [str(ipaddress.IPv4Interface(a)) for a in values if isinstance(a, str) and '/' in a]
         if len(normalized) != len(values) or len(set(normalized)) != len(normalized) or primary in normalized:
@@ -94,6 +99,24 @@ def check_forwarding(socket, node):
         raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
 
 
+def dhcp_pool(node):
+    server = node['dhcp_server']
+    return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
+            'lease_seconds': server['lease_seconds'], 'netmask': ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network.prefixlen}
+
+
+def leases(socket, interface):
+    """The guest DHCP server's current leases as [{mac, address, hostname}]; fails if the server is not running."""
+    rows = []
+    for line in query(socket, 'dhcp-leases', interface=interface).splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 2 and re.fullmatch(r'[0-9a-f]{2}(:[0-9a-f]{2}){5}', fields[0]):
+            rows.append({'mac': fields[0], 'address': str(ipaddress.IPv4Address(fields[1])),
+                         # "Expires in" may read "1 days 02:00:00": a lone number before "days" is not a hostname.
+                         'hostname': fields[2] if len(fields) > 3 and fields[3] != 'days' else ''})
+    return rows
+
+
 def check_switch(socket, node):
     """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
     ports = sorted(query(socket, 'bridge-ports').split())
@@ -129,11 +152,18 @@ def observe(socket, node):
         fields = line.split()
         if fields and fields[0] == 'inet' and interface in by_port:
             by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
+    dynamic = set(node.get('dhcp_clients', []))
     for port, primary_address in node['interfaces'].items():
+        if port in dynamic:
+            if port not in active:
+                raise ValueError('Save requires all declared guest interfaces up.')
+            continue
         primary_address = str(ipaddress.IPv4Interface(primary_address))
         if port not in active or primary_address not in by_port[port]:
             raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
-    extras = {port: [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))] for port, values in by_port.items()}
+    # Leased addresses come from the DHCP server on every boot; they are never saved as static ones.
+    extras = {port: [] if port in dynamic else [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))]
+              for port, values in by_port.items()}
     routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
@@ -148,6 +178,8 @@ def observe(socket, node):
         if len(fields) != 5 or fields[1] != 'via' or fields[3] != 'dev' or fields[4] not in by_port:
             raise ValueError('Unsupported guest static route: ' + line)
         gateway = str(ipaddress.IPv4Address(fields[2]))
+        if network == '0.0.0.0/0' and fields[4] in dynamic:
+            continue  # Installed by the DHCP client from the lease's router option.
         if network == '0.0.0.0/0' and node.get('gateway'):
             if gateway != node['gateway'] or fields[4] != 'eth0': raise ValueError('Guest primary gateway differs.')
             default_seen = True
@@ -165,6 +197,8 @@ def observe(socket, node):
     if node.get('role') == 'firewall':
         from .guest_firewall import check
         check(socket, node)
+    if node.get('dhcp_server'):
+        leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
     return candidate['guest_network']
 
 
@@ -187,8 +221,9 @@ def apply(socket, node, timeout=40, alive=None):
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():
-        if port != 'eth0':
+        if port != 'eth0' and address:
             query(socket, 'address-add', interface=port, cidr=address)
+        if port != 'eth0' or not address:
             query(socket, 'link', interface=port, state='up')
     profile = node.get('guest_network', {'addresses': [], 'routes': []})
     for address in profile['addresses']:
@@ -206,6 +241,19 @@ def apply(socket, node, timeout=40, alive=None):
         apply_firewall(socket, node)
     if node.get('role') in ('router', 'firewall'):
         query(socket, 'forward', state='on')
+    if node.get('dhcp_server'):
+        port = node['dhcp_server']['interface']
+        query(socket, 'dhcp-serve', interface=port, dhcp=dhcp_pool(node))
+        # The daemon writes its pid file just after the request returns: wait for it before reading back.
+        started = time.monotonic() + 5
+        while True:
+            try: leases(socket, port); break
+            except ValueError:
+                if time.monotonic() >= started: raise
+                time.sleep(.1)
+    for port in node.get('dhcp_clients', []):
+        # Started, not awaited: the server may be a guest that boots later in this lab.
+        query(socket, 'dhcp-client', interface=port)
     if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
 

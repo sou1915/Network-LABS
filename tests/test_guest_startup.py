@@ -199,3 +199,77 @@ class GuestStartupTests(unittest.TestCase):
         for label, change in changes.items():
             bad = copy.deepcopy(spec); change(bad['nodes'][0])
             with self.subTest(label), self.assertRaises(ValueError): validate(bad)
+
+    def dhcp_lab(self):
+        from network_labs.appliances.microvm import dhcp_example
+        return dhcp_example('/kernel', '/disk')
+
+    LEASED = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
+              '2: eth0: <BROADCAST,UP,LOWER_UP>\n    inet 192.0.2.100/24 scope global eth0\n')
+
+    def test_dhcp_rules_on_guests(self):
+        spec = self.dhcp_lab(); router, client = spec['nodes'][0], spec['nodes'][1]
+        self.assertEqual((client['interfaces'], client['dhcp_clients'], router['dhcp_server']['router']), ({'eth0': ''}, ['eth0'], '192.0.2.1'))
+        changes = {'client on a router': lambda nodes: nodes[0].update(dhcp_clients=['eth0'], interfaces={'eth0': '', 'eth1': '198.51.100.1/24'}),
+                   'client with a static gateway': lambda nodes: nodes[1].update(gateway='192.0.2.1'),
+                   'unnumbered port without DHCP': lambda nodes: nodes[1].update(dhcp_clients=[]),
+                   'remote pool': lambda nodes: nodes[0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router=''),
+                   'reservation': lambda nodes: nodes[0]['dhcp_server'].update(reservations=[{'mac': '02:00:00:00:00:01', 'address': '192.0.2.110'}]),
+                   'extra address on a DHCP port': lambda nodes: nodes[1].update(guest_network={'addresses': ['198.18.0.1/32'], 'routes': []})}
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec); change(bad['nodes'])
+            with self.subTest(label), self.assertRaises(ValueError): validate(bad)
+
+    def test_dhcp_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import _dhcp_command, request
+        from network_labs.appliances.guest_startup import dhcp_pool
+        router = self.dhcp_lab()['nodes'][0]
+        self.assertEqual(_dhcp_command('dhcp-serve', 'eth0', dhcp_pool(router)), 'DHCP_SERVE eth0 192.0.2.100 192.0.2.120 255.255.255.0 192.0.2.1 600 -')
+        self.assertEqual(_dhcp_command('dhcp-serve', 'eth0', dict(dhcp_pool(router), dns=['192.0.2.53', '198.51.100.53'], router='')).split()[-3:], ['-', '600', '192.0.2.53,198.51.100.53'])
+        self.assertEqual((_dhcp_command('dhcp-client', 'eth1', None), _dhcp_command('dhcp-leases', 'eth0', None)), ('DHCP_CLIENT eth1', 'DHCP_LEASES eth0'))
+        pool = dhcp_pool(router)
+        for interface, server in (('eth9', pool), ('eth0', dict(pool, end='192.0.3.200')), ('eth0', dict(pool, lease_seconds=5)),
+                                  ('eth0', dict(pool, dns=['1.1.1.1'] * 4)), ('eth0', dict(pool, extra='x')), ('eth0', None)):
+            with self.subTest(interface=interface, server=server), self.assertRaises(ValueError): _dhcp_command('dhcp-serve', interface, server)
+        with self.assertRaises(ValueError): _dhcp_command('dhcp-client', 'eth0', pool)
+        with self.assertRaises(ValueError): request('/missing', 'dhcp-client', interface='eth0', cidr='192.0.2.1/24')
+
+    def test_leased_address_and_default_route_are_never_saved(self):
+        client = self.dhcp_lab()['nodes'][1]
+        routes = '192.0.2.0/24 dev eth0 scope link src 192.0.2.100\ndefault via 192.0.2.1 dev eth0\n'
+        with patch('network_labs.appliances.guest_startup.query', side_effect=[self.LEASED, routes, '0\n']):
+            self.assertEqual(observe('/socket', client), {'addresses': [], 'routes': []})
+        # Before a lease arrives the port is up and holds nothing: still savable.
+        with patch('network_labs.appliances.guest_startup.query', side_effect=['2: eth0: <BROADCAST,UP>\n', '', '0\n']):
+            self.assertEqual(observe('/socket', client), {'addresses': [], 'routes': []})
+        with patch('network_labs.appliances.guest_startup.query', return_value='2: eth0: <BROADCAST>\n'), self.assertRaises(ValueError):
+            observe('/socket', client)
+
+    def test_startup_starts_the_server_and_the_client_without_waiting_for_a_lease(self):
+        from network_labs.appliances import guest_startup
+        router, client = self.dhcp_lab()['nodes'][:2]
+        calls = []
+        def fake(socket, operation, **kw):
+            calls.append((operation, kw.get('interface'))); return {'forwarding': '1\n', 'dhcp-leases': 'Mac Address       IP Address      Host Name           Expires in\n'}.get(operation, '')
+        with patch.object(guest_startup, 'query', side_effect=fake), patch.object(guest_startup, 'observe', return_value={'addresses': [], 'routes': []}):
+            apply('/socket', router)
+        names = [c[0] for c in calls]
+        self.assertLess(names.index('forward'), names.index('dhcp-serve')); self.assertEqual(calls[names.index('dhcp-serve')][1], 'eth0')
+        self.assertIn('dhcp-leases', names)
+        calls.clear()
+        with patch.object(guest_startup, 'query', side_effect=fake), patch.object(guest_startup, 'observe', return_value={'addresses': [], 'routes': []}):
+            apply('/socket', client)
+        self.assertEqual(calls, [('ready', None), ('link', 'eth0'), ('dhcp-client', 'eth0')])
+
+    def test_lease_listing_is_parsed_and_a_stopped_server_fails(self):
+        from network_labs.appliances import guest_startup
+        listing = ('Mac Address       IP Address      Host Name           Expires in\n'
+                   '52:54:00:12:34:56 192.0.2.100     vm2                 00:09:58\n'
+                   '52:54:00:ab:cd:ef 192.0.2.101                         00:09:40\n'
+                   '52:54:00:00:00:01 192.0.2.102                         1 days 02:00:00\n')
+        with patch.object(guest_startup, 'query', return_value=listing):
+            self.assertEqual(guest_startup.leases('/socket', 'eth0'), [{'mac': '52:54:00:12:34:56', 'address': '192.0.2.100', 'hostname': 'vm2'},
+                                                                       {'mac': '52:54:00:ab:cd:ef', 'address': '192.0.2.101', 'hostname': ''},
+                                                                       {'mac': '52:54:00:00:00:01', 'address': '192.0.2.102', 'hostname': ''}])
+        with patch.object(guest_startup, 'query', side_effect=ValueError('Guest dhcp-leases failed: dhcp server not running')), self.assertRaisesRegex(ValueError, 'not running'):
+            guest_startup.leases('/socket', 'eth0')

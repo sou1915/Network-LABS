@@ -73,6 +73,16 @@ def firewall_nat_example(kernel, disk):
     return validate(spec)
 
 
+def dhcp_example(kernel, disk):
+    """R1 serves 192.0.2.100-120 on eth0; VM2 takes a lease and reaches VM3 through R1; VM3 stays static."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-dhcp'
+    router, left, right = spec['nodes']
+    router['dhcp_server'] = {'interface': 'eth0', 'start': '192.0.2.100', 'end': '192.0.2.120', 'router': '192.0.2.1', 'lease_seconds': 600}
+    left.update(interfaces={'eth0': ''}, dhcp_clients=['eth0']); left.pop('gateway', None)
+    return validate(spec)
+
+
 def switch_example(kernel, disk):
     """SW1 bridges three endpoint guests into one segment; it holds no address and routes nothing."""
     base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()), 'memory_mib': 128, 'vcpus': 1}

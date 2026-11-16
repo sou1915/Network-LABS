@@ -211,7 +211,9 @@ def validate_lan(node):
     validate_pd(node)
     # A Firecracker switch keeps its default untagged switchports; spec.py rejects any other port mode there.
     vm_switch_ports = node['runtime'] == 'firecracker' and role == 'switch'
-    if node['runtime'] != 'oci' and any((ports and not vm_switch_ports, subs, clients, server, shutdown, aliases, routes, dialect != 'linux')):
+    # A Firecracker guest runs BusyBox DHCP itself; spec.py keeps it to the subset the guest agent supports.
+    vm_dhcp = node['runtime'] == 'firecracker'
+    if node['runtime'] != 'oci' and any((ports and not vm_switch_ports, subs, clients and not vm_dhcp, server and not vm_dhcp, shutdown, aliases, routes, dialect != 'linux')):
         raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
 
 

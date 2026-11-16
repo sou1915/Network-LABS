@@ -96,6 +96,11 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             if agent.read_bytes()[4:6] != (root / 'bin/busybox').read_bytes()[4:6] or agent.read_bytes()[18:20] != (root / 'bin/busybox').read_bytes()[18:20]:
                 raise ValueError('Guest agent and BusyBox architectures differ.')
             agent.chmod(0o755)
+            # The DHCP client hook the agent's DHCP_CLIENT request names; the same script containers use.
+            from .dhcp import CLIENT_SCRIPT
+            (root / 'etc/network-labs').mkdir(parents=True, exist_ok=True)
+            (root / 'etc/network-labs/dhcp-client.sh').write_text(CLIENT_SCRIPT)
+            (root / 'etc/network-labs/dhcp-client.sh').chmod(0o755)
             inittab = inittab.replace('::respawn:/bin/busybox sleep 3600',
                                       '::respawn:/sbin/network-labs-agent')
         if with_firewall:

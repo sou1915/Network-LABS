@@ -1,5 +1,21 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## DHCP inside micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+Firecracker nodes accept the existing `dhcp_server` and `dhcp_clients` fields. A
+host, router or firewall guest runs BusyBox `udhcpd` on one numbered port (local
+pool only; remote `network` pools and `reservations` are refused on guests for
+now). A host guest may leave a port unnumbered and list it in `dhcp_clients`; it
+then boots without kernel IP autoconfiguration and runs `udhcpc` with the same
+client script containers use. The agent starts both detached (own session, no
+inherited output) from typed requests `DHCP_SERVE` and `DHCP_CLIENT`, and lists
+leases with `DHCP_LEASES` (`microvm-dhcp-leases --socket ... --interface ethN`).
+Startup does not wait for a lease (the server may boot later), but waits for the
+server's pid file. Save never stores a leased address or the DHCP default route,
+and fails if a declared server is not running. `microvm-example --dhcp` and
+`tests/test_native_microvm_dhcp.py` (lease in pool, route, reachability through
+the router, lease listing, save and cold restore) are the reference.
+
 ## Address translation on firewall micro-VMs — 2026-11-16 (real-KVM acceptance pending)
 
 A firewall guest's `nat` entries (masquerade, snat, dnat with optional `to_port`)

@@ -730,7 +730,7 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host':
+            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host' or node.get('dhcp_server') or node.get('dhcp_clients'):
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)

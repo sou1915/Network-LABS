@@ -29,6 +29,7 @@ def main(arguments=None):
     vm_sample.add_argument('--firewall',action='store_true',help='Three guests: a stateful firewall guest between an inside and an outside endpoint.')
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
     vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
+    vm_sample.add_argument('--dhcp',action='store_true',help='Three guests: a router guest serving DHCP to one host guest, a static host behind it.')
     vm_sample.add_argument('--switch',action='store_true',help='Four guests: an untagged learning-bridge switch guest joining three endpoint guests.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
@@ -36,6 +37,9 @@ def main(arguments=None):
     guest.add_argument('--size-mib', type=int, default=64)
     guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
     guest.add_argument('--with-firewall', action='store_true', help='Add legacy iptables for firewall guests; requires the iptables package and --with-agent.')
+    vm_leases = commands.add_parser('microvm-dhcp-leases', help="List a guest DHCP server's current leases via its private Firecracker socket.")
+    vm_leases.add_argument('--socket', type=Path, required=True)
+    vm_leases.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], required=True)
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
     control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping', 'forwarding', 'kernel'])
@@ -376,6 +380,9 @@ def main(arguments=None):
         elif args.command == 'microvm-link':
             from .guest_control import request
             result = request(args.socket, 'link', interface=args.interface, state=args.state)
+        elif args.command == 'microvm-dhcp-leases':
+            from .guest_startup import leases
+            result = {'interface': args.interface, 'leases': leases(args.socket, args.interface)}
         elif args.command == 'microvm-diagnostic':
             from .guest_control import request
             result = request(args.socket, args.operation, destination=args.destination)
@@ -384,11 +391,11 @@ def main(arguments=None):
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
-            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad + args.firewall_nat > 1:
-                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall, --firewall-nat or --switch.')
-            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad or args.firewall_nat:
-                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example, firewall_nat_example
-                result=(firewall_nat_example if args.firewall_nat else quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
+            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad + args.firewall_nat + args.dhcp > 1:
+                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall, --firewall-nat, --dhcp or --switch.')
+            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad or args.firewall_nat or args.dhcp:
+                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example, firewall_nat_example, dhcp_example
+                result=(dhcp_example if args.dhcp else firewall_nat_example if args.firewall_nat else quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
                 for node in result['nodes']:
                     node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
                 from .spec import validate

@@ -41,6 +41,34 @@ static int valid_port_number(const char *value) {
     if (!value[0] || value[0] == '0' || strspn(value, "0123456789") != strlen(value) || strlen(value) > 5) return 0;
     long number = atol(value); return number >= 1 && number <= 65535;
 }
+/* A running daemon is identified by its pid file and a live process. */
+static int pidfile_alive(const char *path) {
+    char text[16] = {0}; int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    ssize_t n = read(fd, text, sizeof(text) - 1); close(fd);
+    long pid = n > 0 ? atol(text) : 0;
+    return pid > 1 && kill((pid_t)pid, 0) == 0;
+}
+/* Start a long-lived BusyBox service outside this request: own session, no inherited output, reparented to init. */
+static int spawn_detached(char *const argv[]) {
+    pid_t first = fork();
+    if (first < 0) return -1;
+    if (first == 0) {
+        setsid();
+        pid_t second = fork();
+        if (second == 0) {
+            int null = open("/dev/null", O_RDWR);
+            if (null < 0 || dup2(null, 0) < 0 || dup2(null, 1) < 0 || dup2(null, 2) < 0) _exit(126);
+            char *const env[] = {"PATH=/bin", "LC_ALL=C", NULL};
+            execve("/bin/busybox", argv, env); _exit(127);
+        }
+        _exit(second < 0 ? 1 : 0);
+    }
+    int status;
+    while (waitpid(first, &status, 0) < 0) if (errno != EINTR) return -1;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+static int valid_ipv4(const char *value) { struct in_addr address; return inet_pton(AF_INET, value, &address) == 1; }
 /* Ask nf_tables for its generation: a read-only request that only an nf_tables kernel answers. */
 static int has_nftables(void) {
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
@@ -175,9 +203,63 @@ static void serve(int input, int output, int mutations) {
         close(fd);
         reply(output, size == sizeof(table) ? 3 : 0, table, size); return;
     }
+    /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
+    char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
+    char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
+    if (mutations && sscanf(request, "NL1 DHCP_SERVE %4s %15s %15s %15s %15s %6s %47s %c", dhcp_port, dhcp_start, dhcp_end, dhcp_mask,
+                            dhcp_router, dhcp_lease, dhcp_dns, &dhcp_extra) == 7) {
+        struct in_addr first, last;
+        int ok = valid_port(dhcp_port) && inet_pton(AF_INET, dhcp_start, &first) == 1 && inet_pton(AF_INET, dhcp_end, &last) == 1 &&
+                 ntohl(first.s_addr) <= ntohl(last.s_addr) && ntohl(last.s_addr) - ntohl(first.s_addr) < 256 &&
+                 valid_ipv4(dhcp_mask) && (!strcmp(dhcp_router, "-") || valid_ipv4(dhcp_router)) &&
+                 strspn(dhcp_lease, "0123456789") == strlen(dhcp_lease) && atol(dhcp_lease) >= 60 && atol(dhcp_lease) <= 604800;
+        char dns_words[48] = ""; int servers = 0;
+        if (ok && strcmp(dhcp_dns, "-")) {
+            char copy[48]; strcpy(copy, dhcp_dns);
+            for (char *item = strtok(copy, ","); item && ok; item = strtok(NULL, ",")) {
+                ok = valid_ipv4(item) && ++servers <= 3;
+                if (ok) { strcat(dns_words, servers > 1 ? " " : ""); strcat(dns_words, item); }
+            }
+        }
+        if (!ok) { reply(output, 2, "unsupported operation", 21); return; }
+        snprintf(dhcp_conf, sizeof(dhcp_conf), "/run/udhcpd.%s.conf", dhcp_port);
+        snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
+        snprintf(dhcp_leases, sizeof(dhcp_leases), "/run/udhcpd.%s.leases", dhcp_port);
+        if (pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp server already running", 27); return; }
+        char config[768];
+        int n = snprintf(config, sizeof(config),
+            "interface %s\nstart %s\nend %s\nmax_leases %lu\nremaining yes\nauto_time 10\nlease_file %s\npidfile %s\n"
+            "option subnet %s\noption lease %s\n%s%s%s%s%s%s",
+            dhcp_port, dhcp_start, dhcp_end, (unsigned long)(ntohl(last.s_addr) - ntohl(first.s_addr) + 1), dhcp_leases, dhcp_pid,
+            dhcp_mask, dhcp_lease, strcmp(dhcp_router, "-") ? "option router " : "", strcmp(dhcp_router, "-") ? dhcp_router : "",
+            strcmp(dhcp_router, "-") ? "\n" : "", servers ? "option dns " : "", dns_words, servers ? "\n" : "");
+        int fd = open(dhcp_conf, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        int written = fd >= 0 && n > 0 && write(fd, config, (size_t)n) == n;
+        if (fd >= 0) close(fd);
+        char *const serve[] = {"busybox", "udhcpd", "-f", dhcp_conf, NULL};
+        if (!written || spawn_detached(serve)) { reply(output, 3, "dhcp server start failed", 24); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && sscanf(request, "NL1 DHCP_CLIENT %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
+        snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpc.%s.pid", dhcp_port);
+        if (pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp client already running", 27); return; }
+        char *const client[] = {"busybox", "udhcpc", "-f", "-i", dhcp_port, "-s", "/etc/network-labs/dhcp-client.sh", "-p", dhcp_pid,
+                                "-T", "1", "-A", "2", NULL};
+        if (spawn_detached(client)) { reply(output, 3, "dhcp client start failed", 24); return; }
+        reply(output, 0, "", 0); return;
+    }
+    char *const lease_list[] = {"busybox", "dumpleases", "-f", dhcp_leases, NULL};
+    char *const *lease_args = NULL;
+    if (sscanf(request, "NL1 DHCP_LEASES %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
+        snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
+        snprintf(dhcp_leases, sizeof(dhcp_leases), "/run/udhcpd.%s.leases", dhcp_port);
+        if (!pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp server not running", 23); return; }
+        if (access(dhcp_leases, F_OK)) { reply(output, 0, "", 0); return; }
+        lease_args = lease_list;
+    }
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};
     char *const routes[] = {"busybox", "ip", "route", "show", NULL};
-    char *const *args = NULL;
+    char *const *args = lease_args;
     char *const ping[] = {"busybox", "ping", "-c", "1", "-W", "1", request + 9, NULL};
     struct in_addr destination;
     if (!strncmp(request, "NL1 PING ", 9) && inet_pton(AF_INET, request + 9, &destination) == 1)
