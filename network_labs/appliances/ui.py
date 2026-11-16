@@ -21,7 +21,7 @@ from . import reference_theme
 from .soft_widgets import SoftCard,SoftPanel,rounded_box
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
 from .native_models import port_label,port_names
-from .workspace_art import draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
+from .workspace_art import port_offset,draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -279,11 +279,16 @@ class ApplianceWindow:
             self.label(group,category,TEXT,8,True).pack(anchor='w',padx=9,pady=(7,2))
             for kind,model,title,subtitle,variant in entries:
                 tile=SoftCard(group,SIDEBAR);tile.pack(fill='x',padx=7,pady=3)
-                icon=tk.Canvas(tile.inner,width=60,height=32,bg=PANEL,highlightthickness=0);icon.pack(side='left')
-                draw_device(icon,kind,31,17,scale=.46,variant=variant)
-                caption=tk.Frame(tile.inner,bg=PANEL);caption.pack(side='left',fill='x')
-                self.label(caption,title,TEXT,9).pack(anchor='w')
-                self.label(caption,subtitle if len(subtitle)<=17 else subtitle[:16]+'…',MUTED,7).pack(anchor='w')
+                icon=tk.Canvas(tile.inner,width=68,height=38,bg=PANEL,highlightthickness=0)
+                icon.pack(side='left',padx=(0,4))
+                draw_device(icon,kind,34,19,scale=.5,variant=variant)
+                caption=tk.Frame(tile.inner,bg=PANEL)
+                caption.pack(side='left',fill='x',expand=True)
+                # Left-anchored and trimmed: an overflowing label would otherwise lose its first letters.
+                for text,colour,size,limit in ((title,TEXT,9,13),(subtitle,MUTED,7,16)):
+                    shown=text if len(text)<=limit else text[:limit-1]+'…'
+                    self.label(caption,shown,colour,size).configure(anchor='w')
+                    caption.winfo_children()[-1].pack(fill='x')
                 def bind(widget,r=kind,m=model,card=tile):
                     widget.bind('<Button-1>',lambda event:self.add_device_dialog(r,model=m))
                     widget.bind('<Enter>',lambda event:card.hover(True))
@@ -426,8 +431,11 @@ class ApplianceWindow:
                 sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
             else:
                 sign=1 if yy>y else -1;ax=x;ay=y+sign*25;bx=xx;by=yy-sign*25
-                if graph_nodes[a[0]]['role']!='host':ax+=(list(graph_nodes[a[0]]['interfaces']).index(a[1])%8-3.5)*7
-                if graph_nodes[b[0]]['role']!='host':bx+=(list(graph_nodes[b[0]]['interfaces']).index(b[1])%8-3.5)*7
+                # Ports leave the chassis spread across its width, so cables and their captions stay apart.
+                if graph_nodes[a[0]]['role']!='host':
+                    ax+=port_offset(graph_nodes[a[0]],a[1])
+                if graph_nodes[b[0]]['role']!='host':
+                    bx+=port_offset(graph_nodes[b[0]],b[1])
                 mid=min(ay,by)+8+(index%3)*8
                 points=(ax,ay,ax,mid,bx,mid,bx,by)
             self.link_shapes[index]=self.canvas.create_line(*points,fill='#3886b9',width=1.5,joinstyle='round',capstyle='round',tags=('link','link:'+str(index)))
@@ -444,8 +452,13 @@ class ApplianceWindow:
                 port_labels.append(dict(x=tx,y=ty,text=shown,anchor=anchor,tag='link:'+str(index)))
             caption=link_caption(a,b,config)
             if caption:
-                lx=(ax+bx)/2;ly=((ay+by)/2 if abs(y-yy)<45 else mid)-12
-                self.canvas.create_text(lx,ly,text=caption,fill='#315b7d',font=(self.font,7))
+                if abs(y-yy)<45:
+                    self.canvas.create_text((ax+bx)/2,(ay+by)/2-12,text=caption,fill='#315b7d',font=(self.font,7))
+                elif abs(ax-bx)<40:
+                    # A cable going almost straight down: label its vertical run, clear of both devices.
+                    self.canvas.create_text(bx+6,(mid+by)/2,text=caption,anchor='w',fill='#315b7d',font=(self.font,7))
+                else:
+                    self.canvas.create_text((ax+bx)/2,mid-8,text=caption,fill='#315b7d',font=(self.font,7))
         for x1,y1,x2,bg,ink,vid,subnets in captions:
             rounded_box(self.canvas,x1+3,y1+3,x2-3,y1+41,r=9,fill=bg,outline='')
             self.canvas.create_text((x1+x2)/2,y1+14,text=f'VLAN {vid}',fill=ink,font=(self.font,8,'bold'),tags=('vlan-label',))
@@ -454,12 +467,15 @@ class ApplianceWindow:
             name=node['name'];x,y=positions[name];observed=self.states.get(name,{})
             state=observed.get('status','non observé');memory=observed.get('memory')
             color='#21c632' if state=='running' else '#8b9cae';tags=('node','node:'+name)
-            self.node_shapes[name]=rounded_box(self.canvas,x-44 if node['role']=='host' else x-58,y-34 if node['role']=='host' else y-43,x+44 if node['role']=='host' else x+58,y+66 if node['role']=='host' else y+43,fill='',outline='',width=1,tags=tags)
+            # The selection box encloses the device and its title (and, for hosts, the captions below).
+            host=node['role']=='host'
+            box=(x-44,y-34,x+44,y+66) if host else (x-64,y-58,x+64,y+30)
+            self.node_shapes[name]=rounded_box(self.canvas,*box,fill='',outline='',width=1,tags=tags)
             from .native_models import MODELS,label as model_label
             presentation=MODELS[node['model']]['presentation'] if node.get('model') in MODELS else None
             kind='server' if presentation=='server' or name in dmz or name.upper().startswith('SRV') else node['role']
             host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
-            draw_device(self.canvas,kind,x,y,scale=1,tags=tags,variant='red' if host_index%2 else 'blue')
+            draw_device(self.canvas,kind,x,y,scale=1,tags=tags,variant='red' if host_index%2 else 'blue',zoom=self.zoom)
             if node['role']=='host':
                 self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
@@ -918,7 +934,8 @@ class ApplianceWindow:
         name,_,_=self.dragging;self.dragging=None
         if not self.drag_moved:return
         box=self.canvas.coords(self.node_shapes[name])
-        offset=16 if next(n for n in self.graph['nodes'] if n['name']==name)['role']=='host' else 0
+        # Box centre minus the device origin: (-34+66)/2 for hosts, (-58+30)/2 for chassis.
+        offset=16 if next(n for n in self.graph['nodes'] if n['name']==name)['role']=='host' else -14
         self.positions[name]=(max(50,(min(box[::2])+max(box[::2]))/(2*self.zoom)),max(60,(min(box[1::2])+max(box[1::2]))/(2*self.zoom)-offset))
         self.draw(self.graph,self.states)
 

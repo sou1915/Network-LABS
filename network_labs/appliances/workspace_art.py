@@ -1,5 +1,7 @@
 """Original generic device artwork and declared access-VLAN presentation."""
 import ipaddress
+from pathlib import Path
+import tkinter as tk
 from .soft_widgets import rounded_box
 
 
@@ -17,7 +19,34 @@ _CHASSIS = {
 }
 
 
-def draw_device(c,role,x,y,scale=1,tags=(),variant='blue'):
+DEVICE_ART = Path(__file__).resolve().parent / 'assets' / 'devices'
+ART_SCALES = (0.5, 0.65, 0.8, 1.0, 1.2, 1.45, 1.75)  # sizes rendered by tools/render_device_art.py
+
+
+def device_image(c, role, variant, scale):
+    """The pre-rendered, antialiased drawing nearest to SCALE, cached on the canvas; None when unavailable."""
+    name = f'host-{variant}' if role == 'host' else role
+    size = min(ART_SCALES, key=lambda value: abs(value - scale))
+    path = DEVICE_ART / f'{name}@{round(size * 100)}.png'
+    cache = c.__dict__.setdefault('_device_images', {})
+    if path not in cache:
+        try:
+            cache[path] = tk.PhotoImage(master=c, file=str(path))
+        except (tk.TclError, OSError):
+            cache[path] = None
+    return cache[path]
+
+
+def draw_device(c,role,x,y,scale=1,tags=(),variant='blue',zoom=1):
+    """Draw a device: the antialiased PNG for its role when present (ZOOM picks the size, since canvas
+    scaling moves images without resizing them), else the vector drawing below."""
+    image = device_image(c, role, variant, scale * zoom)
+    if image is not None:
+        return c.create_image(x, y, image=image, tags=tags)
+    return draw_device_vector(c, role, x, y, scale, tags, variant)
+
+
+def draw_device_vector(c,role,x,y,scale=1,tags=(),variant='blue'):
     """Unbranded device drawings: 3D chassis with front panel, ports, LEDs and a role emblem; monitors and towers."""
     def pt(points):
         return [v*scale+(x if i%2==0 else y) for i,v in enumerate(points)]
@@ -121,6 +150,14 @@ def draw_device(c,role,x,y,scale=1,tags=(),variant='blue'):
             oval(46,-10+i*5,49,-7+i*5,fill=colour,outline='')
         for i in range(4):
             line(34+i*2.4,-9,34+i*2.4,8,fill=_mix(front_bottom,'#000000',.4) if role!='switch' else '#8798a6')
+
+
+def port_offset(node,port):
+    """Horizontal offset where a port's cable leaves a chassis: ports spread over its front panel."""
+    ports=list(node['interfaces'])
+    count=min(len(ports),8)
+    step=min(18,90/max(1,count-1)) if count>1 else 0
+    return (ports.index(port)%8-(count-1)/2)*step
 
 
 def access_vlans(graph,spec):
