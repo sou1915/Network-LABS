@@ -1,5 +1,13 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Four-port micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+`microvm-example --router-quad` prints R1 using all four guest ports (eth0..eth3,
+four /24 segments), each the gateway of one endpoint guest.
+`tests/test_native_microvm_router_quad.py` is the first dedicated real-KVM test
+of a four-port guest: all twelve routed paths, each port failing alone without
+affecting the others, save and cold restore.
+
 ## Switch micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
 
 A Firecracker node may declare `role: switch` with 2..4 unnumbered ports. The

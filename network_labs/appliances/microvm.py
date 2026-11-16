@@ -52,6 +52,16 @@ def router_chain_example(kernel, disk):
     return validate(spec)
 
 
+def quad_router_example(kernel, disk):
+    """R1 uses all four guest ports, eth0..eth3, each the gateway of one endpoint guest."""
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()), 'memory_mib': 128, 'vcpus': 1}
+    nets = ['192.0.2', '198.51.100', '203.0.113', '100.64.0']
+    nodes = [dict(base, name='R1', role='router', interfaces={f'eth{i}': f'{net}.1/24' for i, net in enumerate(nets)})]
+    nodes += [dict(base, name=f'VM{i + 1}', role='host', interfaces={'eth0': f'{net}.10/24'}, gateway=f'{net}.1') for i, net in enumerate(nets)]
+    return validate({'version': 1, 'name': 'microvm-router-quad', 'budget_mib': 2048, 'reserve_mib': 512, 'nodes': nodes,
+                     'links': [[['R1', f'eth{i}'], [f'VM{i + 1}', 'eth0']] for i in range(4)]})
+
+
 def switch_example(kernel, disk):
     """SW1 bridges three endpoint guests into one segment; it holds no address and routes nothing."""
     base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()), 'memory_mib': 128, 'vcpus': 1}

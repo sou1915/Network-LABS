@@ -99,3 +99,15 @@ class MicroVMFoundationTests(unittest.TestCase):
             self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+2*VM_UID_BLOCK)
             (root/'c'/'state.json').unlink()
             self.assertEqual(allocate_vm_uid_base(root,'b'),VM_UID_BASE+VM_UID_BLOCK)
+
+    def test_quad_router_uses_all_four_guest_ports(self):
+        from network_labs.appliances.microvm import quad_router_example
+        spec=quad_router_example('/kernel','/disk');router=spec['nodes'][0]
+        self.assertEqual(router['role'],'router');self.assertEqual(sorted(router['interfaces']),['eth0','eth1','eth2','eth3'])
+        config=firecracker_config(router,Path('/kernel'),Path('/disk'))
+        self.assertEqual([i['host_dev_name'] for i in config['network-interfaces']],['tap0','tap1','tap2','tap3'])
+        self.assertEqual([n['gateway'] for n in spec['nodes'][1:]],['192.0.2.1','198.51.100.1','203.0.113.1','100.64.0.1'])
+        self.assertEqual(plan(spec)['allocated_node_mib'],5*128)
+        output=io.StringIO()
+        with patch('sys.stdout',output):self.assertEqual(main(['microvm-example','--router-quad','--kernel','/k','--disk','/d']),0)
+        self.assertEqual(json.loads(output.getvalue())['name'],'microvm-router-quad')
