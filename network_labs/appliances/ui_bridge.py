@@ -1,4 +1,5 @@
 """Typed terminal/sudo handoff. Only the unprivileged client writes GUI results."""
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify','firewall','show')
+ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
 
@@ -71,12 +72,16 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify','firewall','show'):
+    if action in ('inspect','verify','firewall','show','ping'):
         identifier(node)
     elif node is not None:
         raise ValueError('Unexpected node argument.')
-    if action=='verify':identifier(destination)
-    elif destination is not None:raise ValueError('Unexpected destination argument.')
+    if action=='verify':
+        identifier(destination)
+    elif action=='ping':
+        ipaddress.IPv4Address(destination)
+    elif destination is not None:
+        raise ValueError('Unexpected destination argument.')
     spec=load(target) if action in ('start','firewall') else None
     lab=spec['name'] if spec else identifier(target)
     with Manager(lab).locked() as manager:
@@ -92,6 +97,8 @@ def backend(action,target,node=None,destination=None):
         elif action=='inspect':data=manager.inspect(node)
         elif action=='show':
             data=manager.observe_node(node)
+        elif action=='ping':
+            data=manager.ping_node(node,destination)
         elif action=='firewall':
             data=firewall_result
         elif action=='verify':
@@ -114,12 +121,18 @@ def validate_request(request):
         if not Path(target).is_absolute():
             raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify','firewall','show'):
+    if action in ('inspect','verify','firewall','show','ping'):
         identifier(request['node'])
     elif request['node'] is not None:
         raise ValueError('Unexpected node argument.')
-    if action=='verify':identifier(request['destination'])
-    elif request['destination'] is not None:raise ValueError('Unexpected destination argument.')
+    if action=='verify':
+        identifier(request['destination'])
+    elif action=='ping':
+        if not isinstance(request['destination'],str):
+            raise ValueError('Ping requires an IPv4 destination.')
+        ipaddress.IPv4Address(request['destination'])
+    elif request['destination'] is not None:
+        raise ValueError('Unexpected destination argument.')
     return request
 
 

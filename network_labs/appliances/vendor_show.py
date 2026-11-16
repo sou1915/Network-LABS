@@ -346,3 +346,80 @@ FORMATS = {
     ('vrp', 'display vlan'): _vrp_vlan,
     ('panos', 'show interface all'): _panos_interfaces, ('panos', 'show routing route'): _panos_route,
 }
+
+
+# ---- ping ----
+
+# Each vendor's ping command, reduced to its destination; options beyond the destination are refused.
+PING_SYNTAX = {'ios': r'ping (?:ip )?(\S+)', 'eos': r'ping (\S+)', 'vrp': r'ping (\S+)', 'junos': r'ping (\S+)(?: count 5)?',
+               'fortios': r'execute ping (\S+)', 'routeros': r'/ping (?:address=)?(\S+?)(?: count=5)?',
+               'panos': r'ping host (\S+)'}
+
+
+PING_HELP = {'ios': 'ping A.B.C.D', 'eos': 'ping A.B.C.D', 'vrp': 'ping A.B.C.D', 'junos': 'ping A.B.C.D',
+             'fortios': 'execute ping A.B.C.D', 'routeros': '/ping A.B.C.D', 'panos': 'ping host A.B.C.D'}
+
+
+def ping_destination(node, command):
+    """The IPv4 destination of a vendor ping command, None when the command is not a ping."""
+    syntax = dialect(node)
+    match = re.fullmatch(PING_SYNTAX.get(syntax, r'(?!)'), ' '.join(command.split()), re.IGNORECASE)
+    return str(ipaddress.IPv4Address(match[1])) if match else None
+
+
+def echo_reply(code, output):
+    """One probe's outcome from busybox or iputils ping output: answered, TTL and time."""
+    match = re.search(r'ttl=(\d+) time=([\d.]+) ms', output)
+    if code or not match:
+        return {'ok': False, 'ttl': None, 'time_ms': None}
+    return {'ok': True, 'ttl': int(match[1]), 'time_ms': float(match[2])}
+
+
+def _stats(replies):
+    times = [r['time_ms'] for r in replies if r['ok']]
+    received = len(times)
+    return received, times
+
+
+def ping_text(node, result):
+    destination, replies = result['destination'], result['replies']
+    received, times = _stats(replies)
+    sent, loss = len(replies), round(100 * (len(replies) - received) / len(replies))
+    low, mean, high = (min(times), sum(times) / len(times), max(times)) if times else (0, 0, 0)
+    syntax = dialect(node)
+    if syntax == 'ios':
+        marks = ''.join('!' if r['ok'] else '.' for r in replies)
+        lines = ['Type escape sequence to abort.', f'Sending {sent}, 64-byte ICMP Echos to {destination}, timeout is 1 seconds:', marks,
+                 f'Success rate is {100 - loss} percent ({received}/{sent})'
+                 + (f', round-trip min/avg/max = {max(1, round(low))}/{max(1, round(mean))}/{max(1, round(high))} ms' if times else '')]
+        return '\n'.join(lines)
+    if syntax == 'vrp':
+        lines = [f'  PING {destination}: 56  data bytes, press CTRL_C to break']
+        for reply in replies:
+            lines.append(f'    Reply from {destination}: bytes=56 Sequence={reply["sequence"] + 1} ttl={reply["ttl"]} '
+                         f'time={max(1, round(reply["time_ms"]))} ms' if reply['ok'] else '    Request time out')
+        lines += ['', f'  --- {destination} ping statistics ---', f'    {sent} packet(s) transmitted', f'    {received} packet(s) received',
+                  f'    {loss:.2f}% packet loss']
+        if times:
+            lines.append(f'    round-trip min/avg/max = {max(1, round(low))}/{max(1, round(mean))}/{max(1, round(high))} ms')
+        return '\n'.join(lines)
+    if syntax == 'routeros':
+        lines = [f'  SEQ HOST{" " * 37}SIZE TTL TIME       STATUS']
+        for reply in replies:
+            if reply['ok']:
+                lines.append(f'{reply["sequence"]:>5} {destination:<40}{56:>5} {reply["ttl"]:>3} {round(reply["time_ms"] * 1000)}us')
+            else:
+                lines.append(f'{reply["sequence"]:>5} {destination:<40}{"":>5} {"":>3} {"":<10} timeout')
+        summary = f'    sent={sent} received={received} packet-loss={loss}%'
+        if times:
+            summary += f' min-rtt={round(low * 1000)}us avg-rtt={round(mean * 1000)}us max-rtt={round(high * 1000)}us'
+        return '\n'.join(lines + [summary])
+    # Junos, FortiOS, EOS and PAN-OS print the BSD/Linux layout.
+    lines = [f'PING {destination} ({destination}): 56 data bytes']
+    for reply in replies:
+        lines.append(f'64 bytes from {destination}: icmp_seq={reply["sequence"]} ttl={reply["ttl"]} time={reply["time_ms"]:.3f} ms'
+                     if reply['ok'] else f'Request timeout for icmp_seq {reply["sequence"]}')
+    lines += ['', f'--- {destination} ping statistics ---', f'{sent} packets transmitted, {received} packets received, {loss}% packet loss']
+    if times:
+        lines.append(f'round-trip min/avg/max = {low:.3f}/{mean:.3f}/{high:.3f} ms')
+    return '\n'.join(lines)

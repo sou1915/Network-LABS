@@ -743,6 +743,8 @@ class ApplianceWindow:
         self.vendor_refresh.pack(side='right',padx=(5,0))
         self.vendor_observation=None
         self.vendor_pending_command=None
+        self.vendor_ping_destination=None
+        self.vendor_ping_command=''
         self.vendor_message=tk.StringVar()
         message=tk.Label(frame,textvariable=self.vendor_message,bg=BG,fg=MUTED,font=(self.font,8),justify='left',anchor='w')
         message.pack(fill='x',padx=14,pady=6)
@@ -767,6 +769,8 @@ class ApplianceWindow:
         self.vendor_hint.set(vendor_config.HINTS[syntax]+' Les commandes écrivent dans le brouillon du lab, '
                              'validé comme le formulaire ; le nœud exécute Linux, pas le système du constructeur.')
         self.show_vendor_config(spec)
+        from .vendor_show import PING_HELP
+        self.vendor_message.set('Configuration du brouillon. Lab actif : commandes show et '+PING_HELP[syntax]+'.')
 
     def show_vendor_config(self,spec=None):
         from . import vendor_config
@@ -804,6 +808,18 @@ class ApplianceWindow:
         if self.states.get(name,{}).get('status')!='running':
             self.vendor_message.set('Démarrer le lab et actualiser l’état : les commandes show lisent le nœud actif.')
             return False
+        from .vendor_show import ping_destination
+        try:
+            node=next(n for n in self.manifest()['nodes'] if n['name']==name)
+            target=ping_destination(node,self.vendor_command.get())
+        except (ValueError,TypeError,KeyError,StopIteration) as error:
+            self.vendor_message.set(str(error))
+            return False
+        if target:
+            # Each ping is a new, sudo-confirmed request: echo requests leave the running node.
+            self.vendor_ping_destination=target
+            self.vendor_ping_command=self.vendor_command.get().strip()
+            return self.launch('ping')
         held=self.vendor_observation
         if refresh or not held or held['key']!=(self.view_lab,name):
             self.vendor_pending_command=self.vendor_command.get()
@@ -1110,9 +1126,10 @@ class ApplianceWindow:
                 target=str(Path(directory.name)/'manifest.json')
                 private_json(target,spec)
             selected=self.nodes.selection()
-            node=selected[0] if selected and action in ('inspect','verify','firewall','show') else None
+            node=selected[0] if selected and action in ('inspect','verify','firewall','show','ping') else None
+            destination={'verify':self.destination.get(),'ping':getattr(self,'vendor_ping_destination',None)}.get(action)
             request=validate_request({'id':uuid.uuid4().hex,'owner_uid':os.geteuid(),'action':action,'target':target,'lab':lab,'node':node,
-                                      'destination':self.destination.get() if action=='verify' else None})
+                                      'destination':destination})
             path=Path(directory.name)/'request.json';private_json(path,request)
             process=launch_terminal(client_args(path))
             self.last_response=None
@@ -1166,7 +1183,16 @@ class ApplianceWindow:
             if data.get('stopped')!=request['lab']:raise ValueError('Arrêt non confirmé.')
             states={n['name']:{'status':'stopped'} for n in graph['nodes']};self.observation.set(request['lab']+' · arrêt confirmé')
         self.draw(graph,states)
-        if action=='show':
+        if action=='ping':
+            from .vendor_show import PROMPTS,ping_text
+            from .vendor_config import dialect
+            node=next(n for n in self.manifest()['nodes'] if n['name']==request['node'])
+            prompt=PROMPTS[dialect(node)].format(node['name'])
+            text=f'{prompt} {self.vendor_ping_command}\n'+ping_text(node,data)+'\n\n(échos ICMP réels envoyés par le nœud Linux)'
+            self.choose_node(request['node'])
+            self.write_output(text,data,'CLI · '+node['name'])
+            self.vendor_message.set('Ping exécuté sur le nœud actif.')
+        elif action=='show':
             self.vendor_observation={'key':(request['lab'],request['node']),'data':data,'time':time.strftime('%H:%M:%S')}
             self.choose_node(request['node'])
             if self.vendor_pending_command:

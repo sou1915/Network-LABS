@@ -100,7 +100,50 @@ class FormatTest(unittest.TestCase):
             vendor_show.show(node, observed(node), 'show vlan brief')
 
 
+def replies(pattern):
+    ok = {'ok': True, 'ttl': 62, 'time_ms': 0.612}
+    lost = {'ok': False, 'ttl': None, 'time_ms': None}
+    return {'destination': '198.51.100.20', 'replies': [dict(ok if c == '!' else lost, sequence=i) for i, c in enumerate(pattern)]}
+
+
+class PingTest(unittest.TestCase):
+    def test_each_vendor_ping_syntax(self):
+        cases = {'cisco-isr4331': 'ping 198.51.100.20', 'arista-7280r': 'ping 198.51.100.20', 'huawei-ar6120': 'ping 198.51.100.20',
+                 'juniper-mx204': 'ping 198.51.100.20 count 5', 'fortigate': 'execute ping 198.51.100.20',
+                 'mikrotik-ccr': '/ping address=198.51.100.20', 'palo-alto': 'ping host 198.51.100.20'}
+        for model, command in cases.items():
+            with self.subTest(model=model):
+                self.assertEqual(vendor_show.ping_destination({'model': model}, command), '198.51.100.20')
+        self.assertIsNone(vendor_show.ping_destination({'model': 'fortigate'}, 'ping 198.51.100.20'))
+        self.assertIsNone(vendor_show.ping_destination({'model': 'cisco-isr4331'}, 'show ip route'))
+        with self.assertRaises(ValueError):
+            vendor_show.ping_destination({'model': 'cisco-isr4331'}, 'ping 198.51.100.300')
+
+    def test_echo_reply_reads_busybox_and_iputils(self):
+        self.assertEqual(vendor_show.echo_reply(0, '64 bytes from 198.51.100.20: seq=0 ttl=62 time=0.612 ms'),
+                         {'ok': True, 'ttl': 62, 'time_ms': 0.612})
+        self.assertEqual(vendor_show.echo_reply(0, '64 bytes from 198.51.100.20: icmp_seq=1 ttl=63 time=0.051 ms')['ttl'], 63)
+        self.assertFalse(vendor_show.echo_reply(1, '1 packets transmitted, 0 packets received')['ok'])
+
+    def test_vendor_layouts(self):
+        ios = vendor_show.ping_text({'model': 'cisco-isr4331'}, replies('!!!!.'))
+        self.assertIn('!!!!.', ios)
+        self.assertIn('Success rate is 80 percent (4/5)', ios)
+        self.assertIn('Success rate is 0 percent (0/5)', vendor_show.ping_text({'model': 'cisco-isr4331'}, replies('.....')))
+        self.assertIn('20.00% packet loss', vendor_show.ping_text({'model': 'huawei-ar6120'}, replies('!!!!.')))
+        self.assertIn('sent=5 received=4 packet-loss=20%', vendor_show.ping_text({'model': 'mikrotik-ccr'}, replies('!!!!.')))
+        self.assertIn('Request timeout for icmp_seq 4', vendor_show.ping_text({'model': 'juniper-mx204'}, replies('!!!!.')))
+
+
 class BridgeTest(unittest.TestCase):
+    def test_ping_needs_a_node_and_an_ipv4_destination(self):
+        envelope = {'id': '0' * 32, 'owner_uid': os.geteuid(), 'action': 'ping', 'target': 'lab', 'lab': 'lab', 'node': 'R1',
+                    'destination': '198.51.100.20'}
+        self.assertEqual(ui_bridge.validate_request(envelope)['destination'], '198.51.100.20')
+        for wrong in ('VM3', None, '198.51.100.300'):
+            with self.assertRaises(ValueError):
+                ui_bridge.validate_request(dict(envelope, destination=wrong))
+
     def test_show_needs_a_node(self):
         envelope = {'id': '0' * 32, 'owner_uid': os.geteuid(), 'action': 'show', 'target': 'lab', 'lab': 'lab', 'node': 'R1',
                     'destination': None}
@@ -138,6 +181,16 @@ class WorkbenchShowTest(unittest.TestCase):
                 window.vendor_command.set('sh ip int br')
                 self.assertTrue(window.run_vendor_show())
             self.assertIn('gi0/0/0', window.output.get('1.0', 'end'))
+            with patch.object(window, 'launch', return_value=True) as launch:
+                window.vendor_command.set('ping 198.51.100.20')
+                self.assertTrue(window.run_vendor_show())
+                launch.assert_called_once_with('ping')
+            self.assertEqual(window.vendor_ping_destination, '198.51.100.20')
+            request = {'action': 'ping', 'lab': lab['name'], 'node': 'R1'}
+            window.apply_response({'ok': True, 'action': 'ping', 'lab': lab['name'], 'topology': ui_bridge.public_topology(lab),
+                                   'data': replies('!!!!!')}, request)
+            self.assertIn('R1# ping 198.51.100.20', window.output.get('1.0', 'end'))
+            self.assertIn('Success rate is 100 percent (5/5)', window.output.get('1.0', 'end'))
         finally:
             root.destroy()
 

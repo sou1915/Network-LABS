@@ -148,13 +148,18 @@ class RouterGuestTests(unittest.TestCase):
                         self.assertIn('S        198.51.100.0/24 [1/0] via 203.0.113.2, gi0/0/1', results['show']['R1# show ip route'])
                         self.assertIn('C        192.0.2.0/24 is directly connected, gi0/0/0', results['show']['R1# show ip route'])
                         self.assertIn('192.0.2.0/24       *[Static/5]', results['show']['R2> show route'])
-                        for prompt, text in results['show'].items():
-                            print(f'\n{prompt}\n{text}', flush=True)
                         direct = probe('VM2', '192.0.2.1', True, attempts=3)
                         routed = probe('VM2', '198.51.100.20', True, attempts=5); probe('VM3', '192.0.2.20', True, attempts=5)
                         ttl = lambda result: int(result['output'].split('ttl=')[1].split()[0])
                         # Two routers on the return path cost exactly two TTLs.
                         self.assertEqual(ttl(routed), ttl(direct) - 2, (routed, direct)); results['ttl'] = {'direct': ttl(direct), 'routed': ttl(routed)}
+                        # A vendor ping sends real echo requests from R1's guest across R2 to VM3
+                        # (after the probes above, so ARP on the path is already resolved).
+                        from network_labs.appliances.vendor_show import ping_text
+                        results['show']['R1# ping 198.51.100.20'] = ping_text(r1, manager.ping_node('R1', '198.51.100.20'))
+                        self.assertIn('Success rate is 100 percent (5/5)', results['show']['R1# ping 198.51.100.20'])
+                        for prompt, text in results['show'].items():
+                            print(f'\n{prompt}\n{text}', flush=True)
                         # Withdrawing R1's route through eth1 breaks the far segment only; a save then records its absence.
                         query(sockets['R1'], 'route-delete', network='198.51.100.0/24', gateway='203.0.113.2', interface='eth1')
                         probe('VM2', '198.51.100.20', False); probe('VM2', '192.0.2.1', True)

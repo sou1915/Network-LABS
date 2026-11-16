@@ -123,7 +123,10 @@ FortiOS `get system interface`, `get router info routing-table all`; Junos `show
 interface brief`, `show ip route`, `show vlan`; VRP `display ip interface brief`, `display ip
 routing-table`, `display vlan`; PAN-OS `show interface all`, `show routing route`. One sudo-confirmed
 `show` request reads the node (micro-VM agent read-only requests, or `ip -j` in a container); later
-commands format that observation locally until **Relire**. Values come from Linux only: no counters,
+commands format that observation locally until **Relire**. Vendor `ping` (`ping`, `execute ping`, `/ping`,
+`ping host`) sends five real one-second echo requests from the running node (guest agent or the
+container's namespace) and prints them in the vendor's layout; each ping is its own sudo-confirmed
+request. This gives micro-VM nodes a GUI ping. Values come from Linux only: no counters,
 timers or hardware fields a Linux node does not have. Real-KVM tested in the router-chain test.
 
 ## How to run

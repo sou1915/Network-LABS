@@ -813,6 +813,33 @@ class Manager:
         except (OSError, ValueError) as error:
             raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
 
+    def ping_node(self, name, destination, count=5):
+        """Echo requests from a running node, one bounded probe at a time, for vendor 'ping' commands."""
+        from .vendor_show import echo_reply
+        destination = str(ipaddress.IPv4Address(destination))
+        if type(count) is not int or not 1 <= count <= 5:
+            raise ValueError('Ping count must be 1..5.')
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before ping.')
+        index, node = next(((i, n) for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), (None, None))
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        replies = []
+        for sequence in range(count):
+            if node['runtime'] == 'oci':
+                result = self.ns(index, 'ping', '-n', '-c', '1', '-W', '1', destination, check=False, timeout=5)
+                code, output = result.returncode, result.stdout
+            else:
+                from .guest_control import request
+                try:
+                    result = request(self.directory / name / 'guest.vsock', 'ping', destination=destination)
+                except (OSError, ValueError) as error:
+                    raise RuntimeFailure(f'{name}: guest ping failed: {error}') from error
+                code, output = result['exit_code'], result['output']
+            replies.append(dict(echo_reply(code, output), sequence=sequence))
+        return {'node': name, 'destination': destination, 'replies': replies}
+
     def configure_ios(self, name, text):
         from .ios import compile_config
         state = self.read()

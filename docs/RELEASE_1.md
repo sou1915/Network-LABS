@@ -33,7 +33,7 @@ Current progress against this list is tracked in [STATUS.md](STATUS.md).
 | Switch guest with access and trunk VLANs | Done, real-KVM tested on the Network LABS kernel; router-on-a-stick too |
 | GUI start/stop/status for micro-VM labs | Done |
 | GUI forms writing to running guests | Draft forms for every guest role; live apply for the firewall policy only |
-| GUI ping, console and capture for guests | Capture done; ping is container-only; no guest console by design (decision needed) |
+| GUI ping, console and capture for guests | Capture done; ping from any running node via the CLI tab (vendor models); no guest console by design (decision needed) |
 | Installable on Ubuntu 24.04 with documented KVM prerequisites | Partial; guest kernel and image must be provided by the user |
 
 ## Out of scope for release 1
