@@ -145,3 +145,17 @@ class GuestFirewallTests(unittest.TestCase):
             with self.subTest(operation=operation, state=state, rule=rule), self.assertRaises(ValueError): _firewall_command(operation, state, rule)
         with self.assertRaises(ValueError): request('/missing', 'firewall-list', interface='eth0')
         with self.assertRaises(ValueError): request('/missing', 'ping', destination='192.0.2.1', rule={'action': 'accept'})
+
+    def test_web_management_offers_and_validates_the_policy_page_for_firewall_guests(self):
+        from network_labs.appliances.management_options import configure_section, sections
+        spec = firewall_example('/kernel', '/disk')
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][0])], ['vmresources', 'firewall'])
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][1])], ['vmresources'])
+        policy = copy.deepcopy(spec['nodes'][0]['firewall'])
+        policy['rules'].append({'name': 'inside-web', 'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'dport': 443, 'action': 'accept'})
+        saved = configure_section(spec, 'FW1', 'firewall', {'firewall': policy})
+        self.assertEqual([rule['name'] for rule in saved['nodes'][0]['firewall']['rules']], ['inside-ping-out', 'inside-web'])
+        self.assertEqual(spec['nodes'][0]['firewall']['rules'][-1]['name'], 'inside-ping-out')  # The draft is replaced, never edited in place.
+        translated = copy.deepcopy(policy); translated['nat'].append({'name': 'hide', 'out': 'eth1', 'type': 'masquerade'})
+        with self.assertRaisesRegex(ValueError, 'translation'): configure_section(spec, 'FW1', 'firewall', {'firewall': translated})
+        with self.assertRaises(ValueError): configure_section(spec, 'VM2', 'firewall', {'firewall': policy})
