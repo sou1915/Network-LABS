@@ -54,8 +54,9 @@ requests. Startup installs the policy while the chain defaults to drop, verifies
 exact readback, and only then enables forwarding; `microvm-save` refuses drift.
 Live `firewall LAB FW1 --file policy.json` now works on a firewall guest: the chain is
 rebuilt closed (forwarding paused), read back, and on failure the previous policy is
-restored; an interrupted change is restored by `recover`. Not available on guests yet:
-sessions view, IPv6 filtering. `microvm-example
+restored; an interrupted change is restored by `recover`. `sessions LAB FW1` lists the guest's own IPv4 conntrack table (read from
+/proc/net/nf_conntrack over vsock); `clear-sessions` is refused on guests. Not
+available on guests yet: IPv6 filtering. `microvm-example
 --firewall` prints FW1 between an inside and an outside endpoint.
 
 ## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16

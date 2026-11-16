@@ -910,6 +910,16 @@ class Manager:
 
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
+            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'firecracker':
+                if clear:
+                    raise ValueError('Clearing sessions is not available on micro-VM firewalls yet; the guest has no conntrack tool.')
+                from .guest_control import request
+                result = request(self.directory / name / 'guest.vsock', 'firewall-sessions')
+                if result['exit_code']:
+                    raise RuntimeFailure(f'{name}: guest sessions unavailable: ' + result['output'].strip())
+                entries = [line for line in result['output'].splitlines() if line.startswith('ipv4 ')]
+                return {'node': name, 'cleared': False, 'output': '\n'.join(entries) + ('\n' if entries else ''),
+                        'summary': f'{len(entries)} IPv4 tracked connections, read from the guest kernel.'}
             if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'oci':
                 result = self.ns(index, 'conntrack', '-F' if clear else '-L', '-f', 'ipv4')
                 return {'node': name, 'cleared': clear, 'output': result.stdout, 'summary': result.stderr}

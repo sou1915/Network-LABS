@@ -62,6 +62,9 @@ class FirewallGuestTests(unittest.TestCase):
                         probe('VM2', '192.0.2.1', True, attempts=3); probe('VM3', '198.51.100.1', True, attempts=3)
                         probe('VM2', '198.51.100.20', True, attempts=3)
                         probe('VM3', '192.0.2.20', False)
+                        # The inside ping just made is tracked in the guest kernel and shown by sessions.
+                        manager.state = None; results['sessions'] = manager.sessions('FW1')
+                        self.assertIn('src=192.0.2.20 dst=198.51.100.20', results['sessions']['output'], results['sessions'])
                         # Replies to the inside flow passed only because of connection tracking: without it they are dropped.
                         stateless = dict(firewall, firewall=dict(firewall['firewall'], stateful=False))
                         guest_firewall.apply(sockets['FW1'], stateless)

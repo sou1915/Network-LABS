@@ -161,6 +161,20 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, "", 0); return;
     }
+    /* Connection tracking table, read directly: needs a guest kernel with conntrack procfs. */
+    if (!strcmp(request, "NL1 FW_SESSIONS")) {
+        int fd = open("/proc/net/nf_conntrack", O_RDONLY | O_CLOEXEC);
+        if (fd < 0) { reply(output, 1, "no conntrack listing in this guest kernel", 41); return; }
+        char table[LIMIT]; size_t size = 0;
+        while (size < sizeof(table)) {
+            ssize_t n = read(fd, table + size, sizeof(table) - size);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;
+            size += (size_t)n;
+        }
+        close(fd);
+        reply(output, size == sizeof(table) ? 3 : 0, table, size); return;
+    }
     char *const addresses[] = {"busybox", "ip", "address", "show", NULL};
     char *const routes[] = {"busybox", "ip", "route", "show", NULL};
     char *const *args = NULL;

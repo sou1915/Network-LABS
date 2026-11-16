@@ -325,3 +325,23 @@ class GuestNatTests(unittest.TestCase):
         stray = lambda socket, operation, **k: {'exit_code': 0, 'output': NAT_LISTING} if operation == 'firewall-nat-list' else filter_ok
         with patch.object(guest_firewall, 'request', side_effect=stray), self.assertRaisesRegex(ValueError, 'NAT rules differ'):
             guest_firewall.check('/socket', plain)
+
+
+class GuestSessionTests(unittest.TestCase):
+    """sessions on a firewall guest: its own conntrack table, read over vsock."""
+    def test_sessions_come_from_the_guest_table_and_clearing_is_refused(self):
+        import tempfile
+        from network_labs.appliances.runtime import RuntimeFailure
+        table = ('ipv4     2 icmp     1 29 src=192.0.2.20 dst=198.51.100.20 type=8 code=0 id=7 src=198.51.100.20 dst=192.0.2.20 type=0 code=0 id=7 mark=0 use=1\n'
+                 'ipv6     10 udp      17 20 src=fe80::1 dst=ff02::1 sport=546 dport=547 [UNREPLIED] src=ff02::1 dst=fe80::1 sport=547 dport=546 mark=0 use=1\n')
+        with tempfile.TemporaryDirectory() as root:
+            manager, spec = LiveGuestFirewallTests.manager(self, root)
+            with patch('network_labs.appliances.guest_control.request', return_value={'exit_code': 0, 'output': table}) as request:
+                result = manager.sessions('FW1')
+            self.assertEqual(request.call_args.args, (manager.directory / 'FW1' / 'guest.vsock', 'firewall-sessions'))
+            self.assertEqual(result['output'].count('\n'), 1); self.assertIn('src=192.0.2.20', result['output'])
+            self.assertTrue(result['summary'].startswith('1 IPv4'))
+            with self.assertRaisesRegex(ValueError, 'not available'): manager.sessions('FW1', clear=True)
+            with patch('network_labs.appliances.guest_control.request', return_value={'exit_code': 1, 'output': 'no conntrack listing in this guest kernel'}), \
+                 self.assertRaisesRegex(RuntimeFailure, 'no conntrack listing'):
+                manager.sessions('FW1')

@@ -89,6 +89,14 @@ class GuestAgentTests(unittest.TestCase):
         else:
             self.assertEqual((code, body), (1, b'no bridge'))
 
+    def test_sessions_are_read_only_and_a_missing_table_is_reported(self):
+        code, body = self.invoke(b'NL1 FW_SESSIONS\n')
+        if Path('/proc/net/nf_conntrack').exists():
+            self.assertEqual(code, 0)
+        else:
+            self.assertEqual((code, body), (1, b'no conntrack listing in this guest kernel'))
+        self.assertEqual(self.invoke(b'NL1 FW_SESSIONS clear\n')[0], 2)
+
     def test_partial_request_times_out(self):
         with subprocess.Popen([str(self.binary), '--stdio'], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE) as child:
