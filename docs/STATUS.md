@@ -114,3 +114,5 @@ guest kernel; the CI job pins Firecracker v1.10.1 and its CI kernel 5.10.
 - A live firewall change on a guest briefly pauses forwarding (containers change atomically).
 - Guest DHCP and NAT depend on the guest kernel; the current one supports both.
 - `main` now holds the full history; new work branches from `main`.
+- Pull requests must pass `tools/check_added_lines.py`: no joined statements and no lines
+  over 140 characters on the lines they add (existing code is not checked).
