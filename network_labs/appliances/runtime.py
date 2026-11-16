@@ -709,7 +709,7 @@ class Manager:
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
                 except (OSError, ValueError) as error:
-                    raise RuntimeFailure(f'{node["name"]}: guest startup failed: {error} Console tail: {tail()}') from error
+                    raise RuntimeFailure(f'{node["name"]}: guest startup failed. Console tail: {tail()}\nReason: {error}') from error
             return
         raise RuntimeFailure(f'Firecracker exited ({code}): {tail()}')
 
