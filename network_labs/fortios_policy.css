@@ -1,0 +1,33 @@
+/* Dedicated policy/object workflow, referenced to the FortiOS 7.4 family. */
+body[data-skin=fortios]{font-family:Arial,"Segoe UI",sans-serif;--bg:#f1f2f3;--blue:#298137;--rail:#303436;--line:#d5d8d9}
+body[data-skin=fortios] aside{padding:16px 10px;background:#303436}
+body[data-skin=fortios] .logo{font-size:16px;letter-spacing:0}
+body[data-skin=fortios] nav button{border-radius:0;font-size:12px;padding:9px 10px}
+body[data-skin=fortios] nav button.active{background:#237532;border-left:0}
+body[data-skin=fortios] .content{padding:20px;max-width:none}
+body[data-skin=fortios] .topbar{height:56px;padding:0 20px}
+body[data-skin=fortios] button,body[data-skin=fortios] input,body[data-skin=fortios] select{border-radius:2px}
+.fg-reference{background:#fff8e7;border:1px solid #e5d3a7;padding:10px 13px;color:#65562e;font-size:12px;margin-bottom:16px}
+.fg-heading{font-size:23px;font-weight:400;margin:0 0 14px;letter-spacing:0}
+.fg-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.fg-tools button{padding:6px 12px;font-weight:400;font-size:13px}
+.fg-tools .fg-create{background:#258136;color:#fff;border-color:#258136}
+.fg-tools input{width:180px;padding:6px 9px;margin-left:auto}
+.fg-tools .fg-sequence{border:1px solid #c8cecf;background:#fff;padding:6px 10px;color:#525b5f;font-size:12px}
+.fg-table{background:#fff;border:1px solid #ccd1d2;max-width:100%;overflow:auto}
+.fg-table table{font-size:12px;min-width:820px}
+.fg-table th{background:#e9eced;text-transform:none;letter-spacing:0;font-size:12px;color:#404a4d;padding:9px;font-weight:400}
+.fg-table td{padding:10px 9px;white-space:nowrap;border-bottom:1px solid #e5e8e9}
+.fg-table tbody tr[data-policy],.fg-table tbody tr[data-object]{cursor:pointer}
+.fg-table tr.selected td{background:#e6f2e4}
+.fg-table .fg-implicit td{background:#f4f4f4;color:#727a7c;font-style:italic}
+.fg-accept{color:#207d2e;font-weight:600}.fg-deny{color:#bc3d35;font-weight:600}
+.fg-dialog{width:min(740px,calc(100vw - 24px));max-height:90vh;border:1px solid #8d999d;padding:0;color:#273336;box-shadow:0 10px 40px #0004;overflow:auto}
+.fg-dialog::backdrop{background:#0005}
+.fg-dialog h2{padding:15px 20px;background:#e9eced;border-bottom:1px solid #cdd3d5;font-weight:400;margin:0}
+.fg-fields{padding:20px;display:grid;grid-template-columns:170px minmax(0,1fr);gap:12px 20px;align-items:center}
+.fg-fields label{margin:0;font-weight:400;color:#3c474b}.fg-fields input,.fg-fields select{padding:7px 9px}
+.fg-dialog .fg-cli{margin:0 20px 18px;max-height:190px;border-radius:2px;font-size:11px}
+.fg-dialog .fg-actions{padding:12px 20px;background:#f1f3f3;border-top:1px solid #d4dadb;display:flex;justify-content:flex-end;gap:8px}
+.fg-dialog .fg-actions button{min-width:90px}.fg-dialog .fg-help{margin:0 20px 15px;color:#667277;font-size:12px}
+@media(max-width:760px){body[data-skin=fortios] .content{padding:15px 10px}.fg-fields{grid-template-columns:1fr;gap:6px;padding:15px}.fg-fields input,.fg-fields select{margin-bottom:6px}.fg-tools input{width:100%;margin-left:0}.fg-tools .fg-sequence{margin-left:auto}}

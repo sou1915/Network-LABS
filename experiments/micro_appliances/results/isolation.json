@@ -1,0 +1,10 @@
+{
+  "separate_linear_memory": true,
+  "memory_growth_limited": true,
+  "infinite_loop_interrupted": true,
+  "interruption_wall_seconds": 0.0001995099999589911,
+  "other_nodes_still_communicate": true,
+  "faulted_node": "PC1",
+  "hardware_vm": false,
+  "ok": true
+}

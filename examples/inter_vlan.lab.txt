@@ -1,0 +1,53 @@
+# Écrire tranquillement ce fichier, puis Importer texte > Valider > Créer le lab.
+[devices]
+PC1 PC 140 140
+PC2 PC 140 370
+SW1 Switch 420 250
+R1 Routeur 700 250
+
+[links]
+PC1:eth0 SW1:gi0/1
+PC2:eth0 SW1:gi0/2
+SW1:gi0/3 R1:gi0/0
+
+[config SW1]
+hostname ACCESS
+vlan 10
+name USERS
+exit
+vlan 20
+name SERVERS
+exit
+interface gi0/1
+switchport mode access
+switchport access vlan 10
+no shutdown
+exit
+interface gi0/2
+switchport mode access
+switchport access vlan 20
+no shutdown
+exit
+interface gi0/3
+switchport mode trunk
+switchport trunk allowed vlan 10,20
+no shutdown
+end
+
+[config R1]
+interface gi0/0.10
+encapsulation dot1Q 10
+ip address 192.168.10.1/24
+exit
+interface gi0/0.20
+encapsulation dot1Q 20
+ip address 192.168.20.1/24
+end
+
+[config PC1]
+ip address 192.168.10.10/24
+ip gateway 192.168.10.1
+
+[config PC2]
+ip address 192.168.20.10/24
+ip gateway 192.168.20.1

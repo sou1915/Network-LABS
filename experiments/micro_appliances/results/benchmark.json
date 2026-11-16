@@ -1,0 +1,1833 @@
+{
+  "note": "Fresh subprocess per size. All figures are measured in the execution environment, not the user laptop. Guest linear memory is not total process RAM; idle CPU is measured while the virtual clock is paused.",
+  "runs": [
+    {
+      "hosts": 10,
+      "switches": 1,
+      "instances": 11,
+      "ok": true,
+      "ping_success": 9,
+      "ping_total": 9,
+      "tcp_echo_ok": true,
+      "compile_seconds": 0.11532350400000269,
+      "instantiate_seconds": 0.0035703749999811407,
+      "traffic_wall_seconds": 0.01697650200003409,
+      "traffic_cpu_seconds": 0.016970633000000013,
+      "total_wall_seconds": 0.33665094300005194,
+      "total_cpu_seconds": 0.13655861400000002,
+      "paused_idle_cpu_percent": 0.028146463658381745,
+      "memory_before_engine": {
+        "rss_bytes": 15507456,
+        "pss_bytes": 12820480,
+        "private_clean_bytes": 0,
+        "private_dirty_bytes": 10842112,
+        "virtual_address_bytes": 46002176,
+        "threads": 1
+      },
+      "memory_after_compile": {
+        "rss_bytes": 41541632,
+        "pss_bytes": 38840320,
+        "private_clean_bytes": 303104,
+        "private_dirty_bytes": 36556800,
+        "virtual_address_bytes": 81854464,
+        "threads": 1
+      },
+      "memory_after_instantiation": {
+        "rss_bytes": 42651648,
+        "pss_bytes": 39909376,
+        "private_clean_bytes": 339968,
+        "private_dirty_bytes": 37584896,
+        "virtual_address_bytes": 48064958464,
+        "threads": 1
+      },
+      "memory_after_traffic": {
+        "rss_bytes": 42721280,
+        "pss_bytes": 39979008,
+        "private_clean_bytes": 364544,
+        "private_dirty_bytes": 37629952,
+        "virtual_address_bytes": 48064958464,
+        "threads": 1
+      },
+      "runtime": {
+        "virtual_time_ms": 84,
+        "events_processed": 168,
+        "capture_frames": 0,
+        "capture_drops": 0,
+        "linear_memory_bytes": 2162688,
+        "faults": [],
+        "nodes": [
+          {
+            "name": "SW1",
+            "role": "switch",
+            "address": "0.0.0.0",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 44,
+            "tx_frames": 124,
+            "learned_macs": 10
+          },
+          {
+            "name": "PC1",
+            "role": "client",
+            "address": "10.0.0.1",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 14,
+            "tx_frames": 7,
+            "learned_macs": null
+          },
+          {
+            "name": "PC2",
+            "role": "client",
+            "address": "10.0.0.2",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC3",
+            "role": "client",
+            "address": "10.0.0.3",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC4",
+            "role": "client",
+            "address": "10.0.0.4",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC5",
+            "role": "client",
+            "address": "10.0.0.5",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC6",
+            "role": "client",
+            "address": "10.0.0.6",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC7",
+            "role": "client",
+            "address": "10.0.0.7",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC8",
+            "role": "client",
+            "address": "10.0.0.8",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC9",
+            "role": "client",
+            "address": "10.0.0.9",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 11,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC10",
+            "role": "server",
+            "address": "10.0.0.10",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 22,
+            "tx_frames": 22,
+            "learned_macs": null
+          }
+        ]
+      },
+      "environment": {
+        "python": "3.12.14",
+        "wasmtime": "49.0.0",
+        "machine": "x86_64",
+        "system": "Linux",
+        "guest_sha256": "04480ade8b6935d0c85f93af3803e925b26d383b2eff487df7025962b6c55fbf"
+      },
+      "resident_delta_after_compile_bytes": 1179648
+    },
+    {
+      "hosts": 50,
+      "switches": 1,
+      "instances": 51,
+      "ok": true,
+      "ping_success": 49,
+      "ping_total": 49,
+      "tcp_echo_ok": true,
+      "compile_seconds": 0.11319053899995879,
+      "instantiate_seconds": 0.013252034999993612,
+      "traffic_wall_seconds": 0.2417909659999964,
+      "traffic_cpu_seconds": 0.241780546,
+      "total_wall_seconds": 0.5692631699999993,
+      "total_cpu_seconds": 0.369170136,
+      "paused_idle_cpu_percent": 0.026435851357367875,
+      "memory_before_engine": {
+        "rss_bytes": 15507456,
+        "pss_bytes": 12820480,
+        "private_clean_bytes": 0,
+        "private_dirty_bytes": 10842112,
+        "virtual_address_bytes": 46002176,
+        "threads": 1
+      },
+      "memory_after_compile": {
+        "rss_bytes": 41422848,
+        "pss_bytes": 38719488,
+        "private_clean_bytes": 299008,
+        "private_dirty_bytes": 36438016,
+        "virtual_address_bytes": 81854464,
+        "threads": 1
+      },
+      "memory_after_instantiation": {
+        "rss_bytes": 44576768,
+        "pss_bytes": 41668608,
+        "private_clean_bytes": 335872,
+        "private_dirty_bytes": 39346176,
+        "virtual_address_bytes": 222549053440,
+        "threads": 1
+      },
+      "memory_after_traffic": {
+        "rss_bytes": 44666880,
+        "pss_bytes": 41758720,
+        "private_clean_bytes": 360448,
+        "private_dirty_bytes": 39411712,
+        "virtual_address_bytes": 222549053440,
+        "threads": 1
+      },
+      "runtime": {
+        "virtual_time_ms": 404,
+        "events_processed": 2808,
+        "capture_frames": 0,
+        "capture_drops": 0,
+        "linear_memory_bytes": 10027008,
+        "faults": [],
+        "nodes": [
+          {
+            "name": "SW1",
+            "role": "switch",
+            "address": "0.0.0.0",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 204,
+            "tx_frames": 2604,
+            "learned_macs": 50
+          },
+          {
+            "name": "PC1",
+            "role": "client",
+            "address": "10.0.0.1",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 54,
+            "tx_frames": 7,
+            "learned_macs": null
+          },
+          {
+            "name": "PC2",
+            "role": "client",
+            "address": "10.0.0.2",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC3",
+            "role": "client",
+            "address": "10.0.0.3",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC4",
+            "role": "client",
+            "address": "10.0.0.4",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC5",
+            "role": "client",
+            "address": "10.0.0.5",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC6",
+            "role": "client",
+            "address": "10.0.0.6",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC7",
+            "role": "client",
+            "address": "10.0.0.7",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC8",
+            "role": "client",
+            "address": "10.0.0.8",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC9",
+            "role": "client",
+            "address": "10.0.0.9",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC10",
+            "role": "client",
+            "address": "10.0.0.10",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC11",
+            "role": "client",
+            "address": "10.0.0.11",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC12",
+            "role": "client",
+            "address": "10.0.0.12",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC13",
+            "role": "client",
+            "address": "10.0.0.13",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC14",
+            "role": "client",
+            "address": "10.0.0.14",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC15",
+            "role": "client",
+            "address": "10.0.0.15",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC16",
+            "role": "client",
+            "address": "10.0.0.16",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC17",
+            "role": "client",
+            "address": "10.0.0.17",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC18",
+            "role": "client",
+            "address": "10.0.0.18",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC19",
+            "role": "client",
+            "address": "10.0.0.19",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC20",
+            "role": "client",
+            "address": "10.0.0.20",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC21",
+            "role": "client",
+            "address": "10.0.0.21",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC22",
+            "role": "client",
+            "address": "10.0.0.22",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC23",
+            "role": "client",
+            "address": "10.0.0.23",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC24",
+            "role": "client",
+            "address": "10.0.0.24",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC25",
+            "role": "client",
+            "address": "10.0.0.25",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC26",
+            "role": "client",
+            "address": "10.0.0.26",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC27",
+            "role": "client",
+            "address": "10.0.0.27",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC28",
+            "role": "client",
+            "address": "10.0.0.28",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC29",
+            "role": "client",
+            "address": "10.0.0.29",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC30",
+            "role": "client",
+            "address": "10.0.0.30",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC31",
+            "role": "client",
+            "address": "10.0.0.31",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC32",
+            "role": "client",
+            "address": "10.0.0.32",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC33",
+            "role": "client",
+            "address": "10.0.0.33",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC34",
+            "role": "client",
+            "address": "10.0.0.34",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC35",
+            "role": "client",
+            "address": "10.0.0.35",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC36",
+            "role": "client",
+            "address": "10.0.0.36",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC37",
+            "role": "client",
+            "address": "10.0.0.37",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC38",
+            "role": "client",
+            "address": "10.0.0.38",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC39",
+            "role": "client",
+            "address": "10.0.0.39",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC40",
+            "role": "client",
+            "address": "10.0.0.40",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC41",
+            "role": "client",
+            "address": "10.0.0.41",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC42",
+            "role": "client",
+            "address": "10.0.0.42",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC43",
+            "role": "client",
+            "address": "10.0.0.43",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC44",
+            "role": "client",
+            "address": "10.0.0.44",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC45",
+            "role": "client",
+            "address": "10.0.0.45",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC46",
+            "role": "client",
+            "address": "10.0.0.46",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC47",
+            "role": "client",
+            "address": "10.0.0.47",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC48",
+            "role": "client",
+            "address": "10.0.0.48",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC49",
+            "role": "client",
+            "address": "10.0.0.49",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 51,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC50",
+            "role": "server",
+            "address": "10.0.0.50",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 102,
+            "tx_frames": 102,
+            "learned_macs": null
+          }
+        ]
+      },
+      "environment": {
+        "python": "3.12.14",
+        "wasmtime": "49.0.0",
+        "machine": "x86_64",
+        "system": "Linux",
+        "guest_sha256": "04480ade8b6935d0c85f93af3803e925b26d383b2eff487df7025962b6c55fbf"
+      },
+      "resident_delta_after_compile_bytes": 3244032
+    },
+    {
+      "hosts": 100,
+      "switches": 1,
+      "instances": 101,
+      "ok": true,
+      "ping_success": 99,
+      "ping_total": 99,
+      "tcp_echo_ok": true,
+      "compile_seconds": 0.12093691100000115,
+      "instantiate_seconds": 0.02521222799998668,
+      "traffic_wall_seconds": 0.941489630000035,
+      "traffic_cpu_seconds": 0.941425716,
+      "total_wall_seconds": 1.2888803480000206,
+      "total_cpu_seconds": 1.088680499,
+      "paused_idle_cpu_percent": 0.03033932436428712,
+      "memory_before_engine": {
+        "rss_bytes": 15503360,
+        "pss_bytes": 12816384,
+        "private_clean_bytes": 0,
+        "private_dirty_bytes": 10838016,
+        "virtual_address_bytes": 46002176,
+        "threads": 1
+      },
+      "memory_after_compile": {
+        "rss_bytes": 41123840,
+        "pss_bytes": 38420480,
+        "private_clean_bytes": 299008,
+        "private_dirty_bytes": 36139008,
+        "virtual_address_bytes": 81854464,
+        "threads": 1
+      },
+      "memory_after_instantiation": {
+        "rss_bytes": 46645248,
+        "pss_bytes": 43532288,
+        "private_clean_bytes": 335872,
+        "private_dirty_bytes": 41209856,
+        "virtual_address_bytes": 440652861440,
+        "threads": 1
+      },
+      "memory_after_traffic": {
+        "rss_bytes": 46759936,
+        "pss_bytes": 43652096,
+        "private_clean_bytes": 360448,
+        "private_dirty_bytes": 41299968,
+        "virtual_address_bytes": 440652861440,
+        "threads": 1
+      },
+      "runtime": {
+        "virtual_time_ms": 804,
+        "events_processed": 10608,
+        "capture_frames": 0,
+        "capture_drops": 0,
+        "linear_memory_bytes": 19857408,
+        "faults": [],
+        "nodes": [
+          {
+            "name": "SW1",
+            "role": "switch",
+            "address": "0.0.0.0",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 404,
+            "tx_frames": 10204,
+            "learned_macs": 100
+          },
+          {
+            "name": "PC1",
+            "role": "client",
+            "address": "10.0.0.1",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 104,
+            "tx_frames": 7,
+            "learned_macs": null
+          },
+          {
+            "name": "PC2",
+            "role": "client",
+            "address": "10.0.0.2",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC3",
+            "role": "client",
+            "address": "10.0.0.3",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC4",
+            "role": "client",
+            "address": "10.0.0.4",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC5",
+            "role": "client",
+            "address": "10.0.0.5",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC6",
+            "role": "client",
+            "address": "10.0.0.6",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC7",
+            "role": "client",
+            "address": "10.0.0.7",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC8",
+            "role": "client",
+            "address": "10.0.0.8",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC9",
+            "role": "client",
+            "address": "10.0.0.9",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC10",
+            "role": "client",
+            "address": "10.0.0.10",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC11",
+            "role": "client",
+            "address": "10.0.0.11",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC12",
+            "role": "client",
+            "address": "10.0.0.12",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC13",
+            "role": "client",
+            "address": "10.0.0.13",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC14",
+            "role": "client",
+            "address": "10.0.0.14",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC15",
+            "role": "client",
+            "address": "10.0.0.15",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC16",
+            "role": "client",
+            "address": "10.0.0.16",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC17",
+            "role": "client",
+            "address": "10.0.0.17",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC18",
+            "role": "client",
+            "address": "10.0.0.18",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC19",
+            "role": "client",
+            "address": "10.0.0.19",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC20",
+            "role": "client",
+            "address": "10.0.0.20",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC21",
+            "role": "client",
+            "address": "10.0.0.21",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC22",
+            "role": "client",
+            "address": "10.0.0.22",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC23",
+            "role": "client",
+            "address": "10.0.0.23",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC24",
+            "role": "client",
+            "address": "10.0.0.24",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC25",
+            "role": "client",
+            "address": "10.0.0.25",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC26",
+            "role": "client",
+            "address": "10.0.0.26",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC27",
+            "role": "client",
+            "address": "10.0.0.27",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC28",
+            "role": "client",
+            "address": "10.0.0.28",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC29",
+            "role": "client",
+            "address": "10.0.0.29",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC30",
+            "role": "client",
+            "address": "10.0.0.30",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC31",
+            "role": "client",
+            "address": "10.0.0.31",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC32",
+            "role": "client",
+            "address": "10.0.0.32",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC33",
+            "role": "client",
+            "address": "10.0.0.33",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC34",
+            "role": "client",
+            "address": "10.0.0.34",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC35",
+            "role": "client",
+            "address": "10.0.0.35",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC36",
+            "role": "client",
+            "address": "10.0.0.36",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC37",
+            "role": "client",
+            "address": "10.0.0.37",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC38",
+            "role": "client",
+            "address": "10.0.0.38",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC39",
+            "role": "client",
+            "address": "10.0.0.39",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC40",
+            "role": "client",
+            "address": "10.0.0.40",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC41",
+            "role": "client",
+            "address": "10.0.0.41",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC42",
+            "role": "client",
+            "address": "10.0.0.42",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC43",
+            "role": "client",
+            "address": "10.0.0.43",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC44",
+            "role": "client",
+            "address": "10.0.0.44",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC45",
+            "role": "client",
+            "address": "10.0.0.45",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC46",
+            "role": "client",
+            "address": "10.0.0.46",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC47",
+            "role": "client",
+            "address": "10.0.0.47",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC48",
+            "role": "client",
+            "address": "10.0.0.48",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC49",
+            "role": "client",
+            "address": "10.0.0.49",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC50",
+            "role": "client",
+            "address": "10.0.0.50",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC51",
+            "role": "client",
+            "address": "10.0.0.51",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC52",
+            "role": "client",
+            "address": "10.0.0.52",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC53",
+            "role": "client",
+            "address": "10.0.0.53",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC54",
+            "role": "client",
+            "address": "10.0.0.54",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC55",
+            "role": "client",
+            "address": "10.0.0.55",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC56",
+            "role": "client",
+            "address": "10.0.0.56",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC57",
+            "role": "client",
+            "address": "10.0.0.57",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC58",
+            "role": "client",
+            "address": "10.0.0.58",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC59",
+            "role": "client",
+            "address": "10.0.0.59",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC60",
+            "role": "client",
+            "address": "10.0.0.60",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC61",
+            "role": "client",
+            "address": "10.0.0.61",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC62",
+            "role": "client",
+            "address": "10.0.0.62",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC63",
+            "role": "client",
+            "address": "10.0.0.63",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC64",
+            "role": "client",
+            "address": "10.0.0.64",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC65",
+            "role": "client",
+            "address": "10.0.0.65",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC66",
+            "role": "client",
+            "address": "10.0.0.66",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC67",
+            "role": "client",
+            "address": "10.0.0.67",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC68",
+            "role": "client",
+            "address": "10.0.0.68",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC69",
+            "role": "client",
+            "address": "10.0.0.69",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC70",
+            "role": "client",
+            "address": "10.0.0.70",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC71",
+            "role": "client",
+            "address": "10.0.0.71",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC72",
+            "role": "client",
+            "address": "10.0.0.72",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC73",
+            "role": "client",
+            "address": "10.0.0.73",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC74",
+            "role": "client",
+            "address": "10.0.0.74",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC75",
+            "role": "client",
+            "address": "10.0.0.75",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC76",
+            "role": "client",
+            "address": "10.0.0.76",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC77",
+            "role": "client",
+            "address": "10.0.0.77",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC78",
+            "role": "client",
+            "address": "10.0.0.78",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC79",
+            "role": "client",
+            "address": "10.0.0.79",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC80",
+            "role": "client",
+            "address": "10.0.0.80",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC81",
+            "role": "client",
+            "address": "10.0.0.81",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC82",
+            "role": "client",
+            "address": "10.0.0.82",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC83",
+            "role": "client",
+            "address": "10.0.0.83",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC84",
+            "role": "client",
+            "address": "10.0.0.84",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC85",
+            "role": "client",
+            "address": "10.0.0.85",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC86",
+            "role": "client",
+            "address": "10.0.0.86",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC87",
+            "role": "client",
+            "address": "10.0.0.87",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC88",
+            "role": "client",
+            "address": "10.0.0.88",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC89",
+            "role": "client",
+            "address": "10.0.0.89",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC90",
+            "role": "client",
+            "address": "10.0.0.90",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC91",
+            "role": "client",
+            "address": "10.0.0.91",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC92",
+            "role": "client",
+            "address": "10.0.0.92",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC93",
+            "role": "client",
+            "address": "10.0.0.93",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC94",
+            "role": "client",
+            "address": "10.0.0.94",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC95",
+            "role": "client",
+            "address": "10.0.0.95",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC96",
+            "role": "client",
+            "address": "10.0.0.96",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC97",
+            "role": "client",
+            "address": "10.0.0.97",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC98",
+            "role": "client",
+            "address": "10.0.0.98",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC99",
+            "role": "client",
+            "address": "10.0.0.99",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 101,
+            "tx_frames": 2,
+            "learned_macs": null
+          },
+          {
+            "name": "PC100",
+            "role": "server",
+            "address": "10.0.0.100",
+            "fault": null,
+            "linear_memory_bytes": 196608,
+            "rx_frames": 202,
+            "tx_frames": 202,
+            "learned_macs": null
+          }
+        ]
+      },
+      "environment": {
+        "python": "3.12.14",
+        "wasmtime": "49.0.0",
+        "machine": "x86_64",
+        "system": "Linux",
+        "guest_sha256": "04480ade8b6935d0c85f93af3803e925b26d383b2eff487df7025962b6c55fbf"
+      },
+      "resident_delta_after_compile_bytes": 5636096
+    }
+  ]
+}

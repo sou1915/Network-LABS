@@ -1,0 +1,14 @@
+{
+  "abi": 1,
+  "target": "wasm32-unknown-unknown",
+  "rustc": "rustc 1.91.1 (ed61e7d7e 2025-11-07)",
+  "smoltcp": "0.14.0",
+  "artifact_sha256": "04480ade8b6935d0c85f93af3803e925b26d383b2eff487df7025962b6c55fbf",
+  "inputs": {
+    "guest/src/lib.rs": "1415dc76c6bdd2b182c05dcf650bb8c907cd1fba4b248b6aca454dd1adb5c1e2",
+    "guest/Cargo.toml": "4c573812aad74002ee67efa31a437c96ba4774679a958af31eb5690cb5d469a8",
+    "guest/Cargo.lock": "ab3b64687acfba08b924d935790d0de71d98aaf1505959ce486f501724a124c9",
+    "guest/.cargo/config.toml": "c8766cbc796fd4f27683175d76a664383b122bd6c9a1e0aa1f481bbc2959fa7c",
+    "build_guest.py": "0dfee718f87678abe5de50f835bf9ece3d341b6e958d08b193bb11ca59b70848"
+  }
+}

@@ -1,0 +1,45 @@
+# LAN avec services de ports et filtrage TCP/UDP ; aucune application réelle.
+[devices]
+PC1 windows-11 120 220
+FW1 fortigate 350 220
+SW1 netgear-gs108e 570 220
+NAS1 qnap-ts264 800 90
+PRN1 brother-hl5200 800 220
+CAM1 axis-p3265 800 350
+SRV1 server-linux 570 430
+
+[links]
+PC1:eth0 FW1:gi0/1
+FW1:gi0/2 SW1:gi0/1
+NAS1:eth0 SW1:gi0/2
+PRN1:eth0 SW1:gi0/3
+CAM1:eth0 SW1:gi0/4
+SRV1:eth0 SW1:gi0/5
+
+[config PC1]
+ip address 192.168.10.10/24
+ip dns 192.168.10.2
+
+[config NAS1]
+ip address 192.168.10.20/24
+
+[config PRN1]
+ip address 192.168.10.30/24
+
+[config CAM1]
+ip address 192.168.10.40/24
+
+[config SRV1]
+ip address 192.168.10.2/24
+service dns
+dns record nas.lan 192.168.10.20
+dns record printer.lan 192.168.10.30
+dns record camera.lan 192.168.10.40
+
+[config FW1]
+firewall mode stateful
+firewall default deny
+firewall rule 10 allow udp 192.168.10.10/32 192.168.10.2/32 53
+firewall rule 20 allow tcp 192.168.10.10/32 192.168.10.20/32 445
+firewall rule 30 allow tcp 192.168.10.10/32 192.168.10.30/32 9100
+firewall rule 40 deny tcp any any 554

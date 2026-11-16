@@ -1,0 +1,11 @@
+"""Neutral desktop palette; terminal/code surfaces retain their own dark colors."""
+BG='#eef2f6'
+PANEL='#ffffff'
+CARD='#f5f7fa'
+LINE='#d8e0eb'
+TEXT='#182b49'
+MUTED='#607087'
+TEAL='#176e58'
+BLUE='#285fd2'
+GOLD='#946500'
+RED='#bd3348'
