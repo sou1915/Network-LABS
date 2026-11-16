@@ -140,6 +140,16 @@ class RouterGuestTests(unittest.TestCase):
                         # The declared transit routes were installed by startup, R1's through its second port.
                         self.assertIn('198.51.100.0/24 via 203.0.113.2 dev eth1', results['routes']['R1'])
                         self.assertIn('192.0.2.0/24 via 203.0.113.1 dev eth0', results['routes']['R2'])
+                        # Vendor 'show' commands read the running guests: R1 as a Cisco ISR, R2 as a Juniper MX.
+                        from network_labs.appliances.vendor_show import show
+                        r1, r2 = (dict(n, model=m) for n, m in zip(spec['nodes'][:2], ('cisco-isr4331', 'juniper-mx204')))
+                        results['show'] = {'R1# show ip route': show(r1, manager.observe_node('R1'), 'show ip route'),
+                                           'R2> show route': show(r2, manager.observe_node('R2'), 'show route')}
+                        self.assertIn('S        198.51.100.0/24 [1/0] via 203.0.113.2, gi0/0/1', results['show']['R1# show ip route'])
+                        self.assertIn('C        192.0.2.0/24 is directly connected, gi0/0/0', results['show']['R1# show ip route'])
+                        self.assertIn('192.0.2.0/24       *[Static/5]', results['show']['R2> show route'])
+                        for prompt, text in results['show'].items():
+                            print(f'\n{prompt}\n{text}', flush=True)
                         direct = probe('VM2', '192.0.2.1', True, attempts=3)
                         routed = probe('VM2', '198.51.100.20', True, attempts=5); probe('VM3', '192.0.2.20', True, attempts=5)
                         ttl = lambda result: int(result['output'].split('ttl=')[1].split()[0])

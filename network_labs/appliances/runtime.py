@@ -795,6 +795,24 @@ class Manager:
                 return result
         raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
 
+    def observe_node(self, name):
+        """Addresses, routes and (switch guests) bridge VLANs of a running node, for vendor 'show' commands."""
+        from . import vendor_show
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before show commands.')
+        node = next((n for n in state['spec']['nodes'] if n['name'] == name), None)
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        if node['runtime'] == 'oci':
+            return vendor_show.observe_container(self.inspect(name), node)
+        from .guest_startup import query
+        socket = self.directory / name / 'guest.vsock'
+        try:
+            return vendor_show.observe_guest(lambda operation: query(socket, operation), node)
+        except (OSError, ValueError) as error:
+            raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
+
     def configure_ios(self, name, text):
         from .ios import compile_config
         state = self.read()

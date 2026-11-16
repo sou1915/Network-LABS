@@ -112,7 +112,16 @@ Subsets: interface addresses and static routes in all four; firewall policies in
 access/trunk switchports in IOS. They work for micro-VMs and containers alike because they
 edit the draft; the change reaches the guests on the next start (or the live firewall
 action). This is configuration syntax, not the vendor's operating system: there is no
-`show` output from a running device, and other brands keep the forms only.
+live state beyond the read-only commands below, and other brands keep the forms only.
+
+**Live vendor `show` commands (CLI tab, running lab).** The same brands print the running node's
+state in their vendor's layout (`network_labs/appliances/vendor_show.py`): IOS `show ip interface
+brief`, `show ip route`, `show vlan brief` (switches; abbreviations such as `sh ip ro` work);
+FortiOS `get system interface`, `get router info routing-table all`; Junos `show interfaces terse`,
+`show route`; RouterOS `/interface print`, `/ip address print`, `/ip route print`. One sudo-confirmed
+`show` request reads the node (micro-VM agent read-only requests, or `ip -j` in a container); later
+commands format that observation locally until **Relire**. Values come from Linux only: no counters,
+timers or hardware fields a Linux node does not have. Real-KVM tested in the router-chain test.
 
 ## How to run
 

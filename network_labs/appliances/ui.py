@@ -712,7 +712,7 @@ class ApplianceWindow:
         hint.bind('<Configure>',lambda event:hint.configure(wraplength=max(120,event.width-4)))
         box=tk.Frame(frame,bg='#0d1520')
         box.pack(fill='both',expand=True,padx=14,pady=8)
-        self.vendor_text=tk.Text(box,wrap='none',font=('DejaVu Sans Mono',8),height=17,bg='#0d1520',fg='#d7e3f0',
+        self.vendor_text=tk.Text(box,wrap='none',font=('DejaVu Sans Mono',8),height=13,bg='#0d1520',fg='#d7e3f0',
                                  insertbackground='#d7e3f0',bd=0,highlightthickness=0,padx=8,pady=6,undo=True)
         scroll=ttk.Scrollbar(box,orient='vertical',command=self.vendor_text.yview,style='Native.Vertical.TScrollbar')
         across=ttk.Scrollbar(box,orient='horizontal',command=self.vendor_text.xview)
@@ -727,6 +727,19 @@ class ApplianceWindow:
         self.vendor_apply=ttk.Button(actions,text='Appliquer au brouillon',command=self.apply_vendor_config,
                                      style='Native.Primary.TButton')
         self.vendor_apply.pack(side='right',fill='x',expand=True)
+        live=tk.Frame(frame,bg=BG)
+        live.pack(fill='x',padx=14,pady=(8,0))
+        self.vendor_command=tk.StringVar()
+        self.vendor_commands=ttk.Combobox(live,textvariable=self.vendor_command,style='Native.TCombobox',font=('DejaVu Sans Mono',9))
+        self.vendor_commands.pack(side='left',fill='x',expand=True,padx=(0,5))
+        self.vendor_commands.bind('<Return>',lambda event:self.run_vendor_show())
+        self.vendor_run=ttk.Button(live,text='Exécuter',command=self.run_vendor_show,style='Native.TButton')
+        self.vendor_run.pack(side='left')
+        self.vendor_refresh=ttk.Button(live,text='Relire',command=lambda:self.run_vendor_show(refresh=True),
+                                       style='Native.TButton')
+        self.vendor_refresh.pack(side='right',padx=(5,0))
+        self.vendor_observation=None
+        self.vendor_pending_command=None
         self.vendor_message=tk.StringVar()
         message=tk.Label(frame,textvariable=self.vendor_message,bg=BG,fg=MUTED,font=(self.font,8),justify='left',anchor='w')
         message.pack(fill='x',padx=14,pady=6)
@@ -743,6 +756,10 @@ class ApplianceWindow:
             return
         self.vendor_frame.pack(fill='both',expand=True,before=self.linux_console_title)
         self.vendor_node=node['name']
+        from .vendor_show import COMMANDS
+        self.vendor_commands.configure(values=COMMANDS[syntax])
+        if self.vendor_command.get() not in COMMANDS[syntax]:
+            self.vendor_command.set(COMMANDS[syntax][0])
         self.vendor_title.set(f'{vendor_config.TITLES[syntax]} · {model_label(node,short=True)}')
         self.vendor_hint.set(vendor_config.HINTS[syntax]+' Les commandes écrivent dans le brouillon du lab, '
                              'validé comme le formulaire ; le nœud exécute Linux, pas le système du constructeur.')
@@ -774,6 +791,44 @@ class ApplianceWindow:
         self.device_tabs.select(self.console_panel)
         self.vendor_message.set('Brouillon appliqué. Enregistrer puis arrêter / démarrer pour activer les changements.')
         return True
+
+    def run_vendor_show(self,refresh=False):
+        """Print the running node's state in its vendor's format; observe it first when no observation is held."""
+        from .vendor_show import show
+        name=self.vendor_node
+        if not name:
+            return False
+        if self.states.get(name,{}).get('status')!='running':
+            self.vendor_message.set('Démarrer le lab et actualiser l’état : les commandes show lisent le nœud actif.')
+            return False
+        held=self.vendor_observation
+        if refresh or not held or held['key']!=(self.view_lab,name):
+            self.vendor_pending_command=self.vendor_command.get()
+            return self.launch('show')
+        try:
+            node=next(n for n in self.manifest()['nodes'] if n['name']==name)
+            text=show(node,held['data'],self.vendor_command.get())
+        except (ValueError,TypeError,KeyError,StopIteration) as error:
+            self.vendor_message.set(str(error))
+            return False
+        from .vendor_show import PROMPTS
+        from .vendor_config import dialect
+        prompt=PROMPTS[dialect(node)].format(name)
+        header=f'{prompt} {self.vendor_command.get().strip()}'
+        note=f'(état Linux observé à {held["time"]} ; « Relire » interroge à nouveau le nœud)'
+        self.write_output(header+'\n'+text+'\n\n'+note,held['data'],'CLI · '+name)
+        self.vendor_message.set('Sortie dans « Diagnostic réseau ». Les valeurs viennent du nœud Linux actif.')
+        self.dock.select(self.output_tab)
+        return True
+
+    def write_output(self,display,raw,title):
+        self.dock.tab(self.output_tab,text=title)
+        raw=json.dumps(raw,ensure_ascii=False,indent=2)
+        for target,text in ((self.output,display),(self.raw_output,raw)):
+            target.configure(state='normal')
+            target.delete('1.0','end')
+            target.insert('1.0',text)
+            target.configure(state='disabled')
 
     def config_port_selected(self,event=None):
         if self.config_baseline is None:return
@@ -1052,7 +1107,7 @@ class ApplianceWindow:
                 target=str(Path(directory.name)/'manifest.json')
                 private_json(target,spec)
             selected=self.nodes.selection()
-            node=selected[0] if selected and action in ('inspect','verify','firewall') else None
+            node=selected[0] if selected and action in ('inspect','verify','firewall','show') else None
             request=validate_request({'id':uuid.uuid4().hex,'owner_uid':os.geteuid(),'action':action,'target':target,'lab':lab,'node':node,
                                       'destination':self.destination.get() if action=='verify' else None})
             path=Path(directory.name)/'request.json';private_json(path,request)
@@ -1098,6 +1153,8 @@ class ApplianceWindow:
             self.web_inspection_revision=revision(self.manifest())
             self.web_inspection_time=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
         states=self.states if self.view_lab==request['lab'] else {}
+        if action in ('start','stop'):
+            self.vendor_observation=None  # a new or stopped lab invalidates what was observed
         if action in ('start','status'):
             from .ui_bridge import observed_states
             states=observed_states(data)
@@ -1105,7 +1162,16 @@ class ApplianceWindow:
         elif action=='stop':
             if data.get('stopped')!=request['lab']:raise ValueError('Arrêt non confirmé.')
             states={n['name']:{'status':'stopped'} for n in graph['nodes']};self.observation.set(request['lab']+' · arrêt confirmé')
-        self.draw(graph,states);self.show_output(data)
+        self.draw(graph,states)
+        if action=='show':
+            self.vendor_observation={'key':(request['lab'],request['node']),'data':data,'time':time.strftime('%H:%M:%S')}
+            self.choose_node(request['node'])
+            if self.vendor_pending_command:
+                self.vendor_command.set(self.vendor_pending_command)
+            self.vendor_pending_command=None
+            self.run_vendor_show()
+        else:
+            self.show_output(data)
         self.note.set(('Test réseau : '+data['status']) if action=='verify' else action+' · '+request['lab']+' : terminé')
         self.dock.select(self.output_tab);self.tabs.select(self.topology_tab)
         self.record_event(action,self.note.get())
