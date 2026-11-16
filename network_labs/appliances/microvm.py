@@ -50,3 +50,15 @@ def router_chain_example(kernel, disk):
     spec['nodes'] = [first, second, left, right]
     spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['VM3', 'eth0']]]
     return validate(spec)
+
+
+def firewall_example(kernel, disk):
+    """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-firewall'
+    spec['nodes'][0].update(name='FW1', role='firewall', firewall={
+        'default': 'drop', 'stateful': True,
+        'rules': [{'name': 'inside-ping-out', 'in': 'eth0', 'out': 'eth1', 'source': '192.0.2.0/24', 'protocol': 'icmp', 'action': 'accept'}],
+        'nat': []})
+    spec['links'] = [[['FW1', 'eth0'], ['VM2', 'eth0']], [['FW1', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

@@ -461,7 +461,7 @@ class Manager:
             for node in spec['nodes']:
                 if node.get('switch_backend') == 'ovs' and not (Path(node['rootfs']) / 'etc/network-labs-ovs-assets.json').is_file():
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
-        if any(n.get('dot1x') or n.get('firewall') is not None or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
+        if any(n.get('dot1x') or (n.get('firewall') is not None and n['runtime'] == 'oci') or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed 802.1X/firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
         if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
@@ -493,7 +493,7 @@ class Manager:
                 ns = namespace(spec, i)
                 run(['ip', 'netns', 'add', ns]); self.state['namespaces'].append(ns); self.save()
                 self.ns(i, 'ip', 'link', 'set', 'lo', 'up')
-                if node.get('firewall') is not None:
+                if node.get('firewall') is not None and node['runtime'] == 'oci':
                     from .firewall import apply
                     self.state['firewall_fingerprints'][node['name']] = apply(self, i, node)
                     self.save()
@@ -704,7 +704,7 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1:
+            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host':
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
@@ -850,6 +850,8 @@ class Manager:
         index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
+        if state['spec']['nodes'][index]['runtime'] != 'oci':
+            raise ValueError('Live firewall changes are not available for micro-VM firewalls yet; edit the lab file and restart.')
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index]['firewall'] = policy
         candidate = validate(candidate)
@@ -872,7 +874,7 @@ class Manager:
 
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
-            if node['name'] == name and node.get('firewall') is not None:
+            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'oci':
                 result = self.ns(index, 'conntrack', '-F' if clear else '-L', '-f', 'ipv4')
                 return {'node': name, 'cleared': clear, 'output': result.stdout, 'summary': result.stderr}
         raise ValueError('An existing managed firewall node is required.')

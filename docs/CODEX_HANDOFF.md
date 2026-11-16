@@ -1,5 +1,20 @@
 # Network-LABS: Codex handoff — 2026-11-04
 
+## Firewall micro-VM guests — 2026-11-16 (real-KVM acceptance pending)
+
+Measured guest kernel (Firecracker CI 5.10): bridging, iptables, conntrack and IPv6
+forwarding present; nf_tables and 802.1Q absent. A Firecracker node may therefore
+declare `role: firewall` with the same `firewall` policy schema as container
+firewalls (default, stateful, ordered named rules), enforced with iptables in the
+guest instead of nftables. `microvm-rootfs --with-agent --with-firewall` copies the
+host's legacy iptables program, its libraries and four match modules into the image.
+The agent gains typed `FW_LIST`, `FW_FLUSH`, `FW_POLICY`, `FW_STATE` and `FW_RULE`
+requests. Startup installs the policy while the chain defaults to drop, verifies an
+exact readback, and only then enables forwarding; `microvm-save` refuses drift.
+Not available on guests yet: address translation (`nat` entries are rejected), live
+`firewall` reconfiguration, sessions view, IPv6 filtering. `microvm-example
+--firewall` prints FW1 between an inside and an outside endpoint.
+
 ## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16
 
 `capture LAB NODE ethN` now accepts micro-VM nodes: it records on the host-side

@@ -13,8 +13,8 @@ def validate_firewall(node):
     policy = node.get('firewall')
     if policy is None:
         return
-    if node['runtime'] != 'oci' or node['role'] != 'firewall':
-        raise ValueError('Managed firewall requires an OCI firewall node.')
+    if node['role'] != 'firewall':
+        raise ValueError('Managed firewall requires a firewall node.')
     if node.get('startup'):
         raise ValueError('Managed firewall cannot mix policy with untracked startup commands.')
     keys(policy, ('default', 'stateful', 'rules', 'nat'), 'firewall')
@@ -74,6 +74,9 @@ def validate_firewall(node):
                 integer(entry['to_port'], 1, 65535, 'to_port')
                 if protocol not in ('tcp', 'udp') or 'dport' not in entry:
                     raise ValueError('DNAT to_port requires tcp/udp and dport.')
+    if node['runtime'] == 'firecracker':
+        from .guest_firewall import validate as validate_guest
+        validate_guest(node)
 
 
 def match(entry):

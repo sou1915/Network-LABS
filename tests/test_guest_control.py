@@ -55,6 +55,11 @@ class GuestAgentTests(unittest.TestCase):
             if code == 0 and operation == 'ADDRESSES':
                 self.assertIn(b'lo', body)
 
+    def test_firewall_changes_and_malformed_rules_are_refused_over_stdio(self):
+        for data in (b'NL1 FW_FLUSH\n', b'NL1 FW_POLICY accept\n', b'NL1 FW_STATE invalid\n',
+                     b'NL1 FW_RULE accept eth0 eth1 icmp 192.0.2.0/24 - -\n', b'NL1 FW_LIST extra\n'):
+            with self.subTest(data=data): self.assertEqual(self.invoke(data)[0], 2)
+
     def test_kernel_capabilities_are_reported_without_changing_anything(self):
         code, body = self.invoke(b'NL1 KERNEL\n')
         self.assertEqual(code, 0)

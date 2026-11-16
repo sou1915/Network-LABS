@@ -26,11 +26,13 @@ def main(arguments=None):
     vm_sample.add_argument('--multinic',action='store_true',help='Three guests with two isolated segments and a dual-interface host.')
     vm_sample.add_argument('--router',action='store_true',help='Three guests: a router guest forwarding IPv4 between two endpoint guests.')
     vm_sample.add_argument('--router-chain',action='store_true',help='Four guests: two router guests with static routes across a transit link.')
+    vm_sample.add_argument('--firewall',action='store_true',help='Three guests: a stateful firewall guest between an inside and an outside endpoint.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
     guest.add_argument('--output', type=Path, required=True)
     guest.add_argument('--size-mib', type=int, default=64)
     guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
+    guest.add_argument('--with-firewall', action='store_true', help='Add legacy iptables for firewall guests; requires the iptables package and --with-agent.')
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
     control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping', 'forwarding', 'kernel'])
@@ -376,14 +378,14 @@ def main(arguments=None):
             result = request(args.socket, args.operation, destination=args.destination)
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
-            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent)
+            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
         elif args.command == 'microvm-example':
             from .microvm import example as microvm_example
-            if args.multinic + args.router + args.router_chain > 1:
-                raise ValueError('Choose one of --multinic, --router or --router-chain.')
-            if args.multinic or args.router or args.router_chain:
-                from .microvm import multinic_example, router_example, router_chain_example
-                result=(router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
+            if args.multinic + args.router + args.router_chain + args.firewall > 1:
+                raise ValueError('Choose one of --multinic, --router, --router-chain or --firewall.')
+            if args.multinic or args.router or args.router_chain or args.firewall:
+                from .microvm import multinic_example, router_example, router_chain_example, firewall_example
+                result=(firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
                 for node in result['nodes']:
                     node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
                 from .spec import validate

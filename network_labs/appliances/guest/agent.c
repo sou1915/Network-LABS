@@ -75,7 +75,7 @@ static void reply(int fd, int code, const char *data, size_t size) {
     if (!send_all(fd, header, (size_t)n)) (void)send_all(fd, data, size);
 }
 static void serve(int input, int output, int mutations) {
-    char request[64]; size_t used = 0;
+    char request[160]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
     while (used < sizeof(request) - 1) {
         char c; ssize_t n = read(input, &c, 1);
@@ -166,6 +166,44 @@ static void serve(int input, int output, int mutations) {
     char *const route_remove[] = {"busybox", "ip", "route", "del", route_network, "via", route_gateway, "dev", "eth0", NULL};
     if (route_gateway && route_add) args = route_insert;
     if (route_gateway && route_delete) args = route_remove;
+    /* IPv4 forward filtering through the image's iptables; every argument is typed and validated here. */
+    const char *program = "/bin/busybox";
+    char fw_action[7], fw_in[5], fw_out[5], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
+    char *firewall[24]; int count = 0;
+    #define FW(word) firewall[count++] = (char *)(word)
+    FW("iptables"); FW("-w");
+    int fw_ready = 0;
+    if (!strcmp(request, "NL1 FW_LIST")) { FW("-S"); FW("FORWARD"); fw_ready = 1; }
+    else if (mutations && !strcmp(request, "NL1 FW_FLUSH")) { FW("-F"); FW("FORWARD"); fw_ready = 1; }
+    else if (mutations && (!strcmp(request, "NL1 FW_POLICY accept") || !strcmp(request, "NL1 FW_POLICY drop"))) {
+        FW("-P"); FW("FORWARD"); FW(request[14] == 'a' ? "ACCEPT" : "DROP"); fw_ready = 1;
+    } else if (mutations && (!strcmp(request, "NL1 FW_STATE invalid") || !strcmp(request, "NL1 FW_STATE established"))) {
+        int invalid = request[13] == 'i';
+        FW("-A"); FW("FORWARD"); FW("-m"); FW("conntrack"); FW("--ctstate");
+        FW(invalid ? "INVALID" : "RELATED,ESTABLISHED"); FW("-j"); FW(invalid ? "DROP" : "ACCEPT"); fw_ready = 1;
+    } else if (mutations && sscanf(request, "NL1 FW_RULE %6s %4s %4s %4s %19s %19s %5s %c", fw_action, fw_in, fw_out,
+                                   fw_proto, fw_source, fw_destination, fw_port, &extra) == 7) {
+        int accept = !strcmp(fw_action, "accept"), tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
+        int has_port = strcmp(fw_port, "-") != 0, port_ok = !has_port;
+        if (has_port && (tcp || udp) && fw_port[0] != '0' && strspn(fw_port, "0123456789") == strlen(fw_port)) {
+            long value = atol(fw_port); port_ok = value >= 1 && value <= 65535;
+        }
+        if ((accept || !strcmp(fw_action, "drop")) && port_ok &&
+            (!strcmp(fw_in, "-") || valid_port(fw_in)) && (!strcmp(fw_out, "-") || valid_port(fw_out)) &&
+            (tcp || udp || !strcmp(fw_proto, "icmp") || !strcmp(fw_proto, "any")) &&
+            (!strcmp(fw_source, "-") || valid_cidr(fw_source)) && (!strcmp(fw_destination, "-") || valid_cidr(fw_destination))) {
+            FW("-A"); FW("FORWARD");
+            if (strcmp(fw_in, "-")) { FW("-i"); FW(fw_in); }
+            if (strcmp(fw_out, "-")) { FW("-o"); FW(fw_out); }
+            if (strcmp(fw_proto, "any")) { FW("-p"); FW(fw_proto); }
+            if (strcmp(fw_source, "-")) { FW("-s"); FW(fw_source); }
+            if (strcmp(fw_destination, "-")) { FW("-d"); FW(fw_destination); }
+            if (has_port) { FW("--dport"); FW(fw_port); }
+            FW("-j"); FW(accept ? "ACCEPT" : "DROP"); fw_ready = 1;
+        }
+    }
+    #undef FW
+    if (fw_ready) { firewall[count] = NULL; args = firewall; program = "/sbin/xtables-legacy-multi"; }
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }
@@ -176,7 +214,7 @@ static void serve(int input, int output, int mutations) {
         if (dup2(pipes[1], 1) < 0 || dup2(pipes[1], 2) < 0) _exit(126);
         close(pipes[1]);
         char *const env[] = {"PATH=/bin", "LC_ALL=C", NULL};
-        execve("/bin/busybox", args, env); _exit(127);
+        execve(program, args, env); _exit(127);
     }
     close(pipes[1]);
     if (child < 0) { close(pipes[0]); reply(output, 3, "fork failed", 11); return; }

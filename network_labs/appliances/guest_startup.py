@@ -86,10 +86,10 @@ def forwarding(socket):
 
 def check_forwarding(socket, node):
     state = forwarding(socket)
-    if node.get('role') == 'router':
+    if node.get('role') in ('router', 'firewall'):
         if state is not True:
-            raise ValueError('Router guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
-                             else 'Router guest is not forwarding IPv4.')
+            raise ValueError('Router or firewall guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
+                             else 'Router or firewall guest is not forwarding IPv4.')
     elif state:
         raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
 
@@ -142,6 +142,9 @@ def observe(socket, node):
         if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
             raise ValueError('Unsupported guest static route device for ' + route['network'])
     check_forwarding(socket, node)
+    if node.get('role') == 'firewall':
+        from .guest_firewall import check
+        check(socket, node)
     return candidate['guest_network']
 
 
@@ -171,7 +174,11 @@ def apply(socket, node, timeout=40, alive=None):
         port = route_port(node, profile, route['gateway'])
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
-    if node.get('role') == 'router':
+    if node.get('role') == 'firewall':
+        # Filter first: forwarding is never switched on before the declared policy is in place.
+        from .guest_firewall import apply as apply_firewall
+        apply_firewall(socket, node)
+    if node.get('role') in ('router', 'firewall'):
         query(socket, 'forward', state='on')
     if observe(socket, node) != profile:
         raise ValueError('Guest startup readback differs from saved configuration.')
