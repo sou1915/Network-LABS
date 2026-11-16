@@ -338,7 +338,7 @@ def main(arguments=None):
     tree_source = tree.add_mutually_exclusive_group(required=True)
     tree_source.add_argument('--file', type=Path)
     tree_source.add_argument('--priority', type=int, help='Change only this switch bridge priority.')
-    firewall = commands.add_parser('firewall', help='Atomically replace a managed IPv4 firewall policy.')
+    firewall = commands.add_parser('firewall', help='Replace a managed IPv4 firewall policy: atomically on containers, rebuilt closed and read back on micro-VM guests.')
     firewall.add_argument('name'); firewall.add_argument('node')
     firewall.add_argument('--file', type=Path, required=True)
     for action in ('sessions', 'clear-sessions'):

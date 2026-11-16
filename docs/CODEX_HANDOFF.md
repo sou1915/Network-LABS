@@ -37,8 +37,10 @@ host's legacy iptables program, its libraries and four match modules into the im
 The agent gains typed `FW_LIST`, `FW_FLUSH`, `FW_POLICY`, `FW_STATE` and `FW_RULE`
 requests. Startup installs the policy while the chain defaults to drop, verifies an
 exact readback, and only then enables forwarding; `microvm-save` refuses drift.
-Not available on guests yet: address translation (`nat` entries are rejected), live
-`firewall` reconfiguration, sessions view, IPv6 filtering. `microvm-example
+Live `firewall LAB FW1 --file policy.json` now works on a firewall guest: the chain is
+rebuilt closed (forwarding paused), read back, and on failure the previous policy is
+restored; an interrupted change is restored by `recover`. Not available on guests yet:
+address translation (`nat` entries are rejected), sessions view, IPv6 filtering. `microvm-example
 --firewall` prints FW1 between an inside and an outside endpoint.
 
 ## Micro-VM capture, measured VMM usage and guest kernel report — 2026-11-16

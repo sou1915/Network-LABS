@@ -876,8 +876,12 @@ class Manager:
         index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
-        if state['spec']['nodes'][index]['runtime'] != 'oci':
-            raise ValueError('Live firewall changes are not available for micro-VM firewalls yet; edit the lab file and restart.')
+        guest = state['spec']['nodes'][index]['runtime'] == 'firecracker'
+        if guest:
+            # Inside the guest the chain is rebuilt while closed: forwarding drops until the new policy is read back.
+            from .guest_firewall import apply as apply_guest
+            socket = self.directory / name / 'guest.vsock'
+            apply = lambda manager, i, node: apply_guest(socket, node)
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index]['firewall'] = policy
         candidate = validate(candidate)
@@ -887,15 +891,21 @@ class Manager:
             baseline = apply(self, index, candidate['nodes'][index])
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as original:
             try:
-                state.setdefault('firewall_fingerprints', {})[name] = apply(self, index, previous)
+                restored = apply(self, index, previous)
+                if not guest:
+                    state.setdefault('firewall_fingerprints', {})[name] = restored
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired, ValueError) as rollback:
                 state['phase'] = 'configuration-failed'; self.save()
                 raise RuntimeFailure(f'Firewall apply failed: {original}; rollback failed: {rollback}. Use recover or stop.') from original
             state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
             raise RuntimeFailure(f'Firewall failed and was rolled back: {original}') from original
         state['spec'] = candidate; state['revision'] = state.get('revision', 0) + 1
-        state.setdefault('firewall_fingerprints', {})[name] = baseline
+        if not guest:  # A guest policy is checked by readback over vsock, not by a host-side fingerprint.
+            state.setdefault('firewall_fingerprints', {})[name] = baseline
         state['phase'] = 'running'; state.pop('pending_spec'); state.pop('pending_node', None); self.save()
+        if guest:
+            return {'configured': name, 'revision': state['revision'],
+                    'note': 'Guest IPv4 policy rebuilt with the chain closed, then read back; forwarding paused for the change. Existing conntrack sessions retained.'}
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
     def sessions(self, name, clear=False):
@@ -913,7 +923,7 @@ class Manager:
         target = state.get('pending_node')
         if 'pending_node' in state:
             current, pending_nodes = state['spec']['nodes'], state['pending_spec']['nodes']
-            if (not isinstance(target, str) or not any(n['name'] == target and n['runtime'] == 'oci' for n in current)
+            if (not isinstance(target, str) or not any(n['name'] == target and (n['runtime'] == 'oci' or n.get('firewall') is not None) for n in current)
                     or {k: v for k, v in state['spec'].items() if k != 'nodes'} !=
                        {k: v for k, v in state['pending_spec'].items() if k != 'nodes'}
                     or len(current) != len(pending_nodes)
@@ -921,6 +931,11 @@ class Manager:
                            for n, p in zip(current, pending_nodes))):
                 raise RuntimeFailure('Invalid scoped recovery journal; no node configuration was applied.')
         for index, node in enumerate(state['spec']['nodes']):
+            if node['runtime'] == 'firecracker' and node['name'] == target and node.get('firewall') is not None:
+                # An interrupted guest firewall change: restore the declared policy, still closed while it is rebuilt.
+                from .guest_firewall import apply as apply_guest
+                apply_guest(self.directory / node['name'] / 'guest.vsock', node)
+                continue
             if node['runtime'] == 'oci' and (target is None or node['name'] == target):
                 if node.get('firewall') is not None:
                     from .firewall import apply

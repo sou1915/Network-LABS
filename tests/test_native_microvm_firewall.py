@@ -1,4 +1,5 @@
 """Real firewall guest: inside may ping out, outside may not start inward, drift is refused, policy survives restart."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -73,6 +74,15 @@ class FirewallGuestTests(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, 'differ'): save_observed(manager)
                         guest_firewall.apply(sockets['FW1'], firewall)
                         probe('VM2', '198.51.100.20', True, attempts=3); probe('VM3', '192.0.2.20', False)
+                        # A live policy change through the manager: recorded in lab state, so save sees no drift.
+                        inward = copy.deepcopy(firewall['firewall'])
+                        inward['rules'].append({'name': 'outside-ping-in', 'in': 'eth1', 'out': 'eth0', 'protocol': 'icmp', 'action': 'accept'})
+                        manager.state = None; results['live_change'] = manager.configure_firewall('FW1', inward)
+                        self.assertEqual(guest_firewall.observe(sockets['FW1']), guest_firewall.expected(inward))
+                        probe('VM3', '192.0.2.20', True, attempts=3)
+                        results['saved_after_live_change'] = save_observed(manager)  # Raises on any difference from the recorded policy.
+                        manager.state = None; manager.configure_firewall('FW1', firewall['firewall'])
+                        probe('VM3', '192.0.2.20', False); probe('VM2', '198.51.100.20', True, attempts=3)
                         results['saved'] = save_observed(manager)
                         restored = load_startup(manager.name)
                         self.assertEqual(restored['nodes'][0]['firewall'], firewall['firewall'])

@@ -159,3 +159,71 @@ class GuestFirewallTests(unittest.TestCase):
         translated = copy.deepcopy(policy); translated['nat'].append({'name': 'hide', 'out': 'eth1', 'type': 'masquerade'})
         with self.assertRaisesRegex(ValueError, 'translation'): configure_section(spec, 'FW1', 'firewall', {'firewall': translated})
         with self.assertRaises(ValueError): configure_section(spec, 'VM2', 'firewall', {'firewall': policy})
+
+
+class LiveGuestFirewallTests(unittest.TestCase):
+    """configure_firewall on a running firewall micro-VM: rebuilt in the guest, rolled back on failure, recoverable."""
+    def manager(self, root):
+        import json
+        from pathlib import Path
+        from network_labs.appliances import runtime
+        spec = firewall_example('/kernel', '/disk')
+        manager = runtime.Manager(spec['name']); manager.directory = Path(root) / spec['name']; manager.directory.mkdir()
+        state = {'spec': spec, 'phase': 'running', 'revision': 3, 'vms': [], 'containers': [], 'namespaces': [], 'host_links': [], 'mounts': [], 'firewall_fingerprints': {}}
+        (manager.directory / 'state.json').write_text(json.dumps(state))
+        return manager, spec
+
+    def policy(self, spec):
+        policy = copy.deepcopy(spec['nodes'][0]['firewall'])
+        policy['rules'].append({'name': 'inside-web', 'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'dport': 443, 'action': 'accept'})
+        return policy
+
+    def test_new_policy_is_applied_in_the_guest_and_recorded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            manager, spec = self.manager(root)
+            with patch('network_labs.appliances.guest_firewall.apply') as apply:
+                result = manager.configure_firewall('FW1', self.policy(spec))
+            self.assertEqual(apply.call_count, 1)
+            self.assertEqual(apply.call_args.args[0], manager.directory / 'FW1' / 'guest.vsock')
+            self.assertEqual(apply.call_args.args[1]['firewall']['rules'][-1]['name'], 'inside-web')
+            manager.state = None; state = manager.read()
+            self.assertEqual((state['revision'], state['phase'], result['revision']), (4, 'running', 4))
+            self.assertEqual(state['spec']['nodes'][0]['firewall']['rules'][-1]['name'], 'inside-web')
+            self.assertNotIn('FW1', state['firewall_fingerprints']); self.assertIn('read back', result['note'])
+
+    def test_failed_change_restores_the_previous_policy_and_keeps_the_revision(self):
+        import tempfile
+        from network_labs.appliances.runtime import RuntimeFailure
+        with tempfile.TemporaryDirectory() as root:
+            manager, spec = self.manager(root)
+            with patch('network_labs.appliances.guest_firewall.apply', side_effect=[ValueError('readback differs'), None]) as apply, \
+                 self.assertRaisesRegex(RuntimeFailure, 'rolled back'):
+                manager.configure_firewall('FW1', self.policy(spec))
+            self.assertEqual(apply.call_args_list[1].args[1]['firewall'], spec['nodes'][0]['firewall'])
+            manager.state = None; state = manager.read()
+            self.assertEqual((state['revision'], state['phase']), (3, 'running'))
+            self.assertEqual(state['spec'], spec); self.assertNotIn('pending_spec', state)
+
+    def test_failed_rollback_leaves_a_recoverable_journal(self):
+        import tempfile
+        from network_labs.appliances.runtime import RuntimeFailure
+        with tempfile.TemporaryDirectory() as root:
+            manager, spec = self.manager(root)
+            with patch('network_labs.appliances.guest_firewall.apply', side_effect=ValueError('agent gone')), self.assertRaisesRegex(RuntimeFailure, 'rollback failed'):
+                manager.configure_firewall('FW1', self.policy(spec))
+            manager.state = None; self.assertEqual(manager.read()['phase'], 'configuration-failed')
+            with patch('network_labs.appliances.guest_firewall.apply') as apply:
+                manager.recover()
+            self.assertEqual(apply.call_args.args[1]['firewall'], spec['nodes'][0]['firewall'])
+            manager.state = None; state = manager.read()
+            self.assertEqual(state['phase'], 'running'); self.assertNotIn('pending_spec', state)
+
+    def test_translation_is_still_refused_before_the_guest_is_touched(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            manager, spec = self.manager(root)
+            policy = self.policy(spec); policy['nat'].append({'name': 'hide', 'out': 'eth1', 'type': 'masquerade'})
+            with patch('network_labs.appliances.guest_firewall.apply') as apply, self.assertRaisesRegex(ValueError, 'translation'):
+                manager.configure_firewall('FW1', policy)
+            apply.assert_not_called()
