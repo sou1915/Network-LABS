@@ -13,12 +13,17 @@ import shlex
 from .native_models import MODELS, port_names
 from .spec import validate
 
-DIALECTS = {'Cisco': 'ios', 'Fortinet': 'fortios', 'Juniper': 'junos', 'MikroTik': 'routeros'}
-TITLES = {'ios': 'Cisco IOS', 'fortios': 'FortiOS', 'junos': 'Junos', 'routeros': 'RouterOS'}
+DIALECTS = {'Cisco': 'ios', 'Fortinet': 'fortios', 'Juniper': 'junos', 'MikroTik': 'routeros', 'Arista': 'eos',
+            'Huawei': 'vrp', 'Palo Alto': 'panos'}
+TITLES = {'ios': 'Cisco IOS', 'fortios': 'FortiOS', 'junos': 'Junos', 'routeros': 'RouterOS', 'eos': 'Arista EOS',
+          'vrp': 'Huawei VRP', 'panos': 'PAN-OS'}
 HINTS = {'ios': 'Sous-ensemble IOS : hostname, interface, ip address, ip route, vlan, switchport.',
          'fortios': 'Sous-ensemble FortiOS : system interface (ip), router static, firewall policy.',
          'junos': 'Sous-ensemble Junos : set/delete interfaces … family inet address, routing-options static route.',
-         'routeros': 'Sous-ensemble RouterOS : /ip address, /ip route, /ip firewall filter (chain=forward).'}
+         'routeros': 'Sous-ensemble RouterOS : /ip address, /ip route, /ip firewall filter (chain=forward).',
+         'eos': 'Sous-ensemble EOS : hostname, interface, ip address a.b.c.d/n, ip route, vlan, switchport.',
+         'vrp': 'Sous-ensemble VRP : sysname, interface, ip address, ip route-static, vlan batch, port link-type.',
+         'panos': 'Sous-ensemble PAN-OS : network interface … layer3 ip, zone, static-route, rulebase security rules.'}
 # FortiOS predefined services this subset maps to the lab's protocol and port fields.
 SERVICES = {'ALL': ('any', None), 'ALL_ICMP': ('icmp', None), 'PING': ('icmp', None), 'HTTP': ('tcp', 80),
             'HTTPS': ('tcp', 443), 'SSH': ('tcp', 22), 'DNS': ('udp', 53), 'TELNET': ('tcp', 23)}
@@ -142,13 +147,16 @@ def _check_hostname(node, value):
 
 def render(spec, name):
     node = _node(spec, name)
-    return {'ios': _render_ios, 'fortios': _render_fortios, 'junos': _render_junos,
-            'routeros': _render_routeros}[dialect(node)](node)
+    return {'ios': _render_ios, 'fortios': _render_fortios, 'junos': _render_junos, 'routeros': _render_routeros,
+            'eos': lambda n: _render_ios(n, eos=True), 'vrp': _render_vrp, 'panos': _render_panos}[dialect(node)](node)
 
 
-def _render_ios(node):
+def _render_ios(node, eos=False):
+    """IOS, or Arista EOS (same structure, prefix-length addresses and routes)."""
     shown = port_names(node)
-    lines = ['! Network LABS · sous-ensemble IOS', '! le nœud exécute Linux, pas Cisco IOS', '!', 'hostname ' + node['name'], '!']
+    system = 'Arista EOS' if eos else 'Cisco IOS'
+    lines = [f'! Network LABS · sous-ensemble {system.split()[-1]}', f'! le nœud exécute Linux, pas {system}', '!',
+             'hostname ' + node['name'], '!']
     for vid in node.get('vlans', []):
         if vid != 1:
             lines += [f'vlan {vid}', '!']
@@ -164,14 +172,81 @@ def _render_ios(node):
                 lines += [' switchport mode access', f' switchport access vlan {switchport["vlan"] if switchport else 1}']
         elif address:
             interface = ipaddress.IPv4Interface(address)
-            lines.append(f' ip address {interface.ip} {interface.netmask}')
+            lines.append(f' ip address {address}' if eos else f' ip address {interface.ip} {interface.netmask}')
         else:
             lines.append(' no ip address')
         lines.append('!')
     for network, gateway in routes(node):
         net = ipaddress.IPv4Network(network)
-        lines.append(f'ip route {net.network_address} {net.netmask} {gateway}')
+        lines.append(f'ip route {network} {gateway}' if eos else f'ip route {net.network_address} {net.netmask} {gateway}')
     return '\n'.join(lines + ['end']) + '\n'
+
+
+def _render_vrp(node):
+    shown = port_names(node)
+    lines = ['# Network LABS · sous-ensemble VRP', '# le nœud exécute Linux, pas Huawei VRP', f'sysname {node["name"]}', '#']
+    vlans = [vid for vid in node.get('vlans', []) if vid != 1]
+    if vlans:
+        lines += ['vlan batch ' + ' '.join(map(str, vlans)), '#']
+    for port, address in node['interfaces'].items():
+        lines.append('interface ' + shown[port])
+        switchport = node.get('switchports', {}).get(port)
+        if node['role'] == 'switch':
+            if switchport and switchport['mode'] == 'trunk':
+                allowed = switchport['allowed']
+                lines += [' port link-type trunk', f' port trunk pvid vlan {switchport["native_vlan"]}',
+                          ' port trunk allow-pass vlan ' + ('all' if allowed == 'all' else ' '.join(map(str, allowed)))]
+            else:
+                lines += [' port link-type access', f' port default vlan {switchport["vlan"] if switchport else 1}']
+        elif address:
+            interface = ipaddress.IPv4Interface(address)
+            lines.append(f' ip address {interface.ip} {interface.netmask}')
+        lines.append('#')
+    for network, gateway in routes(node):
+        net = ipaddress.IPv4Network(network)
+        lines.append(f'ip route-static {net.network_address} {net.netmask} {gateway}')
+    return '\n'.join(lines + ['return']) + '\n'
+
+
+def _zone(name):
+    """The zone the PAN-OS view gives each port: one zone per port ('l3-ethernet1-1')."""
+    return 'l3-' + name.replace('/', '-')
+
+
+def _route_name(network):
+    return 'r-' + network.replace('/', '-')
+
+
+def _render_panos(node):
+    shown = port_names(node)
+    lines = ['# Network LABS · sous-ensemble PAN-OS', '# le nœud exécute Linux, pas PAN-OS',
+             f'set deviceconfig system hostname {node["name"]}']
+    for port, address in node['interfaces'].items():
+        if address:
+            lines.append(f'set network interface ethernet {shown[port]} layer3 ip {address}')
+        lines.append(f'set zone {_zone(shown[port])} network layer3 {shown[port]}')
+    for network, gateway in routes(node):
+        lines.append(f'set network virtual-router default routing-table ip static-route {_route_name(network)} '
+                     f'destination {network} nexthop ip-address {gateway}')
+    if node['role'] == 'firewall' and node.get('firewall') is not None:
+        for rule in node['firewall']['rules']:
+            source = _zone(shown[rule['in']]) if rule.get('in') else 'any'
+            target = _zone(shown[rule['out']]) if rule.get('out') else 'any'
+            lines.append(f'set rulebase security rules {rule["name"]} from {source} to {target} '
+                         f'source {rule.get("source", "any")} destination {rule.get("destination", "any")} '
+                         f'application any service {_panos_service(rule)} '
+                         f'action {"allow" if rule["action"] == "accept" else "deny"}')
+    return '\n'.join(lines) + '\n'
+
+
+def _panos_service(rule):
+    protocol, port = rule.get('protocol', 'any'), rule.get('dport')
+    named = {('tcp', 80): 'service-http', ('tcp', 443): 'service-https'}
+    if (protocol, port) in named:
+        return named[(protocol, port)]
+    if port:
+        return f'{protocol}-{port}'
+    return 'icmp' if protocol == 'icmp' else 'any'
 
 
 def _service(rule):
@@ -259,7 +334,8 @@ def apply(spec, name, text):
         raise ValueError('Configuration : texte de 64 Kio au plus.')
     draft = copy.deepcopy(spec)
     node = _node(draft, name)
-    parser = {'ios': IOS, 'fortios': FortiOS, 'junos': Junos, 'routeros': RouterOS}[dialect(node)](node)
+    parsers = {'ios': IOS, 'eos': IOS, 'vrp': VRP, 'fortios': FortiOS, 'junos': Junos, 'routeros': RouterOS, 'panos': PANOS}
+    parser = parsers[dialect(node)](node)
     for number, line in enumerate(text.splitlines(), 1):
         command = line.strip()
         if not command or command.startswith(parser.comment):
@@ -295,12 +371,16 @@ class IOS:
             return self._vlan(int(words[-1]), low.startswith('no '))
         if low.startswith(('ip route ', 'no ip route ')):
             values = words[3:] if low.startswith('no') else words[2:]
-            network = _network(values[0], values[1])
-            return _delete_route(node, network) if low.startswith('no') else _upsert_route(node, network, values[2])
+            # 'ip route 10.0.0.0 255.0.0.0 GW' (IOS) or 'ip route 10.0.0.0/8 GW' (EOS).
+            if '/' in values[0]:
+                network, rest = _network(values[0]), values[1:]
+            else:
+                network, rest = _network(values[0], values[1]), values[2:]
+            return _delete_route(node, network) if low.startswith('no') else _upsert_route(node, network, rest[0])
         if self.port is None:
             raise ValueError('Commande non prise en charge ici (sous-ensemble : hostname, interface, ip route, vlan).')
         if low.startswith('ip address '):
-            return _set_address(node, self.port, _prefix(words[2], words[3]))
+            return _set_address(node, self.port, _prefix(words[2]) if '/' in words[2] else _prefix(words[2], words[3]))
         if low == 'no ip address':
             return _set_address(node, self.port, '')
         if low.startswith('switchport'):
@@ -353,6 +433,160 @@ def _vlan_list(text):
         low, _, high = part.partition('-')
         values += range(int(low), int(high or low) + 1)
     return sorted(set(values))
+
+
+class VRP(IOS):
+    """Huawei VRP commands, translated to the IOS subset they share."""
+    comment = '#'
+
+    def line(self, command):
+        low, words = command.lower(), command.split()
+        if low in ('system-view', 'return', 'save', 'commit'):
+            self.port = None
+            return
+        if low == 'quit':
+            return super().line('exit')
+        if words[0].lower() == 'sysname':
+            return super().line('hostname ' + words[1])
+        if low.startswith('vlan batch '):
+            for vid in _vlan_list(','.join(words[2:]).replace(',to,', '-')):
+                super().line(f'vlan {vid}')
+            return
+        translations = [(r'undo vlan (\d+)', 'no vlan {}'), (r'undo ip address', 'no ip address'),
+                        (r'ip route-static (.+)', 'ip route {}'), (r'undo ip route-static (.+)', 'no ip route {}'),
+                        (r'port link-type (access|trunk)', 'switchport mode {}'), (r'port default vlan (\d+)', 'switchport access vlan {}'),
+                        (r'port trunk pvid vlan (\d+)', 'switchport trunk native vlan {}'), (r'undo shutdown', 'no shutdown')]
+        for pattern, template in translations:
+            match = re.fullmatch(pattern, low)
+            if match:
+                return super().line(template.format(*match.groups()))
+        match = re.fullmatch(r'port trunk allow-pass vlan (.+)', low)
+        if match:
+            allowed = 'all' if match[1] == 'all' else ','.join(match[1].replace(' to ', '-').split())
+            return super().line('switchport trunk allowed vlan ' + allowed)
+        if low.startswith(('interface ', 'ip address ', 'description ')) or low == 'shutdown':
+            return super().line(command)
+        raise ValueError('Sous-ensemble VRP : sysname, interface, ip address, ip route-static, vlan batch, port link-type, '
+                         'port default vlan, port trunk.')
+
+
+class PANOS:
+    """PAN-OS set commands. Zones map to ports: each zone used by a rule must hold exactly one port."""
+    comment = '#'
+
+    def __init__(self, node):
+        self.node = node
+        shown = port_names(node)
+        self.zones = {_zone(name): [port] for port, name in shown.items()}
+        self.routes, self.rules = {}, {}
+        self.existing = {_route_name(network): network for network, _ in routes(node)}
+
+    def line(self, command):
+        words = shlex.split(command)
+        if command in ('configure', 'commit', 'exit'):
+            return
+        verb, rest = words[0], words[1:]
+        if verb not in ('set', 'delete'):
+            raise ValueError('Commandes PAN-OS prises en charge : set, delete, commit.')
+        if rest[:3] == ['deviceconfig', 'system', 'hostname']:
+            return _check_hostname(self.node, rest[3]) if verb == 'set' else None
+        if rest[:3] == ['network', 'interface', 'ethernet']:
+            port = _port(self.node, rest[3])
+            if rest[4:6] != ['layer3', 'ip']:
+                raise ValueError('set network interface ethernet <port> layer3 ip <a.b.c.d/n>')
+            return _set_address(self.node, port, '' if verb == 'delete' else _prefix(rest[6]))
+        if rest[:1] == ['zone']:
+            if verb == 'delete':
+                self.zones.pop(rest[1], None)
+                return
+            if rest[2:4] != ['network', 'layer3']:
+                raise ValueError('set zone <nom> network layer3 <port> …')
+            self.zones[rest[1]] = [_port(self.node, name) for name in rest[4:]]
+            return
+        if rest[:6] == ['network', 'virtual-router', 'default', 'routing-table', 'ip', 'static-route']:
+            return self._route(verb, rest[6], rest[7:])
+        if rest[:3] == ['rulebase', 'security', 'rules']:
+            return self._rule(verb, rest[3], rest[4:])
+        raise ValueError('Sous-ensemble PAN-OS : deviceconfig system hostname, network interface, zone, '
+                         'virtual-router default static-route, rulebase security rules.')
+
+    def _route(self, verb, name, values):
+        if verb == 'delete':
+            network = self.routes.pop(name, {}).get('destination') or self.existing.get(name)
+            if network is None:
+                raise ValueError('Route absente : ' + name)
+            return _delete_route(self.node, network)
+        entry = self.routes.setdefault(name, {})
+        pairs = iter(values)
+        for key in pairs:
+            if key == 'destination':
+                entry['destination'] = _network(next(pairs))
+            elif key == 'nexthop' and next(pairs) == 'ip-address':
+                entry['gateway'] = next(pairs)
+            elif key not in ('interface', 'metric'):
+                raise ValueError('static-route <nom> destination <réseau/n> nexthop ip-address <a.b.c.d>')
+            else:
+                next(pairs)
+        if {'destination', 'gateway'} <= set(entry):
+            _upsert_route(self.node, entry['destination'], entry['gateway'])
+
+    def _rule(self, verb, name, values):
+        rules = _policy(self.node)['rules']
+        if verb == 'delete':
+            kept = [r for r in rules if r['name'] != name]
+            if len(kept) == len(rules):
+                raise ValueError('Règle absente : ' + name)
+            rules[:] = kept
+            return
+        rule = next((r for r in rules if r['name'] == name), None)
+        if rule is None:
+            rule = {'name': name, 'action': 'drop'}
+            rules.append(rule)
+        pairs = iter(values)
+        for key in pairs:
+            value = next(pairs)
+            if key in ('from', 'to'):
+                field = 'in' if key == 'from' else 'out'
+                rule.pop(field, None)
+                if value != 'any':
+                    ports = self.zones.get(value)
+                    if not ports or len(ports) != 1:
+                        raise ValueError(f'Zone {value} : une zone doit contenir exactement un port.')
+                    rule[field] = ports[0]
+            elif key in ('source', 'destination'):
+                rule.pop(key, None)
+                if value != 'any':
+                    rule[key] = _network(value)
+            elif key == 'service':
+                rule.pop('dport', None)
+                rule['protocol'], port = _panos_protocol(value)
+                if port:
+                    rule['dport'] = port
+            elif key == 'action':
+                if value not in ('allow', 'deny', 'drop'):
+                    raise ValueError('action : allow, deny ou drop.')
+                rule['action'] = 'accept' if value == 'allow' else 'drop'
+            elif key == 'application':
+                if value != 'any':
+                    raise ValueError('application : any uniquement (pas d’identification applicative sur ce nœud Linux).')
+            else:
+                raise ValueError('Règle : from, to, source, destination, application any, service, action.')
+
+    def finish(self):
+        incomplete = [name for name, entry in self.routes.items() if not {'destination', 'gateway'} <= set(entry)]
+        if incomplete:
+            raise ValueError('Route incomplète (destination et nexthop) : ' + ', '.join(incomplete))
+
+
+def _panos_protocol(value):
+    named = {'any': ('any', None), 'application-default': ('any', None), 'service-http': ('tcp', 80),
+             'service-https': ('tcp', 443), 'icmp': ('icmp', None)}
+    if value in named:
+        return named[value]
+    match = re.fullmatch(r'(tcp|udp)-(\d+)', value)
+    if match:
+        return match[1], int(match[2])
+    raise ValueError('service : any, application-default, service-http, service-https, icmp, tcp-<port>, udp-<port>.')
 
 
 class FortiOS:

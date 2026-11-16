@@ -35,7 +35,10 @@ class PortNameTest(unittest.TestCase):
         self.assertEqual(vendor_config.dialect({'model': 'fortigate'}), 'fortios')
         self.assertEqual(vendor_config.dialect({'model': 'juniper-srx'}), 'junos')
         self.assertEqual(vendor_config.dialect({'model': 'mikrotik-ccr'}), 'routeros')
-        self.assertIsNone(vendor_config.dialect({'model': 'palo-alto'}))
+        self.assertEqual(vendor_config.dialect({'model': 'palo-alto'}), 'panos')
+        self.assertEqual(vendor_config.dialect({'model': 'arista-7050'}), 'eos')
+        self.assertEqual(vendor_config.dialect({'model': 'huawei-s5700'}), 'vrp')
+        self.assertIsNone(vendor_config.dialect({'model': 'checkpoint-fw'}))
         self.assertIsNone(vendor_config.dialect({}))
 
 
@@ -46,6 +49,11 @@ class RoundTripTest(unittest.TestCase):
         yield modelled(router_chain_example(KERNEL, DISK), R1='mikrotik-ccr'), 'R1'
         yield modelled(router_chain_example(KERNEL, DISK), R1='cisco-isr4331'), 'R1'
         yield modelled(switch_vlan_example(KERNEL, DISK), SW1='cisco-9200l'), 'SW1'
+        yield modelled(switch_vlan_example(KERNEL, DISK), SW1='huawei-s5700'), 'SW1'
+        yield modelled(switch_vlan_example(KERNEL, DISK), SW2='arista-7050'), 'SW2'
+        yield modelled(router_chain_example(KERNEL, DISK), R1='arista-7280r'), 'R1'
+        yield modelled(router_chain_example(KERNEL, DISK), R1='huawei-ar6120'), 'R1'
+        yield modelled(firewall_nat_example(KERNEL, DISK), FW1='palo-alto'), 'FW1'
 
     def test_rendered_configuration_applies_back_unchanged(self):
         for lab, name in self.labs():
@@ -114,6 +122,38 @@ class OtherDialectTest(unittest.TestCase):
         lab = router_chain_example(KERNEL, DISK)
         with self.assertRaisesRegex(ValueError, 'formulaire'):
             vendor_config.render(lab, 'R1')
+
+
+class NewDialectTest(unittest.TestCase):
+    def test_vrp_vlan_batch_and_access_port(self):
+        lab = modelled(switch_vlan_example(KERNEL, DISK), SW1='huawei-s5700')
+        text = 'system-view\nvlan batch 30 to 31\ninterface GE0/0/3\n port default vlan 30\nquit\nreturn'
+        switch = node(vendor_config.apply(lab, 'SW1', text), 'SW1')
+        self.assertTrue({30, 31} <= set(switch['vlans']))
+        self.assertEqual(switch['switchports']['eth2'], {'mode': 'access', 'vlan': 30})
+
+    def test_eos_prefix_length_address_and_route(self):
+        lab = modelled(router_chain_example(KERNEL, DISK), R1='arista-7280r')
+        result = node(vendor_config.apply(lab, 'R1', 'interface Ethernet1\n ip address 192.0.2.254/24\n'
+                                          'ip route 10.70.0.0/16 203.0.113.2'), 'R1')
+        self.assertEqual(result['interfaces']['eth0'], '192.0.2.254/24')
+        self.assertIn({'network': '10.70.0.0/16', 'gateway': '203.0.113.2'}, result['guest_network']['routes'])
+
+    def test_panos_zones_rules_and_split_static_route(self):
+        lab = modelled(firewall_nat_example(KERNEL, DISK), FW1='palo-alto')
+        text = '\n'.join(['set zone trust network layer3 ethernet1/1', 'set zone untrust network layer3 ethernet1/2',
+                          'set rulebase security rules web from trust to untrust source any destination any '
+                          'application any service service-https action allow',
+                          'set network virtual-router default routing-table ip static-route corp destination 10.50.0.0/16',
+                          'set network virtual-router default routing-table ip static-route corp nexthop ip-address 198.51.100.254'])
+        firewall = node(vendor_config.apply(lab, 'FW1', text), 'FW1')
+        rule = firewall['firewall']['rules'][-1]
+        self.assertEqual((rule['in'], rule['out'], rule['protocol'], rule['dport'], rule['action']), ('eth0', 'eth1', 'tcp', 443, 'accept'))
+        self.assertEqual(firewall['guest_network']['routes'], [{'network': '10.50.0.0/16', 'gateway': '198.51.100.254'}])
+        with self.assertRaisesRegex(ValueError, 'incomplète'):
+            vendor_config.apply(lab, 'FW1', 'set network virtual-router default routing-table ip static-route x destination 10.9.0.0/16')
+        with self.assertRaisesRegex(ValueError, 'application'):
+            vendor_config.apply(lab, 'FW1', 'set rulebase security rules r application web-browsing')
 
 
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')

@@ -367,6 +367,9 @@ class ApplianceWindow:
 
     def load_spec(self,spec,path=None):
         spec=validate(spec);self.path=Path(path) if path else None
+        # Output and observations of the previous lab do not describe this one.
+        self.vendor_observation=None
+        self.write_output('',{},'Diagnostic réseau · lecture seule')
         self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
         self.config_key=None
         self.positions={}

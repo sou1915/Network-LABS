@@ -70,6 +70,19 @@ class FormatTest(unittest.TestCase):
                 node = validate(lab)['nodes'][0]
                 self.assertIn(expected, vendor_show.show(node, observed(node), command))
 
+    def test_eos_vrp_panos_layouts(self):
+        expectations = {'arista-7280r': ('sh ip ro', ' S        198.51.100.0/24 [1/0] via 203.0.113.2, Ethernet2'),
+                        'huawei-ar6120': ('dis ip routing-table', '198.51.100.0/24     Static  60   0     RD    203.0.113.2     GE0/0/1'),
+                        'palo-alto': ('show routing route', '198.51.100.0/24     203.0.113.2      10      A S    ethernet1/2')}
+        for model, (command, expected) in expectations.items():
+            with self.subTest(model=model):
+                lab = router_chain_example(KERNEL, DISK)
+                lab['nodes'][0]['model'] = model
+                if model == 'palo-alto':
+                    lab['nodes'][0].update(role='firewall', firewall={'default': 'drop', 'stateful': True, 'rules': [], 'nat': []})
+                node = validate(lab)['nodes'][0]
+                self.assertIn(expected, vendor_show.show(node, observed(node), command))
+
     def test_vlan_brief_lists_access_ports_and_trunks(self):
         lab = switch_vlan_example(KERNEL, DISK)
         lab['nodes'][0]['model'] = 'cisco-9200l'

@@ -103,13 +103,14 @@ Modelled nodes show their vendor's port names (FortiGate `port1`, Junos `ge-0/0/
 `xe-0/0/0`, RouterOS `ether1`, Catalyst `gi1/0/1`, Palo Alto `ethernet1/1`…) on the
 canvas and in the port table, next to the Linux port they stand for.
 
-**Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper and MikroTik models
-show their lab configuration in IOS, FortiOS, Junos or RouterOS syntax
+**Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper, MikroTik, Arista, Huawei and
+Palo Alto models show their lab configuration in IOS, FortiOS, Junos, RouterOS, EOS, VRP or PAN-OS syntax
 (`network_labs/appliances/vendor_config.py`), and commands typed there are written to the
 lab draft and validated like the forms; a refused command is reported with its line.
 Subsets: interface addresses and static routes in all four; firewall policies in FortiOS
 (`config firewall policy`) and RouterOS (`/ip firewall filter`, chain forward); VLANs and
-access/trunk switchports in IOS. They work for micro-VMs and containers alike because they
+access/trunk switchports in IOS, EOS and VRP (`vlan batch`, `port link-type`); PAN-OS zones
+(one port per zone), static routes and security rules (`application any` only; route names are not kept). They work for micro-VMs and containers alike because they
 edit the draft; the change reaches the guests on the next start (or the live firewall
 action). This is configuration syntax, not the vendor's operating system: there is no
 live state beyond the read-only commands below, and other brands keep the forms only.
@@ -118,7 +119,9 @@ live state beyond the read-only commands below, and other brands keep the forms 
 state in their vendor's layout (`network_labs/appliances/vendor_show.py`): IOS `show ip interface
 brief`, `show ip route`, `show vlan brief` (switches; abbreviations such as `sh ip ro` work);
 FortiOS `get system interface`, `get router info routing-table all`; Junos `show interfaces terse`,
-`show route`; RouterOS `/interface print`, `/ip address print`, `/ip route print`. One sudo-confirmed
+`show route`; RouterOS `/interface print`, `/ip address print`, `/ip route print`; EOS `show ip
+interface brief`, `show ip route`, `show vlan`; VRP `display ip interface brief`, `display ip
+routing-table`, `display vlan`; PAN-OS `show interface all`, `show routing route`. One sudo-confirmed
 `show` request reads the node (micro-VM agent read-only requests, or `ip -j` in a container); later
 commands format that observation locally until **Relire**. Values come from Linux only: no counters,
 timers or hardware fields a Linux node does not have. Real-KVM tested in the router-chain test.
