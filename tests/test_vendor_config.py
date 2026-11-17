@@ -228,3 +228,30 @@ class FortiOSWorkflowTest(unittest.TestCase):
         self.assertNotIn('web-in', {r['name'] for r in node(lab, 'FW1')['firewall']['nat']})
         with self.assertRaisesRegex(ValueError, 'traduction source'):
             vendor_config.apply(self.lab, 'FW1', 'config firewall vip\n edit "hide-inside"\n set extip 198.51.100.1\n next\nend')
+
+
+class FortiOSDhcpTest(unittest.TestCase):
+    BLOCK = ('config system dhcp server\n edit 1\n set interface "port1"\n set default-gateway 192.0.2.1\n set netmask 255.255.255.0\n'
+             ' set dns-server1 192.0.2.53\n set lease-time 900\n config ip-range\n edit 1\n set start-ip 192.0.2.100\n'
+             ' set end-ip 192.0.2.120\n next\n end\n next\nend')
+
+    def setUp(self):
+        self.lab = modelled(firewall_nat_example(KERNEL, DISK), FW1='fortigate')
+
+    def test_dhcp_server_round_trip_and_delete(self):
+        lab = vendor_config.apply(self.lab, 'FW1', self.BLOCK)
+        server = node(lab, 'FW1')['dhcp_server']
+        self.assertEqual((server['interface'], server['start'], server['end'], server['router'], server['dns'], server['lease_seconds']),
+                         ('eth0', '192.0.2.100', '192.0.2.120', '192.0.2.1', ['192.0.2.53'], 900))
+        text = vendor_config.render(lab, 'FW1')
+        self.assertIn('config ip-range', text)
+        self.assertEqual(vendor_config.render(vendor_config.apply(lab, 'FW1', text), 'FW1'), text)
+        self.assertIsNone(node(vendor_config.apply(lab, 'FW1', 'config system dhcp server\n delete 1\nend'), 'FW1')['dhcp_server'])
+
+    def test_dhcp_server_errors(self):
+        with self.assertRaisesRegex(ValueError, 'edit 1'):
+            vendor_config.apply(self.lab, 'FW1', self.BLOCK.replace('edit 1\n set interface', 'edit 2\n set interface'))
+        with self.assertRaisesRegex(ValueError, 'ip-range'):
+            vendor_config.apply(self.lab, 'FW1', 'config system dhcp server\n edit 1\n set interface "port1"\n next\nend')
+        with self.assertRaises(ValueError):  # the pool must sit in the port's subnet, outside its address
+            vendor_config.apply(self.lab, 'FW1', self.BLOCK.replace('192.0.2.100', '10.0.0.1').replace('192.0.2.120', '10.0.0.9'))

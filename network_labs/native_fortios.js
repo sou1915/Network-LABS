@@ -18,6 +18,9 @@
   .fg-nav button{display:block;width:100%;text-align:left;background:none;border:0;border-left:3px solid transparent;color:#d7e0e8;
     padding:8px 16px 8px 28px;border-radius:0;font-size:13px}
   .fg-nav button:hover{background:#2f3c49}.fg-nav button.on{background:#334454;border-left-color:#3aa0b8;color:#fff}
+  .fg-nav button.na{color:#7d8c9a}.fg-nav button.na:after{content:"  ○";font-size:10px;color:#6b7a88}
+  .fg-na{max-width:680px;background:#fff;border:1px solid #d5dde5;border-radius:4px;padding:18px 20px}
+  .fg-na b{display:block;font-size:15px;margin-bottom:6px}.fg-legend{padding:14px 16px;font-size:11px;color:#7d8c9a}
   .fg-main{padding:18px 22px;overflow:auto}
   .fg-main h1{font-size:18px;margin:0 0 4px}.fg-main .lead{color:#647587;margin:0 0 14px;font-size:12px}
   .fg-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}
@@ -64,8 +67,28 @@
   `;
   document.head.appendChild(css);
 
-  const PAGES = [['Dashboard', [['status', 'Status']]], ['Network', [['interfaces', 'Interfaces'], ['routes', 'Static Routes']]],
-    ['Policy & Objects', [['policy', 'Firewall Policy'], ['vip', 'Virtual IPs']]], ['System', [['settings', 'Settings']]]];
+  // The FortiOS menu tree. Items the lab runs are pages; 'elsewhere' points to where the app offers it; the rest says why not.
+  const ENGINE = 'Nécessite les moteurs d’inspection du constructeur, absents d’un nœud Linux.';
+  const LATER = 'Pas encore relié à ce modèle dans le laboratoire (prévu).';
+  const PAGES = [
+    ['Dashboard', [['status', 'Status'], ['x-dash-sec', 'Security', ENGINE], ['x-dash-net', 'Network', 'Voir Status et le relevé de l’état réel.']]],
+    ['Security Fabric', [['x-fabric', 'Physical Topology', 'Voir la topologie de l’application.'], ['x-fabric2', 'Fabric Connectors', 'Service du constructeur (Security Fabric).']]],
+    ['Network', [['interfaces', 'Interfaces'], ['x-dns', 'DNS', LATER], ['x-capture', 'Packet Capture', 'Disponible : onglet PCAP de l’application.'],
+      ['x-sdwan', 'SD-WAN', 'Moteur SD-WAN du constructeur.'], ['routes', 'Static Routes'], ['x-pbr', 'Policy Routes', LATER],
+      ['x-ospf', 'OSPF', LATER], ['x-bgp', 'BGP', LATER], ['x-diag', 'Diagnostics', 'Disponible : onglet CLI, « execute ping ».']]],
+    ['Policy & Objects', [['policy', 'Firewall Policy'], ['x-addr', 'Addresses', 'Les politiques acceptent un réseau a.b.c.d/nn ou « all ».'],
+      ['x-svc', 'Services', 'Services prédéfinis et TCP-n / UDP-n dans la politique.'], ['x-sched', 'Schedules', 'Toujours « always » dans le laboratoire.'],
+      ['vip', 'Virtual IPs'], ['x-pool', 'IP Pools', 'NAT de politique : adresse de l’interface de sortie uniquement.'], ['x-shape', 'Traffic Shaping', LATER]]],
+    ['Security Profiles', [['x-av', 'AntiVirus', ENGINE], ['x-web', 'Web Filter', ENGINE], ['x-app', 'Application Control', ENGINE],
+      ['x-ips', 'Intrusion Prevention', ENGINE], ['x-ssl', 'SSL/SSH Inspection', ENGINE]]],
+    ['VPN', [['x-ipsec', 'IPsec Tunnels', 'Pas de moteur IPsec dans l’image invitée du laboratoire.'], ['x-sslvpn', 'SSL-VPN Settings', 'Service VPN SSL du constructeur.']]],
+    ['User & Authentication', [['x-users', 'User Definition', LATER], ['x-radius', 'RADIUS Servers', LATER]]],
+    ['System', [['x-admin', 'Administrators', 'Accès par l’application ; pas de comptes du boîtier.'], ['settings', 'Settings'],
+      ['x-ha', 'HA', 'Cluster du constructeur.'], ['x-snmp', 'SNMP', LATER], ['x-fw', 'Firmware', 'Le nœud exécute Linux : pas de firmware du constructeur.'],
+      ['x-guard', 'FortiGuard', 'Service en ligne du constructeur.']]],
+    ['Log & Report', [['x-traffic', 'Forward Traffic', 'Sessions suivies : Status (relevé de l’état réel).'], ['x-logset', 'Log Settings', LATER]]],
+  ];
+  const ITEMS = Object.fromEntries(PAGES.flatMap(([group, items]) => items.map(([id, label, why]) => [id, {group, label, why}])));
   const SERVICES = ['ALL', 'ALL_ICMP', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'TELNET'];
   let fgPage = 'policy', selected = null, filter = '', standard = false, toastTimer = null;
   const app = document.createElement('div');
@@ -169,15 +192,45 @@
     main.insertAdjacentHTML('beforeend', '<h1>Interfaces</h1><p class="lead">Ports physiques du modèle déclarés dans le laboratoire.</p>');
     const rows = ports().map(p => {
       const address = state.node.interfaces[p];
-      const cells = [`<b>${esc(portName(p))}</b>`, 'Physical Interface', address ? esc(ipMask(address)) : '0.0.0.0 0.0.0.0',
+      const server = state.node.dhcp_server;
+      const dhcp = server && server.interface === p ? `<span class="fg-on">✔ ${esc(server.start)} – ${esc(server.end)}</span>` : '<span class="fg-off">—</span>';
+      const cells = [`<b>${esc(portName(p))}</b>`, 'Physical Interface', address ? esc(ipMask(address)) : '0.0.0.0 0.0.0.0', dhcp,
         esc(state.device.ports.find(x => x.port === p)?.peer || '—'), `<span class="muted">${esc(p)}</span>`];
-      return {cells, edit: () => panel(`Edit Interface · ${portName(p)}`,
-        field('fgIp', 'IP/Netmask', address || '', 'placeholder="a.b.c.d/nn"') + `<label>Interface Linux</label><div style="padding-top:7px">${esc(p)}</div>`,
-        box => { const ip = val(box, 'fgIp'); if (!/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(ip)) throw Error('IP/Netmask : a.b.c.d/nn.');
-          return ['config system interface', `    edit ${q(portName(p))}`, `        set ip ${ipMask(ip)}`, '    next', 'end']; })};
+      return {cells, edit: () => interfaceForm(p, address)};
     }).filter(r => matches(r.cells));
     toolbar(main, {edit: () => rows[selected]?.edit()}, rows.length);
-    main.append(table(['Name', 'Type', 'IP/Netmask', 'Connected to', 'Linux'], rows, draw));
+    main.append(table(['Name', 'Type', 'IP/Netmask', 'DHCP Server', 'Connected to', 'Linux'], rows, draw));
+  }
+
+  function interfaceForm(p, address) {
+    const server = state.node.dhcp_server, mine = server && server.interface === p, other = server && !mine;
+    panel(`Edit Interface · ${portName(p)}`,
+      field('fgIp', 'IP/Netmask', address || '', 'placeholder="a.b.c.d/nn"') + `<label>Interface Linux</label><div style="padding-top:7px">${esc(p)}</div>`
+      + `<div class="full" style="font-weight:600;margin-top:8px">DHCP Server</div>`
+      + `<label>DHCP Server</label><label style="padding-top:7px"><input type="checkbox" id="fgDhcp"${mine ? ' checked' : ''}${other ? ' disabled' : ''}>
+        ${other ? 'Déjà actif sur ' + esc(portName(server.interface)) + ' (un seul serveur par équipement)' : 'Activer'}</label>`
+      + field('fgStart', 'Address range · start', mine ? server.start : '') + field('fgEnd', 'Address range · end', mine ? server.end : '')
+      + field('fgGwD', 'Default gateway', mine ? server.router || '' : (address || '').split('/')[0])
+      + field('fgDns', 'DNS server', mine ? (server.dns || [])[0] || '' : '') + field('fgLease', 'Lease time (s)', mine ? server.lease_seconds : 600),
+      box => {
+        const ip = val(box, 'fgIp'), dotted = /^\d{1,3}(\.\d{1,3}){3}$/;
+        if (!/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(ip)) throw Error('IP/Netmask : a.b.c.d/nn.');
+        const lines = ['config system interface', `    edit ${q(portName(p))}`, `        set ip ${ipMask(ip)}`, '    next', 'end'];
+        const on = box.querySelector('#fgDhcp').checked;
+        if (on) {
+          if (!dotted.test(val(box, 'fgStart')) || !dotted.test(val(box, 'fgEnd'))) throw Error('Address range : a.b.c.d – a.b.c.d.');
+          if (val(box, 'fgGwD') && !dotted.test(val(box, 'fgGwD'))) throw Error('Default gateway : a.b.c.d.');
+          if (val(box, 'fgDns') && !dotted.test(val(box, 'fgDns'))) throw Error('DNS server : a.b.c.d.');
+          if (!/^\d+$/.test(val(box, 'fgLease'))) throw Error('Lease time : secondes.');
+          lines.push('config system dhcp server', '    edit 1', `        set interface ${q(portName(p))}`, `        set netmask ${mask(Number(ip.split('/')[1]))}`,
+            ...(val(box, 'fgGwD') ? [`        set default-gateway ${val(box, 'fgGwD')}`] : []), ...(val(box, 'fgDns') ? [`        set dns-server1 ${val(box, 'fgDns')}`] : []),
+            `        set lease-time ${val(box, 'fgLease')}`, '        config ip-range', '            edit 1', `                set start-ip ${val(box, 'fgStart')}`,
+            `                set end-ip ${val(box, 'fgEnd')}`, '            next', '        end', '    next', 'end');
+        } else if (mine) {
+          lines.push('config system dhcp server', '    delete 1', 'end');
+        }
+        return lines;
+      });
   }
 
   function routesPage(main) {
@@ -275,6 +328,13 @@
       });
   }
 
+  function unavailablePage(main) {
+    const item = ITEMS[fgPage];
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(item.label)}</h1><p class="lead">${esc(item.group)} › ${esc(item.label)}</p>
+      <div class="fg-na"><b>Non disponible dans le laboratoire</b>${esc(item.why)}<p class="fg-note">Ce menu existe sur le produit réel ;
+      il est montré pour situer la fonction. Un réglage sans effet sur le réseau du laboratoire n’est pas proposé.</p></div>`);
+  }
+
   function settingsPage(main) {
     main.insertAdjacentHTML('beforeend', `<h1>Settings</h1><p class="lead">Paramètres système.</p><div class="fg-w"><h3>System</h3><div class="body fg-kv">
       <span>Host name</span><b>${esc(state.node.name)}</b><span>Firmware</span><b>Linux · Network LABS (pas FortiOS)</b>
@@ -297,17 +357,19 @@
     const nav = app.querySelector('nav');
     for (const [group, items] of PAGES) {
       nav.insertAdjacentHTML('beforeend', `<div class="grp">${esc(group)}</div>`);
-      for (const [id, label] of items) {
+      for (const [id, label, why] of items) {
         const button = document.createElement('button');
-        button.textContent = label; button.classList.toggle('on', id === fgPage);
+        button.textContent = label; button.classList.toggle('on', id === fgPage); button.classList.toggle('na', Boolean(why));
         button.onclick = () => { fgPage = id; selected = null; filter = ''; document.querySelector('.fg-panel')?.remove(); draw(); };
         nav.append(button);
       }
     }
+    nav.insertAdjacentHTML('beforeend', '<div class="fg-legend">○ menu du produit non disponible dans le laboratoire</div>');
     app.querySelector('.std').onclick = () => { standard = true; document.body.classList.remove('fg'); app.remove(); render(); };
     app.querySelector('.ref').onclick = () => load();
     const main = app.querySelector('main');
-    ({status: statusPage, interfaces: interfacesPage, routes: routesPage, policy: policyPage, vip: vipPage, settings: settingsPage})[fgPage](main);
+    const pages = {status: statusPage, interfaces: interfacesPage, routes: routesPage, policy: policyPage, vip: vipPage, settings: settingsPage};
+    (pages[fgPage] || unavailablePage)(main);
   }
 
   const previous = render;

@@ -267,7 +267,21 @@ def _render_fortios(node):
             interface = ipaddress.IPv4Interface(address)
             lines.append(f'        set ip {interface.ip} {interface.netmask}')
         lines.append('    next')
-    lines += ['end', 'config router static']
+    lines.append('end')
+    server = node.get('dhcp_server')
+    if server:
+        interface = ipaddress.IPv4Interface(node['interfaces'].get(server['interface']) or '0.0.0.0/0')
+        port = shown.get(server['interface'], server['interface'])
+        lines += ['config system dhcp server', '    edit 1', f'        set interface "{port}"',
+                  f'        set netmask {interface.netmask}']
+        if server.get('router'):
+            lines.append(f'        set default-gateway {server["router"]}')
+        for i, address in enumerate(server.get('dns') or [], 1):
+            lines.append(f'        set dns-server{i} {address}')
+        lines += [f'        set lease-time {server.get("lease_seconds", 600)}', '        config ip-range', '            edit 1',
+                  f'                set start-ip {server["start"]}', f'                set end-ip {server["end"]}', '            next',
+                  '        end', '    next', 'end']
+    lines.append('config router static')
     for index, (network, gateway) in enumerate(routes(node), 1):
         net = ipaddress.IPv4Network(network)
         lines.append(f'    edit {index}')
@@ -610,15 +624,19 @@ class FortiOS:
     def __init__(self, node):
         self.node, self.section, self.entry = node, None, None
         self.order = []  # static routes as rendered: the 'edit N' of 'config router static' is a position
+        self.sub = self.sub_entry = None  # 'config ip-range' nested inside a DHCP server entry
 
     def line(self, command):
         words = shlex.split(command)
         verb = words[0].lower()
+        if self.section == 'system dhcp server' and self.entry is not None and (self.sub or words[:2] == ['config', 'ip-range']):
+            return self._ip_range(verb, words)
         if verb == 'config':
             self.section = ' '.join(words[1:]).lower()
-            if self.section not in ('system global', 'system interface', 'router static', 'firewall policy', 'firewall vip'):
+            if self.section not in ('system global', 'system interface', 'router static', 'firewall policy', 'firewall vip',
+                                    'system dhcp server'):
                 raise ValueError('Sections prises en charge : system global, system interface, router static, '
-                                 'firewall policy, firewall vip.')
+                                 'firewall policy, firewall vip, system dhcp server.')
             if self.section == 'router static':
                 self.order = routes(self.node)
             return
@@ -669,8 +687,56 @@ class FortiOS:
             self._route(fields)
         elif self.section == 'firewall vip':
             self._vip(fields)
+        elif self.section == 'system dhcp server':
+            self._dhcp(fields)
         else:
             self._rule(fields)
+
+    def _ip_range(self, verb, words):
+        if verb == 'config':
+            self.sub = 'ip-range'
+        elif verb == 'edit':
+            self.sub_entry = {}
+        elif verb == 'set' and self.sub_entry is not None and words[1] in ('start-ip', 'end-ip'):
+            self.sub_entry[words[1]] = words[2]
+        elif verb == 'next' and self.sub_entry is not None:
+            if self.entry.get('range'):
+                raise ValueError('Un seul ip-range par serveur DHCP dans ce laboratoire.')
+            self.entry['range'] = self.sub_entry
+            self.sub_entry = None
+        elif verb == 'end':
+            self.sub = None
+        else:
+            raise ValueError('ip-range : edit, set start-ip, set end-ip, next, end.')
+
+    def _dhcp(self, fields):
+        """The node's DHCP server: one pool on one port (what the lab's guests and containers serve)."""
+        if self.entry['id'] != '1':
+            raise ValueError('Un seul serveur DHCP par équipement : edit 1.')
+        allowed = {'interface', 'default-gateway', 'netmask', 'lease-time', 'dns-service', 'dns-server1', 'dns-server2',
+                   'dns-server3', 'status'}
+        if set(fields) - allowed:
+            raise ValueError('system dhcp server : interface, default-gateway, netmask, dns-server1..3, lease-time, config ip-range.')
+        current = dict(self.node.get('dhcp_server') or {})
+        text = lambda key: (fields.get(key) or [''])[0]
+        if 'interface' in fields:
+            current['interface'] = _port(self.node, text('interface'))
+        if 'default-gateway' in fields:
+            current['router'] = text('default-gateway')
+        if 'lease-time' in fields:
+            current['lease_seconds'] = int(text('lease-time'))
+        dns = [text(f'dns-server{i}') for i in (1, 2, 3) if text(f'dns-server{i}')]
+        if dns or any(f'dns-server{i}' in fields for i in (1, 2, 3)):
+            current['dns'] = dns
+        if self.entry.get('range'):
+            current['start'], current['end'] = self.entry['range'].get('start-ip'), self.entry['range'].get('end-ip')
+        if not {'interface', 'start', 'end'} <= set(current):
+            raise ValueError('Serveur DHCP : interface et ip-range (start-ip, end-ip) obligatoires.')
+        current.setdefault('lease_seconds', 86400 if self.node['runtime'] == 'oci' else 600)
+        if text('status') == 'disable':
+            self.node['dhcp_server'] = None
+            return
+        self.node['dhcp_server'] = current
 
     def _vip(self, fields):
         """A Virtual IP is a destination NAT: traffic to extip on extintf goes to mappedip (optionally port-forwarded)."""
@@ -781,6 +847,10 @@ class FortiOS:
                 raise ValueError('Politique absente : ' + key)
             name = rules.pop(index)['name']
             policy['nat'][:] = [r for r in policy['nat'] if r['name'] != name + '-nat']
+        elif self.section == 'system dhcp server':
+            if key != '1' or not self.node.get('dhcp_server'):
+                raise ValueError('Serveur DHCP absent : ' + key)
+            self.node['dhcp_server'] = None
         elif self.section == 'firewall vip':
             nat = _policy(self.node)['nat']
             if not any(r['name'] == key and r['type'] == 'dnat' for r in nat):

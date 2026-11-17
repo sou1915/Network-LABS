@@ -123,6 +123,10 @@ Virtual IPs; System › Settings) with its terms, table columns and Create New �
 in a neutral look (no vendor logo, colours or assets). Each form shows the FortiOS CLI block it
 sends, applied to the draft by the CLI tab's parser (`/api/cli`). Policy NAT (`set nat enable`)
 and Virtual IPs (`config firewall vip`, with port forwarding) are part of the FortiOS subset.
+The page carries FortiOS's whole menu tree; items the lab cannot back (security profiles, VPN,
+SD-WAN, HA, FortiGuard, …) are shown greyed with the reason instead of forms that would do
+nothing. The interface form includes the DHCP server (`config system dhcp server` with
+`config ip-range`), served by the node's real DHCP daemon.
 "Vue Network LABS" returns to the standard device page.
 
 **Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper, MikroTik, Arista, Huawei and
