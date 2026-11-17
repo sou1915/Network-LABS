@@ -260,7 +260,10 @@ def tree_layout(graph,groups=None,spacing=125):
         leaves[name].sort(key=lambda k:(nodes[k]['role']!='switch',rank.get(groups.get(k),0),groups.get(k,0)))
     def units(name):
         own=max(1,sum(units(k) for k in leaves[name]))
-        return max(own,1.7) if name in top else own  # a router keeps room for its transit captions
+        if name in top:
+            return max(own,1.7)  # a router keeps room for its transit captions
+        # A host cabled straight to a router or firewall: room for its cable's subnet caption beside its neighbour's.
+        return 1.6 if nodes[name]['role']=='host' and owner.get(name) in top else own
     depth=max(rows.values(),default=-1)+1
     switch_y=100+depth*130 if top else 250
     host_y=switch_y+140

@@ -433,7 +433,7 @@ class ApplianceWindow:
         dmz=firewall_hosts(graph)
         for name in dmz:
             xx,yy=positions[name]
-            rounded_box(self.canvas,xx-43,yy-52,xx+43,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
+            rounded_box(self.canvas,xx-52,yy-52,xx+52,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
             self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(self.font,7,'bold'))
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
         router_links={}

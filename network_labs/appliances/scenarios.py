@@ -525,7 +525,15 @@ def _probes(spec, plan):
 
 
 def _names(spec):
-    return {ipaddress.IPv4Interface(a).ip: n['name'] for n in spec['nodes'] for a in n['interfaces'].values() if a}
+    """Who answers each address: a published (DNAT) address names the server behind the firewall."""
+    names = {ipaddress.IPv4Interface(a).ip: n['name'] for n in spec['nodes'] for a in n['interfaces'].values() if a}
+    for node in spec['nodes']:
+        for entry in (node.get('firewall') or {}).get('nat', []):
+            if entry['type'] == 'dnat':
+                public = ipaddress.IPv4Network(entry['destination']).network_address
+                server = names.get(ipaddress.IPv4Address(entry['to']), entry['to'])
+                names[public] = f'{server} publié ({public})'
+    return names
 
 
 def _generate(seed, name, kernel, disk):
