@@ -9,7 +9,7 @@ import copy
 import ipaddress
 import random
 
-from .microvm import firewall_nat_example, router_chain_example, switch_vlan_example
+from .microvm import firewall_nat_example, ospf_example, router_chain_example, switch_vlan_example
 from .spec import validate
 from .vendor_config import routes
 
@@ -35,6 +35,12 @@ def _firewall(kernel, disk):
     return validate(lab)
 
 
+def _ospf(kernel, disk):
+    lab = ospf_example(kernel, disk)
+    lab['name'] = 'panne-ospf'
+    return validate(lab)
+
+
 def reach(source, destination, expect, text):
     return {'kind': 'reach', 'source': source, 'destination': destination, 'expect': expect, 'text': text}
 
@@ -47,6 +53,9 @@ LABS = {
               'probes': [reach('VM1', '192.0.2.12', True, 'VM1 joint VM2 (même switch, VLAN 10)'),
                          reach('VM1', '192.0.2.14', True, 'VM1 joint VM4 (autre switch, VLAN 10)'),
                          reach('VM1', '192.0.2.13', False, 'VM1 ne joint pas VM3 (VLAN 20)')]},
+    'ospf': {'title': 'OSPF entre trois constructeurs', 'vendors': 'Cisco ISR · Juniper MX · Huawei AR', 'build': _ospf,
+             'probes': [reach('VM2', '198.51.100.20', True, 'VM2 (derrière R1) joint VM3 (derrière R3)'),
+                        reach('VM3', '192.0.2.20', True, 'VM3 joint VM2')]},
     'pare-feu': {'title': 'Pare-feu avec NAT', 'vendors': 'Fortinet FortiGate', 'build': _firewall,
                  'probes': [reach('VM2', '198.51.100.20', True, 'Le LAN (VM2) sort vers VM3'),
                             reach('VM3', '198.51.100.1', True, 'VM3 joint le serveur publié (198.51.100.1)')]},
@@ -132,6 +141,42 @@ def _vip(name, vip_name):
     return apply, fixed
 
 
+def _ospf_fault(name, change):
+    """CHANGE breaks NAME's OSPF; repaired when NAME runs OSPF on the same ports, each active or passive as before."""
+    def apply(spec):
+        change(_node(spec, name))
+    def fixed(spec, original):
+        from .native_models import port_names
+        from .ospf import enabled_interfaces
+        node, before = _node(spec, name), _node(original, name)
+        if not node.get('ospf'):
+            return False, f'pas d’OSPF sur {name}'
+        have = {port: value['passive'] for port, value in enabled_interfaces(node).items()}
+        want = {port: value['passive'] for port, value in enabled_interfaces(before).items()}
+        shown = port_names(node)
+        detail = f'OSPF de {name} : ' + ', '.join(f'{shown.get(p, p)} {"passive" if v else "active"}' for p, v in sorted(have.items()))
+        return have == want, detail
+    return apply, fixed
+
+
+def _passive(port):
+    def change(node):
+        node['ospf']['interfaces'][port]['passive'] = True
+    return change
+
+
+def _unadvertise(port):
+    def change(node):
+        network = str(ipaddress.IPv4Interface(node['interfaces'][port]).network)
+        node['ospf']['networks'] = [n for n in node['ospf']['networks'] if n != network]
+        node['ospf']['interfaces'].pop(port)
+    return change
+
+
+def _no_ospf(node):
+    node['ospf'] = None
+
+
 INBOUND = {'in': 'eth1', 'source': '198.51.100.20', 'destination': '198.51.100.1', 'protocol': 'icmp'}
 OUTBOUND = {'in': 'eth0', 'source': '192.0.2.20', 'destination': '198.51.100.20', 'protocol': 'icmp'}
 FAULTS = {
@@ -152,6 +197,14 @@ FAULTS = {
         'vm3-vlan': (_switchport('SW1', 'eth2', {'mode': 'access', 'vlan': 10}),
                      'La comptabilité (VM3) est joignable par tous les utilisateurs.',
                      'Le port de VM3 (gi1/0/3) est en VLAN 10 au lieu de 20.'),
+    },
+    'ospf': {
+        'r1-off': (_ospf_fault('R1', _no_ospf), 'Le site de VM2 ne joint plus rien au-delà de R1.',
+                   'OSPF a été retiré de R1 (router ospf 1 absent).'),
+        'r2-passive': (_ospf_fault('R2', _passive('eth1')), 'R1 et R2 se voient, mais VM3 est injoignable.',
+                       'Sur R2, xe-0/0/1 (vers R3) est passive : aucun voisin OSPF avec R3.'),
+        'r3-lan': (_ospf_fault('R3', _unadvertise('eth1')), 'Les trois routeurs sont voisins, mais le LAN de VM3 est inconnu.',
+                   'R3 n’annonce plus son LAN 198.51.100.0/24 (network absent).'),
     },
     'pare-feu': {
         'outbound-rule': (_rule('FW1', 'inside-ping-out', 'remove', OUTBOUND), 'Le LAN ne sort plus vers l’extérieur.',

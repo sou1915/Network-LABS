@@ -190,5 +190,22 @@ class LayoutTest(unittest.TestCase):
         self.assertGreater(positions['R3'][0] - positions['R1'][0], 300)
 
 
+class PanneTest(unittest.TestCase):
+    def test_each_ospf_fault_is_repaired_from_its_vendor_cli(self):
+        from network_labs.appliances import faults
+        repairs = {'r1-off': ('R1', SOLUTION),
+                   'r2-passive': ('R2', 'delete protocols ospf area 0.0.0.0 interface xe-0/0/1.0 passive'),
+                   'r3-lan': ('R3', 'ospf 1\n area 0.0.0.0\n  network 198.51.100.0 0.0.0.255\n silent-interface GE0/0/1')}
+        self.assertEqual(set(repairs), set(faults.FAULTS['ospf']))
+        for fault, (node, text) in repairs.items():
+            with self.subTest(fault=fault):
+                original = faults.LABS['ospf']['build']('/k', '/d')
+                broken = copy.deepcopy(original)
+                faults.FAULTS['ospf'][fault][0][0](broken)
+                panne = {'lab': 'ospf', 'fault': fault, 'original': original}
+                repaired = apply(validate(broken), node, text)
+                self.assertEqual(faults.grade(repaired, panne)['results'][0]['status'], 'ok', faults.grade(repaired, panne))
+
+
 if __name__ == '__main__':
     unittest.main()

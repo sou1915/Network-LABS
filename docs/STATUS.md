@@ -132,7 +132,9 @@ the guest's BIRD, and the route tables show OSPF routes with BIRD's metric. Miss
 constructeurs*: R2 (Juniper MX204) and R3 (Huawei AR6120) already run OSPF; the student brings R1
 (Cisco ISR 4331) in, LAN passive; a real check reads R1's neighbour table (2.2.2.2 Full), then pings
 cross the three routers. The workbench staggers three or more routers in a row and draws their
-cables as L-shapes, clear of the titles.
+cables as L-shapes, clear of the titles. Mode panne gains an OSPF lab (same three routers) with three faults: OSPF
+removed from R1, R2's link toward R3 made passive, R3 no longer advertising its LAN; each is repaired
+from its own vendor's CLI and graded by comparing OSPF behaviour, not text.
 
 **Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
 sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded

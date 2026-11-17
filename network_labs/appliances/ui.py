@@ -867,8 +867,9 @@ class ApplianceWindow:
         self.mission_story=tk.StringVar()
         self.mission_score=tk.StringVar()
         self.mission_status=tk.StringVar()
-        title=tk.Label(detail,textvariable=self.mission_title,bg='white',fg=TEXT,font=(self.font,15,'bold'),anchor='w')
+        title=tk.Label(detail,textvariable=self.mission_title,bg='white',fg=TEXT,font=(self.font,15,'bold'),anchor='w',justify='left')
         title.pack(fill='x',padx=18,pady=(16,0))
+        title.bind('<Configure>',lambda event:title.configure(wraplength=max(200,event.width-6)))
         tk.Label(detail,textvariable=self.mission_meta,bg='white',fg=BLUE,font=(self.font,9),anchor='w').pack(fill='x',padx=18)
         story=tk.Label(detail,textvariable=self.mission_story,bg='white',fg=TEXT,font=(self.font,10),anchor='w',justify='left')
         story.pack(fill='x',padx=18,pady=(10,6))
@@ -1020,8 +1021,11 @@ class ApplianceWindow:
             if not (self.panne and self.mission_lab_loaded()):
                 self.mission_status.set('Charger d’abord une panne.')
                 return
-            hints=['Démarrer le lab, puis comparer chaque équipement à son projet (Gestion web › Relever l’état réel) '
-                   'et lire show ip route / show vlan brief.', 'Solution : '+self.panne['answer']]
+            first=('Démarrer le lab, puis sur chaque routeur lire ses voisins OSPF (show ip ospf neighbor, show ospf neighbor, '
+                   'display ospf peer brief) et ses routes.' if self.panne['lab']=='ospf' else
+                   'Démarrer le lab, puis comparer chaque équipement à son projet (Gestion web › Relever l’état réel) '
+                   'et lire show ip route / show vlan brief.')
+            hints=[first,'Solution : '+self.panne['answer']]
         else:
             hints=mission(self.mission_current)['hints']
         self.mission_hints_shown=min(len(hints),self.mission_hints_shown+1)
