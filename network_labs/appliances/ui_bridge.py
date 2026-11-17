@@ -9,7 +9,7 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping')
+ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping','mission')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
 
@@ -72,7 +72,7 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify','firewall','show','ping'):
+    if action in ('inspect','verify','firewall','show','ping','mission'):
         identifier(node)
     elif node is not None:
         raise ValueError('Unexpected node argument.')
@@ -99,6 +99,10 @@ def backend(action,target,node=None,destination=None):
             data=manager.observe_node(node)
         elif action=='ping':
             data=manager.ping_node(node,destination)
+        elif action=='mission':
+            # NODE carries the mission id: its pings run from the running guests of this lab.
+            from .missions import run_real
+            data=run_real(manager,node)
         elif action=='firewall':
             data=firewall_result
         elif action=='verify':
@@ -121,7 +125,7 @@ def validate_request(request):
         if not Path(target).is_absolute():
             raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify','firewall','show','ping'):
+    if action in ('inspect','verify','firewall','show','ping','mission'):
         identifier(request['node'])
     elif request['node'] is not None:
         raise ValueError('Unexpected node argument.')

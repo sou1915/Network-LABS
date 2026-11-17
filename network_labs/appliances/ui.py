@@ -80,7 +80,9 @@ class ApplianceWindow:
 
         nav=tk.Frame(self.window,bg=BG,height=24);nav.grid(row=2,column=0,sticky='ew')
         self.nav_items={};self.nav_current='Topologie'
-        for label,callback in [('Topologie',lambda:self.tabs.select(self.topology_tab)),('Équipements',lambda:self.tabs.select(self.editor_tab)),('Scénarios',self.new_campus),('Outils',lambda:self.tabs.select(self.tools_tab))]:
+        pages=[('Topologie',lambda:self.tabs.select(self.topology_tab)),('Équipements',lambda:self.tabs.select(self.editor_tab)),
+               ('Scénarios',lambda:self.tabs.select(self.missions_tab)),('Outils',lambda:self.tabs.select(self.tools_tab))]
+        for label,callback in pages:
             item=tk.Frame(nav,bg=BG);item.pack(side='left')
             button=tk.Button(item,text=label,command=callback,font=(self.font,8),bg=BG,fg=BLUE if label=='Topologie' else TEXT,relief='flat',borderwidth=0,highlightthickness=0,padx=12,pady=4,activebackground='white',activeforeground=BLUE);button.pack()
             line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2);line.pack(fill='x')
@@ -117,9 +119,12 @@ class ApplianceWindow:
         self.tabs=ttk.Notebook(workspace,style='Native.Hidden.TNotebook');workspace.add(self.tabs,weight=1)
         self.topology_tab=tk.Frame(self.tabs,bg=BG);self.editor_tab=ttk.Frame(self.tabs)
         diagnostics=self.tools_tab=ttk.Frame(self.tabs);self.output_tab=ttk.Frame(self.dock);self.dock.add(self.output_tab,text='Diagnostic réseau · lecture seule')
+        self.missions_tab=tk.Frame(self.tabs,bg=BG)
         self.raw_tab=ttk.Frame(self.dock);self.dock.add(self.raw_tab,text='Détails JSON')
-        for frame,title in ((self.topology_tab,'Topologie'),(self.editor_tab,'Équipements / JSON'),(diagnostics,'Outils')):
+        for frame,title in ((self.topology_tab,'Topologie'),(self.editor_tab,'Équipements / JSON'),(diagnostics,'Outils'),
+                            (self.missions_tab,'Scénarios')):
             self.tabs.add(frame,text=title)
+        self.build_missions(self.missions_tab)
         self.tabs.bind('<<NotebookTabChanged>>',self.sync_navigation)
         self.topology_tab.columnconfigure(0,weight=1);self.topology_tab.rowconfigure(1,weight=1)
         self.observation=tk.StringVar(value='Aucun état runtime observé.')
@@ -240,7 +245,8 @@ class ApplianceWindow:
     def sync_navigation(self,event=None):
         if self.closed:return
         current=self.tabs.select()
-        self.nav_current=next((name for name,frame in [('Topologie',self.topology_tab),('Équipements',self.editor_tab),('Outils',self.tools_tab)] if str(frame)==current),'Topologie')
+        frames=[('Topologie',self.topology_tab),('Équipements',self.editor_tab),('Outils',self.tools_tab),('Scénarios',self.missions_tab)]
+        self.nav_current=next((name for name,frame in frames if str(frame)==current),'Topologie')
         for name,(button,line) in self.nav_items.items():
             button.configure(fg=BLUE if name==self.nav_current else TEXT)
             line.configure(bg=BLUE if name==self.nav_current else BG)
@@ -766,6 +772,187 @@ class ApplianceWindow:
             canvas.tag_lower(rounded_box(canvas,left-7,top-3,right+7,bottom+3,r=9,fill=_mix(start,'#ffffff',.18),outline=''),item)
             x=right+14
 
+    def build_missions(self,parent):
+        """Guided labs: pick a mission, load its lab, configure it anywhere in the app, then check it."""
+        from .missions import MISSIONS
+        self.mission_current=MISSIONS[0]['id']
+        self.mission_real={}
+        self.mission_cards={}
+        import os
+        self.mission_kernel=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_KERNEL',''))
+        self.mission_disk=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_DISK',''))
+        side=tk.Frame(parent,bg=BG,width=250)
+        side.pack(side='left',fill='y',padx=(10,6),pady=10)
+        side.pack_propagate(False)
+        self.label(side,'Missions guidées',TEXT,13,True).pack(anchor='w',pady=(4,2))
+        intro='Chaque mission part d’un lab réel ; la note vient de votre configuration et de pings réels.'
+        self.label(side,intro,MUTED,8).pack(anchor='w',pady=(0,8))
+        side.winfo_children()[-1].configure(wraplength=235)
+        for item in MISSIONS:
+            card=tk.Frame(side,bg='white',highlightthickness=2,highlightbackground='#dfe7ef',cursor='hand2')
+            card.pack(fill='x',pady=4)
+            title=tk.Label(card,text=item['title'],bg='white',fg=TEXT,font=(self.font,10,'bold'),anchor='w',justify='left',wraplength=215)
+            title.pack(fill='x',padx=10,pady=(8,0))
+            meta=tk.Label(card,text=f"{item['level']} · {item['kind']}\n{item['vendors']}",bg='white',fg=MUTED,font=(self.font,8),
+                          anchor='w',
+                          justify='left')
+            meta.pack(fill='x',padx=10,pady=(2,8))
+            for widget in (card,title,meta):
+                widget.bind('<Button-1>',lambda event,m=item['id']:self.select_mission(m))
+            self.mission_cards[item['id']]=card
+        campus=ttk.Button(side,text='Autre scénario : campus entreprise…',command=self.new_campus,style='Native.TButton')
+        campus.pack(fill='x',side='bottom',pady=6)
+        frame=tk.Frame(parent,bg='white',highlightthickness=1,highlightbackground='#dfe7ef')
+        frame.pack(side='left',fill='both',expand=True,padx=(0,10),pady=10)
+        scroll=ScrollPanel(frame,'white')
+        scroll.canvas.configure(bd=0,relief='flat')
+        scroll.scroll.configure(style='Native.Vertical.TScrollbar')
+        scroll.pack(fill='both',expand=True)
+        detail=self.mission_detail=scroll.inner
+        self.mission_title=tk.StringVar()
+        self.mission_meta=tk.StringVar()
+        self.mission_story=tk.StringVar()
+        self.mission_score=tk.StringVar()
+        self.mission_status=tk.StringVar()
+        title=tk.Label(detail,textvariable=self.mission_title,bg='white',fg=TEXT,font=(self.font,15,'bold'),anchor='w')
+        title.pack(fill='x',padx=18,pady=(16,0))
+        tk.Label(detail,textvariable=self.mission_meta,bg='white',fg=BLUE,font=(self.font,9),anchor='w').pack(fill='x',padx=18)
+        story=tk.Label(detail,textvariable=self.mission_story,bg='white',fg=TEXT,font=(self.font,10),anchor='w',justify='left')
+        story.pack(fill='x',padx=18,pady=(10,6))
+        story.bind('<Configure>',lambda event:story.configure(wraplength=max(200,event.width-6)))
+        paths=tk.Frame(detail,bg='white')
+        paths.pack(fill='x',padx=18,pady=4)
+        paths.columnconfigure(1,weight=1)
+        for row,(text,variable) in enumerate((('Noyau micro-VM',self.mission_kernel),('Disque micro-VM',self.mission_disk))):
+            self.label(paths,text,MUTED,8).grid(row=row,column=0,sticky='w',padx=(0,8),pady=2)
+            ttk.Entry(paths,textvariable=variable,style='Native.TEntry').grid(row=row,column=1,sticky='ew',pady=2)
+        actions=tk.Frame(detail,bg='white')
+        actions.pack(fill='x',padx=18,pady=8)
+        actions.columnconfigure((0,1),weight=1,uniform='mission')
+        for index,(text,command,style) in enumerate((('Charger la mission',self.load_mission,'Native.Primary.TButton'),
+                                                    ('Vérifier la configuration',self.check_mission,'Native.TButton'),
+                                                    ('Tester sur le lab (pings réels)',self.test_mission,'Native.TButton'),
+                                                    ('Indice',self.mission_hint,'Native.TButton'))):
+            ttk.Button(actions,text=text,command=command,style=style).grid(row=index//2,column=index%2,sticky='ew',padx=3,pady=3)
+        head=tk.Frame(detail,bg='white')
+        head.pack(fill='x',padx=18,pady=(8,2))
+        tk.Label(head,text='Objectifs',bg='white',fg=TEXT,font=(self.font,11,'bold')).pack(side='left')
+        tk.Label(head,textvariable=self.mission_score,bg='white',fg=BLUE,font=(self.font,11,'bold')).pack(side='right')
+        self.mission_bar=tk.Canvas(detail,height=8,bg='white',highlightthickness=0)
+        self.mission_bar.pack(fill='x',padx=18,pady=(0,6))
+        self.mission_rows=tk.Frame(detail,bg='white')
+        self.mission_rows.pack(fill='both',expand=True,padx=18)
+        status=tk.Label(detail,textvariable=self.mission_status,bg='white',fg=MUTED,font=(self.font,9),anchor='w',justify='left')
+        status.pack(fill='x',padx=18,pady=(4,14))
+        status.bind('<Configure>',lambda event:status.configure(wraplength=max(200,event.width-6)))
+        self.mission_hints_shown=0
+        self.select_mission(self.mission_current)
+
+    def select_mission(self,mission_id):
+        from .missions import mission
+        item=mission(mission_id)
+        if mission_id!=self.mission_current:
+            self.mission_real={}
+            self.mission_hints_shown=0
+        self.mission_current=mission_id
+        for key,card in self.mission_cards.items():
+            card.configure(highlightbackground=BLUE if key==mission_id else '#dfe7ef')
+        self.mission_title.set(item['title'])
+        self.mission_meta.set(f"{item['level']} · {item['kind']} · {item['vendors']}")
+        self.mission_story.set(item['story'])
+        self.show_mission_results()
+
+    def mission_lab_loaded(self):
+        from .missions import mission
+        if not hasattr(self,'editor'):
+            return False  # called while the window is still being built
+        try:
+            return self.manifest()['name']==mission(self.mission_current)['lab']
+        except (ValueError,TypeError,KeyError):
+            return False
+
+    def load_mission(self):
+        from .missions import mission
+        if self.pending:
+            return False
+        kernel,disk=self.mission_kernel.get().strip(),self.mission_disk.get().strip()
+        if not kernel or not disk:
+            self.mission_status.set('Indiquer le noyau et le disque des micro-VM (les mêmes que pour un lab micro-VM).')
+            return False
+        try:
+            self.load_spec(mission(self.mission_current)['build'](kernel,disk))
+        except (ValueError,TypeError,KeyError) as error:
+            self.mission_status.set(str(error))
+            return False
+        self.mission_real={}
+        self.mission_hints_shown=0
+        self.show_mission_results()
+        self.mission_status.set('Lab de la mission chargé. Configurer les équipements (GUI, CLI, Gestion web), puis vérifier.')
+        self.record_event('mission','Mission chargée : '+self.mission_current)
+        return True
+
+    def check_mission(self):
+        if not self.mission_lab_loaded():
+            self.mission_status.set('Charger d’abord le lab de cette mission.')
+            return False
+        self.show_mission_results()
+        return True
+
+    def test_mission(self):
+        if not self.mission_lab_loaded():
+            self.mission_status.set('Charger d’abord le lab de cette mission.')
+            return False
+        spec=self.manifest()
+        running=all(self.states.get(n['name'],{}).get('status')=='running' for n in spec['nodes'])
+        if self.view_lab!=spec['name'] or not self.states or not running:
+            self.mission_status.set('Démarrer le lab de la mission (Enregistrer, puis Démarrer) avant les pings réels.')
+            return False
+        self.mission_status.set('Pings réels en cours : confirmer avec sudo dans le terminal.')
+        return self.launch('mission')
+
+    def mission_hint(self):
+        from .missions import mission
+        hints=mission(self.mission_current)['hints']
+        self.mission_hints_shown=min(len(hints),self.mission_hints_shown+1)
+        self.mission_status.set('Indice : '+' · '.join(hints[:self.mission_hints_shown]))
+
+    def show_mission_results(self):
+        from .missions import grade,mission
+        for child in self.mission_rows.winfo_children():
+            child.destroy()
+        loaded=self.mission_lab_loaded()
+        if loaded:
+            result=grade(self.manifest(),self.mission_current,self.mission_real)
+            rows=result['results']
+        else:
+            rows=[{'text':c['text'],'kind':'réel' if c['kind']=='reach' else 'configuration','status':'idle','detail':''}
+                  for c in mission(self.mission_current)['checks']]
+            result={'passed':0,'total':len(rows),'solved':False}
+        marks={'ok':('✔','#168942'),'fail':('✖','#bb3646'),'pending':('○','#8b9cae'),'idle':('·','#8b9cae')}
+        for row in rows:
+            line=tk.Frame(self.mission_rows,bg='white')
+            line.pack(fill='x',pady=3)
+            line.columnconfigure(1,weight=1)
+            mark,colour=marks[row['status']]
+            tk.Label(line,text=mark,bg='white',fg=colour,font=(self.font,12,'bold'),width=2).grid(row=0,column=0,rowspan=2,sticky='n')
+            tag='Config' if row['kind']=='configuration' else 'Réel'
+            head=tk.Frame(line,bg='white')
+            head.grid(row=0,column=1,sticky='w')
+            tk.Label(head,text=tag,bg='#eef4fb' if tag=='Config' else '#efe9fb',fg='#1f5f9c' if tag=='Config' else '#5b3aa6',
+                     font=(self.font,7,'bold'),padx=6).pack(side='left',padx=(0,8))
+            tk.Label(head,text=row['text'],bg='white',fg=TEXT,font=(self.font,10),anchor='w').pack(side='left')
+            if row['detail']:
+                tk.Label(line,text=row['detail'],bg='white',fg=MUTED,font=(self.font,8),anchor='w').grid(row=1,column=1,sticky='w')
+        self.mission_score.set(f"{result['passed']} / {result['total']}" + ('  ·  Mission réussie ✔' if result['solved'] else ''))
+        self.mission_bar.delete('all')
+        width=max(100,self.mission_bar.winfo_width())
+        self.mission_bar.create_rectangle(0,1,width,7,fill='#e6edf4',outline='')
+        if result['total']:
+            done=width*result['passed']/result['total']
+            self.mission_bar.create_rectangle(0,1,done,7,fill='#21a35a' if result['solved'] else BLUE,outline='')
+        if not loaded:
+            self.mission_status.set('Indiquer noyau et disque, puis « Charger la mission ».')
+
     def build_vendor_console(self,parent):
         """Vendor-syntax configuration (IOS, FortiOS, Junos, RouterOS) of the selected node's lab draft."""
         frame=self.vendor_frame=tk.Frame(parent,bg=BG)
@@ -1194,6 +1381,8 @@ class ApplianceWindow:
                 private_json(target,spec)
             selected=self.nodes.selection()
             node=selected[0] if selected and action in ('inspect','verify','firewall','show','ping') else None
+            if action=='mission':
+                node=self.mission_current  # the bridge's node field carries the mission id
             destination={'verify':self.destination.get(),'ping':getattr(self,'vendor_ping_destination',None)}.get(action)
             request=validate_request({'id':uuid.uuid4().hex,'owner_uid':os.geteuid(),'action':action,'target':target,'lab':lab,'node':node,
                                       'destination':destination})
@@ -1250,6 +1439,14 @@ class ApplianceWindow:
             if data.get('stopped')!=request['lab']:raise ValueError('Arrêt non confirmé.')
             states={n['name']:{'status':'stopped'} for n in graph['nodes']};self.observation.set(request['lab']+' · arrêt confirmé')
         self.draw(graph,states)
+        if action=='mission':
+            self.mission_real={index:(ok,detail) for index,ok,detail in data['results']}
+            self.show_mission_results()
+            self.write_output('Mission '+data['mission']+' : pings réels envoyés depuis les micro-VM.',data,'Mission')
+            self.draw(graph,states)
+            self.record_event('mission',self.mission_score.get())
+            self.tabs.select(self.missions_tab)
+            return
         if action=='ping':
             from .vendor_show import PROMPTS,ping_text
             from .vendor_config import dialect

@@ -103,6 +103,16 @@ Modelled nodes show their vendor's port names (FortiGate `port1`, Junos `ge-0/0/
 `xe-0/0/0`, RouterOS `ether1`, Catalyst `gi1/0/1`, Palo Alto `ethernet1/1`…) on the
 canvas and in the port table, next to the Linux port they stand for.
 
+**Guided missions (Scénarios tab).** Each mission loads a real micro-VM lab with vendor models,
+a story, goals and hints (`appliances/missions.py`): *La route manquante* (troubleshooting,
+Cisco ISR + Juniper MX), *Isoler un poste dans un VLAN* (Catalyst, needs the Network LABS
+kernel) and *Publier un serveur derrière le pare-feu* (FortiGate VIP and policy). The student
+configures with any tool (forms, vendor CLI, vendor web pages). **Vérifier la configuration**
+grades the draft (routes, switchports, trunks, Virtual IPs, and packets run through the
+firewall policy: DNAT, then first matching rule, then the default). **Tester sur le lab**
+sends the mission's pings from the running guests (one sudo-confirmed request) and grades what
+the network did. Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
+
 **Device pages.** The GUI tab opens with a device header (drawing, name, brand · model, role,
 status, port count, runtime, CLI syntax). The browser management page (**Gestion web**) shows
 a product header, a front panel with every model port (declared ports with link LED, details
