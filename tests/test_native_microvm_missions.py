@@ -1,4 +1,5 @@
 """Real guests grade a mission: the broken route lab fails its pings, the IOS fix makes them pass."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,21 @@ from network_labs.appliances import missions, vendor_config
 from network_labs.appliances.guest_image import build
 from network_labs.appliances.guest_startup import query
 from network_labs.appliances.runtime import Manager
+
+
+def wait_ready(manager, spec):
+    """Every guest agent answers before the mission's pings."""
+    for node in spec['nodes']:
+        socket, deadline = manager.directory / node['name'] / 'guest.vsock', time.monotonic() + 40
+        while True:
+            try:
+                query(socket, 'ready')
+                break
+            except (ValueError, OSError):
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(.1)
+    return True
 
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_MICROVM_TESTS') == '1', 'Opt-in real KVM test')
@@ -35,16 +51,7 @@ class MissionGuestTests(unittest.TestCase):
                     with manager.locked():
                         try:
                             manager.start(spec)
-                            for node in spec['nodes']:  # every guest agent answers before the mission's pings
-                                socket, deadline = manager.directory / node['name'] / 'guest.vsock', time.monotonic() + 40
-                                while True:
-                                    try:
-                                        query(socket, 'ready')
-                                        break
-                                    except (ValueError, OSError):
-                                        if time.monotonic() >= deadline:
-                                            raise
-                                        time.sleep(.1)
+                            wait_ready(manager, spec)
                             real = {}
                             for _ in range(3):  # guests finish booting while the first probes run
                                 found = missions.run_real(manager, 'route-manquante')['results']
@@ -58,3 +65,35 @@ class MissionGuestTests(unittest.TestCase):
             print('\nMission grades:', json.dumps({k: (v['passed'], v['total']) for k, v in results.items()}), flush=True)
             self.assertFalse(any(r['status'] == 'ok' for r in results['broken']['results'] if r['kind'] == 'réel'), results['broken'])
             self.assertTrue(results['fixed']['solved'], results['fixed'])
+
+    def test_firewall_health_probes_hold_on_the_working_lab_and_catch_a_fault(self):
+        """The panne lab's probes are what the working lab really does; an inbound DENY fault fails the publication probe."""
+        from network_labs.appliances import faults
+        self.assertEqual(os.geteuid(), 0)
+        kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
+        with tempfile.TemporaryDirectory(prefix='nlpf-') as temporary:
+            root = Path(temporary)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            working = faults.LABS['pare-feu']['build'](kernel, root / 'base.ext4')
+            broken = copy.deepcopy(working)
+            faults.FAULTS['pare-feu']['inbound-deny'][0][0](broken)
+            grades = {}
+            state_root = patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state')
+            with state_root, patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
+                for label, spec in (('working', working), ('broken', broken)):
+                    manager = Manager(spec['name'])
+                    with manager.locked():
+                        try:
+                            manager.start(spec)
+                            wait_ready(manager, spec)
+                            for _ in range(3):
+                                found = {i: (ok, d) for i, ok, d in missions.run_real(manager, 'panne-pare-feu')['results']}
+                                if label == 'broken' or all(ok for ok, _ in found.values()):
+                                    break
+                            grades[label] = [ok for _, (ok, _) in sorted(found.items())]
+                        finally:
+                            manager.stop()
+            print('\nPanne pare-feu probes:', json.dumps(grades), flush=True)
+            self.assertEqual(grades['working'], [True, True])
+            self.assertEqual(grades['broken'], [True, False])
+

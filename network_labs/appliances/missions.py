@@ -143,6 +143,10 @@ BY_ID = {mission['id']: mission for mission in MISSIONS}
 
 
 def mission(mission_id):
+    if isinstance(mission_id, str) and mission_id.startswith('panne-'):
+        from .faults import LABS, mission_for
+        if mission_id[len('panne-'):] in LABS:
+            return mission_for(mission_id[len('panne-'):])
     if mission_id not in BY_ID:
         raise ValueError('Mission inconnue : ' + str(mission_id))
     return BY_ID[mission_id]

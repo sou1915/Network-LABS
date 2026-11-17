@@ -113,6 +113,16 @@ firewall policy: DNAT, then first matching rule, then the default). **Tester sur
 sends the mission's pings from the running guests (one sudo-confirmed request) and grades what
 the network did. Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
 
+**Troubleshooting mode (Mode panne).** Three working labs (two routed sites, two VLAN
+switches, a NAT firewall) each get one hidden fault drawn at random from ten
+(`appliances/faults.py`): a missing route, a wrong router address, a wrong host gateway, a
+port in the wrong VLAN, a trunk without its VLAN, a removed or denied firewall policy, a
+removed Virtual IP. Only the user's symptom is shown; hints end with the solution. Grading
+checks the repair (by behaviour for firewall policies) without naming the fault before it is
+repaired, and runs each lab's health probes on the running guests. Real-KVM tested: the
+firewall lab's probes hold on the working lab and the inbound-deny fault fails the
+publication probe.
+
 **Device pages.** The GUI tab opens with a device header (drawing, name, brand · model, role,
 status, port count, runtime, CLI syntax). The browser management page (**Gestion web**) shows
 a product header, a front panel with every model port (declared ports with link LED, details

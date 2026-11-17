@@ -781,9 +781,13 @@ class ApplianceWindow:
         import os
         self.mission_kernel=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_KERNEL',''))
         self.mission_disk=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_DISK',''))
-        side=tk.Frame(parent,bg=BG,width=250)
-        side.pack(side='left',fill='y',padx=(10,6),pady=10)
-        side.pack_propagate(False)
+        column=tk.Frame(parent,bg=BG,width=262)
+        column.pack(side='left',fill='y',padx=(10,6),pady=10)
+        column.pack_propagate(False)
+        listing=ScrollPanel(column,BG)  # missions and panne labs scroll; the campus button stays below
+        listing.canvas.configure(bd=0,relief='flat')
+        listing.scroll.configure(style='Native.Vertical.TScrollbar')
+        side=listing.inner
         self.label(side,'Missions guidées',TEXT,13,True).pack(anchor='w',pady=(4,2))
         intro='Chaque mission part d’un lab réel ; la note vient de votre configuration et de pings réels.'
         self.label(side,intro,MUTED,8).pack(anchor='w',pady=(0,8))
@@ -800,8 +804,25 @@ class ApplianceWindow:
             for widget in (card,title,meta):
                 widget.bind('<Button-1>',lambda event,m=item['id']:self.select_mission(m))
             self.mission_cards[item['id']]=card
-        campus=ttk.Button(side,text='Autre scénario : campus entreprise…',command=self.new_campus,style='Native.TButton')
+        from .faults import LABS
+        self.panne=None
+        self.label(side,'Mode panne',TEXT,11,True).pack(anchor='w',pady=(12,2))
+        self.label(side,'Un lab qui marche, une panne cachée tirée au hasard : trouver et réparer.',MUTED,8).pack(anchor='w',pady=(0,4))
+        side.winfo_children()[-1].configure(wraplength=235)
+        for key,item in LABS.items():
+            card=tk.Frame(side,bg='#fff8ef',highlightthickness=2,highlightbackground='#f1dfc6',cursor='hand2')
+            card.pack(fill='x',pady=3)
+            title=tk.Label(card,text='🛠 '+item['title'],bg='#fff8ef',fg=TEXT,font=(self.font,10,'bold'),anchor='w')
+            title.pack(fill='x',padx=10,pady=(6,0))
+            meta=tk.Label(card,text=item['vendors'],bg='#fff8ef',fg=MUTED,font=(self.font,8),anchor='w')
+            meta.pack(fill='x',padx=10,pady=(0,6))
+            for widget in (card,title,meta):
+                widget.bind('<Button-1>',lambda event,m='panne-'+key:self.select_mission(m))
+            self.mission_cards['panne-'+key]=card
+
+        campus=ttk.Button(column,text='Autre scénario : campus entreprise…',command=self.new_campus,style='Native.TButton')
         campus.pack(fill='x',side='bottom',pady=6)
+        listing.pack(fill='both',expand=True)
         frame=tk.Frame(parent,bg='white',highlightthickness=1,highlightbackground='#dfe7ef')
         frame.pack(side='left',fill='both',expand=True,padx=(0,10),pady=10)
         scroll=ScrollPanel(frame,'white')
@@ -850,16 +871,35 @@ class ApplianceWindow:
 
     def select_mission(self,mission_id):
         from .missions import mission
+        if mission_id.startswith('panne-'):
+            return self.select_panne(mission_id)
         item=mission(mission_id)
         if mission_id!=self.mission_current:
             self.mission_real={}
             self.mission_hints_shown=0
         self.mission_current=mission_id
         for key,card in self.mission_cards.items():
-            card.configure(highlightbackground=BLUE if key==mission_id else '#dfe7ef')
+            card.configure(highlightbackground=BLUE if key==mission_id else '#f1dfc6' if key.startswith('panne-') else '#dfe7ef')
         self.mission_title.set(item['title'])
         self.mission_meta.set(f"{item['level']} · {item['kind']} · {item['vendors']}")
         self.mission_story.set(item['story'])
+        self.show_mission_results()
+
+    def select_panne(self,mission_id):
+        from .faults import LABS
+        key=mission_id[len('panne-'):]
+        if mission_id!=self.mission_current:
+            self.mission_real={}
+            self.mission_hints_shown=0
+        self.mission_current=mission_id
+        for name,card in self.mission_cards.items():
+            card.configure(highlightbackground=BLUE if name==mission_id else '#f1dfc6' if name.startswith('panne-') else '#dfe7ef')
+        self.mission_title.set('Panne mystère · '+LABS[key]['title'])
+        self.mission_meta.set('Dépannage · '+LABS[key]['vendors'])
+        loaded=self.panne and self.panne['lab']==key and self.mission_lab_loaded()
+        self.mission_story.set(('Ticket utilisateur : « '+self.panne['symptom']+' » Trouver la cause avec les commandes show, '
+                                'le relevé de l’état réel et les pings, puis la corriger.') if loaded else
+                               'Une panne tirée au hasard sera introduite dans un lab qui fonctionne. Seul le symptôme est donné.')
         self.show_mission_results()
 
     def mission_lab_loaded(self):
@@ -880,12 +920,19 @@ class ApplianceWindow:
             self.mission_status.set('Indiquer le noyau et le disque des micro-VM (les mêmes que pour un lab micro-VM).')
             return False
         try:
-            self.load_spec(mission(self.mission_current)['build'](kernel,disk))
+            if self.mission_current.startswith('panne-'):
+                from .faults import create
+                self.panne=create(self.mission_current[len('panne-'):],kernel,disk)
+                self.load_spec(self.panne['spec'])
+            else:
+                self.load_spec(mission(self.mission_current)['build'](kernel,disk))
         except (ValueError,TypeError,KeyError) as error:
             self.mission_status.set(str(error))
             return False
         self.mission_real={}
         self.mission_hints_shown=0
+        if self.mission_current.startswith('panne-'):
+            self.select_panne(self.mission_current)
         self.show_mission_results()
         self.mission_status.set('Lab de la mission chargé. Configurer les équipements (GUI, CLI, Gestion web), puis vérifier.')
         self.record_event('mission','Mission chargée : '+self.mission_current)
@@ -912,7 +959,14 @@ class ApplianceWindow:
 
     def mission_hint(self):
         from .missions import mission
-        hints=mission(self.mission_current)['hints']
+        if self.mission_current.startswith('panne-'):
+            if not (self.panne and self.mission_lab_loaded()):
+                self.mission_status.set('Charger d’abord une panne.')
+                return
+            hints=['Démarrer le lab, puis comparer chaque équipement à son projet (Gestion web › Relever l’état réel) '
+                   'et lire show ip route / show vlan brief.', 'Solution : '+self.panne['answer']]
+        else:
+            hints=mission(self.mission_current)['hints']
         self.mission_hints_shown=min(len(hints),self.mission_hints_shown+1)
         self.mission_status.set('Indice : '+' · '.join(hints[:self.mission_hints_shown]))
 
@@ -921,12 +975,21 @@ class ApplianceWindow:
         for child in self.mission_rows.winfo_children():
             child.destroy()
         loaded=self.mission_lab_loaded()
-        if loaded:
+        panne=self.mission_current.startswith('panne-')
+        if panne and not (self.panne and 'panne-'+self.panne['lab']==self.mission_current):
+            loaded=False
+        if loaded and panne:
+            from .faults import grade as grade_panne
+            result=grade_panne(self.manifest(),self.panne,self.mission_real)
+            rows=result['results']
+        elif loaded:
             result=grade(self.manifest(),self.mission_current,self.mission_real)
             rows=result['results']
         else:
             rows=[{'text':c['text'],'kind':'réel' if c['kind']=='reach' else 'configuration','status':'idle','detail':''}
                   for c in mission(self.mission_current)['checks']]
+            if panne:
+                rows.insert(0,{'text':'La panne est réparée','kind':'configuration','status':'idle','detail':''})
             result={'passed':0,'total':len(rows),'solved':False}
         marks={'ok':('✔','#168942'),'fail':('✖','#bb3646'),'pending':('○','#8b9cae'),'idle':('·','#8b9cae')}
         for row in rows:
