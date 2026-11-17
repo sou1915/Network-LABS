@@ -359,9 +359,35 @@ def grade(spec, mission_id, real=None):
             'solved': passed == len(results)}
 
 
-def run_real(manager, mission_id):
-    """Send the mission's pings from the running guests: [[index, ok, detail], ...] (caller holds the lab lock)."""
-    current = mission(mission_id)
+MAX_PROBES = 12
+
+
+def encode_probes(checks):
+    """'SOURCE>ADDRESS>1;...' for the privileged request: the pings a generated scenario expects to work (1) or fail (0)."""
+    return ';'.join(f"{c['source']}>{c['destination']}>{int(bool(c['expect']))}" for c in checks)
+
+
+def decode_probes(text):
+    """The reach checks of encode_probes(), validated: identifiers, IPv4 addresses, at most MAX_PROBES."""
+    from .spec import identifier
+    if not isinstance(text, str) or len(text) > 1024:
+        raise ValueError('Invalid mission probes.')
+    checks = []
+    for item in text.split(';'):
+        source, address, expect = item.split('>')
+        if expect not in ('0', '1'):
+            raise ValueError('Invalid mission probe expectation.')
+        checks.append({'kind': 'reach', 'source': identifier(source), 'destination': str(ipaddress.IPv4Address(address)),
+                       'expect': expect == '1', 'text': ''})
+    if not 1 <= len(checks) <= MAX_PROBES:
+        raise ValueError('A mission has 1..12 probes.')
+    return checks
+
+
+def run_real(manager, mission_id, probes=None):
+    """Send the mission's pings from the running guests: [[index, ok, detail], ...] (caller holds the lab lock).
+    PROBES (encode_probes text) replaces the catalogue's checks for a scenario generated on the student's machine."""
+    current = {'checks': decode_probes(probes)} if probes is not None else mission(mission_id)
     found = []
     for index, check in enumerate(current['checks']):
         if check['kind'] == 'ospf-neighbor':

@@ -91,6 +91,75 @@ class ScenarioTest(unittest.TestCase):
         self.assertEqual(scenarios.grade(fixed, item)['results'][0]['status'], 'ok')
 
 
+class UniqueTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from unittest import mock
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        patcher = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': self.folder.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_never_the_same_scenario_twice_and_a_code_rebuilds_it(self):
+        from network_labs.appliances import progress
+        codes = set()
+        for _ in range(60):
+            item = scenarios.unique(K, D, progress.seen())
+            self.assertNotIn(scenarios.fingerprint(item), progress.seen())
+            progress.remember_seen(scenarios.fingerprint(item))
+            codes.add(item['code'])
+            self.assertRegex(item['code'], r'^NL-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$')
+            self.assertEqual(validate(copy.deepcopy(item['spec']))['name'], item['id'])
+        self.assertEqual(len(codes), 60)
+        self.assertEqual(len(progress.seen()), 60)
+        again = scenarios.unique(K, D, seed=item['code'].lower())
+        self.assertEqual(scenarios.fingerprint(again), scenarios.fingerprint(item))
+        seed = scenarios.seed_of(item['code'])
+        self.assertEqual(scenarios.code(seed), item['code'])
+        self.assertGreater(seed, scenarios.COUNT)  # never a catalogue number
+        with self.assertRaises(ValueError):
+            scenarios.seed_of('NL-12')
+
+    def test_keep_list_reopen_with_new_paths_and_delete(self):
+        item = scenarios.unique(K, D)
+        key = scenarios.save(item)
+        self.assertEqual(key, item['code'])
+        listed = scenarios.saved()
+        self.assertEqual([r['key'] for r in listed], [key])
+        path = scenarios.saved_folder() / (key + '.json')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        back = scenarios.load_saved(key, '/other/vmlinux', '/other/disk.ext4')
+        self.assertEqual({n['kernel'] for n in back['spec']['nodes']}, {'/other/vmlinux'})
+        self.assertEqual((back['probes'], back['expected'], back['fault']), (item['probes'], item['expected'], item['fault']))
+        self.assertEqual(scenarios.grade(back['original'], back)['results'][0]['status'], 'ok')
+        catalogue = scenarios.scenario(7)
+        self.assertEqual(scenarios.save(catalogue), 'scenario-0007')
+        self.assertEqual(scenarios.load_saved('scenario-0007', K, D)['number'], 7)
+        scenarios.delete_saved(key)
+        self.assertEqual([r['key'] for r in scenarios.saved()], ['scenario-0007'])
+        with self.assertRaises(ValueError):
+            scenarios.load_saved('../progress', K, D)
+
+    def test_the_real_test_request_carries_the_scenarios_own_pings(self):
+        from unittest import mock
+        from network_labs.appliances.ui_bridge import validate_request
+        item = scenarios.unique(K, D)
+        text = missions.encode_probes(scenarios.checks_for(item))
+        self.assertEqual([(c['source'], c['destination'], c['expect']) for c in missions.decode_probes(text)],
+                         [(s, d, e) for (s, d), e in zip(item['probes'], item['expected'])])
+        envelope = {'id': '0' * 32, 'owner_uid': os.geteuid(), 'action': 'mission', 'target': item['id'], 'lab': item['id'],
+                    'node': item['id'], 'destination': text}
+        self.assertEqual(validate_request(envelope)['destination'], text)
+        for bad in ('PC>10.0.0.1>2', 'PC;id>10.0.0.1>1', 'PC>x>1', ';'.join(['PC>10.0.0.1>1'] * 13)):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_request(dict(envelope, destination=bad))
+        manager = mock.Mock()
+        manager.ping_node.return_value = {'replies': [{'ok': True}] * 3}
+        found = missions.run_real(manager, item['id'], text)['results']
+        self.assertEqual([ok for _, ok, _ in found], item['expected'])
+
+
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
 class WorkbenchTest(unittest.TestCase):
     def test_load_help_and_grade_a_scenario(self):
@@ -114,6 +183,18 @@ class WorkbenchTest(unittest.TestCase):
             self.assertEqual(window.mission_help_button.cget('text'), 'Un peu d’aide (2/5)')
             window.commit_edit(window.scenario['original'])
             self.assertEqual(window.show_mission_results()['results'][0]['status'], 'ok')
+            window.new_unique_scenario()
+            first = window.scenario['code']
+            self.assertEqual(window.manifest()['name'], window.scenario['id'])
+            key = window.keep_scenario()
+            self.assertEqual(key, first)
+            window.new_unique_scenario()
+            self.assertNotEqual(window.scenario['code'], first)
+            window.saved_choice.set(next(v for v in window.saved_box.cget('values') if v.startswith(first)))
+            self.assertTrue(window.open_saved_scenario())
+            self.assertEqual((window.scenario['key'], window.manifest()['name']), (first, window.scenario['id']))
+            self.assertTrue(window.mission_lab_loaded())
+            self.assertIn('gardé', window.mission_meta.get())
         finally:
             root.destroy()
             tearDownModule()

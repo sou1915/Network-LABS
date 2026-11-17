@@ -19,12 +19,13 @@ def load():
     try:
         data = json.loads(path().read_text())
     except (OSError, ValueError):
-        return {'missions': {}, 'paths': {}}
+        return {'missions': {}, 'paths': {}, 'seen': []}
     if not isinstance(data, dict):
-        return {'missions': {}, 'paths': {}}
+        return {'missions': {}, 'paths': {}, 'seen': []}
     missions = data.get('missions') if isinstance(data.get('missions'), dict) else {}
     paths = data.get('paths') if isinstance(data.get('paths'), dict) else {}
-    return {'missions': missions, 'paths': {k: v for k, v in paths.items() if isinstance(v, str)}}
+    seen = [v for v in data.get('seen', []) if isinstance(v, str)] if isinstance(data.get('seen'), list) else []
+    return {'missions': missions, 'paths': {k: v for k, v in paths.items() if isinstance(v, str)}, 'seen': seen}
 
 
 def _save(data):
@@ -66,3 +67,21 @@ def remember_paths(kernel, disk):
         _save(data)
     except OSError:
         pass
+
+
+MAX_SEEN = 50000
+
+
+def seen():
+    """Fingerprints of every scenario this student has been given (generated scenarios never repeat)."""
+    return set(load()['seen'])
+
+
+def remember_seen(fingerprint):
+    data = load()
+    if fingerprint not in data['seen']:
+        data['seen'] = (data['seen'] + [fingerprint])[-MAX_SEEN:]
+        try:
+            _save(data)
+        except OSError:
+            pass

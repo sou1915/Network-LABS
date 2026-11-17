@@ -80,6 +80,9 @@ def backend(action,target,node=None,destination=None):
         identifier(destination)
     elif action in ('ping','trace'):
         ipaddress.IPv4Address(destination)
+    elif action=='mission' and destination is not None:
+        from .missions import decode_probes
+        decode_probes(destination)  # a generated scenario's own pings
     elif destination is not None:
         raise ValueError('Unexpected destination argument.')
     spec=load(target) if action in ('start','firewall') else None
@@ -109,7 +112,7 @@ def backend(action,target,node=None,destination=None):
         elif action=='mission':
             # NODE carries the mission id: its pings run from the running guests of this lab.
             from .missions import run_real
-            data=run_real(manager,node)
+            data=run_real(manager,node,destination)
         elif action=='firewall':
             data=firewall_result
         elif action=='verify':
@@ -142,6 +145,9 @@ def validate_request(request):
         if not isinstance(request['destination'],str):
             raise ValueError('Ping requires an IPv4 destination.')
         ipaddress.IPv4Address(request['destination'])
+    elif action=='mission' and request['destination'] is not None:
+        from .missions import decode_probes
+        decode_probes(request['destination'])
     elif request['destination'] is not None:
         raise ValueError('Unexpected destination argument.')
     return request

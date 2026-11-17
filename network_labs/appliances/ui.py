@@ -928,6 +928,8 @@ class ApplianceWindow:
             return self.select_panne(mission_id)
         if mission_id.startswith('scenario-'):
             return self.select_scenario(int(mission_id[len('scenario-'):]))
+        if mission_id.startswith('gen-') and self.scenario and self.scenario['id']==mission_id:
+            return self.show_scenario(self.scenario)
         self.mission_help_button.configure(text='Indice')
         self.mission_help_box.pack_forget()
         item=mission(mission_id)
@@ -969,17 +971,36 @@ class ApplianceWindow:
         self.scenario_number=tk.IntVar(value=1)
         card=tk.Frame(side,bg='#f2f0ff',highlightthickness=2,highlightbackground='#d9d2f5')
         card.pack(fill='x',pady=(8,3))
-        tk.Label(card,text=f'🎲 Scénarios générés · {COUNT} réseaux',bg='#f2f0ff',fg=TEXT,font=(self.font,10,'bold'),
+        tk.Label(card,text='🎲 Scénarios générés',bg='#f2f0ff',fg=TEXT,font=(self.font,10,'bold'),
                  anchor='w').pack(fill='x',padx=10,pady=(6,0))
-        note=tk.Label(card,text='Un réseau et une panne au hasard, sans indice : l’aide se demande pas à pas.',bg='#f2f0ff',
-                      fg=MUTED,font=(self.font,8),anchor='w',justify='left',wraplength=215)
+        note=tk.Label(card,text=f'Un réseau, une panne cachée, aucun indice : l’aide se demande pas à pas. Catalogue de {COUNT} '
+                                'numéros, ou un scénario neuf jamais vu.',bg='#f2f0ff',fg=MUTED,font=(self.font,8),anchor='w',
+                      justify='left',wraplength=215)
         note.pack(fill='x',padx=10)
-        row=tk.Frame(card,bg='#f2f0ff')
-        row.pack(fill='x',padx=10,pady=6)
-        ttk.Spinbox(row,from_=1,to=COUNT,textvariable=self.scenario_number,width=6).pack(side='left')
-        ttk.Button(row,text='Ouvrir',style='Native.TButton',
-                   command=lambda:self.select_scenario(self.scenario_number.get())).pack(side='left',padx=4)
-        ttk.Button(row,text='Au hasard',style='Native.TButton',command=self.random_scenario).pack(side='left')
+        grid=tk.Frame(card,bg='#f2f0ff')
+        grid.pack(fill='x',padx=10,pady=6)
+        grid.columnconfigure((0,1),weight=1,uniform='scenario')
+        ttk.Spinbox(grid,from_=1,to=COUNT,textvariable=self.scenario_number,width=6).grid(row=0,column=0,sticky='ew',padx=(0,3))
+        ttk.Button(grid,text='Ouvrir le n°',style='Native.TButton',
+                   command=lambda:self.select_scenario(self.scenario_number.get())).grid(row=0,column=1,sticky='ew')
+        ttk.Button(grid,text='Au hasard',style='Native.TButton',command=self.random_scenario).grid(row=1,column=0,sticky='ew',
+                                                                                                padx=(0,3),pady=(3,0))
+        ttk.Button(grid,text='✨ Nouveau',style='Native.Primary.TButton',command=self.new_unique_scenario).grid(
+            row=1,column=1,sticky='ew',pady=(3,0))
+        ttk.Button(grid,text='★ Garder ce scénario',style='Native.TButton',command=self.keep_scenario).grid(
+            row=2,column=0,columnspan=2,sticky='ew',pady=(3,0))
+        tk.Label(card,text='Mes scénarios gardés',bg='#f2f0ff',fg=MUTED,font=(self.font,8,'bold'),anchor='w').pack(fill='x',padx=10)
+        kept=tk.Frame(card,bg='#f2f0ff')
+        kept.pack(fill='x',padx=10,pady=(2,4))
+        kept.columnconfigure(0,weight=1)
+        self.saved_choice=tk.StringVar()
+        self.saved_box=ttk.Combobox(kept,textvariable=self.saved_choice,state='readonly',width=22)
+        self.saved_box.grid(row=0,column=0,columnspan=2,sticky='ew')
+        ttk.Button(kept,text='Ouvrir',style='Native.TButton',command=self.open_saved_scenario).grid(row=1,column=0,sticky='ew',
+                                                                                                    pady=(3,0),padx=(0,3))
+        ttk.Button(kept,text='Supprimer',style='Native.TButton',command=self.delete_saved_scenario).grid(row=1,column=1,sticky='ew',
+                                                                                                         pady=(3,0))
+        self.refresh_saved_scenarios()
         self.scenario_solved=tk.StringVar()
         tk.Label(card,textvariable=self.scenario_solved,bg='#f2f0ff',fg='#168942',font=(self.font,8,'bold'),
                  anchor='w').pack(fill='x',padx=10,pady=(0,6))
@@ -989,7 +1010,7 @@ class ApplianceWindow:
         """The help asked for so far, in a box under the buttons (hidden while there is none)."""
         text='\n'.join(f'Aide {i} : {line}' for i,line in enumerate(self.scenario_help,1))
         self.mission_help.set(text)
-        if text and self.mission_current.startswith('scenario-'):
+        if text and self.is_scenario():
             self.mission_help_box.pack(fill='x',padx=18,pady=(0,6),before=self.mission_help_anchor)
         else:
             self.mission_help_box.pack_forget()
@@ -1021,11 +1042,22 @@ class ApplianceWindow:
         for key,card in self.mission_cards.items():
             card.configure(highlightbackground=BLUE if key=='scenarios' else '#f1dfc6' if key.startswith('panne-') else '#dfe7ef')
         loaded=self.scenario and self.scenario['id']==mission_id and self.mission_lab_loaded()
-        item=self.scenario if loaded else scenario(number)
+        self.show_scenario(self.scenario if loaded else scenario(number),loaded)
+
+    def is_scenario(self):
+        return self.mission_current.startswith(('scenario-','gen-'))
+
+    def show_scenario(self,item,loaded=True):
+        """Title, ticket and requirements of a catalogue, generated or saved scenario."""
+        from .scenarios import FAMILY_TITLES,HELP_STEPS
+        for key,card in self.mission_cards.items():
+            card.configure(highlightbackground=BLUE if key=='scenarios' else '#f1dfc6' if key.startswith('panne-') else '#dfe7ef')
         needs={'ospf':'image micro-VM avec BIRD (--with-routing)','802.1q':'noyau Network LABS (802.1Q)',
                'firewall':'image micro-VM avec iptables (--with-firewall)'}
-        self.mission_title.set(f'Scénario n° {number} · {FAMILY_TITLES[item["family"]]}')
-        self.mission_meta.set(f'Dépannage · {item["detail"]} · {len(item["spec"]["nodes"])} équipements')
+        name=f'n° {item["number"]}' if item.get('number') else item.get('code') or item.get('key') or item['id']
+        self.mission_title.set(f'Scénario {name} · {FAMILY_TITLES[item["family"]]}')
+        kept=' · ★ gardé' if (item.get('key') or item.get('code') or item['id']) in {r['key'] for r in self.saved_records} else ''
+        self.mission_meta.set(f'Dépannage · {item["detail"]} · {len(item["spec"]["nodes"])} équipements{kept}')
         required=(' Nécessite : '+', '.join(needs[n] for n in item['needs'])+'.') if item['needs'] else ''
         self.mission_story.set(('Ticket utilisateur : '+item['ticket']+' Aucun indice : enquêter avec show, ping, Suivre un paquet et '
                                 'le relevé de l’état réel, puis réparer.'+required) if loaded else
@@ -1034,11 +1066,112 @@ class ApplianceWindow:
         self.show_scenario_help()
         self.show_mission_results()
 
+    def scenario_paths(self):
+        kernel,disk=self.mission_kernel.get().strip(),self.mission_disk.get().strip()
+        if not kernel or not disk:
+            self.mission_status.set('Indiquer le noyau et le disque des micro-VM (les mêmes que pour un lab micro-VM).')
+            return None
+        from . import progress
+        progress.remember_paths(kernel,disk)
+        return kernel,disk
+
+    def open_scenario(self,item):
+        """Load ITEM (catalogue, newly generated or saved) as the lab, in a tree layout, and remember it was seen."""
+        from . import progress
+        from .scenarios import fingerprint
+        from .workspace_art import tree_layout
+        if self.pending:
+            return False
+        self.scenario=item
+        self.mission_current=item['id']
+        self.mission_real={}
+        self.mission_hints_shown=0
+        self.scenario_help=[]
+        progress.remember_seen(fingerprint(item))
+        self.load_spec(item['spec'])
+        graph=public_topology(item['spec'])
+        self.positions=tree_layout(graph,access_vlans(graph,item['spec']))  # sites side by side, LANs under their router
+        widest=max(x for x,_ in self.positions.values())+90
+        self.zoom=max(.65,min(1.,max(600,self.canvas.winfo_width())/widest))  # the whole network in view
+        self.draw(graph)
+        self.show_scenario(item)
+        self.mission_status.set('Scénario chargé. Enquêter, réparer, puis vérifier.')
+        self.record_event('mission','Scénario chargé : '+item['id'])
+        return True
+
+    def new_unique_scenario(self):
+        """A network and a fault this student has never been given."""
+        from . import progress
+        from .scenarios import unique
+        paths=self.scenario_paths()
+        if paths is None:
+            return False
+        try:
+            item=unique(*paths,seen=progress.seen())
+        except ValueError as error:
+            self.mission_status.set(str(error))
+            return False
+        self.tabs.select(self.missions_tab)
+        return self.open_scenario(item)
+
+    def keep_scenario(self):
+        from .scenarios import save
+        if not (self.is_scenario() and self.scenario and self.scenario['id']==self.mission_current):
+            self.mission_status.set('Charger d’abord un scénario à garder.')
+            return None
+        key=save(self.scenario)
+        self.scenario['key']=key
+        self.refresh_saved_scenarios()
+        self.show_scenario(self.scenario,self.mission_lab_loaded())
+        self.mission_status.set(f'Scénario gardé : {key}. Il revient à l’identique depuis « Mes scénarios gardés ».')
+        return key
+
+    def refresh_saved_scenarios(self):
+        from .scenarios import saved
+        self.saved_records=saved()
+        self.saved_box.configure(values=[f'{r["key"]} · {r["title"]} · {r["saved"]}' for r in self.saved_records])
+        if not self.saved_records:
+            self.saved_choice.set('')
+        elif not self.saved_choice.get():
+            self.saved_box.current(0)
+
+    def chosen_saved(self):
+        choice=self.saved_choice.get().split(' · ')[0]
+        if not choice:
+            self.mission_status.set('Aucun scénario gardé choisi.')
+        return choice or None
+
+    def open_saved_scenario(self):
+        from .scenarios import load_saved
+        key=self.chosen_saved()
+        paths=self.scenario_paths() if key else None
+        if paths is None:
+            return False
+        try:
+            item=load_saved(key,*paths)
+        except (ValueError,KeyError) as error:
+            self.mission_status.set(str(error))
+            return False
+        item['key']=key
+        self.tabs.select(self.missions_tab)
+        return self.open_scenario(item)
+
+    def delete_saved_scenario(self):
+        from .scenarios import delete_saved
+        key=self.chosen_saved()
+        if key:
+            delete_saved(key)
+            self.saved_choice.set('')
+            self.refresh_saved_scenarios()
+            self.mission_status.set(f'Scénario {key} retiré de la liste.')
+
     def mission_lab_loaded(self):
         from .missions import mission
         if not hasattr(self,'editor'):
             return False  # called while the window is still being built
         try:
+            if self.mission_current.startswith('gen-') or (self.is_scenario() and self.scenario and self.scenario.get('key')):
+                return bool(self.scenario) and self.manifest()['name']==self.scenario['spec']['name']
             return self.manifest()['name']==mission(self.mission_current)['lab']
         except (ValueError,TypeError,KeyError):
             return False
@@ -1058,16 +1191,16 @@ class ApplianceWindow:
                 from .faults import create
                 self.panne=create(self.mission_current[len('panne-'):],kernel,disk)
                 self.load_spec(self.panne['spec'])
-            elif self.mission_current.startswith('scenario-'):
-                from .scenarios import scenario
-                self.scenario=scenario(int(self.mission_current[len('scenario-'):]),kernel,disk)
-                self.load_spec(self.scenario['spec'])
-                from .workspace_art import tree_layout
-                graph=public_topology(self.scenario['spec'])
-                self.positions=tree_layout(graph,access_vlans(graph,self.scenario['spec']))  # sites side by side, LANs under their router
-                widest=max(x for x,_ in self.positions.values())+90
-                self.zoom=max(.65,min(1.,max(600,self.canvas.winfo_width())/widest))  # the whole network in view
-                self.draw(public_topology(self.scenario['spec']))
+            elif self.is_scenario():
+                from .scenarios import load_saved,scenario,unique
+                current=self.scenario if self.scenario and self.scenario['id']==self.mission_current else None
+                if current and current.get('key'):
+                    item=dict(load_saved(current['key'],kernel,disk),key=current['key'])  # back to the saved start
+                elif current and current.get('code'):
+                    item=unique(kernel,disk,seed=current['code'])
+                else:
+                    item=scenario(int(self.mission_current[len('scenario-'):]),kernel,disk)
+                return self.open_scenario(item)
             else:
                 self.load_spec(mission(self.mission_current)['build'](kernel,disk))
         except (ValueError,TypeError,KeyError) as error:
@@ -1078,8 +1211,6 @@ class ApplianceWindow:
         self.scenario_help=[]
         if self.mission_current.startswith('panne-'):
             self.select_panne(self.mission_current)
-        if self.mission_current.startswith('scenario-'):
-            self.select_scenario(int(self.mission_current[len('scenario-'):]))
         self.show_mission_results()
         self.mission_status.set('Lab de la mission chargé. Configurer les équipements (GUI, CLI, Gestion web), puis vérifier.')
         self.record_event('mission','Mission chargée : '+self.mission_current)
@@ -1116,8 +1247,8 @@ class ApplianceWindow:
         self.mission_progress.set(f'Progression : {solved} / {len(self.mission_badges)} réussies')
         if hasattr(self,'scenario_solved'):
             from .scenarios import COUNT
-            count=sum(1 for k,v in saved.items() if k.startswith('scenario-') and isinstance(v,dict) and v.get('solved'))
-            self.scenario_solved.set(f'{count} / {COUNT} scénarios réussis' if count else '')
+            count=sum(1 for k,v in saved.items() if k.startswith(('scenario-','gen-')) and isinstance(v,dict) and v.get('solved'))
+            self.scenario_solved.set(f'{count} scénario{"s" if count>1 else ""} réussi{"s" if count>1 else ""}' if count else '')
 
     def test_mission(self):
         if not self.mission_lab_loaded():
@@ -1133,7 +1264,7 @@ class ApplianceWindow:
 
     def mission_hint(self):
         from .missions import mission
-        if self.mission_current.startswith('scenario-'):
+        if self.is_scenario():
             from .scenarios import HELP_STEPS,help_step
             if not (self.scenario and self.scenario['id']==self.mission_current and self.mission_lab_loaded()):
                 self.mission_status.set('Charger d’abord le scénario.')
@@ -1165,7 +1296,7 @@ class ApplianceWindow:
         panne=self.mission_current.startswith('panne-')
         if panne and not (self.panne and 'panne-'+self.panne['lab']==self.mission_current):
             loaded=False
-        generated=self.mission_current.startswith('scenario-')
+        generated=self.is_scenario()
         if generated and not (self.scenario and self.scenario['id']==self.mission_current):
             loaded=False
         if loaded and generated:
@@ -1180,8 +1311,11 @@ class ApplianceWindow:
             result=grade(self.manifest(),self.mission_current,self.mission_real)
             rows=result['results']
         else:
+            from .scenarios import checks_for
+            checks=(checks_for(self.scenario) if self.mission_current.startswith('gen-') and self.scenario
+                    else mission(self.mission_current)['checks'])
             rows=[{'text':c['text'],'kind':'réel' if c['kind'] in REAL_KINDS else 'configuration','status':'idle','detail':''}
-                  for c in mission(self.mission_current)['checks']]
+                  for c in checks]
             if panne or generated:
                 rows.insert(0,{'text':'La panne est réparée','kind':'configuration','status':'idle','detail':''})
             result={'passed':0,'total':len(rows),'solved':False}
@@ -1747,6 +1881,11 @@ class ApplianceWindow:
                 node=self.mission_current  # the bridge's node field carries the mission id
             destination={'verify':self.destination.get(),'ping':getattr(self,'vendor_ping_destination',None),
                          'trace':self.trace_destination.get().strip() if hasattr(self,'trace_destination') else None}.get(action)
+            if action=='mission' and self.is_scenario() and self.scenario and (self.mission_current.startswith('gen-')
+                                                                               or self.scenario.get('key')):
+                from .missions import encode_probes
+                from .scenarios import checks_for
+                destination=encode_probes(checks_for(self.scenario))  # pings of a scenario only this machine knows
             request=validate_request({'id':uuid.uuid4().hex,'owner_uid':os.geteuid(),'action':action,'target':target,'lab':lab,'node':node,
                                       'destination':destination})
             path=Path(directory.name)/'request.json';private_json(path,request)

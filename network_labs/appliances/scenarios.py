@@ -39,8 +39,9 @@ def _ports(count):
 class _Plan:
     """A lab being drawn: nodes, cables, an address plan and the routers' transit links."""
 
-    def __init__(self, rng, kernel, disk, number):
+    def __init__(self, rng, kernel, disk, number, name=None):
         self.rng, self.number = rng, number
+        self.name = name or f'scenario-{number:04d}'
         self.base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()),
                      'memory_mib': 64, 'vcpus': 1}
         self.nodes, self.links, self.transits, self.lans = [], [], [], {}
@@ -145,7 +146,7 @@ class _Plan:
                 self.find(name)['guest_network'] = {'addresses': [], 'routes': sorted(wanted, key=lambda r: r['network'])}
 
     def spec(self, title):
-        return {'version': 1, 'name': f'scenario-{self.number:04d}', 'budget_mib': 2048, 'reserve_mib': 512,
+        return {'version': 1, 'name': self.name, 'budget_mib': 2048, 'reserve_mib': 512,
                 'nodes': self.nodes, 'links': self.links, 'title': title}
 
 
@@ -527,14 +528,12 @@ def _names(spec):
     return {ipaddress.IPv4Interface(a).ip: n['name'] for n in spec['nodes'] for a in n['interfaces'].values() if a}
 
 
-def scenario(number, kernel='/assets/vmlinux', disk='/assets/guest.ext4'):
-    """Scenario NUMBER (1..COUNT): {number, title, family, needs, spec, original, probes, expected, fault, ticket}."""
-    if type(number) is not int or not 1 <= number <= COUNT:
-        raise ValueError(f'Scénario 1 à {COUNT}.')
+def _generate(seed, name, kernel, disk):
+    """The scenario drawn from SEED, as lab NAME; ValueError if no observable fault comes out."""
     for attempt in range(40):
-        rng = random.Random(number * 1009 + attempt)
-        family = FAMILIES[(number + attempt) % len(FAMILIES)]
-        plan = _Plan(rng, kernel, disk, number)
+        rng = random.Random(seed * 1009 + attempt)
+        family = FAMILIES[(seed + attempt) % len(FAMILIES)]
+        plan = _Plan(rng, kernel, disk, seed, name)
         detail, needs = BUILDERS[family](plan)
         title = plan.spec('')
         title.pop('title')
@@ -566,20 +565,144 @@ def scenario(number, kernel='/assets/vmlinux', disk='/assets/guest.ext4'):
             target = names.get(ipaddress.IPv4Address(destination), destination)
             ticket = (f'« {source} ne joint plus {target}. »' if expected[changed[0]] else
                       f'« {source} joint {target}, ce qui ne devrait pas être possible. »')
-            return {'number': number, 'id': f'scenario-{number:04d}', 'family': family, 'title': FAMILY_TITLES[family],
+            return {'id': name, 'family': family, 'title': FAMILY_TITLES[family],
                     'detail': detail, 'needs': needs, 'spec': broken, 'original': working, 'probes': probes,
                     'expected': expected, 'fault': dict(fault, kind=kind), 'ticket': ticket}
-    raise ValueError(f'Scénario {number} : aucune panne observable n’a pu être générée.')
+    raise ValueError(f'Scénario {name} : aucune panne observable n’a pu être générée.')
+
+
+def scenario(number, kernel='/assets/vmlinux', disk='/assets/guest.ext4'):
+    """Catalogue scenario NUMBER (1..COUNT): {number, id, title, family, needs, spec, original, probes, expected, fault, ticket}."""
+    if type(number) is not int or not 1 <= number <= COUNT:
+        raise ValueError(f'Scénario 1 à {COUNT}.')
+    return dict(_generate(number, f'scenario-{number:04d}', kernel, disk), number=number)
+
+
+# ---- unique scenarios: a random seed far outside the catalogue, never the same network twice ----
+
+ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'  # Crockford base 32: no I, L, O or U to misread
+SEED_BITS = 40
+
+
+def code(seed):
+    """'NL-XXXX-XXXX' for a 40-bit seed."""
+    text = ''.join(ALPHABET[(seed >> shift) & 31] for shift in range(SEED_BITS - 5, -1, -5))
+    return f'NL-{text[:4]}-{text[4:]}'
+
+
+def seed_of(value):
+    text = value.upper().replace('NL-', '').replace('-', '').translate(str.maketrans('ILOU', '110V'))
+    if len(text) != SEED_BITS // 5 or any(c not in ALPHABET for c in text):
+        raise ValueError('Code de scénario : NL-XXXX-XXXX.')
+    seed = 0
+    for c in text:
+        seed = seed * 32 + ALPHABET.index(c)
+    return seed
+
+
+def fingerprint(item):
+    """What makes a scenario the same for a student: its network (whatever the micro-VM paths) and its fault."""
+    import hashlib
+    import json
+    nodes = [{k: v for k, v in n.items() if k not in ('kernel', 'disk')} for n in item['spec']['nodes']]
+    text = json.dumps({'nodes': nodes, 'links': item['spec']['links'], 'fault': item['fault']['answer']}, sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()[:24]
+
+
+def unique(kernel, disk, seen=(), seed=None):
+    """A new scenario whose fingerprint is not in SEEN: {code, id, ...}. SEED (or its code) rebuilds a given one."""
+    import secrets
+    if seed is not None:
+        seed = seed_of(seed) if isinstance(seed, str) else seed
+        return dict(_generate(seed, 'gen-' + code(seed)[3:].replace('-', ''), kernel, disk), code=code(seed))
+    for _ in range(200):
+        seed = secrets.randbits(SEED_BITS) | (1 << (SEED_BITS - 1))  # never a catalogue number
+        try:
+            item = unique(kernel, disk, seed=seed)
+        except ValueError:
+            continue
+        if fingerprint(item) not in seen:
+            return item
+    raise ValueError('Aucun scénario nouveau trouvé : réessayer.')
+
+
+# ---- saved scenarios: the whole lab is kept, so it comes back the same even if the generator changes ----
+
+def saved_folder():
+    from .progress import path
+    return path().parent / 'scenarios'
+
+
+def save(item, note=''):
+    """Keep ITEM in the student's saved scenarios (private file); returns its code."""
+    import json
+    import os
+    import time
+    key = item.get('key') or item.get('code') or item['id']  # NL-XXXX-XXXX, or scenario-NNNN for the catalogue
+    folder = saved_folder()
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    record = {key2: item[key2] for key2 in ('id', 'family', 'title', 'detail', 'needs', 'spec', 'original', 'probes',
+                                            'expected', 'fault', 'ticket')}
+    record.update(key=key, note=note, saved=time.strftime('%Y-%m-%d %H:%M'), format=1,
+                  probes=[list(p) for p in item['probes']])
+    target = folder / (key + '.json')
+    temporary = target.with_suffix('.tmp')
+    temporary.write_text(json.dumps(record, ensure_ascii=False, indent=1))
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    return key
+
+
+def saved():
+    """[{key, title, detail, saved, note}] newest first; damaged files are skipped."""
+    import json
+    found = []
+    for path in saved_folder().glob('*.json') if saved_folder().is_dir() else []:
+        try:
+            record = json.loads(path.read_text())
+            found.append({k: record[k] for k in ('key', 'title', 'detail', 'saved')} | {'note': record.get('note', '')})
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return sorted(found, key=lambda r: r['saved'], reverse=True)
+
+
+def load_saved(key, kernel, disk):
+    """A saved scenario, with today's micro-VM kernel and disk."""
+    import json
+    if not isinstance(key, str) or not key.replace('-', '').replace('_', '').isalnum():
+        raise ValueError('Scénario enregistré inconnu.')
+    try:
+        record = json.loads((saved_folder() / (key + '.json')).read_text())
+    except (OSError, ValueError) as error:
+        raise ValueError('Scénario enregistré illisible : ' + str(error)) from None
+    for spec in (record['spec'], record['original']):
+        for node in spec['nodes']:
+            node['kernel'], node['disk'] = str(Path(kernel).resolve()), str(Path(disk).resolve())
+    record['spec'], record['original'] = validate(record['spec']), validate(record['original'])
+    record['probes'] = [tuple(p) for p in record['probes']]
+    if key.startswith('NL-'):
+        record['code'] = key
+    elif key.startswith('scenario-'):
+        record['number'] = int(key[len('scenario-'):])
+    return record
+
+
+def delete_saved(key):
+    (saved_folder() / (key + '.json')).unlink(missing_ok=True)
+
+
+def checks_for(item):
+    """The scenario's probes as reach checks (what the running lab must answer)."""
+    names = _names(item['original'])
+    return [{'kind': 'reach', 'source': s, 'destination': d, 'expect': e,
+             'text': f'{s} {"joint" if e else "ne joint pas"} {names.get(ipaddress.IPv4Address(d), d)} ({d})'}
+            for (s, d), e in zip(item['probes'], item['expected'])]
 
 
 def mission_for(number):
-    """The scenario's probes as a mission for the privileged 'mission' request (real pings from the guests)."""
+    """A catalogue scenario's probes as a mission for the privileged 'mission' request (real pings from the guests)."""
     item = scenario(number)
-    names = _names(item['original'])
-    checks = [{'kind': 'reach', 'source': s, 'destination': d, 'expect': e,
-               'text': f'{s} {"joint" if e else "ne joint pas"} {names.get(ipaddress.IPv4Address(d), d)} ({d})'}
-              for (s, d), e in zip(item['probes'], item['expected'])]
-    return {'id': item['id'], 'lab': item['id'], 'checks': checks}
+    return {'id': item['id'], 'lab': item['id'], 'checks': checks_for(item)}
 
 
 def grade(spec, item, real=None):
@@ -593,7 +716,7 @@ def grade(spec, item, real=None):
         ok, detail = False, 'projet invalide : ' + str(error)
     results = [{'text': 'La panne est réparée (comportement du réseau)', 'kind': 'configuration',
                 'status': 'ok' if ok else 'fail', 'detail': detail}]
-    for index, check in enumerate(mission_for(item['number'])['checks']):
+    for index, check in enumerate(checks_for(item)):
         if real and index in real:
             passed, shown = real[index]
             results.append({'text': check['text'], 'kind': 'réel', 'status': 'ok' if passed else 'fail', 'detail': shown})

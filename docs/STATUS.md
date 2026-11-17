@@ -157,6 +157,16 @@ LANs under their router, hosts grouped by VLAN) zoomed to fit; a VLAN box covers
 switches, so VLAN 1 at two sites is two LANs. The model agrees with every lab tested on
 real guests; all 1 200 scenarios are distinct and generated in about 15 s by the unit tests.
 
+**Unique scenarios and « Mes scénarios gardés ».** « ✨ Nouveau » draws a scenario from a random 40-bit seed
+outside the catalogue, shown as a code (`NL-XXXX-XXXX`, Crockford base 32; the code rebuilds it). Every
+scenario a student is given leaves a fingerprint (its network without the micro-VM paths, and its fault) in
+the private progress file, and a new one is drawn again if it matches one already seen: the same network and
+fault never come twice. « ★ Garder ce scénario » saves the whole scenario (broken and working labs, pings,
+expected results, fault, ticket) as a private JSON file under `~/.config/network-labs/scenarios/`, so it comes
+back identical even if the generator changes, with today's kernel and disk paths; the list reopens or deletes
+it. Real pings for a generated or saved scenario carry the scenario's own probes in the privileged mission
+request (validated: node names, IPv4 addresses, at most 12), since the backend cannot rebuild it.
+
 **Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
 sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded
 capture per link, no lab lock held while recording). The workbench then replays the packet on the
