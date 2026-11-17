@@ -810,7 +810,7 @@ class Manager:
             from .guest_startup import query
             socket = self.directory / name / 'guest.vsock'
             try:
-                observation = vendor_show.observe_guest(lambda operation: query(socket, operation), node)
+                observation = vendor_show.observe_guest(lambda operation, **fields: query(socket, operation, **fields), node)
             except (OSError, ValueError) as error:
                 raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
         if node.get('firewall') is not None:

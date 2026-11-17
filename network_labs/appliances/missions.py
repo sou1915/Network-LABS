@@ -7,7 +7,8 @@ A mission is solved when every check passes; real checks only count once the lab
 """
 import ipaddress
 
-from .microvm import dhcp_example, firewall_nat_example, router_chain_example, router_on_a_stick_example, switch_vlan_example
+from .microvm import (dhcp_example, firewall_nat_example, ospf_example, router_chain_example, router_on_a_stick_example,
+                      switch_vlan_example)
 from .native_models import port_names
 from .spec import validate
 from .vendor_config import routes
@@ -58,6 +59,16 @@ def _dhcp_lab(kernel, disk):
     router['model'] = 'cisco-isr4331'
     router['dhcp_server'] = None  # VM2 asks for an address and nobody answers
     return validate(lab)
+
+
+def _ospf_lab(kernel, disk):
+    lab = ospf_example(kernel, disk)
+    lab['name'] = 'mission-ospf-multi-constructeurs'
+    lab['nodes'][0]['ospf'] = None  # R1 (Cisco) has not joined OSPF yet: R2 (Juniper) and R3 (Huawei) already run it
+    return validate(lab)
+
+
+REAL_KINDS = ('reach', 'ospf-neighbor')
 
 
 MISSIONS = [{'id': 'route-manquante',
@@ -183,6 +194,25 @@ MISSIONS += [
                 {'kind': 'reach', 'source': 'VM2', 'destination': '198.51.100.20', 'expect': True,
                  'text': 'VM2 obtient une adresse et joint VM3 (ping réel)'}]},
 ]
+MISSIONS.append(
+    {'id': 'ospf-multi-constructeurs', 'lab': 'mission-ospf-multi-constructeurs', 'title': 'OSPF entre trois constructeurs',
+     'level': 'Avancé', 'kind': 'Configuration', 'vendors': 'Cisco ISR 4331 · Juniper MX204 · Huawei AR6120',
+     'story': 'R2 (Juniper) et R3 (Huawei) échangent déjà leurs routes en OSPF, zone 0. Faire entrer R1 (Cisco) dans OSPF '
+              'pour que le LAN de VM2 et celui de VM3 se joignent, sans aucune route statique. Le LAN de R1 ne doit pas '
+              'envoyer de hello vers les postes. Nécessite l’image micro-VM avec BIRD (--with-routing).',
+     'hints': ['Sur R2 : show ospf neighbor, puis sur R1 : router ospf 1.',
+               'network 192.0.2.0 0.0.0.255 area 0, network 203.0.113.0 0.0.0.3 area 0, puis passive-interface gi0/0/0.'],
+     'build': _ospf_lab,
+     'checks': [{'kind': 'ospf', 'node': 'R1', 'port': 'eth1', 'passive': False,
+                 'text': 'R1 active OSPF zone 0 sur gi0/0/1, vers R2'},
+                {'kind': 'ospf', 'node': 'R1', 'port': 'eth0', 'passive': True,
+                 'text': 'R1 annonce son LAN 192.0.2.0/24, en interface passive'},
+                {'kind': 'ospf-neighbor', 'node': 'R1', 'neighbor': '2.2.2.2',
+                 'text': 'R1 voit R2 (2.2.2.2) en état Full (OSPF réel)'},
+                {'kind': 'reach', 'source': 'VM2', 'destination': '198.51.100.20', 'expect': True,
+                 'text': 'VM2 joint VM3 à travers les trois routeurs (ping réel)'},
+                {'kind': 'reach', 'source': 'VM3', 'destination': '192.0.2.20', 'expect': True,
+                 'text': 'VM3 répond à VM2 (ping réel)'}]})
 BY_ID = {mission['id']: mission for mission in MISSIONS}
 
 
@@ -289,6 +319,17 @@ def _check_config(spec, check):
         if ipaddress.IPv4Address(server['start']) < ipaddress.IPv4Address(check['first']):
             problems.append(f'le pool commence à {server["start"]}')
         return not problems, f'{name} : {server["start"]} – {server["end"]}' + (' (' + ', '.join(problems) + ')' if problems else '')
+    if kind == 'ospf':
+        name = shown.get(check['port'], check['port'])
+        if not node.get('ospf'):
+            return False, 'pas de processus OSPF'
+        from .ospf import enabled_interfaces
+        port = enabled_interfaces(node).get(check['port'])
+        if port is None:
+            return False, f'{name} : aucun réseau OSPF ne couvre ce port'
+        ok = port['passive'] == check['passive']
+        return ok, f'{name} : ' + ('passive' if port['passive'] else 'active') + f', coût {port["cost"]}' + (
+            '' if ok else ' (attendu : ' + ('passive' if check['passive'] else 'active, avec des hello') + ')')
     raise ValueError('Contrôle inconnu : ' + kind)
 
 
@@ -297,7 +338,7 @@ def grade(spec, mission_id, real=None):
     current = mission(mission_id)
     results = []
     for index, check in enumerate(current['checks']):
-        if check['kind'] == 'reach':
+        if check['kind'] in REAL_KINDS:
             if real and index in real:
                 ok, detail = real[index]  # REAL: {index: (ok, detail)}, from run_real's results
                 results.append({'text': check['text'], 'kind': 'réel', 'status': 'ok' if ok else 'fail', 'detail': detail})
@@ -320,6 +361,9 @@ def run_real(manager, mission_id):
     current = mission(mission_id)
     found = []
     for index, check in enumerate(current['checks']):
+        if check['kind'] == 'ospf-neighbor':
+            found.append([index, *_neighbor(manager, check)])
+            continue
         if check['kind'] != 'reach':
             continue
         result = manager.ping_node(check['source'], check['destination'], count=3)
@@ -328,3 +372,18 @@ def run_real(manager, mission_id):
         expected = 'réponse' if check['expect'] else 'aucune réponse'
         found.append([index, ok, f'{answered}/3 réponses' + ('' if ok else f' (attendu : {expected})')])
     return {'mission': mission_id, 'results': found}
+
+
+def _neighbor(manager, check):
+    """(ok, detail) from the neighbour table of the node's running OSPF daemon."""
+    try:
+        observation = manager.observe_node(check['node'])
+    except Exception as error:  # a stopped daemon or an image without BIRD: the check fails with the reason
+        return False, str(error)
+    if not observation.get('ospf'):
+        return False, 'OSPF ne tourne pas sur ' + check['node']
+    rows = {row['router_id']: row for row in observation['ospf']['neighbors']}
+    row = rows.get(check['neighbor'])
+    if row is None:
+        return False, 'voisins : ' + (', '.join(f'{r} {v["state"]}' for r, v in rows.items()) or 'aucun')
+    return row['state'] == 'Full', f'{check["neighbor"]} : {row["state"]}' + ('' if row['state'] == 'Full' else ' (attendu : Full)')

@@ -187,6 +187,10 @@ def place_nodes(graph,members,width):
     # Routers and firewalls sit low enough that their titles clear the zoom bar over the canvas corner.
     for i,n in enumerate(routers):
         positions[n['name']]=((i+1)*width*.8/(len(routers)+1),100)
+    # Three or more routers in a row: every other one sits lower, so each transit link keeps room for its caption.
+    if len(routers)>=3 and width*.9/(len(routers)+1)<230:
+        for i,n in enumerate(routers):
+            positions[n['name']]=(width*.05+(i+1)*width*.9/(len(routers)+1),100+(110 if i%2 else 0))
     for i,n in enumerate(firewalls):
         # Beside routers when there are any; otherwise spread across the canvas like routers.
         x=width*(.52+(i+1)*.16/len(firewalls)) if routers else (i+1)*width/(len(firewalls)+1)

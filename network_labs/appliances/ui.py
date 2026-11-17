@@ -434,8 +434,20 @@ class ApplianceWindow:
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
         for index,(a,b) in enumerate(graph['links']):
             x,y=positions[a[0]];xx,yy=positions[b[0]]
+            # Staggered routers (different rows, apart sideways): an L from one to the other's side.
+            side=abs(y-yy)>=45 and abs(x-xx)>=120 and graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router'
             if abs(y-yy)<45:
                 sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
+            elif side:
+                # An L: down from the upper device's port, then into the lower device's side, clear of its title.
+                if y<yy:
+                    ax,ay=x+port_offset(graph_nodes[a[0]],a[1]),y+25
+                    bx,by=xx-(62 if xx>x else -62),yy
+                    points,mid=(ax,ay,ax,by,bx,by),ax
+                else:
+                    bx,by=xx+port_offset(graph_nodes[b[0]],b[1]),yy+25
+                    ax,ay=x-(62 if x>xx else -62),y
+                    points,mid=(ax,ay,bx,ay,bx,by),bx
             else:
                 sign=1 if yy>y else -1;ax=x;ay=y+sign*25;bx=xx;by=yy-sign*25
                 # Ports leave the chassis spread across its width, so cables and their captions stay apart.
@@ -452,7 +464,12 @@ class ApplianceWindow:
                 nx,ny=positions[endpoint[0]];other_y=positions[peer[0]][1]
                 ordinal=list(graph_nodes[endpoint[0]]['interfaces']).index(endpoint[1])
                 tx,ty,anchor=px+5,py-8,'w'
-                if graph_nodes[endpoint[0]]['role']!='host':
+                if side and abs(py-ny)<5:
+                    outward=1 if px>nx else -1  # entering the lower device's side
+                    tx,ty,anchor=px+outward*4,py-9,'w' if outward>0 else 'e'
+                elif side:
+                    tx,ty,anchor=px+5,py+8,'w'
+                elif graph_nodes[endpoint[0]]['role']!='host':
                     if other_y<ny-45:tx,ty,anchor=nx-56,ny-19,'e'
                     else:tx,ty=px+5,ny+30+(ordinal%4)*10
                 shown=port_label(graph_nodes[endpoint[0]],endpoint[1])
@@ -461,6 +478,10 @@ class ApplianceWindow:
             if caption:
                 if abs(y-yy)<45:
                     self.canvas.create_text((ax+bx)/2,(ay+by)/2-12,text=caption,fill='#315b7d',font=(self.font,7))
+                elif side:
+                    lower=xx if y<yy else x  # the caption faces the lower device, away from the upper one's other cables
+                    self.canvas.create_text(mid+(6 if lower>mid else -6),(min(ay,by)+max(ay,by))/2+6,text=caption,
+                                            anchor='w' if lower>mid else 'e',fill='#315b7d',font=(self.font,7))
                 elif abs(ax-bx)<40:
                     # A cable going almost straight down: label its vertical run, clear of both devices.
                     self.canvas.create_text(bx+6,(mid+by)/2,text=caption,anchor='w',fill='#315b7d',font=(self.font,7))
@@ -1007,7 +1028,7 @@ class ApplianceWindow:
         self.mission_status.set('Indice : '+' · '.join(hints[:self.mission_hints_shown]))
 
     def show_mission_results(self):
-        from .missions import grade,mission
+        from .missions import REAL_KINDS,grade,mission
         for child in self.mission_rows.winfo_children():
             child.destroy()
         loaded=self.mission_lab_loaded()
@@ -1022,7 +1043,7 @@ class ApplianceWindow:
             result=grade(self.manifest(),self.mission_current,self.mission_real)
             rows=result['results']
         else:
-            rows=[{'text':c['text'],'kind':'réel' if c['kind']=='reach' else 'configuration','status':'idle','detail':''}
+            rows=[{'text':c['text'],'kind':'réel' if c['kind'] in REAL_KINDS else 'configuration','status':'idle','detail':''}
                   for c in mission(self.mission_current)['checks']]
             if panne:
                 rows.insert(0,{'text':'La panne est réparée','kind':'configuration','status':'idle','detail':''})

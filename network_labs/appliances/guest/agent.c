@@ -62,8 +62,8 @@ static pid_t pidfile_alive(const char *path) {
     long pid = n > 0 ? atol(text) : 0;
     return pid > 1 && kill((pid_t)pid, 0) == 0 ? (pid_t)pid : 0;
 }
-/* Start a long-lived BusyBox service outside this request: own session, no inherited output, reparented to init. */
-static int spawn_detached(char *const argv[]) {
+/* Start a long-lived service outside this request: own session, no inherited output, reparented to init. */
+static int spawn_detached(const char *program, char *const argv[]) {
     pid_t first = fork();
     if (first < 0) return -1;
     if (first == 0) {
@@ -73,7 +73,7 @@ static int spawn_detached(char *const argv[]) {
             int null = open("/dev/null", O_RDWR);
             if (null < 0 || dup2(null, 0) < 0 || dup2(null, 1) < 0 || dup2(null, 2) < 0) _exit(126);
             char *const env[] = {"PATH=/bin", "LC_ALL=C", NULL};
-            execve("/bin/busybox", argv, env); _exit(127);
+            execve(program, argv, env); _exit(127);
         }
         _exit(second < 0 ? 1 : 0);
     }
@@ -181,6 +181,33 @@ static int has_nftables(void) {
     }
     close(fd);
     return present;
+}
+/* OSPFv2 area 0 with BIRD 2. The daemon configuration is written here, from typed fields only:
+   "ROUTER_ID HELLO DEAD PORT:COST:STUB:TYPE:PRIORITY[,...]" with STUB y|n and TYPE p (point-to-point) or b (broadcast). */
+static int ospf_render(const char *fields, char *out, size_t size) {
+    char rid[16], list[100], extra; unsigned hello, dead;
+    if (sscanf(fields, "%15s %u %u %99s %c", rid, &hello, &dead, list, &extra) != 4) return -1;
+    if (!valid_ipv4(rid) || hello < 1 || hello > 60 || dead < 2 || dead > 240 || dead <= hello) return -1;
+    int n = snprintf(out, size, "router id %s;\nlog stderr all;\nprotocol device { scan time 1; }\n"
+                     "protocol kernel kernel4 { scan time 1; ipv4 { import none; export where source = RTS_OSPF; }; }\n"
+                     "protocol ospf v2 ospf4 {\n  ipv4 { import where source = RTS_OSPF; export none; };\n"
+                     "  ecmp no;\n  area 0.0.0.0 {\n", rid);
+    int count = 0, active = 0; char seen[4] = {0};
+    for (char *item = strtok(list, ","); item; item = strtok(NULL, ",")) {
+        char port[5], stub, type, tail; unsigned cost, priority;
+        if (++count > 4 || sscanf(item, "%4[^:]:%u:%c:%c:%u%c", port, &cost, &stub, &type, &priority, &tail) != 5) return -1;
+        if (!valid_port(port) || seen[port[3] - '0']++ || cost < 1 || cost > 65535 || (stub != 'y' && stub != 'n')) return -1;
+        if ((type != 'p' && type != 'b') || priority > 255 || (type == 'p' && priority != 1)) return -1;
+        active += stub == 'n';
+        n += snprintf(out + n, size - (size_t)n, "    interface \"%s\" { type %s; cost %u; stub %s; hello %u; dead %u;",
+                      port, type == 'b' ? "broadcast" : "ptp", cost, stub == 'y' ? "yes" : "no", hello, dead);
+        if (type == 'b') n += snprintf(out + n, size - (size_t)n, " priority %u; wait %u;", priority, dead);
+        n += snprintf(out + n, size - (size_t)n, " };\n");
+        if (n >= (int)size - 16) return -1;
+    }
+    if (!count || !active) return -1;
+    n += snprintf(out + n, size - (size_t)n, "  };\n}\n");
+    return n;
 }
 static int send_all(int fd, const char *data, size_t size) {
     while (size) {
@@ -321,6 +348,53 @@ static void serve(int input, int output, int mutations) {
         close(fd);
         reply(output, size == sizeof(table) ? 3 : 0, table, size); return;
     }
+    /* OSPF: render (read-only, for conformity checks), start, stop, and fixed BIRD show commands. */
+    char ospf_config[1024];
+    if (!strncmp(request, "NL1 OSPF_RENDER ", 16)) {
+        int n = ospf_render(request + 16, ospf_config, sizeof(ospf_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        reply(output, 0, ospf_config, (size_t)n); return;
+    }
+    if (mutations && !strncmp(request, "NL1 OSPF_START ", 15)) {
+        int n = ospf_render(request + 15, ospf_config, sizeof(ospf_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        const char *missing = "the guest image has no BIRD; rebuild it with --with-routing";
+        if (access("/usr/sbin/bird", X_OK)) { reply(output, 1, missing, strlen(missing)); return; }
+        if (pidfile_alive("/run/bird.pid")) { reply(output, 1, "ospf already running", 20); return; }
+        int fd = open("/run/bird.conf", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        int written = fd >= 0 && write(fd, ospf_config, (size_t)n) == n;
+        if (fd >= 0) close(fd);
+        char *const bird[] = {"bird", "-f", "-c", "/run/bird.conf", "-s", "/run/bird.ctl", "-P", "/run/bird.pid", NULL};
+        if (!written || spawn_detached("/usr/sbin/bird", bird)) { reply(output, 3, "ospf start failed", 17); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 OSPF_STOP")) {
+        pid_t bird = pidfile_alive("/run/bird.pid");
+        if (bird) {
+            kill(bird, SIGTERM);
+            for (int tries = 0; tries < 40 && kill(bird, 0) == 0; tries++) {
+                struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+            }
+            if (kill(bird, 0) == 0) { reply(output, 3, "ospf stop failed", 16); return; }
+        }
+        unlink("/run/bird.pid"); unlink("/run/bird.conf");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 OSPF_SHOW config")) {
+        int fd = open("/run/bird.conf", O_RDONLY | O_CLOEXEC);
+        if (fd < 0 || !pidfile_alive("/run/bird.pid")) {
+            if (fd >= 0) close(fd);
+            reply(output, 1, "ospf not running", 16); return;
+        }
+        ssize_t n = read(fd, ospf_config, sizeof(ospf_config)); close(fd);
+        reply(output, n < 0 ? 3 : 0, ospf_config, n < 0 ? 0 : (size_t)n); return;
+    }
+    char *const ospf_neighbors[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "ospf", "neighbors", "ospf4", NULL};
+    char *const ospf_interfaces[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "ospf", "interface", "ospf4", NULL};
+    char *const ospf_routes[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "route", "protocol", "ospf4", NULL};
+    char *const *ospf_show = !strcmp(request, "NL1 OSPF_SHOW neighbors") ? ospf_neighbors
+                           : !strcmp(request, "NL1 OSPF_SHOW interfaces") ? ospf_interfaces
+                           : !strcmp(request, "NL1 OSPF_SHOW routes") ? ospf_routes : NULL;
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
     char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
@@ -355,7 +429,7 @@ static void serve(int input, int output, int mutations) {
         int written = fd >= 0 && n > 0 && write(fd, config, (size_t)n) == n;
         if (fd >= 0) close(fd);
         char *const serve[] = {"busybox", "udhcpd", "-f", dhcp_conf, NULL};
-        if (!written || spawn_detached(serve)) { reply(output, 3, "dhcp server start failed", 24); return; }
+        if (!written || spawn_detached("/bin/busybox", serve)) { reply(output, 3, "dhcp server start failed", 24); return; }
         reply(output, 0, "", 0); return;
     }
     if (mutations && sscanf(request, "NL1 DHCP_CLIENT %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
@@ -363,7 +437,7 @@ static void serve(int input, int output, int mutations) {
         if (pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp client already running", 27); return; }
         char *const client[] = {"busybox", "udhcpc", "-f", "-i", dhcp_port, "-s", "/etc/network-labs/dhcp-client.sh", "-p", dhcp_pid,
                                 "-T", "1", "-A", "2", NULL};
-        if (spawn_detached(client)) { reply(output, 3, "dhcp client start failed", 24); return; }
+        if (spawn_detached("/bin/busybox", client)) { reply(output, 3, "dhcp client start failed", 24); return; }
         reply(output, 0, "", 0); return;
     }
     char *const lease_list[] = {"busybox", "dumpleases", "-f", dhcp_leases, NULL};
@@ -528,6 +602,7 @@ static void serve(int input, int output, int mutations) {
     }
     #undef FW
     if (fw_ready) { firewall[count] = NULL; args = firewall; program = "/sbin/xtables-legacy-multi"; }
+    if (ospf_show) { args = ospf_show; program = "/usr/sbin/birdc"; }
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }

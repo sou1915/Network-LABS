@@ -30,6 +30,8 @@ def main(arguments=None):
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
     vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
     vm_sample.add_argument('--dhcp',action='store_true',help='Three guests: a router guest serving DHCP to one host guest, a static host behind it.')
+    vm_sample.add_argument('--ospf', action='store_true',
+                           help='Five guests: three router guests (Cisco, Juniper, Huawei models) running OSPF with BIRD, two hosts.')
     vm_sample.add_argument('--router-on-a-stick', action='store_true',
                            help='Four guests: a VLAN switch trunked to a router guest that routes VLAN 10 to VLAN 20 on subinterfaces.')
     vm_sample.add_argument('--switch-vlans', action='store_true',
@@ -41,6 +43,8 @@ def main(arguments=None):
     guest.add_argument('--size-mib', type=int, default=64)
     guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
     guest.add_argument('--with-firewall', action='store_true', help='Add legacy iptables for firewall guests; requires the iptables package and --with-agent.')
+    guest.add_argument('--with-routing', action='store_true',
+                       help='Add BIRD 2 for OSPF on router guests; requires the bird2 package and --with-agent.')
     vm_leases = commands.add_parser('microvm-dhcp-leases', help="List a guest DHCP server's current leases via its private Firecracker socket.")
     vm_leases.add_argument('--socket', type=Path, required=True)
     vm_leases.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], required=True)
@@ -392,7 +396,8 @@ def main(arguments=None):
             result = request(args.socket, args.operation, destination=args.destination)
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
-            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
+            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall,
+                           with_routing=args.with_routing)
         elif args.command == 'microvm-example':
             from . import microvm
             # One reference lab per flag; without a flag, the two-host pair.
@@ -400,7 +405,7 @@ def main(arguments=None):
                        'router_chain': microvm.router_chain_example, 'router_quad': microvm.quad_router_example,
                        'firewall': microvm.firewall_example, 'firewall_nat': microvm.firewall_nat_example,
                        'dhcp': microvm.dhcp_example, 'switch': microvm.switch_example, 'switch_vlans': microvm.switch_vlan_example,
-                       'router_on_a_stick': microvm.router_on_a_stick_example}
+                       'router_on_a_stick': microvm.router_on_a_stick_example, 'ospf': microvm.ospf_example}
             chosen = [flag for flag in choices if getattr(args, flag)]
             if len(chosen) > 1:
                 raise ValueError('Choose one of ' + ', '.join('--' + flag.replace('_', '-') for flag in choices) + '.')

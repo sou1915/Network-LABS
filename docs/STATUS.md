@@ -41,6 +41,7 @@ the direct launch.
 | Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
 | Router-on-a-stick: 802.1Q subinterfaces on router/firewall guests | `--router-on-a-stick` | Unnumbered trunk port with `ethN.VID` subinterfaces; needs the Network LABS kernel |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
+| OSPFv2 area 0 on router guests (BIRD 2 in the guest) | `--ospf` | Image built `microvm-rootfs --with-routing`; no static routes on OSPF routers; process-wide hello/dead; learned routes are never saved |
 | Capture on a guest port | — (`capture LAB NODE ethN`) | Recorded on the host-side TAP |
 | Isolation and limits | — | Jailer chroot, per-lab uid block, cgroup memory/CPU caps, vCPU and memory budgets |
 
@@ -49,7 +50,7 @@ the direct launch.
 - SVIs (an address on a switch VLAN) on switch guests, and firewall rules on subinterfaces (guest firewall
   rules name physical ports only). Static routes through a subinterface are unit-tested only.
 - STP, LACP and switch security features on guests.
-- Routing protocols (OSPF), DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
+- OSPF areas other than 0, OSPF on subinterfaces or switch guests, other routing protocols; DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.
@@ -119,6 +120,20 @@ pool`, `network`, `default-router`, `dns-server`, `lease`, `ip dhcp excluded-add
 student's best score, solved missions, hints used and micro-VM paths are kept in a private
 `~/.config/network-labs/progress.json` (badges and a progression count on the mission list). Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
 
+**OSPF between three vendors.** Router guests run real OSPFv2 (area 0) with BIRD 2 inside the guest:
+the agent writes BIRD's configuration from typed fields only (`OSPF_START router-id hello dead
+port:cost:stub:type:priority,...`), byte-identical to the lab's own rendering, which the startup and
+the save read back. The vendor CLIs configure it: IOS and EOS `router ospf`, `router-id`, `network …
+area 0`, `passive-interface`, `ip ospf cost|network|priority`; VRP `ospf 1 router-id`, `area 0.0.0.0`,
+`network`, `silent-interface`, `ospf cost|network-type|dr-priority`; Junos `set protocols ospf area
+0.0.0.0 interface … [passive | metric N | interface-type p2p]` and `routing-options router-id`. Live
+`show ip ospf neighbor` (IOS, EOS), `show ospf neighbor` (Junos), `display ospf peer brief` (VRP) read
+the guest's BIRD, and the route tables show OSPF routes with BIRD's metric. Mission *OSPF entre trois
+constructeurs*: R2 (Juniper MX204) and R3 (Huawei AR6120) already run OSPF; the student brings R1
+(Cisco ISR 4331) in, LAN passive; a real check reads R1's neighbour table (2.2.2.2 Full), then pings
+cross the three routers. The workbench staggers three or more routers in a row and draws their
+cables as L-shapes, clear of the titles.
+
 **Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
 sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded
 capture per link, no lab lock held while recording). The workbench then replays the packet on the
@@ -181,7 +196,7 @@ brief`, `show ip route`, `show vlan brief` (switches; abbreviations such as `sh 
 FortiOS `get system interface`, `get router info routing-table all`; Junos `show interfaces terse`,
 `show route`; RouterOS `/interface print`, `/ip address print`, `/ip route print`; EOS `show ip
 interface brief`, `show ip route`, `show vlan`; VRP `display ip interface brief`, `display ip
-routing-table`, `display vlan`; PAN-OS `show interface all`, `show routing route`. One sudo-confirmed
+routing-table`, `display vlan`; OSPF neighbours on router guests running OSPF (see above); PAN-OS `show interface all`, `show routing route`. One sudo-confirmed
 `show` request reads the node (micro-VM agent read-only requests, or `ip -j` in a container); later
 commands format that observation locally until **Relire**. Vendor `ping` (`ping`, `execute ping`, `/ping`,
 `ping host`) sends five real one-second echo requests from the running node (guest agent or the

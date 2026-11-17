@@ -13,7 +13,32 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bridge-vlans': 'BRIDGE_VLANS', 'bridge-vlan-filtering': 'BRIDGE_VLAN_FILTERING',
               'bridge-vlan-add': 'BRIDGE_VLAN_ADD', 'bridge-vlan-delete': 'BRIDGE_VLAN_DEL',
               'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES',
-              'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT'}
+              'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
+              'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW'}
+OSPF_SHOW = ('neighbors', 'interfaces', 'routes', 'config')
+
+
+def ospf_fields(ospf):
+    """'ROUTER_ID HELLO DEAD PORT:COST:STUB:TYPE:PRIORITY,...' for one area-0 OSPF process; the guest checks it again."""
+    if not isinstance(ospf, dict) or set(ospf) != {'router_id', 'hello', 'dead', 'interfaces'}:
+        raise ValueError('Guest OSPF requires router_id, hello, dead and interfaces.')
+    hello, dead, ports = ospf['hello'], ospf['dead'], ospf['interfaces']
+    if type(hello) is not int or type(dead) is not int or not 1 <= hello <= 60 or not 2 <= dead <= 240 or dead <= hello:
+        raise ValueError('Guest OSPF timers: hello 1..60, dead 2..240 and above hello.')
+    if not isinstance(ports, list) or not 1 <= len(ports) <= 4:
+        raise ValueError('Guest OSPF runs on 1..4 ports.')
+    items = []
+    for port in ports:
+        if not isinstance(port, dict) or set(port) != {'port', 'cost', 'passive', 'type', 'priority'}:
+            raise ValueError('Guest OSPF port requires port, cost, passive, type and priority.')
+        if port['port'] not in ('eth0', 'eth1', 'eth2', 'eth3') or port['type'] not in ('point-to-point', 'broadcast'):
+            raise ValueError('Guest OSPF port: eth0..eth3, point-to-point or broadcast.')
+        if type(port['cost']) is not int or not 1 <= port['cost'] <= 65535 or type(port['passive']) is not bool:
+            raise ValueError('Guest OSPF port: cost 1..65535 and passive true or false.')
+        if type(port['priority']) is not int or not 0 <= port['priority'] <= 255:
+            raise ValueError('Guest OSPF port priority: 0..255.')
+        items.append(f"{port['port']}:{port['cost']}:{'y' if port['passive'] else 'n'}:{port['type'][0]}:{port['priority']}")
+    return f"{ipaddress.IPv4Address(ospf['router_id'])} {hello} {dead} {','.join(items)}"
 
 
 def _firewall_command(operation, state, rule):
@@ -128,9 +153,21 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, timeout=6):
+            vlan=None, ospf=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('ospf-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan)):
+            raise ValueError('Guest OSPF operations accept only the process (render, start) or what to show.')
+        if operation in ('ospf-render', 'ospf-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the OSPF process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + ospf_fields(ospf), timeout)
+        if ospf is not None or (operation == 'ospf-stop') != (state is None) or (state is not None and state not in OSPF_SHOW):
+            raise ValueError('Guest ospf-show requires one of ' + ', '.join(OSPF_SHOW) + '; ospf-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if ospf is not None:
+        raise ValueError('Only ospf-render and ospf-start accept an OSPF process.')
     if operation in ('vlan-add', 'vlan-delete'):
         if any(value is not None for value in (destination, state, cidr, network, gateway, rule, dhcp)):
             raise ValueError('Guest VLAN interface operations accept only an interface and, to add one, a VLAN.')

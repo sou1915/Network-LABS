@@ -17,12 +17,12 @@ DIALECTS = {'Cisco': 'ios', 'Fortinet': 'fortios', 'Juniper': 'junos', 'MikroTik
             'Huawei': 'vrp', 'Palo Alto': 'panos'}
 TITLES = {'ios': 'Cisco IOS', 'fortios': 'FortiOS', 'junos': 'Junos', 'routeros': 'RouterOS', 'eos': 'Arista EOS',
           'vrp': 'Huawei VRP', 'panos': 'PAN-OS'}
-HINTS = {'ios': 'Sous-ensemble IOS : hostname, interface, ip address, ip route, vlan, switchport.',
+HINTS = {'ios': 'Sous-ensemble IOS : hostname, interface, ip address, ip route, vlan, switchport, router ospf (zone 0).',
          'fortios': 'Sous-ensemble FortiOS : system interface (ip), router static, firewall policy.',
-         'junos': 'Sous-ensemble Junos : set/delete interfaces … family inet address, routing-options static route.',
+         'junos': 'Sous-ensemble Junos : set/delete interfaces … family inet address, routing-options static route, protocols ospf.',
          'routeros': 'Sous-ensemble RouterOS : /ip address, /ip route, /ip firewall filter (chain=forward).',
-         'eos': 'Sous-ensemble EOS : hostname, interface, ip address a.b.c.d/n, ip route, vlan, switchport.',
-         'vrp': 'Sous-ensemble VRP : sysname, interface, ip address, ip route-static, vlan batch, port link-type.',
+         'eos': 'Sous-ensemble EOS : hostname, interface, ip address a.b.c.d/n, ip route, vlan, switchport, router ospf.',
+         'vrp': 'Sous-ensemble VRP : sysname, interface, ip address, ip route-static, vlan batch, port link-type, ospf.',
          'panos': 'Sous-ensemble PAN-OS : network interface … layer3 ip, zone, static-route, rulebase security rules.'}
 # FortiOS predefined services this subset maps to the lab's protocol and port fields.
 SERVICES = {'ALL': ('any', None), 'ALL_ICMP': ('icmp', None), 'PING': ('icmp', None), 'HTTP': ('tcp', 80),
@@ -143,6 +143,83 @@ def _check_hostname(node, value):
         raise ValueError('Renommer l’équipement depuis le formulaire GUI (Nom système).')
 
 
+# OSPF, area 0 only, on routers. IOS, EOS and VRP declare networks with wildcard masks; Junos names interfaces.
+# Every dialect shows the interface network type it runs; the lab default is point-to-point on every link.
+
+def _ospf_policy(node):
+    if node['role'] != 'router':
+        raise ValueError('OSPF : uniquement sur un routeur.')
+    if node.get('ospf') is None:
+        node['ospf'] = {'router_id': '', 'interfaces': {}, 'networks': []}
+    return node['ospf']
+
+
+def _ospf_area(value):
+    if value not in ('0', '0.0.0.0'):
+        raise ValueError('OSPF : zone 0 (backbone, 0.0.0.0) uniquement.')
+
+
+def _ospf_network(node, address, wildcard, remove=False):
+    from .ospf import configure_network
+    policy = _ospf_policy(node)
+    if '/' in address:
+        network = ipaddress.IPv4Network(address, strict=False)
+        address, wildcard = str(network.network_address), str(network.hostmask)
+    if remove and str(ipaddress.IPv4Network(f'{address}/{wildcard}', strict=False)) not in policy['networks']:
+        raise ValueError(f'Réseau OSPF absent : {address} {wildcard}')
+    try:
+        configure_network(node, address, wildcard, remove=remove)
+    except ValueError:
+        raise ValueError(f'OSPF : aucun port de ce routeur n’est dans {address} {wildcard} (masque générique contigu).') from None
+
+
+def _ospf_port(node, port, remove=False):
+    """Junos style: OSPF on one port, which advertises that port's network."""
+    policy = _ospf_policy(node)
+    address = node['interfaces'].get(port)
+    if not address:
+        raise ValueError('OSPF : le port doit avoir une adresse IPv4.')
+    network = str(ipaddress.IPv4Interface(address).network)
+    if remove:
+        policy['networks'] = [n for n in policy['networks'] if n != network]
+        policy['interfaces'].pop(port, None)
+        return
+    policy['interfaces'].setdefault(port, {'cost': 10, 'passive': False})
+    if network not in policy['networks']:
+        policy['networks'].append(network)
+
+
+def _ospf_finish(node, pending):
+    """Per-port settings given before or after the networks that enable the port, then IOS's default router ID."""
+    policy = node.get('ospf')
+    if policy is None:
+        if pending:
+            raise ValueError('Réglage OSPF d’interface sans processus OSPF (router ospf).')
+        return
+    shown = port_names(node)
+    for port, values in pending.items():
+        if port not in policy['interfaces']:
+            raise ValueError(f'{shown.get(port, port)} : réglage OSPF sur un port qu’aucun réseau OSPF ne couvre.')
+        policy['interfaces'][port].update(values)
+    if not policy.get('router_id'):
+        addresses = [ipaddress.IPv4Interface(a).ip for a in node['interfaces'].values() if a]
+        if not addresses:
+            raise ValueError('OSPF : router-id requis.')
+        policy['router_id'] = str(max(addresses))  # IOS picks the highest interface address
+
+
+def _ospf_enabled(node):
+    if not node.get('ospf'):
+        return {}
+    from .ospf import enabled_interfaces
+    return enabled_interfaces(node)
+
+
+def _wildcard(network):
+    network = ipaddress.IPv4Network(network)
+    return f'{network.network_address} {network.hostmask}'
+
+
 # ---- rendering ----
 
 def render(spec, name):
@@ -175,6 +252,13 @@ def _render_ios(node, eos=False):
             lines.append(f' ip address {address}' if eos else f' ip address {interface.ip} {interface.netmask}')
         else:
             lines.append(' no ip address')
+        ospf_port = _ospf_enabled(node).get(port)
+        if ospf_port:
+            if ospf_port['network_type'] == 'point-to-point':
+                lines.append(' ip ospf network point-to-point')
+            elif ospf_port['priority'] != 1:
+                lines.append(f' ip ospf priority {ospf_port["priority"]}')
+            lines.append(f' ip ospf cost {ospf_port["cost"]}')
         lines.append('!')
     for name, sub in sorted((node.get('subinterfaces') or {}).items()):
         parent, _, vid = name.partition('.')
@@ -199,6 +283,12 @@ def _render_ios(node, eos=False):
         if server.get('dns'):
             lines.append(' dns-server ' + ' '.join(server['dns']))
         lines += [f' lease {lease // 86400} {lease % 86400 // 3600} {lease % 3600 // 60}', '!']
+    if node.get('ospf'):
+        policy = node['ospf']
+        lines += [f'router ospf {policy["process_id"]}', f' router-id {policy["router_id"]}']
+        lines += [f' passive-interface {shown[port]}' for port, value in _ospf_enabled(node).items() if value['passive']]
+        lines += [f' network {network} area 0.0.0.0' if eos else f' network {_wildcard(network)} area 0' for network in policy['networks']]
+        lines.append('!')
     for network, gateway in routes(node):
         net = ipaddress.IPv4Network(network)
         lines.append(f'ip route {network} {gateway}' if eos else f'ip route {net.network_address} {net.netmask} {gateway}')
@@ -224,7 +314,19 @@ def _render_vrp(node):
         elif address:
             interface = ipaddress.IPv4Interface(address)
             lines.append(f' ip address {interface.ip} {interface.netmask}')
+        ospf_port = _ospf_enabled(node).get(port)
+        if ospf_port:
+            if ospf_port['network_type'] == 'point-to-point':
+                lines.append(' ospf network-type p2p')
+            elif ospf_port['priority'] != 1:
+                lines.append(f' ospf dr-priority {ospf_port["priority"]}')
+            lines.append(f' ospf cost {ospf_port["cost"]}')
         lines.append('#')
+    if node.get('ospf'):
+        policy = node['ospf']
+        lines.append(f'ospf {policy["process_id"]} router-id {policy["router_id"]}')
+        lines += [f' silent-interface {shown[port]}' for port, value in _ospf_enabled(node).items() if value['passive']]
+        lines += [' area 0.0.0.0'] + [f'  network {_wildcard(network)}' for network in policy['networks']] + ['#']
     for network, gateway in routes(node):
         net = ipaddress.IPv4Network(network)
         lines.append(f'ip route-static {net.network_address} {net.netmask} {gateway}')
@@ -352,6 +454,16 @@ def _render_junos(node):
             lines.append(f'set interfaces {shown[port]} unit 0 family inet address {address}')
     for network, gateway in routes(node):
         lines.append(f'set routing-options static route {network} next-hop {gateway}')
+    if node.get('ospf'):
+        lines.append(f'set routing-options router-id {node["ospf"]["router_id"]}')
+        for port, value in _ospf_enabled(node).items():
+            stem = f'set protocols ospf area 0.0.0.0 interface {shown[port]}.0'
+            lines.append(stem + (' interface-type p2p' if value['network_type'] == 'point-to-point' else ''))
+            lines.append(f'{stem} metric {value["cost"]}')
+            if value['network_type'] == 'broadcast' and value['priority'] != 1:
+                lines.append(f'{stem} priority {value["priority"]}')
+            if value['passive']:
+                lines.append(stem + ' passive')
     return '\n'.join(lines) + '\n'
 
 
@@ -407,13 +519,15 @@ class IOS:
         self.node, self.port = node, None
         self.pool = None  # 'ip dhcp pool' being configured: {'network', 'router', 'dns', 'lease'}
         self.excluded = None  # 'ip dhcp excluded-address' ranges, when the block sets any
+        self.ospf = False  # inside 'router ospf'
+        self.ospf_ports = {}  # per-port OSPF settings, applied once the networks are known
 
     def line(self, command):
         node, low = self.node, command.lower()
         if low in ('enable', 'configure terminal', 'conf t', 'write memory', 'wr'):
             return
         if low in ('end', 'exit'):
-            self.port = None
+            self.port, self.ospf = None, False
             if self.pool is not None:
                 self.pool['open'] = False
             return
@@ -422,6 +536,17 @@ class IOS:
             return _check_hostname(node, words[1])
         if low.startswith(('ip dhcp ', 'no ip dhcp ')) or (self.pool is not None and self.pool.get('open')):
             return self._dhcp(low, words)
+        if re.fullmatch(r'no router ospf \d+', low):
+            self.node['ospf'], self.ospf, self.ospf_ports = None, False, {}
+            return
+        match = re.fullmatch(r'router ospf (\d+)', low)
+        if match:
+            _ospf_policy(node)['process_id'] = int(match[1])
+            self.port, self.ospf = None, True
+            return
+        if self.ospf and not low.startswith('interface ') and self._ospf(low, words):
+            return
+        self.ospf = False
         if low.startswith('no interface ') and '.' in words[2]:
             parent, _, vid = words[2].partition('.')
             node.get('subinterfaces', {}).pop(f'{_port(node, parent)}.{vid}', None)
@@ -467,6 +592,16 @@ class IOS:
             raise ValueError('Sous-interface : encapsulation dot1Q <vlan>, ip address, description.')
         if low.startswith('ip address '):
             return _set_address(node, self.port, _prefix(words[2]) if '/' in words[2] else _prefix(words[2], words[3]))
+        match = re.fullmatch(r'ip ospf (cost (\d+)|network (point-to-point|broadcast)|priority (\d+))', low)
+        if match:
+            settings = self.ospf_ports.setdefault(self.port, {})
+            if match[2]:
+                settings['cost'] = int(match[2])
+            elif match[3]:
+                settings['network_type'] = match[3]
+            else:
+                settings['priority'] = int(match[4])
+            return
         if low == 'no ip address':
             return _set_address(node, self.port, '')
         if low.startswith('switchport'):
@@ -477,7 +612,31 @@ class IOS:
             return
         if low.startswith('description '):
             return
-        raise ValueError('Commande d’interface non prise en charge (ip address, switchport, description).')
+        raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
+
+    def _ospf(self, low, words):
+        """One 'router ospf' sub-command; False for a global command, which leaves the OSPF section."""
+        node = self.node
+        match = re.fullmatch(r'router-id (\S+)', low)
+        if match:
+            _ospf_policy(node)['router_id'] = str(ipaddress.IPv4Address(match[1]))
+            return True
+        match = re.fullmatch(r'(no )?network (\S+) (?:(\S+) )?area (\S+)', low)
+        if match:
+            _ospf_area(match[4])
+            if '/' not in match[2] and not match[3]:
+                raise ValueError('network <adresse> <masque générique> area 0')
+            _ospf_network(node, match[2], match[3], remove=bool(match[1]))
+            return True
+        match = re.fullmatch(r'(no )?passive-interface (\S+)', low)
+        if match:
+            self.ospf_ports.setdefault(_port(node, words[-1]), {})['passive'] = not match[1]
+            return True
+        if low.startswith(('log-adjacency-changes', 'auto-cost ')):
+            return True
+        if low.startswith(('ip ', 'no ip ', 'hostname ', 'vlan ', 'no vlan ', 'router ')):
+            return False
+        raise ValueError('router ospf : router-id, network … area 0, passive-interface.')
 
     def _dhcp(self, low, words):
         """IOS DHCP server: one pool; its range is the pool network minus excluded addresses and the router's own."""
@@ -511,6 +670,7 @@ class IOS:
             raise ValueError('ip dhcp pool : network, default-router, dns-server, lease.')
 
     def finish(self):
+        _ospf_finish(self.node, self.ospf_ports)
         if self.pool is None:
             return
         node, pool = self.node, self.pool
@@ -593,6 +753,29 @@ class VRP(IOS):
             return super().line('exit')
         if words[0].lower() == 'sysname':
             return super().line('hostname ' + words[1])
+        match = re.fullmatch(r'(undo )?ospf (\d+)(?: router-id (\S+))?', low)
+        if match:
+            super().line(('no ' if match[1] else '') + f'router ospf {match[2]}')
+            if match[3]:
+                super().line('router-id ' + match[3])
+            return
+        if self.ospf:
+            match = re.fullmatch(r'area (\S+)', low)
+            if match:
+                return _ospf_area(match[1])
+            match = re.fullmatch(r'(undo )?network (\S+) (\S+)', low)
+            if match:
+                return super().line(('no ' if match[1] else '') + f'network {match[2]} {match[3]} area 0')
+            match = re.fullmatch(r'(undo )?silent-interface (.+)', low)
+            if match:
+                return super().line(('no ' if match[1] else '') + 'passive-interface ' + command.split()[-1])
+        translations_ospf = [(r'ospf cost (\d+)', 'ip ospf cost {}'), (r'ospf dr-priority (\d+)', 'ip ospf priority {}'),
+                             (r'ospf network-type (p2p|broadcast)', 'ip ospf network {}')]
+        for pattern, template in translations_ospf:
+            match = re.fullmatch(pattern, low)
+            if match and self.port is not None:
+                value = 'point-to-point' if match[1] == 'p2p' else match[1]
+                return super().line(template.format(value))
         if low.startswith('vlan batch '):
             for vid in _vlan_list(','.join(words[2:]).replace(',to,', '-')):
                 super().line(f'vlan {vid}')
@@ -612,7 +795,7 @@ class VRP(IOS):
         if low.startswith(('interface ', 'ip address ', 'description ')) or low == 'shutdown':
             return super().line(command)
         raise ValueError('Sous-ensemble VRP : sysname, interface, ip address, ip route-static, vlan batch, port link-type, '
-                         'port default vlan, port trunk.')
+                         'port default vlan, port trunk, ospf (area 0, network, silent-interface, ospf cost).')
 
 
 class PANOS:
@@ -1028,12 +1211,48 @@ class Junos:
             if rest[4:5] != ['next-hop'] or len(rest) != 6:
                 raise ValueError('set routing-options static route <réseau/n> next-hop <a.b.c.d>')
             return _upsert_route(node, network, rest[5])
+        if rest[:2] == ['routing-options', 'router-id'] and len(rest) == 3:
+            if verb == 'delete':
+                _ospf_policy(node)['router_id'] = ''
+                return
+            _ospf_policy(node)['router_id'] = str(ipaddress.IPv4Address(rest[2]))
+            return
+        if rest[:2] == ['protocols', 'ospf']:
+            return self._ospf(verb, rest[2:])
         if rest[:1] == ['security']:
             raise ValueError('Les politiques de sécurité Junos ne sont pas encore prises en charge : utiliser le formulaire pare-feu.')
-        raise ValueError('Sous-ensemble Junos : system host-name, interfaces … family inet address, routing-options static route.')
+        raise ValueError('Sous-ensemble Junos : system host-name, interfaces … family inet address, routing-options static route, '
+                         'protocols ospf area 0.0.0.0 interface.')
+
+    def _ospf(self, verb, rest):
+        node = self.node
+        if not rest and verb == 'delete':
+            node['ospf'] = None
+            return
+        if len(rest) < 4 or rest[0] != 'area' or rest[2] != 'interface':
+            raise ValueError('set protocols ospf area 0.0.0.0 interface <port>.0 [passive | metric N | interface-type p2p]')
+        _ospf_area(rest[1])
+        name, option = rest[3], rest[4:]
+        port = _port(node, name[:-2] if name.endswith('.0') else name)
+        if verb == 'delete' and not option:
+            return _ospf_port(node, port, remove=True)
+        _ospf_port(node, port)
+        settings = _ospf_policy(node)['interfaces'][port]
+        if not option:
+            return
+        if option == ['passive']:
+            settings['passive'] = verb == 'set'
+        elif option[0] == 'metric' and len(option) == 2:
+            settings['cost'] = int(option[1]) if verb == 'set' else 10
+        elif option[0] == 'priority' and len(option) == 2:
+            settings['priority'] = int(option[1]) if verb == 'set' else 1
+        elif option[0] == 'interface-type' and option[1:] in (['p2p'], ['broadcast']):
+            settings['network_type'] = 'point-to-point' if option[1] == 'p2p' and verb == 'set' else 'broadcast'
+        else:
+            raise ValueError('Option OSPF Junos : passive, metric N, priority N, interface-type p2p.')
 
     def finish(self):
-        pass
+        _ospf_finish(self.node, {})
 
 
 class RouterOS:

@@ -144,3 +144,24 @@ def firewall_example(kernel, disk):
         'nat': []})
     spec['links'] = [[['FW1', 'eth0'], ['VM2', 'eth0']], [['FW1', 'eth1'], ['VM3', 'eth0']]]
     return validate(spec)
+
+
+def ospf_example(kernel, disk):
+    """VM2 - R1 - R2 - R3 - VM3: three router guests learn every network from each other with OSPF (BIRD in the guest).
+
+    No static route anywhere: the routers' guest images need BIRD (microvm-rootfs --with-routing).
+    """
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-ospf'
+    first, left, right = spec['nodes']
+    transit = {'eth0': {'cost': 10, 'passive': False}, 'eth1': {'cost': 10, 'passive': False}}
+    r1 = dict(first, name='R1', model='cisco-isr4331', interfaces={'eth0': '192.0.2.1/24', 'eth1': '203.0.113.1/30'},
+              ospf={'router_id': '1.1.1.1', 'interfaces': dict(transit, eth0={'cost': 10, 'passive': True})})
+    r2 = dict(first, name='R2', model='juniper-mx204', interfaces={'eth0': '203.0.113.2/30', 'eth1': '203.0.113.5/30'},
+              ospf={'router_id': '2.2.2.2', 'interfaces': transit})
+    r3 = dict(first, name='R3', model='huawei-ar6120', interfaces={'eth0': '203.0.113.6/30', 'eth1': '198.51.100.1/24'},
+              ospf={'router_id': '3.3.3.3', 'interfaces': dict(transit, eth1={'cost': 10, 'passive': True})})
+    spec['nodes'] = [r1, r2, r3, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['R3', 'eth0']],
+                     [['R3', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

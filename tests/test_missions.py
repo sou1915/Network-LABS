@@ -8,6 +8,8 @@ SOLUTIONS = {
     'router-on-a-stick': ('R1', 'interface gi0/0/0.20\n encapsulation dot1Q 20'),
     'serveur-dhcp': ('R1', 'ip dhcp excluded-address 192.0.2.1 192.0.2.99\nip dhcp pool LAN\n network 192.0.2.0 255.255.255.0\n'
                            ' default-router 192.0.2.1'),
+    'ospf-multi-constructeurs': ('R1', 'router ospf 1\n network 192.0.2.0 0.0.0.255 area 0\n network 203.0.113.0 0.0.0.3 area 0\n'
+                                       ' passive-interface gi0/0/0'),
     'route-manquante': ('R1', 'ip route 198.51.100.0 255.255.255.0 203.0.113.2'),
     'isoler-un-vlan': ('SW1', 'interface gi1/0/3\n switchport access vlan 20'),
     'publier-un-serveur': ('FW1', 'config firewall vip\n edit "srv"\n set extip 198.51.100.1\n set mappedip "192.0.2.20"\n'
@@ -46,7 +48,7 @@ class MissionTest(unittest.TestCase):
                 solved = missions.grade(vendor_config.apply(lab, node, text), item['id'])
                 self.assertTrue(all(r['status'] == 'ok' for r in solved['results'] if r['kind'] == 'configuration'), solved)
                 self.assertTrue(all(r['status'] == 'pending' for r in solved['results'] if r['kind'] == 'réel'))
-                real = {i: (True, 'ok') for i, c in enumerate(item['checks']) if c['kind'] == 'reach'}
+                real = {i: (True, 'ok') for i, c in enumerate(item['checks']) if c['kind'] in missions.REAL_KINDS}
                 self.assertTrue(missions.grade(vendor_config.apply(lab, node, text), item['id'], real)['solved'])
 
     def test_policy_evaluation_order_dnat_and_default(self):

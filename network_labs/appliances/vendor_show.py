@@ -12,17 +12,18 @@ from .native_models import port_names
 from .vendor_config import dialect
 
 COMMANDS = {
-    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief'],
+    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief', 'show ip ospf neighbor'],
     'fortios': ['get system interface', 'get router info routing-table all'],
-    'junos': ['show interfaces terse', 'show route'],
+    'junos': ['show interfaces terse', 'show route', 'show ospf neighbor'],
     'routeros': ['/interface print', '/ip address print', '/ip route print'],
-    'eos': ['show ip interface brief', 'show ip route', 'show vlan'],
-    'vrp': ['display ip interface brief', 'display ip routing-table', 'display vlan'],
+    'eos': ['show ip interface brief', 'show ip route', 'show vlan', 'show ip ospf neighbor'],
+    'vrp': ['display ip interface brief', 'display ip routing-table', 'display vlan', 'display ospf peer brief'],
     'panos': ['show interface all', 'show routing route'],
 }
 PROMPTS = {'ios': '{}#', 'fortios': '{} #', 'junos': 'admin@{}>', 'routeros': '[admin@{}] >', 'eos': '{}#',
            'vrp': '<{}>', 'panos': 'admin@{}>'}
 SWITCH_ONLY = {'show vlan brief', 'show vlan', 'display vlan'}
+OSPF_ONLY = {'show ip ospf neighbor', 'show ospf neighbor', 'display ospf peer brief'}
 
 
 # ---- observations ----
@@ -39,6 +40,10 @@ def observe_guest(query, node):
         fields = line.split()
         if fields[:1] == ['inet'] and current in interfaces:
             interfaces[current]['addresses'].append(str(ipaddress.IPv4Interface(fields[1])))
+    ospf = None
+    if node.get('ospf'):
+        ospf = {'router_id': node['ospf']['router_id'], 'neighbors': parse_neighbors(query('ospf-show', state='neighbors')),
+                'metrics': parse_ospf_metrics(query('ospf-show', state='routes'))}
     routes = []
     for line in query('routes').splitlines():
         fields = line.split()
@@ -46,11 +51,40 @@ def observe_guest(query, node):
             continue
         network = '0.0.0.0/0' if fields[0] == 'default' else str(ipaddress.IPv4Network(fields[0], strict=False))
         gateway = fields[fields.index('via') + 1] if 'via' in fields else None
-        routes.append({'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]})
-    observation = {'node': node['name'], 'interfaces': _declared(node, interfaces), 'routes': routes, 'vlans': None}
+        learned = any(fields[i] == 'proto' and fields[i + 1] in ('bird', '12') for i in range(len(fields) - 1))
+        if learned and gateway is None:
+            continue  # BIRD's copy of a connected network: the kernel's own entry is shown
+        route = {'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]}
+        if learned:
+            route.update(protocol='ospf', metric=(ospf or {}).get('metrics', {}).get(network))
+        routes.append(route)
+    observation = {'node': node['name'], 'interfaces': _declared(node, interfaces), 'routes': routes, 'vlans': None, 'ospf': ospf}
     if node['role'] == 'switch':
         observation['vlans'] = _vlans(node, query('bridge-vlans'))
     return observation
+
+
+def parse_neighbors(text):
+    """BIRD 'show ospf neighbors' rows: [{router_id, priority, state, dead, port, address}]."""
+    rows = []
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) != 6 or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', fields[0]) or not fields[1].isdigit():
+            continue
+        state, _, role = fields[2].partition('/')
+        rows.append({'router_id': fields[0], 'priority': int(fields[1]), 'state': state, 'role': role,
+                     'dead': float(fields[3]), 'port': fields[4], 'address': fields[5]})
+    return rows
+
+
+def parse_ospf_metrics(text):
+    """BIRD 'show route protocol ospf4': {network: OSPF metric}."""
+    metrics = {}
+    for line in text.splitlines():
+        match = re.match(r'^(\d+\.\d+\.\d+\.\d+/\d+)\s+unicast \[ospf4[^\]]*\][^(]*\((\d+)/(\d+)', line)
+        if match:
+            metrics[match[1]] = int(match[3])
+    return metrics
 
 
 def observe_container(observed, node):
@@ -103,7 +137,15 @@ def _connected(observation):
 
 
 def _static(observation):
-    return [r for r in observation['routes'] if r['gateway']]
+    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') != 'ospf']
+
+
+def _ospf(observation):
+    return [r for r in observation['routes'] if r.get('protocol') == 'ospf']
+
+
+def _metric(route):
+    return route['metric'] if route.get('metric') is not None else '?'
 
 
 def show(node, observation, command):
@@ -116,6 +158,8 @@ def show(node, observation, command):
         if wanted == known or (syntax in ('ios', 'eos', 'vrp') and _abbreviates(wanted, known)):
             if known in SWITCH_ONLY and observation.get('vlans') is None:
                 raise ValueError(known + ' : uniquement sur un switch.')
+            if known in OSPF_ONLY and not observation.get('ospf'):
+                raise ValueError(known + ' : OSPF n’est pas configuré sur ce routeur micro-VM.')
             return FORMATS[syntax, known](node, observation, _names(node))
     raise ValueError('Commandes disponibles : ' + ', '.join(COMMANDS[syntax]) + '.')
 
@@ -137,7 +181,7 @@ def _ios_brief(node, observation, name):
 
 
 def _ios_route(node, observation, name):
-    lines = ['Codes: L - local, C - connected, S - static, * - candidate default', '']
+    lines = ['Codes: L - local, C - connected, S - static, O - OSPF, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines.append(f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0' if default
                  else 'Gateway of last resort is not set')
@@ -145,6 +189,8 @@ def _ios_route(node, observation, name):
     for route in _static(observation):
         code = 'S*' if route['network'] == '0.0.0.0/0' else 'S '
         lines.append(f'{code}       {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
+    for route in _ospf(observation):
+        lines.append(f'O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for network, address, port in _connected(observation):
         lines.append(f'C        {network} is directly connected, {name(port)}')
         lines.append(f'L        {address}/32 is directly connected, {name(port)}')
@@ -202,6 +248,8 @@ def _junos_route(node, observation, name):
         entries += [(network, '*[Direct/0]', f'>  via {name(port)}.0'), (f'{address}/32', '*[Local/0]', f'   Local via {name(port)}.0')]
     for route in _static(observation):
         entries.append((route['network'], '*[Static/5]', f'>  to {route["gateway"]} via {name(route["port"])}.0'))
+    for route in _ospf(observation):
+        entries.append((route['network'], f'*[OSPF/10] metric {_metric(route)}', f'>  to {route["gateway"]} via {name(route["port"])}.0'))
     entries.sort(key=lambda entry: ipaddress.IPv4Network(entry[0]))
     lines = [f'inet.0: {len(entries)} destinations, {len(entries)} routes ({len(entries)} active, 0 holddown, 0 hidden)',
              '+ = Active Route, - = Last Active, * = Both', '']
@@ -248,12 +296,14 @@ def _eos_brief(node, observation, name):
 
 
 def _eos_route(node, observation, name):
-    lines = ['VRF: default', 'Codes: C - connected, S - static', '']
+    lines = ['VRF: default', 'Codes: C - connected, S - static, O - OSPF', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines += [f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0/0' if default
               else 'Gateway of last resort is not set', '']
     for route in _static(observation):
         lines.append(f' S        {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
+    for route in _ospf(observation):
+        lines.append(f' O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for network, _, port in _connected(observation):
         lines.append(f' C        {network} is directly connected, {name(port)}')
     return '\n'.join(lines)
@@ -291,6 +341,7 @@ def _vrp_brief(node, observation, name):
 def _vrp_route(node, observation, name):
     rows = [(network, 'Direct', 0, 0, address, port) for network, address, port in _connected(observation)]
     rows += [(r['network'], 'Static', 60, 0, r['gateway'], r['port']) for r in _static(observation)]
+    rows += [(r['network'], 'OSPF', 10, _metric(r), r['gateway'], r['port']) for r in _ospf(observation)]
     rows.sort(key=lambda row: ipaddress.IPv4Network(row[0]))
     lines = ['Route Flags: R - relay, D - download to fib', '-' * 62, 'Routing Tables: Public',
              f'         Destinations : {len(rows)}        Routes : {len(rows)}', '',
@@ -335,7 +386,42 @@ def _panos_route(node, observation, name):
     return '\n'.join(lines)
 
 
+def _seconds(value):
+    whole = int(value)
+    return f'{whole // 3600:02d}:{whole % 3600 // 60:02d}:{whole % 60:02d}'
+
+
+def _ios_neighbors(node, observation, name):
+    """Neighbors as the guest's BIRD reports them; a point-to-point link has no DR, shown as '-'."""
+    lines = [f'{"Neighbor ID":<16}{"Pri":>3}   {"State":<16}{"Dead Time":<12}{"Address":<16}Interface']
+    for row in observation['ospf']['neighbors']:
+        role = {'PtP': '-', 'DR': 'DR', 'BDR': 'BDR', 'Other': 'DROTHER'}.get(row['role'], row['role'] or '-')
+        state = f'{row["state"].upper()}/{role:>4}' if role == '-' else f'{row["state"].upper()}/{role}'
+        lines.append(f'{row["router_id"]:<16}{row["priority"]:>3}   {state:<16}{_seconds(row["dead"]):<12}{row["address"]:<16}'
+                     f'{name(row["port"])}')
+    return '\n'.join(lines)
+
+
+def _junos_neighbors(node, observation, name):
+    lines = [f'{"Address":<17}{"Interface":<23}{"State":<10}{"ID":<17}{"Pri":>3}  Dead']
+    for row in observation['ospf']['neighbors']:
+        lines.append(f'{row["address"]:<17}{name(row["port"]) + ".0":<23}{row["state"]:<10}{row["router_id"]:<17}{row["priority"]:>3}'
+                     f'{int(row["dead"]):>6}')
+    return '\n'.join(lines)
+
+
+def _vrp_peers(node, observation, name):
+    lines = ['', f'\t OSPF Process {node["ospf"]["process_id"]} with Router ID {observation["ospf"]["router_id"]}',
+             '\t\t  Peer Statistic Information', ' ' + '-' * 76,
+             f' {"Area Id":<17}{"Interface":<33}{"Neighbor id":<17}State']
+    for row in observation['ospf']['neighbors']:
+        lines.append(f' {"0.0.0.0":<17}{name(row["port"]):<33}{row["router_id"]:<17}{row["state"]}')
+    return '\n'.join(lines + [' ' + '-' * 76])
+
+
 FORMATS = {
+    ('ios', 'show ip ospf neighbor'): _ios_neighbors, ('eos', 'show ip ospf neighbor'): _ios_neighbors,
+    ('junos', 'show ospf neighbor'): _junos_neighbors, ('vrp', 'display ospf peer brief'): _vrp_peers,
     ('ios', 'show ip interface brief'): _ios_brief, ('ios', 'show ip route'): _ios_route, ('ios', 'show vlan brief'): _ios_vlan,
     ('fortios', 'get system interface'): _forti_interfaces, ('fortios', 'get router info routing-table all'): _forti_routes,
     ('junos', 'show interfaces terse'): _junos_terse, ('junos', 'show route'): _junos_route,

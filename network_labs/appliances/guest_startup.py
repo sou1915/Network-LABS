@@ -219,6 +219,8 @@ def observe(socket, node):
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
         if not fields: continue
+        if node.get('ospf') and learned(fields):
+            continue  # OSPF's own routes come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
             if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
@@ -248,7 +250,41 @@ def observe(socket, node):
         check(socket, node)
     if node.get('dhcp_server'):
         leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
+    if node.get('ospf'):
+        check_ospf(socket, node)
     return candidate['guest_network']
+
+
+def learned(fields):
+    """A route BIRD installed (BusyBox names protocol 12 'bird' or prints the number)."""
+    return any(fields[i] == 'proto' and fields[i + 1] in ('bird', '12') for i in range(len(fields) - 1))
+
+
+def check_ospf(socket, node):
+    """The guest's BIRD runs the configuration the lab declares, byte for byte."""
+    from .ospf import config
+    try:
+        running = query(socket, 'ospf-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: OSPF is not running in the guest ({error}).') from error
+    if running != config(node):
+        raise ValueError(f'{node["name"]}: the guest OSPF configuration differs from the lab.')
+
+
+def start_ospf(socket, node, timeout=5):
+    """Start BIRD from the typed process, then wait for its control socket to answer."""
+    from .ospf import guest_process
+    query(socket, 'ospf-start', ospf=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'ospf-show', state='neighbors')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    check_ospf(socket, node)
 
 
 def apply(socket, node, timeout=40, alive=None):
@@ -316,6 +352,8 @@ def apply(socket, node, timeout=40, alive=None):
             except ValueError:
                 if time.monotonic() >= started: raise
                 time.sleep(.1)
+    if node.get('ospf'):
+        start_ospf(socket, node)
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)

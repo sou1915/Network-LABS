@@ -40,25 +40,24 @@ FIREWALL_MODULES = ('libxt_standard.so', 'libxt_conntrack.so', 'libxt_tcp.so', '
                     'libxt_DNAT.so', 'libxt_SNAT.so', 'libxt_MASQUERADE.so')
 
 
-def install_iptables(root, program):
-    """Copy the legacy iptables program, its shared libraries and the match modules a policy can use."""
-    program = Path(program).resolve()
+def _libraries(program, label):
+    """The shared libraries ldd resolves for PROGRAM, the dynamic loader included."""
     listing = subprocess.run(['ldd', str(program)], capture_output=True, text=True, timeout=30)
     if listing.returncode:
-        raise ValueError('Guest firewall program is not a dynamic executable that ldd can read: ' + listing.stderr.strip())
+        raise ValueError(f'Guest {label} program is not a dynamic executable that ldd can read: ' + listing.stderr.strip())
     libraries = []
     for line in listing.stdout.splitlines():
         words = line.split()
         path = words[2] if '=>' in words and len(words) >= 3 else words[0] if words and words[0].startswith('/') else None
         if '=>' in words and (path is None or not path.startswith('/')):
-            raise ValueError('Guest firewall program has an unresolved library: ' + line.strip())
+            raise ValueError(f'Guest {label} program has an unresolved library: ' + line.strip())
         if path:
             libraries.append(Path(path))
-    modules = next((folder for folder in sorted({library.parent / 'xtables' for library in libraries})
-                    if all((folder / name).is_file() for name in FIREWALL_MODULES)), None)
-    if modules is None:
-        raise ValueError('Guest firewall match modules not found next to the iptables libraries.')
-    for source in [*libraries, *(modules / name for name in FIREWALL_MODULES)]:
+    return libraries
+
+
+def _copy_files(root, sources):
+    for source in sources:
         # The host may reach one file through /lib and /usr/lib; the image has no such link, and iptables
         # looks for its modules under the path it was built with. Provide both spellings as plain files.
         # Resolve the folder, not the file: a module such as libxt_MASQUERADE.so is a link to libxt_NAT.so,
@@ -68,11 +67,34 @@ def install_iptables(root, program):
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists():
                 shutil.copyfile(source, target); target.chmod(0o755)
+
+
+def install_iptables(root, program):
+    """Copy the legacy iptables program, its shared libraries and the match modules a policy can use."""
+    program = Path(program).resolve()
+    libraries = _libraries(program, 'firewall')
+    modules = next((folder for folder in sorted({library.parent / 'xtables' for library in libraries})
+                    if all((folder / name).is_file() for name in FIREWALL_MODULES)), None)
+    if modules is None:
+        raise ValueError('Guest firewall match modules not found next to the iptables libraries.')
+    _copy_files(root, [*libraries, *(modules / name for name in FIREWALL_MODULES)])
     target = root / 'sbin/xtables-legacy-multi'
     shutil.copyfile(program, target); target.chmod(0o755)
 
 
-def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False, iptables=None):
+def install_bird(root, daemon, client):
+    """Copy BIRD 2 and birdc with their shared libraries: the OSPF daemon of router guests."""
+    for program, destination in ((daemon, 'usr/sbin/bird'), (client, 'usr/sbin/birdc')):
+        program = Path(program).resolve()
+        _copy_files(root, _libraries(program, 'routing'))
+        target = root / destination
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(program, target)
+        target.chmod(0o755)
+
+
+def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False,
+          iptables=None, with_routing=False, bird=None, birdc=None):
     """Publish a complete ext4 image exclusively; never overwrite an existing path."""
     if type(size_mib) is not int or not 16 <= size_mib <= 1024:
         raise ValueError('Guest disk size must be an integer between 16 and 1024 MiB.')
@@ -110,6 +132,13 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             if not program:
                 raise ValueError('Guest firewall needs legacy iptables on this machine (package iptables).')
             install_iptables(root, program)
+        if with_routing:
+            if not with_agent:
+                raise ValueError('A routing guest image needs the agent; add --with-agent.')
+            daemon, client = bird or shutil.which('bird') or '/usr/sbin/bird', birdc or shutil.which('birdc') or '/usr/sbin/birdc'
+            if not (Path(daemon).is_file() and Path(client).is_file()):
+                raise ValueError('Guest routing needs BIRD 2 on this machine (package bird2).')
+            install_bird(root, daemon, client)
         (root / 'etc/inittab').write_text(inittab)
         (root / 'etc/shadow').write_text('root:!:0:0:99999:7:::\n')
         (root / 'etc/shadow').chmod(0o600)
@@ -138,4 +167,6 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         os.link(disk, output)  # Atomic and fails closed if destination appeared meanwhile.
     return {'disk': str(output), 'size_mib': size_mib, 'sha256': digest,
-            'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent), 'guest_firewall_installed': bool(with_firewall)}
+            'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent),
+            'guest_firewall_installed': bool(with_firewall),
+            'guest_routing_installed': bool(with_routing)}
