@@ -2,7 +2,7 @@
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs,urlencode
-import json,secrets,threading,queue,webbrowser
+import json,re,secrets,threading,queue,webbrowser
 from .web_api import DeviceAPI,Conflict
 
 class WebPortal:
@@ -33,7 +33,14 @@ class WebPortal:
                 if parsed.path in ('/device_faces.css','/device_faces.js','/fortios_policy.js','/fortios_policy.css'):
                     kind='text/css' if parsed.path.endswith('.css') else 'text/javascript'
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),kind+'; charset=utf-8')
-                if native and parsed.path in ('/native_options.js','/native_switch_options.js'):
+                if native and parsed.path.startswith('/devices/'):
+                    # Device drawings rendered by tools/render_device_art.py; names are checked, never joined blindly.
+                    name=parsed.path[len('/devices/'):]
+                    folder=Path(__file__).parent.joinpath('appliances/assets/devices')
+                    if not re.fullmatch(r'[a-z]+(-[a-z]+)?@\d{2,3}\.png',name) or not (folder/name).is_file():
+                        return self.respond(404,{'error':'Image absente.'})
+                    return self.respond(200,(folder/name).read_bytes(),'image/png')
+                if native and parsed.path in ('/native_options.js','/native_switch_options.js','/native_device_view.js'):
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':
                     return self.respond(200,Path(__file__).parent.joinpath('appliances/assets/InterVariable.ttf').read_bytes(),'font/ttf')

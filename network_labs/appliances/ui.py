@@ -602,10 +602,11 @@ class ApplianceWindow:
         self.device_heading=tk.StringVar(value='Équipement · GUI')
         webbar=tk.Frame(parent,bg=PANEL);webbar.pack(fill='x',pady=3)
         ttk.Button(webbar,text='↗ Gestion web',command=self.open_web_management,style='Native.TButton').pack(side='right',padx=5)
-        tk.Label(parent,textvariable=self.device_heading,bg='#f5f8fc',fg=TEXT,font=(self.font,9,'bold'),anchor='w',padx=9,pady=5).pack(fill='x')
-        brand_card=SoftCard(parent,PANEL,face='#df1723',border='#df1723');brand_card.pack(fill='x',pady=3);brand=brand_card.inner
-        tk.Label(brand,text='NETWORK LABS',bg='#df1723',fg='white',font=(self.font,12,'bold'),padx=9,pady=6).pack(side='left')
-        tk.Label(brand,text='Linux · GUI',bg='#df1723',fg='white',font=(self.font,8),padx=6).pack(side='right')
+        # Device header: role-coloured band with the device drawing, name, model and status (see draw_device_header).
+        self.device_header=tk.Canvas(parent,height=86,bg=PANEL,highlightthickness=0,bd=0)
+        self.device_header.pack(fill='x',padx=4,pady=(2,4))
+        self.device_header.bind('<Configure>',lambda event:self.draw_device_header())
+        self.device_header_node=None
         action_footer=tk.Frame(parent,bg=PANEL);action_footer.pack(side='bottom',fill='x')
         tk.Frame(action_footer,bg=PANEL,width=96).pack(side='left',fill='y')
         self.config_actions=tk.Frame(action_footer,bg=PANEL,padx=8,pady=6);self.config_actions.pack(side='left',fill='x',expand=True)
@@ -632,8 +633,11 @@ class ApplianceWindow:
         fields=tk.Frame(form,bg=PANEL);fields.pack(fill='x',padx=9)
         fields.columnconfigure(1,weight=1)
         self.config_vars={key:tk.StringVar() for key in ('name','port','address','gateway')};self.config_fields={}
+        self.config_labels={}
         for row,(key,title) in enumerate([('name','Nom système'),('port','Interface'),('address','IPv4 / CIDR'),('gateway','Passerelle')]):
-            self.label(fields,title,MUTED,8).grid(row=row,column=0,sticky='w',padx=(0,7),pady=3)
+            caption=self.label(fields,title,MUTED,8)
+            caption.grid(row=row,column=0,sticky='w',padx=(0,7),pady=3)
+            self.config_labels[key]=caption
             field=ttk.Combobox(fields,textvariable=self.config_vars[key],state='readonly',style='Native.TCombobox',width=15,font=(self.font,9)) if key=='port' else ttk.Entry(fields,textvariable=self.config_vars[key],style='Native.TEntry',width=15,font=(self.font,9))
             field.grid(row=row,column=1,sticky='ew',pady=3);self.config_fields[key]=field
         self.config_fields['port'].bind('<<ComboboxSelected>>',self.config_port_selected)
@@ -683,6 +687,8 @@ class ApplianceWindow:
                 if node['role'] in roles:button.pack(fill='x',pady=2)
             from .native_models import label as model_label
             self.device_heading.set(node['name']+' · '+model_label(node))
+            self.device_header_node=(spec,node)
+            self.draw_device_header()
             self.load_vendor_console(spec,node)
             self.port_table.delete(*self.port_table.get_children())
             self.port_table.configure(height=max(1,min(4,len(node['interfaces'])+len(node.get('subinterfaces',{})))))
@@ -704,6 +710,10 @@ class ApplianceWindow:
             self.config_port_selected()
             self.config_fields['name'].configure(state='normal')
             self.config_fields['gateway'].configure(state='normal' if node['role']!='switch' else 'disabled')
+            # A switch has no address or gateway on its ports: the rows are hidden rather than shown disabled.
+            for key in ('address','gateway'):
+                for widget in (self.config_labels[key],self.config_fields[key]):
+                    widget.grid_remove() if node['role']=='switch' else widget.grid()
             self.config_message.set('Modifier un port puis appliquer. Le réseau actif reste inchangé.')
             self.config_apply.state(['!disabled'] if ports and not self.pending else ['disabled'])
             # A firewall policy can also be applied to the running lab: atomically on containers, rebuilt closed on micro-VMs.
@@ -715,6 +725,46 @@ class ApplianceWindow:
                                      else ['disabled'])
         except (ValueError,TypeError,KeyError,StopIteration) as error:
             self.config_message.set(str(error));self.config_apply.state(['disabled'])
+
+    HEADER_THEMES={'router':('#0d2638','#1f5a85'),'switch':('#123049','#2b6f9f'),'firewall':('#2a0f12','#8a2b1f'),
+                   'host':('#16263a','#34536f')}
+
+    def draw_device_header(self):
+        """Paint the GUI tab's device band: gradient, drawing, name, brand · model and chips."""
+        canvas=self.device_header
+        canvas.delete('all')
+        if not self.device_header_node:
+            return
+        spec,node=self.device_header_node
+        from .device_view import summary
+        from .workspace_art import _mix,device_image
+        info=summary(spec,node)
+        width=max(200,canvas.winfo_width())
+        start,end=self.HEADER_THEMES.get(node['role'],self.HEADER_THEMES['host'])
+        steps=48
+        for i in range(steps):
+            canvas.create_rectangle(i*width/steps,0,(i+1)*width/steps+1,86,fill=_mix(start,end,i/(steps-1)),outline='')
+        role=info['art'].split('-')[0]
+        image=device_image(canvas,role,info['art'].split('-')[1] if '-' in info['art'] else 'blue',.8)
+        if image is not None:
+            canvas.create_image(58,43,image=image)
+        canvas.create_text(118,24,text=node['name'],anchor='w',fill='white',font=(self.font,14,'bold'))
+        line=(f"{info['brand']} · {info['title'].split(' · ')[-1]} — {info['role_name']}" if node.get('model')
+              else f"Nœud Linux générique — {info['role_name']}")
+        canvas.create_text(118,45,text=line,anchor='w',
+                           fill='#d8e6f2',font=(self.font,9))
+        running=self.states.get(node['name'],{}).get('status')=='running'
+        chips=[('● En marche' if running else '○ Non observé'),f"{len(info['ports'])} ports",
+               'Micro-VM' if node['runtime']=='firecracker' else 'OCI']+([info['cli']] if info['cli'] else [])
+        x=118
+        for chip in chips:
+            item=canvas.create_text(x+8,67,text=chip,anchor='w',fill='#3ddc84' if chip.startswith('●') else 'white',font=(self.font,8))
+            left,top,right,bottom=canvas.bbox(item)
+            if right+8>width-6:
+                canvas.delete(item)  # chips that do not fit the panel are left out rather than cut
+                break
+            canvas.tag_lower(rounded_box(canvas,left-7,top-3,right+7,bottom+3,r=9,fill=_mix(start,'#ffffff',.18),outline=''),item)
+            x=right+14
 
     def build_vendor_console(self,parent):
         """Vendor-syntax configuration (IOS, FortiOS, Junos, RouterOS) of the selected node's lab draft."""

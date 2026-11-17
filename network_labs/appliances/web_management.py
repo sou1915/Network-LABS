@@ -4,6 +4,7 @@ from . import topology_edit
 from .web_observations import revision as draft_revision,snapshot
 from .management_switching import component,peers
 from .management_options import PUBLIC_FIELDS,sections,configure_section
+from .device_view import summary as device_summary
 
 
 class NativeDeviceAPI:
@@ -16,7 +17,16 @@ class NativeDeviceAPI:
         if node is None:raise ValueError('Équipement absent du projet natif.')
         revision=draft_revision(spec)
         if action=='state':
-            return {'inspection':snapshot(window,spec,name),'revision':revision,'project':spec['name'],'equipment':[{'name':n['name'],'role':n['role']} for n in spec['nodes']],'node':{k:node[k] for k in ('name','role','runtime','interfaces','gateway','shutdown','routes','subinterfaces','firewall','dhcp_clients','svis','switch_backend',*PUBLIC_FIELDS) if k in node},'observed':window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé','switch_component':component(spec,name) if node['role']=='switch' else [],'aggregation_peers':peers(spec,name) if node['role']=='switch' else {},'sections':sections(node),'section_editable':not window.pending,'editable':not window.pending and node['runtime']=='oci'}
+            fields=('name','role','runtime','interfaces','gateway','shutdown','routes','subinterfaces','firewall','dhcp_clients','svis',
+                    'switch_backend',*PUBLIC_FIELDS)
+            switch=node['role']=='switch'
+            observed=window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé'
+            return {'inspection':snapshot(window,spec,name),'revision':revision,'project':spec['name'],
+                    'equipment':[{'name':n['name'],'role':n['role']} for n in spec['nodes']],
+                    'node':{k:node[k] for k in fields if k in node},'observed':observed,
+                    'switch_component':component(spec,name) if switch else [],'aggregation_peers':peers(spec,name) if switch else {},
+                    'sections':sections(node),'section_editable':not window.pending,
+                    'editable':not window.pending and node['runtime']=='oci','device':device_summary(spec,node)}
         if action!='apply':raise ValueError('Action non disponible dans la gestion web native.')
         if payload.get('revision')!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
         if 'section' in payload:

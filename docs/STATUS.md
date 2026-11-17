@@ -103,6 +103,15 @@ Modelled nodes show their vendor's port names (FortiGate `port1`, Junos `ge-0/0/
 `xe-0/0/0`, RouterOS `ether1`, Catalyst `gi1/0/1`, Palo Alto `ethernet1/1`…) on the
 canvas and in the port table, next to the Linux port they stand for.
 
+**Device pages.** The GUI tab opens with a device header (drawing, name, brand · model, role,
+status, port count, runtime, CLI syntax). The browser management page (**Gestion web**) shows
+a product header, a front panel with every model port (declared ports with link LED, details
+and neighbour; switch ports coloured by VLAN; undeclared model ports dimmed) and a dashboard per
+role: firewall security policy and NAT tables, router interfaces (with 802.1Q subinterfaces)
+and declared routing table, switch VLAN membership and port modes. Tables use vendor port
+names; switches show no address fields. All values come from the lab draft
+(`appliances/device_view.py`, `native_device_view.js`).
+
 **Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper, MikroTik, Arista, Huawei and
 Palo Alto models show their lab configuration in IOS, FortiOS, Junos, RouterOS, EOS, VRP or PAN-OS syntax
 (`network_labs/appliances/vendor_config.py`), and commands typed there are written to the
