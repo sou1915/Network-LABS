@@ -134,7 +134,10 @@ constructeurs*: R2 (Juniper MX204) and R3 (Huawei AR6120) already run OSPF; the 
 cross the three routers. The workbench staggers three or more routers in a row and draws their
 cables as L-shapes, clear of the titles. Mode panne gains an OSPF lab (same three routers) with three faults: OSPF
 removed from R1, R2's link toward R3 made passive, R3 no longer advertising its LAN; each is repaired
-from its own vendor's CLI and graded by comparing OSPF behaviour, not text.
+from its own vendor's CLI and graded by comparing OSPF behaviour, not text. The device page's live relevé lists OSPF-learned
+routes as « Apprise OSPF » (with BIRD's cost; never an écart), the OSPF interfaces (active or passive,
+cost, Full neighbours) and the neighbour table, with a verdict when an active interface has no Full
+neighbour.
 
 **Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
 sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded

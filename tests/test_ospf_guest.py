@@ -171,6 +171,12 @@ class ShowTest(unittest.TestCase):
         self.assertIn('Full      2.2.2.2', vendor_show.show(spec['nodes'][1], seen, 'show ospf neighbor'))
         self.assertIn('198.51.100.0/24     OSPF    10   20', vendor_show.show(spec['nodes'][2], seen, 'display ip routing-table'))
         self.assertIn('2.2.2.2          Full', vendor_show.show(spec['nodes'][2], seen, 'display ospf peer brief'))
+        from network_labs.appliances.device_view import live, summary
+        page = live(spec, spec['nodes'][0], seen)
+        self.assertTrue(page['conform'], page)  # an OSPF route is the protocol's result, not an écart
+        self.assertEqual([r['state'] for r in page['routes']], ['ospf'])
+        self.assertEqual((page['ospf']['complete'], page['ospf']['interfaces'][1]['neighbors']), (True, 1))
+        self.assertTrue(summary(spec, spec['nodes'][0])['ospf'])
         bare = copy.deepcopy(spec)
         bare['nodes'][0]['ospf'] = None
         node = validate(bare)['nodes'][0]

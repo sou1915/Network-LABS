@@ -84,6 +84,7 @@ def summary(spec, node):
         'cli': TITLES[syntax] if syntax else None,
         'runtime': 'Micro-VM Firecracker' if node['runtime'] == 'firecracker' else 'Conteneur OCI',
         'vlans': sorted(set(node.get('vlans') or [])) if node['role'] == 'switch' else [],
+        'ospf': bool(node.get('ospf')),
     }
 
 
@@ -99,7 +100,7 @@ def live(spec, node, observation):
         ok = item['up'] and (dynamic or not want or str(ipaddress.IPv4Interface(want)) in item['addresses'])
         interfaces.append({'name': name(item['port']), 'port': item['port'], 'up': item['up'], 'addresses': item['addresses'],
                            'declared': 'DHCP' if dynamic else want, 'ok': ok})
-    observed_routes = {r['network']: r for r in observation['routes'] if r['gateway']}
+    observed_routes = {r['network']: r for r in observation['routes'] if r['gateway'] and r.get('protocol') != 'ospf'}
     route_rows = []
     for network, gateway in routes(node):
         seen = observed_routes.pop(network, None)
@@ -107,6 +108,20 @@ def live(spec, node, observation):
                            'state': 'ok' if seen and seen['gateway'] == gateway else 'différente' if seen else 'absente'})
     for network, seen in observed_routes.items():
         route_rows.append({'network': network, 'gateway': seen['gateway'], 'port': name(seen['port']), 'state': 'non déclarée'})
+    # Routes OSPF learned are the protocol's result, not a declared item: listed, never an écart.
+    route_rows += [{'network': r['network'], 'gateway': r['gateway'], 'port': name(r['port']), 'state': 'ospf',
+                    'metric': r.get('metric')} for r in observation['routes'] if r.get('protocol') == 'ospf']
+    ospf = None
+    if node.get('ospf'):
+        from .ospf import enabled_interfaces
+        seen = (observation.get('ospf') or {}).get('neighbors', [])
+        active = [port for port, value in enabled_interfaces(node).items() if not value['passive']]
+        ospf = {'router_id': node['ospf']['router_id'], 'running': observation.get('ospf') is not None,
+                'neighbors': [dict(row, port=name(row['port'])) for row in seen],
+                'interfaces': [{'name': name(port), 'passive': value['passive'], 'cost': value['cost'],
+                                'neighbors': sum(1 for row in seen if row['port'] == port and row['state'] == 'Full')}
+                               for port, value in enabled_interfaces(node).items()],
+                'complete': all(any(row['port'] == port and row['state'] == 'Full' for row in seen) for port in active)}
     vlans = None
     if observation.get('vlans') is not None:
         from .guest_startup import vlan_plan
@@ -115,7 +130,7 @@ def live(spec, node, observation):
         vlans = [{'port': shown.get(p, p), 'vlan': v, 'mode': m, 'state': 'ok' if (p, v, m) in seen else 'absente'}
                  for p, v, m in sorted(plan)]
         vlans += [{'port': shown.get(p, p), 'vlan': v, 'mode': m, 'state': 'non déclarée'} for p, v, m in sorted(seen - plan)]
-    return {'interfaces': interfaces, 'routes': route_rows, 'vlans': vlans, 'sessions': observation.get('sessions'),
+    return {'interfaces': interfaces, 'routes': route_rows, 'vlans': vlans, 'ospf': ospf, 'sessions': observation.get('sessions'),
             'sessions_error': observation.get('sessions_error'),
-            'conform': all(i['ok'] for i in interfaces) and all(r['state'] == 'ok' for r in route_rows)
+            'conform': all(i['ok'] for i in interfaces) and all(r['state'] in ('ok', 'ospf') for r in route_rows)
             and all(v['state'] == 'ok' for v in (vlans or []))}

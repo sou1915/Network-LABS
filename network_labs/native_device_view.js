@@ -168,6 +168,7 @@
   }
 
   const stateTag = value => value === 'ok' ? '<span class="tag ok">Conforme</span>'
+    : value === 'ospf' ? '<span class="tag t">Apprise OSPF</span>'
     : value === 'non déclarée' ? '<span class="tag extra">Non déclarée</span>' : `<span class="tag bad">${esc(value[0].toUpperCase() + value.slice(1))}</span>`;
   let observeUntil = 0;
 
@@ -176,7 +177,7 @@
     const button = `<button type="button" class="observe" id="observeNode"${running && !state.observing ? '' : ' disabled'}>`
       + `${state.observing ? 'Relevé en cours… confirmer dans le terminal' : live ? '↻ Relever à nouveau' : 'Relever l’état réel'}</button>`;
     if (!live) {
-      const why = running ? 'Lit les interfaces, routes' + (n.role === 'switch' ? ', VLAN du pont' : '') + (n.role === 'firewall' ? ' et sessions suivies' : '')
+      const why = running ? 'Lit les interfaces, routes' + (n.role === 'switch' ? ', VLAN du pont' : '') + (n.ospf ? ', voisins OSPF' : '') + (n.role === 'firewall' ? ' et sessions suivies' : '')
         + ' sur le nœud en marche (authentification sudo dans un terminal), puis les compare au projet.'
         : 'Démarrer le laboratoire et actualiser son état : le relevé lit le nœud en marche.';
       return panelHtml('État réel', 'nœud Linux en marche', `<div class="live-head"><span class="muted">${esc(why)}</span>${button}</div>`);
@@ -186,8 +187,23 @@
     parts.push('<h3 class="muted" style="margin:16px 0 8px">Interfaces</h3>' + tableOr(['Port', 'Lien', 'Adresses relevées', 'Projet', ''],
       live.interfaces.map(i => [`<b>${esc(i.name)}</b> <span class="muted">${esc(i.port)}</span>`, i.up ? '<span class="tag ok">UP</span>' : '<span class="tag bad">DOWN</span>',
         esc(i.addresses.join(', ') || '—'), esc(i.declared || '—'), stateTag(i.ok ? 'ok' : 'écart')]), 'Aucune interface relevée.'));
-    if (n.role !== 'switch') parts.push('<h3 class="muted" style="margin:16px 0 8px">Routes statiques</h3>' + tableOr(['Réseau', 'Passerelle', 'Interface', ''],
-      live.routes.map(r => [`<b>${esc(r.network)}</b>`, esc(r.gateway), esc(r.port), stateTag(r.state)]), 'Aucune route statique, ni déclarée ni relevée.'));
+    if (n.role !== 'switch') {
+      const title = live.ospf ? 'Routes (statiques et OSPF)' : 'Routes statiques';
+      parts.push(`<h3 class="muted" style="margin:16px 0 8px">${title}</h3>` + tableOr(['Réseau', 'Passerelle', 'Interface', ''],
+        live.routes.map(r => [`<b>${esc(r.network)}</b>`, esc(r.gateway) + (r.state === 'ospf' && r.metric != null ? ` <span class="muted">coût ${esc(r.metric)}</span>` : ''),
+          esc(r.port), stateTag(r.state)]), 'Aucune route, ni déclarée ni relevée.'));
+    }
+    if (live.ospf) {
+      const o = live.ospf;
+      const head = o.running ? (o.complete ? '<span class="tag ok">Voisinages complets</span>' : '<span class="tag bad">Voisin manquant</span>')
+        : '<span class="tag bad">OSPF arrêté</span>';
+      parts.push(`<h3 class="muted" style="margin:16px 0 8px">OSPF zone 0 · router-id ${esc(o.router_id)} ${head}</h3>`
+        + tableOr(['Interface', 'Mode', 'Coût', 'Voisins Full'], o.interfaces.map(i => [`<b>${esc(i.name)}</b>`,
+          i.passive ? 'passive (pas de hello)' : 'active', esc(i.cost), i.passive ? '—' : (i.neighbors ? `<span class="tag ok">${i.neighbors}</span>` : '<span class="tag bad">0</span>')]), 'Aucune interface OSPF.')
+        + '<div style="margin-top:12px">' + tableOr(['Voisin (router-id)', 'État', 'Adresse', 'Interface'], o.neighbors.map(r => [`<b>${esc(r.router_id)}</b>`,
+          r.state === 'Full' ? '<span class="tag ok">Full</span>' : `<span class="tag bad">${esc(r.state)}</span>`, esc(r.address), esc(r.port)]),
+          'Aucun voisin OSPF relevé.') + '</div>');
+    }
     if (live.vlans) parts.push('<h3 class="muted" style="margin:16px 0 8px">VLAN du pont Linux</h3>' + tableOr(['Port', 'VLAN', 'Mode', ''],
       live.vlans.map(v => [`<b>${esc(v.port)}</b>`, `<span class="vchip" style="background:${vlanColour(v.vlan)}"></span>VLAN ${esc(v.vlan)}`,
         v.mode === 'pvid' ? 'non étiqueté (PVID)' : 'étiqueté 802.1Q', stateTag(v.state)]), 'Un seul VLAN 1 non étiqueté : pont sans filtrage VLAN.'));
