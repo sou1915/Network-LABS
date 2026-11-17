@@ -191,3 +191,40 @@ class VendorConsoleGUITest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FortiOSWorkflowTest(unittest.TestCase):
+    """The FortiOS-style web pages send these blocks: policy NAT and Virtual IPs."""
+    def setUp(self):
+        self.lab = modelled(firewall_nat_example(KERNEL, DISK), FW1='fortigate')
+
+    def test_policy_nat_follows_the_policy(self):
+        block = ('config firewall policy\n edit 3\n set name "web-out"\n set srcintf "port1"\n set dstintf "port2"\n'
+                 ' set srcaddr "192.0.2.0/24"\n set service "HTTPS"\n set action accept\n set nat enable\n next\nend')
+        lab = vendor_config.apply(self.lab, 'FW1', block)
+        nat = {r['name']: r for r in node(lab, 'FW1')['firewall']['nat']}
+        entry = nat['web-out-nat']
+        self.assertEqual((entry['type'], entry['out'], entry['source']), ('masquerade', 'eth1', '192.0.2.0/24'))
+        self.assertIn('set nat enable', vendor_config.render(lab, 'FW1'))
+        renamed = vendor_config.apply(lab, 'FW1', 'config firewall policy\n edit 3\n set name "web"\n next\nend')
+        self.assertEqual({r['name'] for r in node(renamed, 'FW1')['firewall']['nat']} & {'web-nat', 'web-out-nat'}, {'web-nat'})
+        off = vendor_config.apply(lab, 'FW1', 'config firewall policy\n edit 3\n set nat disable\n next\nend')
+        self.assertNotIn('web-out-nat', {r['name'] for r in node(off, 'FW1')['firewall']['nat']})
+        gone = vendor_config.apply(lab, 'FW1', 'config firewall policy\n delete 3\nend')
+        self.assertNotIn('web-out-nat', {r['name'] for r in node(gone, 'FW1')['firewall']['nat']})
+        with self.assertRaisesRegex(ValueError, 'sortie'):
+            vendor_config.apply(self.lab, 'FW1', 'config firewall policy\n edit 4\n set name "x"\n set nat enable\n next\nend')
+
+    def test_virtual_ip_with_port_forwarding(self):
+        block = ('config firewall vip\n edit "web-in"\n set extip 198.51.100.1\n set mappedip "192.0.2.20"\n set extintf "port2"\n'
+                 ' set portforward enable\n set protocol tcp\n set extport 8443\n set mappedport 443\n next\nend')
+        lab = vendor_config.apply(self.lab, 'FW1', block)
+        vip = next(r for r in node(lab, 'FW1')['firewall']['nat'] if r['name'] == 'web-in')
+        self.assertEqual((vip['in'], vip['destination'], vip['to'], vip['protocol'], vip['dport'], vip['to_port']),
+                         ('eth1', '198.51.100.1/32', '192.0.2.20', 'tcp', 8443, 443))
+        text = vendor_config.render(lab, 'FW1')
+        self.assertEqual(vendor_config.render(vendor_config.apply(lab, 'FW1', text), 'FW1'), text)
+        lab = vendor_config.apply(lab, 'FW1', 'config firewall vip\n delete "web-in"\nend')
+        self.assertNotIn('web-in', {r['name'] for r in node(lab, 'FW1')['firewall']['nat']})
+        with self.assertRaisesRegex(ValueError, 'traduction source'):
+            vendor_config.apply(self.lab, 'FW1', 'config firewall vip\n edit "hide-inside"\n set extip 198.51.100.1\n next\nend')

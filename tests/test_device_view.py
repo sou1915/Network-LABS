@@ -74,6 +74,8 @@ class PortalAndHeaderTest(unittest.TestCase):
                         self.assertEqual(response.headers['Content-Type'], 'image/png')
                     with urllib.request.urlopen(portal.origin + '/native_device_view.js') as response:
                         self.assertIn(b'Face avant', response.read())
+                    with urllib.request.urlopen(portal.origin + '/native_fortios.js') as response:
+                        self.assertIn(b'Firewall Policy', response.read())
                     for bad in ('/devices/..%2Fui.py', '/devices/router.png', '/devices/router@100.png/../x'):
                         with self.assertRaises(urllib.error.HTTPError):
                             urllib.request.urlopen(portal.origin + bad)
@@ -160,5 +162,31 @@ class ObserveActionTest(unittest.TestCase):
             self.assertTrue(live['conform'])
             self.assertEqual(live['sessions'], [])
             self.assertIn('Relevé de FW1', window.output.get('1.0', 'end'))
+        finally:
+            root.destroy()
+
+
+@unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
+class VendorWorkflowAPITest(unittest.TestCase):
+    def test_cli_block_applies_to_the_draft_and_checks_the_revision(self):
+        import tkinter as tk
+        from network_labs.__main__ import App
+        from network_labs.appliances.web_management import NativeDeviceAPI
+        from network_labs.web_api import Conflict
+        root = tk.Tk()
+        try:
+            window = App(root).open_native_lab()
+            lab, _ = modelled(firewall_nat_example(KERNEL, DISK), 'FW1', 'fortigate')
+            window.load_spec(lab)
+            api = NativeDeviceAPI(window)
+            state = api.dispatch('state', {'node': 'FW1'})
+            block = ('config firewall vip\n edit "web-in"\n set extip 198.51.100.1\n set mappedip "192.0.2.20"\n'
+                     ' set extintf "port2"\n next\nend')
+            with self.assertRaises(Conflict):
+                api.dispatch('cli', {'node': 'FW1', 'revision': 'stale', 'text': block})
+            after = api.dispatch('cli', {'node': 'FW1', 'revision': state['revision'], 'text': block})
+            self.assertIn('web-in', {r['name'] for r in after['node']['firewall']['nat']})
+            with self.assertRaisesRegex(ValueError, 'Ligne 1'):
+                api.dispatch('cli', {'node': 'FW1', 'revision': after['revision'], 'text': 'config vpn ipsec phase1-interface'})
         finally:
             root.destroy()

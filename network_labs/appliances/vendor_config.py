@@ -287,8 +287,23 @@ def _render_fortios(node):
                       f'        set dstintf "{shown.get(rule.get("out"), "any")}"',
                       f'        set srcaddr "{rule.get("source", "all")}"', f'        set dstaddr "{rule.get("destination", "all")}"',
                       f'        set action {"accept" if rule["action"] == "accept" else "deny"}',
-                      '        set schedule "always"', f'        set service "{_service(rule)}"', '    next']
+                      '        set schedule "always"', f'        set service "{_service(rule)}"']
+            if any(r['name'] == rule['name'] + '-nat' for r in node['firewall']['nat']):
+                lines.append('        set nat enable')
+            lines.append('    next')
         lines.append('end')
+        vips = [r for r in node['firewall']['nat'] if r['type'] == 'dnat']
+        if vips:
+            lines.append('config firewall vip')
+            for vip in vips:
+                lines += [f'    edit "{vip["name"]}"', f'        set extip {vip["destination"].split("/")[0]}',
+                          f'        set mappedip "{vip["to"]}"', f'        set extintf "{shown.get(vip["in"], vip["in"])}"']
+                if vip.get('dport'):
+                    lines += ['        set portforward enable', f'        set protocol {vip["protocol"]}',
+                              f'        set extport {vip["dport"]}',
+                              f'        set mappedport {vip.get("to_port", vip["dport"])}']
+                lines.append('    next')
+            lines.append('end')
     return '\n'.join(lines) + '\n'
 
 
@@ -601,8 +616,9 @@ class FortiOS:
         verb = words[0].lower()
         if verb == 'config':
             self.section = ' '.join(words[1:]).lower()
-            if self.section not in ('system global', 'system interface', 'router static', 'firewall policy'):
-                raise ValueError('Sections prises en charge : system global, system interface, router static, firewall policy.')
+            if self.section not in ('system global', 'system interface', 'router static', 'firewall policy', 'firewall vip'):
+                raise ValueError('Sections prises en charge : system global, system interface, router static, '
+                                 'firewall policy, firewall vip.')
             if self.section == 'router static':
                 self.order = routes(self.node)
             return
@@ -614,6 +630,9 @@ class FortiOS:
         if verb == 'edit':
             if self.section == 'system interface':
                 _port(self.node, words[1])  # refuse an unknown port on its own line
+            elif self.section == 'firewall vip':
+                if not re.fullmatch(r'[A-Za-z0-9_.-]{1,40}', words[1]):
+                    raise ValueError('Nom de Virtual IP : lettres, chiffres, « _ », « - », « . ».')
             elif not words[1].isdigit():
                 raise ValueError('edit <numéro> attendu.')
             self.entry = {'id': words[1], 'fields': {}}
@@ -648,8 +667,47 @@ class FortiOS:
                     raise ValueError('system interface : set ip (et alias, description, allowaccess, role, mode ignorés).')
         elif self.section == 'router static':
             self._route(fields)
+        elif self.section == 'firewall vip':
+            self._vip(fields)
         else:
             self._rule(fields)
+
+    def _vip(self, fields):
+        """A Virtual IP is a destination NAT: traffic to extip on extintf goes to mappedip (optionally port-forwarded)."""
+        unknown = set(fields) - {'extip', 'mappedip', 'extintf', 'portforward', 'protocol', 'extport', 'mappedport', 'comment', 'type'}
+        if unknown:
+            raise ValueError('firewall vip : extip, mappedip, extintf, portforward, protocol, extport, mappedport.')
+        nat = _policy(self.node)['nat']
+        name = self.entry['id']
+        entry = next((r for r in nat if r['name'] == name), None)
+        if entry is None:
+            entry = {'name': name, 'type': 'dnat'}
+            nat.append(entry)
+        elif entry['type'] != 'dnat':
+            raise ValueError(f'{name} est une traduction source, pas une Virtual IP.')
+        text = lambda key: (fields.get(key) or [''])[0]
+        if 'extip' in fields:
+            entry['destination'] = _network(text('extip').split('-')[0] + '/32')
+        if 'mappedip' in fields:
+            entry['to'] = str(ipaddress.IPv4Address(text('mappedip').split('-')[0]))
+        if 'extintf' in fields:
+            entry.pop('in', None)
+            if text('extintf').lower() != 'any':
+                entry['in'] = _port(self.node, text('extintf'))
+        if fields.get('portforward') and text('portforward') == 'enable' or 'extport' in fields:
+            entry['protocol'] = text('protocol') or entry.get('protocol', 'tcp')
+            if entry['protocol'] not in ('tcp', 'udp'):
+                raise ValueError('Port forwarding : protocol tcp ou udp.')
+            entry['dport'] = int(text('extport'))
+            if text('mappedport'):
+                entry['to_port'] = int(text('mappedport'))
+        elif fields.get('portforward') and text('portforward') == 'disable':
+            for key in ('dport', 'to_port'):
+                entry.pop(key, None)
+            if entry.get('protocol') in ('tcp', 'udp'):
+                entry['protocol'] = 'any'
+        if not {'in', 'destination', 'to'} <= set(entry):
+            raise ValueError('Virtual IP : extip, mappedip et extintf sont obligatoires.')
 
     def _route(self, fields):
         unknown = set(fields) - {'dst', 'gateway', 'device', 'comment', 'status'}
@@ -668,6 +726,7 @@ class FortiOS:
         rules = policy['rules']
         index = int(self.entry['id']) - 1
         rule = dict(rules[index]) if 0 <= index < len(rules) else {'name': f'policy-{self.entry["id"]}', 'action': 'drop'}
+        previous = rule['name']
         for key, value in fields.items():
             text = value[0] if value else None
             if key == 'name':
@@ -691,20 +750,42 @@ class FortiOS:
                 rule['protocol'], port = _fortios_service(text)
                 if port:
                     rule['dport'] = port
-            elif key not in ('schedule', 'logtraffic', 'comments', 'nat', 'status'):
-                raise ValueError('firewall policy : name, srcintf, dstintf, srcaddr, dstaddr, action, service, schedule.')
+            elif key == 'nat':
+                if text not in ('enable', 'disable', None):
+                    raise ValueError('nat : enable ou disable.')
+            elif key not in ('schedule', 'logtraffic', 'comments', 'status'):
+                raise ValueError('firewall policy : name, srcintf, dstintf, srcaddr, dstaddr, action, service, nat, schedule.')
         if 0 <= index < len(rules):
             rules[index] = rule
         else:
             rules.append(rule)
+        # Policy NAT: the policy's outgoing traffic leaves with the outgoing port's address (a masquerade entry).
+        nat = policy['nat']
+        had = any(r['name'] == previous + '-nat' for r in nat)
+        enable = (fields['nat'][0] == 'enable') if fields.get('nat') else had and 'nat' not in fields
+        nat[:] = [r for r in nat if r['name'] not in (previous + '-nat', rule['name'] + '-nat')]
+        if enable:
+            if not rule.get('out'):
+                raise ValueError('NAT de politique : choisir une interface de sortie (dstintf).')
+            entry = {'name': rule['name'] + '-nat', 'type': 'masquerade', 'out': rule['out']}
+            if rule.get('source'):
+                entry['source'] = rule['source']
+            nat.append(entry)
 
     def _delete(self, key):
         if self.section == 'firewall policy':
-            rules = _policy(self.node)['rules']
+            policy = _policy(self.node)
+            rules = policy['rules']
             index = int(key) - 1
             if not 0 <= index < len(rules):
                 raise ValueError('Politique absente : ' + key)
-            del rules[index]
+            name = rules.pop(index)['name']
+            policy['nat'][:] = [r for r in policy['nat'] if r['name'] != name + '-nat']
+        elif self.section == 'firewall vip':
+            nat = _policy(self.node)['nat']
+            if not any(r['name'] == key and r['type'] == 'dnat' for r in nat):
+                raise ValueError('Virtual IP absente : ' + key)
+            nat[:] = [r for r in nat if r['name'] != key]
         elif self.section == 'router static':
             index = int(key) - 1
             if not 0 <= index < len(self.order):
@@ -712,7 +793,7 @@ class FortiOS:
             _delete_route(self.node, self.order[index][0])
             self.order = routes(self.node)
         else:
-            raise ValueError('delete : firewall policy ou router static.')
+            raise ValueError('delete : firewall policy, firewall vip ou router static.')
 
     def finish(self):
         if self.section is not None:

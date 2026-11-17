@@ -48,6 +48,20 @@ class NativeDeviceAPI:
             if not window.launch('show'):
                 raise ValueError('Relevé non lancé : voir le journal des événements.')
             return self.dispatch('state',{'node':name})
+        if action=='cli':
+            # Vendor-workflow pages send the CLI block their form shows; the CLI tab's parser applies it to the draft.
+            if set(payload)!={'node','revision','text'} or not isinstance(payload['text'],str):
+                raise ValueError('Bloc CLI invalide.')
+            if payload['revision']!=revision:
+                raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
+            from .vendor_config import apply
+            result=apply(window.editing_spec(),name,payload['text'])
+            window.config_key=None
+            window.commit_edit(result)
+            window.choose_node(name)
+            window.load_config(force=True)
+            window.record_event('web','Bloc CLI constructeur appliqué : '+name)
+            return self.dispatch('state',{'node':name})
         if action!='apply':raise ValueError('Action non disponible dans la gestion web native.')
         if payload.get('revision')!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
         if 'section' in payload:

@@ -117,6 +117,14 @@ firewall's tracked connections) and compares it row by row with the draft: each 
 static route and VLAN entry is marked conforming, missing or undeclared. Real-KVM tested on
 the NAT firewall (its ports and the masqueraded ICMP session).
 
+**FortiOS-style pages (Fortinet models).** Gestion web opens on a page organised like FortiOS
+(Dashboard › Status; Network › Interfaces, Static Routes; Policy & Objects › Firewall Policy,
+Virtual IPs; System › Settings) with its terms, table columns and Create New → form → OK flow,
+in a neutral look (no vendor logo, colours or assets). Each form shows the FortiOS CLI block it
+sends, applied to the draft by the CLI tab's parser (`/api/cli`). Policy NAT (`set nat enable`)
+and Virtual IPs (`config firewall vip`, with port forwarding) are part of the FortiOS subset.
+"Vue Network LABS" returns to the standard device page.
+
 **Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper, MikroTik, Arista, Huawei and
 Palo Alto models show their lab configuration in IOS, FortiOS, Junos, RouterOS, EOS, VRP or PAN-OS syntax
 (`network_labs/appliances/vendor_config.py`), and commands typed there are written to the
