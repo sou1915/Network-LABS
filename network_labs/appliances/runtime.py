@@ -805,13 +805,22 @@ class Manager:
         if node is None:
             raise RuntimeFailure('Unknown node: ' + name)
         if node['runtime'] == 'oci':
-            return vendor_show.observe_container(self.inspect(name), node)
-        from .guest_startup import query
-        socket = self.directory / name / 'guest.vsock'
-        try:
-            return vendor_show.observe_guest(lambda operation: query(socket, operation), node)
-        except (OSError, ValueError) as error:
-            raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
+            observation = vendor_show.observe_container(self.inspect(name), node)
+        else:
+            from .guest_startup import query
+            socket = self.directory / name / 'guest.vsock'
+            try:
+                observation = vendor_show.observe_guest(lambda operation: query(socket, operation), node)
+            except (OSError, ValueError) as error:
+                raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
+        if node.get('firewall') is not None:
+            # Tracked connections; a guest kernel without conntrack reports none rather than failing the observation.
+            try:
+                observation['sessions'] = vendor_show.parse_sessions(self.sessions(name)['output'])
+            except (OSError, ValueError, RuntimeFailure, subprocess.SubprocessError) as error:
+                observation['sessions'] = None
+                observation['sessions_error'] = str(error)
+        return observation
 
     def ping_node(self, name, destination, count=5):
         """Echo requests from a running node, one bounded probe at a time, for vendor 'ping' commands."""

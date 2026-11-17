@@ -1264,8 +1264,12 @@ class ApplianceWindow:
             self.choose_node(request['node'])
             if self.vendor_pending_command:
                 self.vendor_command.set(self.vendor_pending_command)
-            self.vendor_pending_command=None
-            self.run_vendor_show()
+                self.vendor_pending_command=None
+                self.run_vendor_show()
+            else:
+                # A relevé requested from the device page: shown there; the dock keeps the raw observation.
+                self.write_output('Relevé de '+request['node']+' : voir la page de l’équipement (Gestion web).',data,
+                                  'Relevé · '+request['node'])
         else:
             self.show_output(data)
         self.note.set(('Test réseau : '+data['status']) if action=='verify' else action+' · '+request['lab']+' : terminé')

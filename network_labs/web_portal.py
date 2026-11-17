@@ -54,7 +54,8 @@ class WebPortal:
                     return self.respond(403,{'error':'Origine refusée.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})
                 parsed=urlsplit(self.path)
-                if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli'):return self.respond(404,{'error':'Action absente.'})
+                if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli','/api/observe'):
+                    return self.respond(404,{'error':'Action absente.'})
                 try:
                     length=int(self.headers.get('Content-Length','0'))
                     if not 0<length<=262144:return self.respond(413,{'error':'Requête trop volumineuse.'})

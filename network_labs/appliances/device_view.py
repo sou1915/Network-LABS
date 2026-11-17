@@ -85,3 +85,37 @@ def summary(spec, node):
         'runtime': 'Micro-VM Firecracker' if node['runtime'] == 'firecracker' else 'Conteneur OCI',
         'vlans': sorted(set(node.get('vlans') or [])) if node['role'] == 'switch' else [],
     }
+
+
+def live(spec, node, observation):
+    """The running node's observed state beside what the lab declares, row by row, with a verdict for each."""
+    shown = port_names(node)
+    name = lambda port: shown.get(port.partition('.')[0], port.partition('.')[0]) + (('.' + port.partition('.')[2]) if '.' in port else '')
+    declared = {**node['interfaces'], **{s: v.get('address', '') for s, v in (node.get('subinterfaces') or {}).items()}}
+    interfaces = []
+    for item in observation['interfaces']:
+        want = declared.get(item['port'], '')
+        dynamic = item['port'] in node.get('dhcp_clients', [])
+        ok = item['up'] and (dynamic or not want or str(ipaddress.IPv4Interface(want)) in item['addresses'])
+        interfaces.append({'name': name(item['port']), 'port': item['port'], 'up': item['up'], 'addresses': item['addresses'],
+                           'declared': 'DHCP' if dynamic else want, 'ok': ok})
+    observed_routes = {r['network']: r for r in observation['routes'] if r['gateway']}
+    route_rows = []
+    for network, gateway in routes(node):
+        seen = observed_routes.pop(network, None)
+        route_rows.append({'network': network, 'gateway': gateway, 'port': name(seen['port']) if seen else '—',
+                           'state': 'ok' if seen and seen['gateway'] == gateway else 'différente' if seen else 'absente'})
+    for network, seen in observed_routes.items():
+        route_rows.append({'network': network, 'gateway': seen['gateway'], 'port': name(seen['port']), 'state': 'non déclarée'})
+    vlans = None
+    if observation.get('vlans') is not None:
+        from .guest_startup import vlan_plan
+        plan = vlan_plan(node) or set()
+        seen = {(e['port'], e['vlan'], 'pvid' if e['untagged'] else 'tagged') for e in observation['vlans']}
+        vlans = [{'port': shown.get(p, p), 'vlan': v, 'mode': m, 'state': 'ok' if (p, v, m) in seen else 'absente'}
+                 for p, v, m in sorted(plan)]
+        vlans += [{'port': shown.get(p, p), 'vlan': v, 'mode': m, 'state': 'non déclarée'} for p, v, m in sorted(seen - plan)]
+    return {'interfaces': interfaces, 'routes': route_rows, 'vlans': vlans, 'sessions': observation.get('sessions'),
+            'sessions_error': observation.get('sessions_error'),
+            'conform': all(i['ok'] for i in interfaces) and all(r['state'] == 'ok' for r in route_rows)
+            and all(v['state'] == 'ok' for v in (vlans or []))}

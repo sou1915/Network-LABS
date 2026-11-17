@@ -10,6 +10,14 @@ from .device_view import summary as device_summary
 class NativeDeviceAPI:
     def __init__(self,window):self.window=window
 
+    def live(self,spec,node):
+        """The last observation of this node in this lab, compared with the draft; None when there is none."""
+        held=getattr(self.window,'vendor_observation',None)
+        if not held or held['key']!=(spec['name'],node['name']):
+            return None
+        from .device_view import live
+        return dict(live(spec,node,held['data']),time=held['time'])
+
     def dispatch(self,action,payload):
         window=self.window;spec=window.manifest()
         name=payload.get('node')
@@ -21,12 +29,25 @@ class NativeDeviceAPI:
                     'switch_backend',*PUBLIC_FIELDS)
             switch=node['role']=='switch'
             observed=window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé'
+            observing=bool(window.pending and (window.pending.get('request') or {}).get('action')=='show')
             return {'inspection':snapshot(window,spec,name),'revision':revision,'project':spec['name'],
                     'equipment':[{'name':n['name'],'role':n['role']} for n in spec['nodes']],
                     'node':{k:node[k] for k in fields if k in node},'observed':observed,
                     'switch_component':component(spec,name) if switch else [],'aggregation_peers':peers(spec,name) if switch else {},
                     'sections':sections(node),'section_editable':not window.pending,
-                    'editable':not window.pending and node['runtime']=='oci','device':device_summary(spec,node)}
+                    'editable':not window.pending and node['runtime']=='oci','device':device_summary(spec,node),
+                    'live':self.live(spec,node),'observing':observing}
+        if action=='observe':
+            # Read the running node (sudo-confirmed in a terminal, like the CLI tab's show commands).
+            if window.view_lab!=spec['name'] or window.states.get(name,{}).get('status')!='running':
+                raise ValueError('Démarrer le laboratoire et actualiser son état avant le relevé.')
+            if window.pending:
+                raise ValueError('Une opération est déjà en cours : attendre sa fin.')
+            window.choose_node(name)
+            window.vendor_pending_command=None
+            if not window.launch('show'):
+                raise ValueError('Relevé non lancé : voir le journal des événements.')
+            return self.dispatch('state',{'node':name})
         if action!='apply':raise ValueError('Action non disponible dans la gestion web native.')
         if payload.get('revision')!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
         if 'section' in payload:

@@ -40,6 +40,7 @@
   .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#5f7389}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .panel + .kpis{margin-top:16px}
   .kpi{border-radius:16px;padding:16px 18px;background:#fff;border:1px solid #e0e8f2;position:relative;overflow:hidden}
   .kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
   .kpi span{color:#66788f;font-size:12px}.kpi strong{display:block;font-size:26px;margin-top:6px;letter-spacing:-.5px}
@@ -51,6 +52,11 @@
   .flow{white-space:nowrap}.flow b{font-weight:600}.flow i{font-style:normal;color:#8a9bb0;margin:0 6px}
   .empty{padding:18px;border-radius:12px;background:#f6f9fc;color:#66788f;text-align:center}
   .vchip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+  .live-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .live-head .verdict{font-weight:600}.verdict.ok{color:#137a43}.verdict.bad{color:#b42323}
+  .tag.ok{background:#e3f7ec;color:#137a43}.tag.bad{background:#fde8e8;color:#b42323}.tag.extra{background:#fff3dd;color:#8a5a00}
+  .observe{background:var(--accent);color:#fff;border:0;font-weight:600}
+  .observe:disabled{background:#9fb0c0}
   @media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.device-hero{grid-template-columns:120px 1fr}
     .device-hero img{width:120px}.status{grid-column:1/-1;justify-self:start;text-align:left}}
   `;
@@ -161,6 +167,57 @@
       + `${panelHtml('Ports', 'mode et voisin', tableOr(['Port', 'Mode', 'VLAN', 'Voisin'], portRows, 'Aucun port.'))}</div>`;
   }
 
+  const stateTag = value => value === 'ok' ? '<span class="tag ok">Conforme</span>'
+    : value === 'non déclarée' ? '<span class="tag extra">Non déclarée</span>' : `<span class="tag bad">${esc(value[0].toUpperCase() + value.slice(1))}</span>`;
+  let observeUntil = 0;
+
+  function liveSection(n) {
+    const live = state.live, running = state.observed === 'running';
+    const button = `<button type="button" class="observe" id="observeNode"${running && !state.observing ? '' : ' disabled'}>`
+      + `${state.observing ? 'Relevé en cours… confirmer dans le terminal' : live ? '↻ Relever à nouveau' : 'Relever l’état réel'}</button>`;
+    if (!live) {
+      const why = running ? 'Lit les interfaces, routes' + (n.role === 'switch' ? ', VLAN du pont' : '') + (n.role === 'firewall' ? ' et sessions suivies' : '')
+        + ' sur le nœud en marche (authentification sudo dans un terminal), puis les compare au projet.'
+        : 'Démarrer le laboratoire et actualiser son état : le relevé lit le nœud en marche.';
+      return panelHtml('État réel', 'nœud Linux en marche', `<div class="live-head"><span class="muted">${esc(why)}</span>${button}</div>`);
+    }
+    const verdict = live.conform ? '<span class="verdict ok">● Conforme au projet</span>' : '<span class="verdict bad">● Écarts avec le projet</span>';
+    const parts = [`<div class="live-head"><span>${verdict} <span class="muted">· relevé à ${esc(live.time)}</span></span>${button}</div>`];
+    parts.push('<h3 class="muted" style="margin:16px 0 8px">Interfaces</h3>' + tableOr(['Port', 'Lien', 'Adresses relevées', 'Projet', ''],
+      live.interfaces.map(i => [`<b>${esc(i.name)}</b> <span class="muted">${esc(i.port)}</span>`, i.up ? '<span class="tag ok">UP</span>' : '<span class="tag bad">DOWN</span>',
+        esc(i.addresses.join(', ') || '—'), esc(i.declared || '—'), stateTag(i.ok ? 'ok' : 'écart')]), 'Aucune interface relevée.'));
+    if (n.role !== 'switch') parts.push('<h3 class="muted" style="margin:16px 0 8px">Routes statiques</h3>' + tableOr(['Réseau', 'Passerelle', 'Interface', ''],
+      live.routes.map(r => [`<b>${esc(r.network)}</b>`, esc(r.gateway), esc(r.port), stateTag(r.state)]), 'Aucune route statique, ni déclarée ni relevée.'));
+    if (live.vlans) parts.push('<h3 class="muted" style="margin:16px 0 8px">VLAN du pont Linux</h3>' + tableOr(['Port', 'VLAN', 'Mode', ''],
+      live.vlans.map(v => [`<b>${esc(v.port)}</b>`, `<span class="vchip" style="background:${vlanColour(v.vlan)}"></span>VLAN ${esc(v.vlan)}`,
+        v.mode === 'pvid' ? 'non étiqueté (PVID)' : 'étiqueté 802.1Q', stateTag(v.state)]), 'Un seul VLAN 1 non étiqueté : pont sans filtrage VLAN.'));
+    if (n.role === 'firewall') parts.push('<h3 class="muted" style="margin:16px 0 8px">Sessions suivies</h3>' + (live.sessions
+      ? tableOr(['Protocole', 'Source', 'Destination', 'Port', 'État'], live.sessions.map(x => [`<span class="tag t">${esc(x.protocol.toUpperCase())}</span>`,
+        esc(x.source), esc(x.destination), esc(x.port || '—'), esc(x.state || (x.replied ? 'réponse vue' : 'sans réponse'))]), 'Aucune session en cours.')
+      : `<div class="empty">Sessions indisponibles : ${esc(live.sessions_error || 'non relevées')}</div>`));
+    return panelHtml('État réel', 'relevé sur le nœud Linux en marche', parts.join(''));
+  }
+
+  async function observe() {
+    try {
+      state = await request('/api/observe', {node});
+      render();
+      message('Relevé demandé : confirmer avec sudo dans le terminal ouvert par Network LABS.');
+      observeUntil = Date.now() + 180000;
+      const before = state.live && state.live.time;
+      const poll = async () => {
+        if (Date.now() > observeUntil) return;
+        try {
+          const next = await request('/api/state?node=' + encodeURIComponent(node));
+          const done = !next.observing && (next.live && next.live.time) !== before;
+          if (done || !next.observing) { state = next; render(); message(done ? 'État réel relevé.' : 'Relevé terminé sans nouvelle observation : voir les événements.', !done); return; }
+        } catch (error) { message(error.message, true); return; }
+        setTimeout(poll, 1500);
+      };
+      setTimeout(poll, 1500);
+    } catch (error) { message(error.message, true); }
+  }
+
   function dashboard() {
     const n = state.node, d = state.device;
     $('title').textContent = 'Tableau de bord';
@@ -168,7 +225,9 @@
     const body = n.role === 'firewall' ? firewallDashboard(n, d) : n.role === 'router' ? routerDashboard(n, d)
       : n.role === 'switch' ? switchDashboard(n, d) : kpis([['Ports', d.ports.length, ''], ['Adresses', d.connected.length, ''],
         ['Routes', d.static.length, ''], ['Câblés', d.ports.filter(p => p.peer).length, '']]) + `<div class="grid2">${interfacesTable(d)}${routingTable(d)}</div>`;
-    $('listing').innerHTML = body;
+    $('listing').innerHTML = liveSection(n) + body;
+    const button = $('observeNode');
+    if (button) button.onclick = observe;
   }
 
   const previous = render;

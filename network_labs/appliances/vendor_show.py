@@ -423,3 +423,27 @@ def ping_text(node, result):
     if times:
         lines.append(f'round-trip min/avg/max = {low:.3f}/{mean:.3f}/{high:.3f} ms')
     return '\n'.join(lines)
+
+
+# ---- firewall sessions ----
+
+def parse_sessions(text, limit=100):
+    """Tracked IPv4 connections from /proc/net/nf_conntrack or `conntrack -L` lines: the original direction only."""
+    sessions = []
+    for line in text.splitlines():
+        words = [w.strip('[]') for w in line.split()]  # conntrack writes flags as [ASSURED], [UNREPLIED]
+        protocol = next((w for w in words if w in ('tcp', 'udp', 'icmp')), None)
+        fields = {}
+        for word in words:
+            key, sign, value = word.partition('=')
+            if sign and key not in fields:
+                fields[key] = value  # the first src/dst/dport are the original direction
+        if protocol is None or 'src' not in fields or 'dst' not in fields:
+            continue
+        state = next((w for w in words if w.isupper() and w.isalpha() and w not in ('ASSURED', 'UNREPLIED')), '')
+        sessions.append({'protocol': protocol, 'source': fields['src'], 'destination': fields['dst'],
+                         'port': fields.get('dport', ''), 'state': state or ('ASSURED' if 'ASSURED' in words else ''),
+                         'replied': 'UNREPLIED' not in words})
+        if len(sessions) >= limit:
+            break
+    return sessions

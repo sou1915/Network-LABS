@@ -111,6 +111,11 @@ role: firewall security policy and NAT tables, router interfaces (with 802.1Q su
 and declared routing table, switch VLAN membership and port modes. Tables use vendor port
 names; switches show no address fields. All values come from the lab draft
 (`appliances/device_view.py`, `native_device_view.js`).
+On a running lab, **Relever l’état réel** on the dashboard reads the node (one sudo-confirmed
+`show` request: interfaces and addresses, routes, the switch bridge's VLAN entries, and a
+firewall's tracked connections) and compares it row by row with the draft: each interface,
+static route and VLAN entry is marked conforming, missing or undeclared. Real-KVM tested on
+the NAT firewall (its ports and the masqueraded ICMP session).
 
 **Vendor configuration console (CLI tab).** Cisco, Fortinet, Juniper, MikroTik, Arista, Huawei and
 Palo Alto models show their lab configuration in IOS, FortiOS, Junos, RouterOS, EOS, VRP or PAN-OS syntax
