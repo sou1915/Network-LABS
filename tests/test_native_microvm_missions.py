@@ -60,7 +60,8 @@ class MissionGuestTests(unittest.TestCase):
                                     break
                             results[label] = missions.grade(spec, 'route-manquante', real)
                         finally:
-                            manager.stop()
+                            if manager.directory.exists():
+                                manager.stop()  # a lab that failed to start has already been cleaned up
             (evidence / 'result.json').write_text(json.dumps(results, indent=2))
             print('\nMission grades:', json.dumps({k: (v['passed'], v['total']) for k, v in results.items()}), flush=True)
             self.assertFalse(any(r['status'] == 'ok' for r in results['broken']['results'] if r['kind'] == 'réel'), results['broken'])
@@ -73,7 +74,7 @@ class MissionGuestTests(unittest.TestCase):
         kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
         with tempfile.TemporaryDirectory(prefix='nlpf-') as temporary:
             root = Path(temporary)
-            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True, with_firewall=True)
             working = faults.LABS['pare-feu']['build'](kernel, root / 'base.ext4')
             broken = copy.deepcopy(working)
             faults.FAULTS['pare-feu']['inbound-deny'][0][0](broken)
@@ -92,7 +93,8 @@ class MissionGuestTests(unittest.TestCase):
                                     break
                             grades[label] = [ok for _, (ok, _) in sorted(found.items())]
                         finally:
-                            manager.stop()
+                            if manager.directory.exists():
+                                manager.stop()  # a lab that failed to start has already been cleaned up
             print('\nPanne pare-feu probes:', json.dumps(grades), flush=True)
             self.assertEqual(grades['working'], [True, True])
             self.assertEqual(grades['broken'], [True, False])
@@ -121,7 +123,8 @@ class MissionGuestTests(unittest.TestCase):
                             time.sleep(2)
                         grade = missions.grade(fixed, 'serveur-dhcp', found)
                     finally:
-                        manager.stop()
+                        if manager.directory.exists():
+                            manager.stop()
             print('\nDHCP mission grade:', grade['passed'], '/', grade['total'], flush=True)
             self.assertTrue(grade['solved'], grade)
 
