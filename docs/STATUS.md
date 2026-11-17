@@ -119,6 +119,14 @@ pool`, `network`, `default-router`, `dns-server`, `lease`, `ip dhcp excluded-add
 student's best score, solved missions, hints used and micro-VM paths are kept in a private
 `~/.config/network-labs/progress.json` (badges and a progression count on the mission list). Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
 
+**Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
+sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded
+capture per link, no lab lock held while recording). The workbench then replays the packet on the
+topology, cable by cable in time order: request in orange, reply in green, with the addresses
+seen on each wire, the 802.1Q tag and a NAT mark where the addresses change, plus a hop table.
+Real-KVM tested on the NAT firewall: VM2's request leaves as 192.0.2.20 and crosses FW1's
+outside link as 198.51.100.1.
+
 **Troubleshooting mode (Mode panne).** Three working labs (two routed sites, two VLAN
 switches, a NAT firewall) each get one hidden fault drawn at random from ten
 (`appliances/faults.py`): a missing route, a wrong router address, a wrong host gateway, a

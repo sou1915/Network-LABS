@@ -9,7 +9,7 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping','mission')
+ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping','mission','trace')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
 
@@ -72,18 +72,25 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify','firewall','show','ping','mission'):
+    if action in ('inspect','verify','firewall','show','ping','mission','trace'):
         identifier(node)
     elif node is not None:
         raise ValueError('Unexpected node argument.')
     if action=='verify':
         identifier(destination)
-    elif action=='ping':
+    elif action in ('ping','trace'):
         ipaddress.IPv4Address(destination)
     elif destination is not None:
         raise ValueError('Unexpected destination argument.')
     spec=load(target) if action in ('start','firewall') else None
     lab=spec['name'] if spec else identifier(target)
+    if action=='trace':
+        # Recording must not hold the lab lock: each capture takes it only while it starts.
+        from .packet_trace import trace
+        data=trace(lab,node,destination)
+        with Manager(lab).locked() as manager:
+            topology=public_topology(manager.read()['spec'])
+        return {'ok':True,'action':action,'lab':lab,'topology':topology,'data':redact(data)}
     with Manager(lab).locked() as manager:
         if action=='start':manager.start(spec)
         if action=='firewall':
@@ -125,13 +132,13 @@ def validate_request(request):
         if not Path(target).is_absolute():
             raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify','firewall','show','ping','mission'):
+    if action in ('inspect','verify','firewall','show','ping','mission','trace'):
         identifier(request['node'])
     elif request['node'] is not None:
         raise ValueError('Unexpected node argument.')
     if action=='verify':
         identifier(request['destination'])
-    elif action=='ping':
+    elif action in ('ping','trace'):
         if not isinstance(request['destination'],str):
             raise ValueError('Ping requires an IPv4 destination.')
         ipaddress.IPv4Address(request['destination'])

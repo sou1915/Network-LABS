@@ -81,6 +81,16 @@ class FirewallNatGuestTests(unittest.TestCase):
                     self.assertTrue(all(row['ok'] for row in view['interfaces']), view)
                     self.assertIn(('icmp', '192.0.2.20', '198.51.100.20'),
                                   {(x['protocol'], x['source'], x['destination']) for x in view['sessions']}, view)
+                    # Packet replay: one real ping recorded on every link; the masquerade shows on FW1's outside link.
+                    from network_labs.appliances.packet_trace import trace
+                    traced = trace(spec['name'], 'VM2', '198.51.100.20')
+                    results['trace'] = traced
+                    crossings = [(h['link'], h['type'], h['source'], h['destination']) for h in traced['hops']]
+                    print('\nTrace VM2 -> VM3:', json.dumps(crossings), flush=True)
+                    self.assertTrue(traced['answered'], traced)
+                    wire = {(h['link'], h['type']): (h['source'], h['destination']) for h in traced['hops']}
+                    self.assertEqual(wire[(0, 'request')], ('192.0.2.20', '198.51.100.20'))
+                    self.assertEqual(wire[(1, 'request')], ('198.51.100.1', '198.51.100.20'))
                     # Live change without masquerade: VM3 now sees VM2's real address.
                     plain = copy.deepcopy(policy); plain['nat'] = [entry for entry in plain['nat'] if entry['type'] == 'dnat']
                     with manager.locked():
