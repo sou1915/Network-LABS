@@ -464,7 +464,8 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
-            if (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
+            # A micro-VM router's BIRD is on its guest disk: the agent refuses to start OSPF without it.
+            if node['runtime'] == 'oci' and (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
                 raise RuntimeFailure(node['name'] + ': Managed BIRD routing/RA requires a rootfs built with --bird and --birdc.')
             if node.get('dhcpv6_pd_server') and any(not (Path(node['rootfs']) / p).is_file() for p in ('usr/sbin/kea-dhcp6', 'usr/lib/network-labs/dhcpv6-pd-hook')):
                 raise RuntimeFailure(node['name'] + ': PD server requires --kea-dhcp6 and --dhcpv6-pd-hook rootfs assets.')

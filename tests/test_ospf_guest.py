@@ -92,6 +92,19 @@ class WireTest(unittest.TestCase):
 
 
 class SpecTest(unittest.TestCase):
+    def test_preflight_of_an_ospf_micro_vm_lab_needs_no_container_rootfs(self):
+        from unittest.mock import patch
+        from network_labs.appliances import runtime
+        with tempfile.TemporaryDirectory() as folder:
+            kernel, disk = Path(folder) / 'vmlinux', Path(folder) / 'disk.ext4'
+            kernel.write_bytes(b'k')
+            disk.write_bytes(b'd')
+            spec = ospf_example(kernel, disk)
+            report = {'host': {'linux': True}, 'runtimes': [{'id': 'firecracker', 'prerequisites_detected': True},
+                                                            {'id': 'oci', 'prerequisites_detected': True}]}
+            with patch.object(runtime, 'capabilities', return_value=report):
+                runtime.Manager(spec['name']).preflight(spec)  # no KeyError on 'rootfs'
+
     def test_micro_vm_routers_run_ospf_without_static_routes(self):
         spec = lab()
         self.assertEqual([n['ospf']['router_id'] for n in spec['nodes'][:3]], ['1.1.1.1', '2.2.2.2', '3.3.3.3'])
