@@ -255,3 +255,36 @@ class FortiOSDhcpTest(unittest.TestCase):
             vendor_config.apply(self.lab, 'FW1', 'config system dhcp server\n edit 1\n set interface "port1"\n next\nend')
         with self.assertRaises(ValueError):  # the pool must sit in the port's subnet, outside its address
             vendor_config.apply(self.lab, 'FW1', self.BLOCK.replace('192.0.2.100', '10.0.0.1').replace('192.0.2.120', '10.0.0.9'))
+
+
+class IOSRouterFeaturesTest(unittest.TestCase):
+    def test_subinterfaces(self):
+        from network_labs.appliances.microvm import router_on_a_stick_example
+        lab = modelled(router_on_a_stick_example(KERNEL, DISK), R1='cisco-isr4331')
+        block = 'interface gi0/0/0.30\n encapsulation dot1Q 30\n ip address 203.0.113.1 255.255.255.0'
+        result = node(vendor_config.apply(lab, 'R1', block), 'R1')
+        self.assertEqual(result['subinterfaces']['eth0.30'], {'parent': 'eth0', 'vlan': 30, 'address': '203.0.113.1/24'})
+        added = vendor_config.apply(lab, 'R1', 'interface gi0/0/0.30\n encapsulation dot1Q 30\n ip address 203.0.113.1 255.255.255.0')
+        gone = vendor_config.apply(added, 'R1', 'no interface gi0/0/0.20')
+        self.assertNotIn('eth0.20', node(gone, 'R1')['subinterfaces'])
+        with self.assertRaisesRegex(ValueError, 'two routed'):  # a micro-VM router keeps two routed interfaces
+            vendor_config.apply(lab, 'R1', 'no interface gi0/0/0.20')
+        with self.assertRaisesRegex(ValueError, 'Sous-interface'):
+            vendor_config.apply(lab, 'R1', 'interface gi0/0/0.20\n switchport mode access')
+
+    def test_dhcp_pool(self):
+        from network_labs.appliances.microvm import dhcp_example
+        lab = modelled(dhcp_example(KERNEL, DISK), R1='cisco-isr4331')
+        text = vendor_config.render(lab, 'R1')
+        self.assertIn('ip dhcp excluded-address 192.0.2.1 192.0.2.99', text)
+        self.assertEqual(vendor_config.render(vendor_config.apply(lab, 'R1', text), 'R1'), text)
+        bare = vendor_config.apply(lab, 'R1', 'no ip dhcp pool LAN')
+        self.assertIsNone(node(bare, 'R1')['dhcp_server'])
+        # Without exclusions the pool skips only the router's own address.
+        server = node(vendor_config.apply(bare, 'R1', 'ip dhcp pool LAN\n network 192.0.2.0 255.255.255.0\n default-router 192.0.2.1\n'
+                                                 ' lease 0 1 0'), 'R1')['dhcp_server']
+        self.assertEqual((server['start'], server['end'], server['lease_seconds']), ('192.0.2.2', '192.0.2.254', 3600))
+        kept = node(vendor_config.apply(lab, 'R1', 'ip dhcp pool LAN\n dns-server 192.0.2.53'), 'R1')['dhcp_server']
+        self.assertEqual((kept['start'], kept['end'], kept['dns']), ('192.0.2.100', '192.0.2.120', ['192.0.2.53']))
+        with self.assertRaisesRegex(ValueError, 'réseau'):
+            vendor_config.apply(bare, 'R1', 'ip dhcp pool LAN\n network 10.0.0.0 255.0.0.0')

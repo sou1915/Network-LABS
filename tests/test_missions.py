@@ -5,6 +5,9 @@ import unittest
 from network_labs.appliances import missions, vendor_config
 
 SOLUTIONS = {
+    'router-on-a-stick': ('R1', 'interface gi0/0/0.20\n encapsulation dot1Q 20'),
+    'serveur-dhcp': ('R1', 'ip dhcp excluded-address 192.0.2.1 192.0.2.99\nip dhcp pool LAN\n network 192.0.2.0 255.255.255.0\n'
+                           ' default-router 192.0.2.1'),
     'route-manquante': ('R1', 'ip route 198.51.100.0 255.255.255.0 203.0.113.2'),
     'isoler-un-vlan': ('SW1', 'interface gi1/0/3\n switchport access vlan 20'),
     'publier-un-serveur': ('FW1', 'config firewall vip\n edit "srv"\n set extip 198.51.100.1\n set mappedip "192.0.2.20"\n'
@@ -12,6 +15,21 @@ SOLUTIONS = {
                                   ' set srcintf "port2"\n set dstintf "port1"\n set dstaddr "192.0.2.20/32"\n set service "ALL_ICMP"\n'
                                   ' set action accept\n next\nend'),
 }
+
+
+def setUpModule():
+    # GUI tests record progress: keep it out of the real ~/.config.
+    import tempfile
+    from unittest import mock
+    global _config, _env
+    _config = tempfile.TemporaryDirectory()
+    _env = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': _config.name})
+    _env.start()
+
+
+def tearDownModule():
+    _env.stop()
+    _config.cleanup()
 
 
 class MissionTest(unittest.TestCase):
@@ -82,3 +100,27 @@ class MissionTabTest(unittest.TestCase):
             self.assertEqual(validate_request(envelope)['node'], 'route-manquante')
         finally:
             root.destroy()
+
+
+class ProgressTest(unittest.TestCase):
+    def test_best_score_solved_flag_hints_and_paths(self):
+        import tempfile
+        from unittest import mock
+        from network_labs.appliances import progress
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        patcher = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': folder.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.assertEqual(progress.load(), {'missions': {}, 'paths': {}})
+        progress.record('route-manquante', 1, 3, hints=1)
+        entry = progress.record('route-manquante', 3, 3, hints=2, solved=True)
+        self.assertEqual((entry['best'], entry['solved'], entry['hints'], entry['tries']), (3, True, 2, 2))
+        entry = progress.record('route-manquante', 1, 3, hints=0)  # a worse try keeps the best
+        self.assertEqual((entry['best'], entry['solved'], entry['hints']), (3, True, 2))
+        self.assertEqual(progress.record('route-manquante', 3, 3, hints=0, solved=True)['hints'], 0)
+        progress.remember_paths('/k', '/d')
+        self.assertEqual(progress.load()['paths'], {'kernel': '/k', 'disk': '/d'})
+        self.assertEqual(oct(progress.path().stat().st_mode & 0o777), '0o600')
+        progress.path().write_text('{broken')
+        self.assertEqual(progress.load(), {'missions': {}, 'paths': {}})

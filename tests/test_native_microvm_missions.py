@@ -97,3 +97,31 @@ class MissionGuestTests(unittest.TestCase):
             self.assertEqual(grades['working'], [True, True])
             self.assertEqual(grades['broken'], [True, False])
 
+    def test_dhcp_mission_solved_on_real_guests(self):
+        """The DHCP mission fixed with IOS commands: VM2 takes a lease from R1 and reaches VM3."""
+        self.assertEqual(os.geteuid(), 0)
+        kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
+        with tempfile.TemporaryDirectory(prefix='nlmd-') as temporary:
+            root = Path(temporary)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            lab = missions.mission('serveur-dhcp')['build'](kernel, root / 'base.ext4')
+            fixed = vendor_config.apply(lab, 'R1', 'ip dhcp excluded-address 192.0.2.1 192.0.2.99\nip dhcp pool LAN\n'
+                                                   ' network 192.0.2.0 255.255.255.0\n default-router 192.0.2.1\n lease 0 0 10')
+            state_root = patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state')
+            with state_root, patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
+                manager = Manager(fixed['name'])
+                with manager.locked():
+                    try:
+                        manager.start(fixed)
+                        wait_ready(manager, fixed)
+                        for _ in range(10):  # the lease and its default route arrive a few seconds after boot
+                            found = {i: (ok, d) for i, ok, d in missions.run_real(manager, 'serveur-dhcp')['results']}
+                            if all(ok for ok, _ in found.values()):
+                                break
+                            time.sleep(2)
+                        grade = missions.grade(fixed, 'serveur-dhcp', found)
+                    finally:
+                        manager.stop()
+            print('\nDHCP mission grade:', grade['passed'], '/', grade['total'], flush=True)
+            self.assertTrue(grade['solved'], grade)
+

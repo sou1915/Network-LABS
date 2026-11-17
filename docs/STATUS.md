@@ -111,7 +111,13 @@ configures with any tool (forms, vendor CLI, vendor web pages). **Vérifier la c
 grades the draft (routes, switchports, trunks, Virtual IPs, and packets run through the
 firewall policy: DNAT, then first matching rule, then the default). **Tester sur le lab**
 sends the mission's pings from the running guests (one sudo-confirmed request) and grades what
-the network did. Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
+the network did. Two more missions: *Routage inter-VLAN sur un seul lien* (router-on-a-stick
+troubleshooting: a subinterface tagged with the wrong VLAN) and *Distribuer les adresses avec
+DHCP* (an IOS DHCP pool with excluded addresses). The IOS subset now covers 802.1Q
+subinterfaces (`interface gi0/0/0.20`, `encapsulation dot1Q 20`) and DHCP pools (`ip dhcp
+pool`, `network`, `default-router`, `dns-server`, `lease`, `ip dhcp excluded-address`). Each
+student's best score, solved missions, hints used and micro-VM paths are kept in a private
+`~/.config/network-labs/progress.json` (badges and a progression count on the mission list). Real-KVM tested: the broken route lab fails its pings, the IOS fix passes.
 
 **Troubleshooting mode (Mode panne).** Three working labs (two routed sites, two VLAN
 switches, a NAT firewall) each get one hidden fault drawn at random from ten

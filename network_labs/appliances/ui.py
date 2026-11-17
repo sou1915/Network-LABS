@@ -779,8 +779,12 @@ class ApplianceWindow:
         self.mission_real={}
         self.mission_cards={}
         import os
-        self.mission_kernel=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_KERNEL',''))
-        self.mission_disk=tk.StringVar(value=os.environ.get('NETWORK_LABS_MICROVM_DISK',''))
+        from . import progress
+        saved=progress.load()['paths']
+        self.mission_kernel=tk.StringVar(value=saved.get('kernel') or os.environ.get('NETWORK_LABS_MICROVM_KERNEL',''))
+        self.mission_disk=tk.StringVar(value=saved.get('disk') or os.environ.get('NETWORK_LABS_MICROVM_DISK',''))
+        self.mission_badges={}
+        self.mission_progress=tk.StringVar()
         column=tk.Frame(parent,bg=BG,width=262)
         column.pack(side='left',fill='y',padx=(10,6),pady=10)
         column.pack_propagate(False)
@@ -790,8 +794,9 @@ class ApplianceWindow:
         side=listing.inner
         self.label(side,'Missions guidées',TEXT,13,True).pack(anchor='w',pady=(4,2))
         intro='Chaque mission part d’un lab réel ; la note vient de votre configuration et de pings réels.'
-        self.label(side,intro,MUTED,8).pack(anchor='w',pady=(0,8))
+        self.label(side,intro,MUTED,8).pack(anchor='w',pady=(0,4))
         side.winfo_children()[-1].configure(wraplength=235)
+        tk.Label(side,textvariable=self.mission_progress,bg=BG,fg='#168942',font=(self.font,9,'bold'),anchor='w').pack(fill='x',pady=(0,6))
         for item in MISSIONS:
             card=tk.Frame(side,bg='white',highlightthickness=2,highlightbackground='#dfe7ef',cursor='hand2')
             card.pack(fill='x',pady=4)
@@ -804,6 +809,8 @@ class ApplianceWindow:
             for widget in (card,title,meta):
                 widget.bind('<Button-1>',lambda event,m=item['id']:self.select_mission(m))
             self.mission_cards[item['id']]=card
+            self.mission_badges[item['id']]=tk.Label(card,bg='white',font=(self.font,8,'bold'),anchor='w')
+            self.mission_badges[item['id']].pack(fill='x',padx=10,pady=(0,6))  # empty until there is progress
         from .faults import LABS
         self.panne=None
         self.label(side,'Mode panne',TEXT,11,True).pack(anchor='w',pady=(12,2))
@@ -819,6 +826,9 @@ class ApplianceWindow:
             for widget in (card,title,meta):
                 widget.bind('<Button-1>',lambda event,m='panne-'+key:self.select_mission(m))
             self.mission_cards['panne-'+key]=card
+            self.mission_badges['panne-'+key]=tk.Label(card,bg='#fff8ef',font=(self.font,8,'bold'),anchor='w')
+            self.mission_badges['panne-'+key].pack(fill='x',padx=10,pady=(0,6))  # empty until there is progress
+        self.refresh_mission_badges()
 
         campus=ttk.Button(column,text='Autre scénario : campus entreprise…',command=self.new_campus,style='Native.TButton')
         campus.pack(fill='x',side='bottom',pady=6)
@@ -920,6 +930,8 @@ class ApplianceWindow:
             self.mission_status.set('Indiquer le noyau et le disque des micro-VM (les mêmes que pour un lab micro-VM).')
             return False
         try:
+            from . import progress
+            progress.remember_paths(kernel,disk)
             if self.mission_current.startswith('panne-'):
                 from .faults import create
                 self.panne=create(self.mission_current[len('panne-'):],kernel,disk)
@@ -942,8 +954,31 @@ class ApplianceWindow:
         if not self.mission_lab_loaded():
             self.mission_status.set('Charger d’abord le lab de cette mission.')
             return False
-        self.show_mission_results()
+        self.record_mission(self.show_mission_results())
         return True
+
+    def record_mission(self,result):
+        """Keep the student's best result for the current mission, then refresh the badges."""
+        from . import progress
+        if result and result.get('total'):
+            progress.record(self.mission_current,result['passed'],result['total'],self.mission_hints_shown,result['solved'])
+        self.refresh_mission_badges()
+
+    def refresh_mission_badges(self):
+        from . import progress
+        saved=progress.load()['missions']
+        solved=0
+        for key,badge in self.mission_badges.items():
+            entry=saved.get(key) if isinstance(saved.get(key),dict) else None
+            if entry and entry.get('solved'):
+                solved+=1
+                hints=int(entry.get('hints',0))
+                badge.configure(text='✔ Réussie'+(f' · {hints} indice'+('s' if hints>1 else '') if hints else ''),fg='#168942')
+            elif entry:
+                badge.configure(text=f"{entry.get('best',0)}/{entry.get('total','?')}",fg='#b7791f')
+            else:
+                badge.configure(text='')
+        self.mission_progress.set(f'Progression : {solved} / {len(self.mission_badges)} réussies')
 
     def test_mission(self):
         if not self.mission_lab_loaded():
@@ -1015,6 +1050,7 @@ class ApplianceWindow:
             self.mission_bar.create_rectangle(0,1,done,7,fill='#21a35a' if result['solved'] else BLUE,outline='')
         if not loaded:
             self.mission_status.set('Indiquer noyau et disque, puis « Charger la mission ».')
+        return result if loaded else None
 
     def build_vendor_console(self,parent):
         """Vendor-syntax configuration (IOS, FortiOS, Junos, RouterOS) of the selected node's lab draft."""
@@ -1504,7 +1540,7 @@ class ApplianceWindow:
         self.draw(graph,states)
         if action=='mission':
             self.mission_real={index:(ok,detail) for index,ok,detail in data['results']}
-            self.show_mission_results()
+            self.record_mission(self.show_mission_results())
             self.write_output('Mission '+data['mission']+' : pings réels envoyés depuis les micro-VM.',data,'Mission')
             self.draw(graph,states)
             self.record_event('mission',self.mission_score.get())

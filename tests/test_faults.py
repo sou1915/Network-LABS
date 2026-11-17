@@ -7,6 +7,9 @@ from network_labs.appliances import faults, missions
 from network_labs.appliances.spec import validate
 
 
+from test_missions import setUpModule, tearDownModule  # noqa: F401  (progress kept out of ~/.config)
+
+
 class FaultTest(unittest.TestCase):
     def test_every_fault_is_valid_detected_and_absent_from_the_working_lab(self):
         for lab, table in faults.FAULTS.items():

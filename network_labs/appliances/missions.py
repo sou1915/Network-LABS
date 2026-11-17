@@ -7,7 +7,7 @@ A mission is solved when every check passes; real checks only count once the lab
 """
 import ipaddress
 
-from .microvm import firewall_nat_example, router_chain_example, switch_vlan_example
+from .microvm import dhcp_example, firewall_nat_example, router_chain_example, router_on_a_stick_example, switch_vlan_example
 from .native_models import port_names
 from .spec import validate
 from .vendor_config import routes
@@ -39,6 +39,24 @@ def _publish_lab(kernel, disk):
     fw['model'] = 'fortigate'
     fw['firewall']['rules'] = [r for r in fw['firewall']['rules'] if r['name'] != 'published-ping-in']
     fw['firewall']['nat'] = [r for r in fw['firewall']['nat'] if r['type'] != 'dnat']
+    return validate(lab)
+
+
+def _stick_lab(kernel, disk):
+    lab = router_on_a_stick_example(kernel, disk)
+    lab['name'] = 'mission-router-on-a-stick'
+    switch, router = lab['nodes'][0], lab['nodes'][1]
+    switch['model'], router['model'] = 'cisco-9200l', 'cisco-isr4331'
+    router['subinterfaces']['eth0.20']['vlan'] = 30  # the fault: the VLAN 20 subinterface is tagged 30
+    return validate(lab)
+
+
+def _dhcp_lab(kernel, disk):
+    lab = dhcp_example(kernel, disk)
+    lab['name'] = 'mission-serveur-dhcp'
+    router = lab['nodes'][0]
+    router['model'] = 'cisco-isr4331'
+    router['dhcp_server'] = None  # VM2 asks for an address and nobody answers
     return validate(lab)
 
 
@@ -139,6 +157,32 @@ MISSIONS = [{'id': 'route-manquante',
                          'destination': '198.51.100.20',
                          'expect': True,
                          'text': 'Le LAN sort toujours (ping réel)'}]}]
+MISSIONS += [
+    {'id': 'router-on-a-stick', 'lab': 'mission-router-on-a-stick', 'title': 'Routage inter-VLAN sur un seul lien',
+     'level': 'Intermédiaire', 'kind': 'Dépannage', 'vendors': 'Cisco ISR 4331 · Catalyst 9200L',
+     'story': 'R1 route les VLAN 10 et 20 sur un seul trunk (router-on-a-stick). Depuis la mise en service, VM1 (VLAN 10) '
+              'ne joint pas VM2 (VLAN 20). Nécessite le noyau Network LABS (802.1Q).',
+     'hints': ['Sur R1 : show running-config, regarder les sous-interfaces de gi0/0/0.',
+               'interface gi0/0/0.20 puis encapsulation dot1Q 20 : l’étiquette doit être celle du VLAN des postes.'],
+     'build': _stick_lab,
+     'checks': [{'kind': 'subinterface', 'node': 'R1', 'vlan': 20, 'address': '198.51.100.1/24',
+                 'text': 'R1 a une sous-interface étiquetée VLAN 20 avec 198.51.100.1/24'},
+                {'kind': 'reach', 'source': 'VM1', 'destination': '198.51.100.10', 'expect': True,
+                 'text': 'VM1 (VLAN 10) joint VM2 (VLAN 20)'},
+                {'kind': 'reach', 'source': 'VM2', 'destination': '192.0.2.10', 'expect': True,
+                 'text': 'VM2 (VLAN 20) joint VM1 (VLAN 10)'}]},
+    {'id': 'serveur-dhcp', 'lab': 'mission-serveur-dhcp', 'title': 'Distribuer les adresses avec DHCP', 'level': 'Débutant',
+     'kind': 'Configuration', 'vendors': 'Cisco ISR 4331',
+     'story': 'VM2 est configuré en DHCP mais personne ne lui répond. Faire de R1 le serveur DHCP du LAN 192.0.2.0/24 : '
+              'passerelle 192.0.2.1, et les adresses .1 à .99 réservées aux équipements fixes.',
+     'hints': ['ip dhcp excluded-address 192.0.2.1 192.0.2.99', 'ip dhcp pool LAN, puis network 192.0.2.0 255.255.255.0 et '
+               'default-router 192.0.2.1.'],
+     'build': _dhcp_lab,
+     'checks': [{'kind': 'dhcp', 'node': 'R1', 'port': 'eth0', 'router': '192.0.2.1', 'first': '192.0.2.100',
+                 'text': 'R1 sert un pool DHCP sur gi0/0/0 avec la passerelle 192.0.2.1, hors .1–.99'},
+                {'kind': 'reach', 'source': 'VM2', 'destination': '198.51.100.20', 'expect': True,
+                 'text': 'VM2 obtient une adresse et joint VM3 (ping réel)'}]},
+]
 BY_ID = {mission['id']: mission for mission in MISSIONS}
 
 
@@ -225,6 +269,26 @@ def _check_config(spec, check):
     if kind == 'policy':
         verdict = evaluate_policy(node, check['packet'])
         return verdict == check['expect'], 'autorisé' if verdict == 'accept' else 'bloqué'
+    if kind == 'subinterface':
+        for name, sub in (node.get('subinterfaces') or {}).items():
+            if sub.get('address') and ipaddress.IPv4Interface(sub['address']) == ipaddress.IPv4Interface(check['address']):
+                ok = sub.get('vlan') == check['vlan']
+                parent, _, vid = name.partition('.')
+                return ok, f'{shown.get(parent, parent)}.{vid} : encapsulation dot1Q {sub.get("vlan")}'
+        return False, 'aucune sous-interface ne porte ' + check['address']
+    if kind == 'dhcp':
+        server = node.get('dhcp_server')
+        if not server:
+            return False, 'aucun serveur DHCP'
+        name = shown.get(server['interface'], server['interface'])
+        problems = []
+        if server['interface'] != check['port']:
+            problems.append(f'sur {name}')
+        if server.get('router') != check['router']:
+            problems.append('passerelle ' + (server.get('router') or 'absente'))
+        if ipaddress.IPv4Address(server['start']) < ipaddress.IPv4Address(check['first']):
+            problems.append(f'le pool commence à {server["start"]}')
+        return not problems, f'{name} : {server["start"]} – {server["end"]}' + (' (' + ', '.join(problems) + ')' if problems else '')
     raise ValueError('Contrôle inconnu : ' + kind)
 
 
