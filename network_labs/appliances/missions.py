@@ -221,6 +221,9 @@ def mission(mission_id):
         from .faults import LABS, mission_for
         if mission_id[len('panne-'):] in LABS:
             return mission_for(mission_id[len('panne-'):])
+    if isinstance(mission_id, str) and mission_id.startswith('scenario-') and mission_id[len('scenario-'):].isdigit():
+        from .scenarios import mission_for
+        return mission_for(int(mission_id[len('scenario-'):]))
     if mission_id not in BY_ID:
         raise ValueError('Mission inconnue : ' + str(mission_id))
     return BY_ID[mission_id]

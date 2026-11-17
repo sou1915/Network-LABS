@@ -172,12 +172,140 @@ def access_vlans(graph,spec):
     return {name:next(iter(vids)) for name,vids in members.items() if len(vids)==1}
 
 
+def vlan_groups(graph,members):
+    """[(vid, hosts)]: one group per VLAN and per island of cabled switches (VLAN 1 at two sites is two LANs)."""
+    nodes={n['name']:n for n in graph['nodes']};island={}
+    def root(name):
+        while island.get(name,name)!=name:
+            name=island[name]
+        return name
+    for a,b in graph['links']:
+        if nodes[a[0]]['role']==nodes[b[0]]['role']=='switch':
+            island[root(a[0])]=root(b[0])
+    switch_of={}
+    for a,b in graph['links']:
+        for host,sw in ((a,b),(b,a)):
+            if host[0] in members and nodes[sw[0]]['role']=='switch':
+                switch_of[host[0]]=root(sw[0])
+    groups={}
+    for name,vid in members.items():
+        groups.setdefault((vid,switch_of.get(name)),[]).append(name)
+    return [(vid,names) for (vid,_),names in sorted(groups.items(),key=lambda item:(item[0][0],str(item[0][1])))]
+
+
 def firewall_hosts(graph):
     nodes={n['name']:n for n in graph['nodes']};result={}
     for a,b in graph['links']:
         for host,fw in ((a,b),(b,a)):
             if nodes[host[0]]['role']=='host' and nodes[fw[0]]['role']=='firewall':result[host[0]]=fw[0]
     return result
+
+
+def tree_layout(graph,groups=None,spacing=125):
+    """Positions for a multi-site network: routers and firewalls on top (one row for a chain, a core above its
+    branches otherwise), each site's switches under its router and the site's hosts under their switch."""
+    nodes={n['name']:n for n in graph['nodes']}
+    near={name:[] for name in nodes}
+    for a,b in graph['links']:
+        near[a[0]].append(b[0])
+        near[b[0]].append(a[0])
+    top=[n for n in nodes if nodes[n]['role'] in ('router','firewall')]
+    links={n:[m for m in near[n] if m in top] for n in top}
+    rows,order={},[]
+    if top and all(len(v)<=2 for v in links.values()):
+        order=[next((n for n in top if len(links[n])<=1),top[0])]
+        while len(order)<len(top):
+            following=[m for m in links[order[-1]] if m not in order] or [n for n in top if n not in order]
+            order.append(following[0])
+        rows={n:0 for n in order}
+    elif top:
+        root=max(top,key=lambda n:len(links[n]))
+        order=[root]
+        rows={root:0}
+        for here in order:
+            for other in links[here]:
+                if other not in rows:
+                    rows[other]=rows[here]+1
+                    order.append(other)
+        order+=[n for n in top if n not in rows]
+        rows.update({n:1 for n in top if n not in rows})
+    # Each switch belongs to the first router, firewall or switch it is cabled to; each host to its switch or router.
+    owner={}
+    queue=list(order) if top else [n for n in nodes if nodes[n]['role']=='switch'][:1]
+    for here in queue:
+        for other in near[here]:
+            if other not in owner and other not in top and other not in queue:
+                owner[other]=here
+                queue.append(other)
+    groups=groups or {}
+    leaves={n:[k for k,p in owner.items() if p==n] for n in nodes}
+    # Hosts of one VLAN stay side by side under their switch. VLANs are ordered by where their hosts sit
+    # (switch blocks are placed left to right, sub-switches first),
+    # so a VLAN spread over two switches ends one block and starts the next instead of interleaving.
+    blocks=[]
+    def visit(name):
+        for kid in leaves[name]:
+            if nodes[kid]['role']=='switch':
+                visit(kid)
+        blocks.append(name)
+    for name in (order or queue[:1]):
+        visit(name)
+    where={}
+    for host,parent in owner.items():
+        if host in groups:
+            where.setdefault(groups[host],[]).append(blocks.index(parent) if parent in blocks else 0)
+    rank={vid:sum(v)/len(v) for vid,v in where.items()}
+    for name in leaves:
+        leaves[name].sort(key=lambda k:(nodes[k]['role']!='switch',rank.get(groups.get(k),0),groups.get(k,0)))
+    def units(name):
+        own=max(1,sum(units(k) for k in leaves[name]))
+        return max(own,1.7) if name in top else own  # a router keeps room for its transit captions
+    depth=max(rows.values(),default=-1)+1
+    switch_y=100+depth*130 if top else 250
+    host_y=switch_y+140
+    positions={}
+    def place(name,left):
+        """Lay out NAME's switches and hosts from LEFT; returns the right edge and the centre of its direct hosts."""
+        here,hosts=left,[]
+        for kid in leaves[name]:
+            span=units(kid)*spacing
+            if nodes[kid]['role']=='switch':
+                _,centre=place(kid,here)
+                positions[kid]=(centre if centre is not None else here+span/2,switch_y)
+            else:
+                positions[kid]=(here+span/2,host_y)
+                hosts.append(here+span/2)
+            here+=span
+        return here,(sum(hosts)/len(hosts) if hosts else None)
+    cursor=0
+    if not top:
+        start=queue[0]
+        end,centre=place(start,0)
+        positions[start]=(centre if centre is not None else end/2,switch_y-150)
+    for name in order if depth<=1 else []:
+        start=cursor
+        end,_=place(name,cursor)
+        cursor=max(end,start+units(name)*spacing)
+        positions[name]=((start+cursor)/2,100+rows[name]*130)
+    if top and depth>1:
+        # The core's own LAN sits in the middle, under the core, between two halves of the branches.
+        core=order[0]
+        branches=[n for n in order if rows[n]!=0]
+        def branch(name):
+            nonlocal cursor
+            start=cursor
+            end,_=place(name,cursor)
+            cursor=max(end,start+units(name)*spacing)
+            positions[name]=((start+cursor)/2,100+rows[name]*130)
+        for name in branches[:len(branches)//2]:
+            branch(name)
+        if leaves[core]:
+            cursor,_=place(core,cursor)
+        for name in branches[len(branches)//2:]:
+            branch(name)
+        positions[core]=(cursor/2,100)
+    shift=70-min((x for x,y in positions.values()),default=70)
+    return {n:(x+shift,y+25) for n,(x,y) in positions.items()}  # +25: titles clear the zoom bar when zoomed out
 
 
 def place_nodes(graph,members,width):

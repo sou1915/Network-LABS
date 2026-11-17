@@ -21,7 +21,7 @@ from . import reference_theme
 from .soft_widgets import SoftCard,SoftPanel,rounded_box
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
 from .native_models import port_label,port_names
-from .workspace_art import port_offset,draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
+from .workspace_art import port_offset,draw_device,access_vlans,vlan_groups,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -411,9 +411,12 @@ class ApplianceWindow:
             for yy in range(-142,int(height/max(.65,self.zoom))+160,22):self.canvas.create_oval(xx,yy,xx+1,yy+1,fill='#e8eef7',outline='',tags=('grid',))
         palette=[('#e8f4ff','#8fc0ed','#0064c7'),('#e9f8ed','#9ed4ad','#14884b'),('#fff7dd','#ead08b','#ba7a04')]
         self.vlan_members=members;captions=[]
-        for index,vid in enumerate(sorted(set(members.values()))):
-            names=[n for n in members if members[n]==vid];points=[positions[n] for n in names]
-            span=max(max(x for x,y in points)-min(x for x,y in points)+104,width/max(1,len(set(members.values())))-18)
+        groups=vlan_groups(graph,members)
+        for index,(vid,names) in enumerate(groups):
+            points=[positions[n] for n in names]
+            spread=max(x for x,y in points)-min(x for x,y in points)+104
+            # Laid-out sites (tree layout or moved by hand): a box hugs its hosts and never covers a neighbour's.
+            span=spread if self.positions else max(spread,width/max(1,len(groups))-18)
             middle=(min(x for x,y in points)+max(x for x,y in points))/2
             x1=middle-span/2;x2=middle+span/2
             # Keep the group inside the canvas, clear of the vertical scrollbar.
@@ -432,10 +435,16 @@ class ApplianceWindow:
             rounded_box(self.canvas,xx-43,yy-52,xx+43,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
             self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(self.font,7,'bold'))
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
+        router_links={}
+        for a,b in graph['links']:
+            if graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router':
+                router_links[a[0]]=router_links.get(a[0],0)+1
+                router_links[b[0]]=router_links.get(b[0],0)+1
         for index,(a,b) in enumerate(graph['links']):
             x,y=positions[a[0]];xx,yy=positions[b[0]]
             # Staggered routers (different rows, apart sideways): an L from one to the other's side.
-            side=abs(y-yy)>=45 and abs(x-xx)>=120 and graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router'
+            side=(abs(y-yy)>=45 and abs(x-xx)>=120 and graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router'
+                  and max(router_links.get(a[0],0),router_links.get(b[0],0))<=2)  # a chain, not a hub with its branches
             if abs(y-yy)<45:
                 sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
             elif side:
@@ -850,6 +859,7 @@ class ApplianceWindow:
             self.mission_cards['panne-'+key]=card
             self.mission_badges['panne-'+key]=tk.Label(card,bg='#fff8ef',font=(self.font,8,'bold'),anchor='w')
             self.mission_badges['panne-'+key].pack(fill='x',padx=10,pady=(0,6))  # empty until there is progress
+        self.build_scenario_card(side)
         self.refresh_mission_badges()
 
         campus=ttk.Button(column,text='Autre scénario : campus entreprise…',command=self.new_campus,style='Native.TButton')
@@ -870,7 +880,9 @@ class ApplianceWindow:
         title=tk.Label(detail,textvariable=self.mission_title,bg='white',fg=TEXT,font=(self.font,15,'bold'),anchor='w',justify='left')
         title.pack(fill='x',padx=18,pady=(16,0))
         title.bind('<Configure>',lambda event:title.configure(wraplength=max(200,event.width-6)))
-        tk.Label(detail,textvariable=self.mission_meta,bg='white',fg=BLUE,font=(self.font,9),anchor='w').pack(fill='x',padx=18)
+        meta=tk.Label(detail,textvariable=self.mission_meta,bg='white',fg=BLUE,font=(self.font,9),anchor='w',justify='left')
+        meta.pack(fill='x',padx=18)
+        meta.bind('<Configure>',lambda event:meta.configure(wraplength=max(200,event.width-6)))
         story=tk.Label(detail,textvariable=self.mission_story,bg='white',fg=TEXT,font=(self.font,10),anchor='w',justify='left')
         story.pack(fill='x',padx=18,pady=(10,6))
         story.bind('<Configure>',lambda event:story.configure(wraplength=max(200,event.width-6)))
@@ -887,8 +899,15 @@ class ApplianceWindow:
                                                     ('Vérifier la configuration',self.check_mission,'Native.TButton'),
                                                     ('Tester sur le lab (pings réels)',self.test_mission,'Native.TButton'),
                                                     ('Indice',self.mission_hint,'Native.TButton'))):
-            ttk.Button(actions,text=text,command=command,style=style).grid(row=index//2,column=index%2,sticky='ew',padx=3,pady=3)
+            button=ttk.Button(actions,text=text,command=command,style=style)
+            button.grid(row=index//2,column=index%2,sticky='ew',padx=3,pady=3)
+        self.mission_help_button=button
+        self.mission_help=tk.StringVar()
+        self.mission_help_box=tk.Label(detail,textvariable=self.mission_help,bg='#f2f0ff',fg='#3d2c7a',font=(self.font,9),anchor='w',
+                                       justify='left',padx=10,pady=6)
+        self.mission_help_box.bind('<Configure>',lambda event:self.mission_help_box.configure(wraplength=max(200,event.width-24)))
         head=tk.Frame(detail,bg='white')
+        self.mission_help_anchor=head
         head.pack(fill='x',padx=18,pady=(8,2))
         tk.Label(head,text='Objectifs',bg='white',fg=TEXT,font=(self.font,11,'bold')).pack(side='left')
         tk.Label(head,textvariable=self.mission_score,bg='white',fg=BLUE,font=(self.font,11,'bold')).pack(side='right')
@@ -906,6 +925,10 @@ class ApplianceWindow:
         from .missions import mission
         if mission_id.startswith('panne-'):
             return self.select_panne(mission_id)
+        if mission_id.startswith('scenario-'):
+            return self.select_scenario(int(mission_id[len('scenario-'):]))
+        self.mission_help_button.configure(text='Indice')
+        self.mission_help_box.pack_forget()
         item=mission(mission_id)
         if mission_id!=self.mission_current:
             self.mission_real={}
@@ -927,12 +950,87 @@ class ApplianceWindow:
         self.mission_current=mission_id
         for name,card in self.mission_cards.items():
             card.configure(highlightbackground=BLUE if name==mission_id else '#f1dfc6' if name.startswith('panne-') else '#dfe7ef')
+        self.mission_help_button.configure(text='Indice')
+        self.mission_help_box.pack_forget()
         self.mission_title.set('Panne mystère · '+LABS[key]['title'])
         self.mission_meta.set('Dépannage · '+LABS[key]['vendors'])
         loaded=self.panne and self.panne['lab']==key and self.mission_lab_loaded()
         self.mission_story.set(('Ticket utilisateur : « '+self.panne['symptom']+' » Trouver la cause avec les commandes show, '
                                 'le relevé de l’état réel et les pings, puis la corriger.') if loaded else
                                'Une panne tirée au hasard sera introduite dans un lab qui fonctionne. Seul le symptôme est donné.')
+        self.show_mission_results()
+
+    def build_scenario_card(self,side):
+        """The generated scenarios: a number (or a random one), no hint unless asked."""
+        from .scenarios import COUNT
+        self.scenario=None
+        self.scenario_help=[]
+        self.scenario_number=tk.IntVar(value=1)
+        card=tk.Frame(side,bg='#f2f0ff',highlightthickness=2,highlightbackground='#d9d2f5')
+        card.pack(fill='x',pady=(8,3))
+        tk.Label(card,text=f'🎲 Scénarios générés · {COUNT} réseaux',bg='#f2f0ff',fg=TEXT,font=(self.font,10,'bold'),
+                 anchor='w').pack(fill='x',padx=10,pady=(6,0))
+        note=tk.Label(card,text='Un réseau et une panne au hasard, sans indice : l’aide se demande pas à pas.',bg='#f2f0ff',
+                      fg=MUTED,font=(self.font,8),anchor='w',justify='left',wraplength=215)
+        note.pack(fill='x',padx=10)
+        row=tk.Frame(card,bg='#f2f0ff')
+        row.pack(fill='x',padx=10,pady=6)
+        ttk.Spinbox(row,from_=1,to=COUNT,textvariable=self.scenario_number,width=6).pack(side='left')
+        ttk.Button(row,text='Ouvrir',style='Native.TButton',
+                   command=lambda:self.select_scenario(self.scenario_number.get())).pack(side='left',padx=4)
+        ttk.Button(row,text='Au hasard',style='Native.TButton',command=self.random_scenario).pack(side='left')
+        self.scenario_solved=tk.StringVar()
+        tk.Label(card,textvariable=self.scenario_solved,bg='#f2f0ff',fg='#168942',font=(self.font,8,'bold'),
+                 anchor='w').pack(fill='x',padx=10,pady=(0,6))
+        self.mission_cards['scenarios']=card
+
+    def show_scenario_help(self):
+        """The help asked for so far, in a box under the buttons (hidden while there is none)."""
+        text='\n'.join(f'Aide {i} : {line}' for i,line in enumerate(self.scenario_help,1))
+        self.mission_help.set(text)
+        if text and self.mission_current.startswith('scenario-'):
+            self.mission_help_box.pack(fill='x',padx=18,pady=(0,6),before=self.mission_help_anchor)
+        else:
+            self.mission_help_box.pack_forget()
+
+    def random_scenario(self):
+        import random
+        from . import progress
+        from .scenarios import COUNT
+        solved={k for k,v in progress.load()['missions'].items() if k.startswith('scenario-') and isinstance(v,dict) and v.get('solved')}
+        left=[n for n in range(1,COUNT+1) if f'scenario-{n:04d}' not in solved] or list(range(1,COUNT+1))
+        number=random.choice(left)
+        self.scenario_number.set(number)
+        self.select_scenario(number)
+
+    def select_scenario(self,number):
+        from .scenarios import COUNT,FAMILY_TITLES,HELP_STEPS,scenario
+        try:
+            number=int(number)
+        except (TypeError,ValueError,tk.TclError):
+            number=1
+        number=min(COUNT,max(1,number))
+        mission_id=f'scenario-{number:04d}'
+        if mission_id!=self.mission_current:
+            self.mission_real={}
+            self.mission_hints_shown=0
+            self.scenario_help=[]
+        self.mission_current=mission_id
+        self.scenario_number.set(number)
+        for key,card in self.mission_cards.items():
+            card.configure(highlightbackground=BLUE if key=='scenarios' else '#f1dfc6' if key.startswith('panne-') else '#dfe7ef')
+        loaded=self.scenario and self.scenario['id']==mission_id and self.mission_lab_loaded()
+        item=self.scenario if loaded else scenario(number)
+        needs={'ospf':'image micro-VM avec BIRD (--with-routing)','802.1q':'noyau Network LABS (802.1Q)',
+               'firewall':'image micro-VM avec iptables (--with-firewall)'}
+        self.mission_title.set(f'Scénario n° {number} · {FAMILY_TITLES[item["family"]]}')
+        self.mission_meta.set(f'Dépannage · {item["detail"]} · {len(item["spec"]["nodes"])} équipements')
+        required=(' Nécessite : '+', '.join(needs[n] for n in item['needs'])+'.') if item['needs'] else ''
+        self.mission_story.set(('Ticket utilisateur : '+item['ticket']+' Aucun indice : enquêter avec show, ping, Suivre un paquet et '
+                                'le relevé de l’état réel, puis réparer.'+required) if loaded else
+                               'Un réseau généré pour ce numéro, avec une panne cachée. Charger le scénario pour lire le ticket.'+required)
+        self.mission_help_button.configure(text=f'Un peu d’aide ({self.mission_hints_shown}/{HELP_STEPS})')
+        self.show_scenario_help()
         self.show_mission_results()
 
     def mission_lab_loaded(self):
@@ -959,6 +1057,16 @@ class ApplianceWindow:
                 from .faults import create
                 self.panne=create(self.mission_current[len('panne-'):],kernel,disk)
                 self.load_spec(self.panne['spec'])
+            elif self.mission_current.startswith('scenario-'):
+                from .scenarios import scenario
+                self.scenario=scenario(int(self.mission_current[len('scenario-'):]),kernel,disk)
+                self.load_spec(self.scenario['spec'])
+                from .workspace_art import tree_layout
+                graph=public_topology(self.scenario['spec'])
+                self.positions=tree_layout(graph,access_vlans(graph,self.scenario['spec']))  # sites side by side, LANs under their router
+                widest=max(x for x,_ in self.positions.values())+90
+                self.zoom=max(.65,min(1.,max(600,self.canvas.winfo_width())/widest))  # the whole network in view
+                self.draw(public_topology(self.scenario['spec']))
             else:
                 self.load_spec(mission(self.mission_current)['build'](kernel,disk))
         except (ValueError,TypeError,KeyError) as error:
@@ -966,8 +1074,11 @@ class ApplianceWindow:
             return False
         self.mission_real={}
         self.mission_hints_shown=0
+        self.scenario_help=[]
         if self.mission_current.startswith('panne-'):
             self.select_panne(self.mission_current)
+        if self.mission_current.startswith('scenario-'):
+            self.select_scenario(int(self.mission_current[len('scenario-'):]))
         self.show_mission_results()
         self.mission_status.set('Lab de la mission chargé. Configurer les équipements (GUI, CLI, Gestion web), puis vérifier.')
         self.record_event('mission','Mission chargée : '+self.mission_current)
@@ -1002,6 +1113,10 @@ class ApplianceWindow:
             else:
                 badge.configure(text='')
         self.mission_progress.set(f'Progression : {solved} / {len(self.mission_badges)} réussies')
+        if hasattr(self,'scenario_solved'):
+            from .scenarios import COUNT
+            count=sum(1 for k,v in saved.items() if k.startswith('scenario-') and isinstance(v,dict) and v.get('solved'))
+            self.scenario_solved.set(f'{count} / {COUNT} scénarios réussis' if count else '')
 
     def test_mission(self):
         if not self.mission_lab_loaded():
@@ -1017,6 +1132,16 @@ class ApplianceWindow:
 
     def mission_hint(self):
         from .missions import mission
+        if self.mission_current.startswith('scenario-'):
+            from .scenarios import HELP_STEPS,help_step
+            if not (self.scenario and self.scenario['id']==self.mission_current and self.mission_lab_loaded()):
+                self.mission_status.set('Charger d’abord le scénario.')
+                return
+            self.mission_hints_shown=min(HELP_STEPS,self.mission_hints_shown+1)
+            self.scenario_help.append(help_step(self.manifest(),self.scenario,self.mission_hints_shown))
+            self.show_scenario_help()
+            self.mission_help_button.configure(text=f'Un peu d’aide ({self.mission_hints_shown}/{HELP_STEPS})')
+            return
         if self.mission_current.startswith('panne-'):
             if not (self.panne and self.mission_lab_loaded()):
                 self.mission_status.set('Charger d’abord une panne.')
@@ -1039,7 +1164,14 @@ class ApplianceWindow:
         panne=self.mission_current.startswith('panne-')
         if panne and not (self.panne and 'panne-'+self.panne['lab']==self.mission_current):
             loaded=False
-        if loaded and panne:
+        generated=self.mission_current.startswith('scenario-')
+        if generated and not (self.scenario and self.scenario['id']==self.mission_current):
+            loaded=False
+        if loaded and generated:
+            from .scenarios import grade as grade_scenario
+            result=grade_scenario(self.manifest(),self.scenario,self.mission_real)
+            rows=result['results']
+        elif loaded and panne:
             from .faults import grade as grade_panne
             result=grade_panne(self.manifest(),self.panne,self.mission_real)
             rows=result['results']
@@ -1049,7 +1181,7 @@ class ApplianceWindow:
         else:
             rows=[{'text':c['text'],'kind':'réel' if c['kind'] in REAL_KINDS else 'configuration','status':'idle','detail':''}
                   for c in mission(self.mission_current)['checks']]
-            if panne:
+            if panne or generated:
                 rows.insert(0,{'text':'La panne est réparée','kind':'configuration','status':'idle','detail':''})
             result={'passed':0,'total':len(rows),'solved':False}
         marks={'ok':('✔','#168942'),'fail':('✖','#bb3646'),'pending':('○','#8b9cae'),'idle':('·','#8b9cae')}

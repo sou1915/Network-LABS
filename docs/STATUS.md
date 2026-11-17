@@ -140,6 +140,23 @@ routes as « Apprise OSPF » (with BIRD's cost; never an écart), the OSPF inter
 cost, Full neighbours) and the neighbour table, with a verdict when an active interface has no Full
 neighbour.
 
+**Generated scenarios (Mode panne › Scénarios générés, 1 200 réseaux).** Each number builds the same
+micro-VM network (`appliances/scenarios.py`): one of four families (sites in a chain, a star around a core
+router, a VLAN campus with or without router-on-a-stick, an Internet exit behind a FortiGate or Palo Alto
+with NAT), with random size, addressing, names, vendor models and routing (static or OSPF), and one
+random fault among 14 kinds: missing static route, route through the wrong neighbour, gateway or transit
+address, host gateway, OSPF passive / unannounced network / removed, access VLAN, trunk VLAN, subinterface
+tag, swapped cables, firewall rule, NAT. A network model (`appliances/network_model.py`: Ethernet segments
+through access/trunk ports and plain bridges, connected networks, gateways, static and OSPF routes, DHCP
+leases, firewall policy, masquerade and DNAT with replies tracked back) keeps only faults that change what
+the network does, fixes what each probe (pings between hosts, up to 12) should give, and grades a repair
+by behaviour: any correct fix passes. The student gets only a user ticket; « Un peu d’aide » reveals one
+step per click (the probes in error, where the packet stops, the device, the kind of fault, the
+solution), each counted in the progress file. Generated labs open in a tree layout (sites side by side,
+LANs under their router, hosts grouped by VLAN) zoomed to fit; a VLAN box covers one island of cabled
+switches, so VLAN 1 at two sites is two LANs. The model agrees with every lab tested on
+real guests; all 1 200 scenarios are distinct and generated in about 15 s by the unit tests.
+
 **Packet replay (PCAP tab › Suivre un paquet).** From the selected running node, one real ping is
 sent while every link of the lab is recorded at once (`appliances/packet_trace.py`, one bounded
 capture per link, no lab lock held while recording). The workbench then replays the packet on the
