@@ -174,7 +174,8 @@ def access_vlans(graph,spec):
 
 def vlan_groups(graph,members):
     """[(vid, hosts)]: one group per VLAN and per island of cabled switches (VLAN 1 at two sites is two LANs)."""
-    nodes={n['name']:n for n in graph['nodes']};island={}
+    nodes={n['name']:n for n in graph['nodes']}
+    island={}
     def root(name):
         while island.get(name,name)!=name:
             name=island[name]

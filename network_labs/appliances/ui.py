@@ -21,7 +21,8 @@ from . import reference_theme
 from .soft_widgets import SoftCard,SoftPanel,rounded_box
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
 from .native_models import port_label,port_names
-from .workspace_art import port_offset,draw_device,access_vlans,vlan_groups,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
+from .workspace_art import port_offset,draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
+from .workspace_art import vlan_groups
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
