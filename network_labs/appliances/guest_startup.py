@@ -255,9 +255,14 @@ def observe(socket, node):
     return candidate['guest_network']
 
 
+BIRD_METRIC = '32'  # BIRD 2's kernel protocol installs its routes with metric 32 (its default; config() keeps it)
+
+
 def learned(fields):
-    """A route BIRD installed (BusyBox names protocol 12 'bird' or prints the number)."""
-    return any(fields[i] == 'proto' and fields[i + 1] in ('bird', '12') for i in range(len(fields) - 1))
+    """A route BIRD installed. BusyBox's 'ip route' never prints the protocol, so BIRD's routes are told apart by
+    their metric; static routes the agent adds and connected routes carry none. iproute2 also prints 'proto bird'."""
+    pairs = {fields[i]: fields[i + 1] for i in range(len(fields) - 1)}
+    return pairs.get('proto') in ('bird', '12') or pairs.get('metric') == BIRD_METRIC
 
 
 def check_ospf(socket, node):

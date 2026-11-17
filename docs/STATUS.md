@@ -123,7 +123,8 @@ student's best score, solved missions, hints used and micro-VM paths are kept in
 **OSPF between three vendors.** Router guests run real OSPFv2 (area 0) with BIRD 2 inside the guest:
 the agent writes BIRD's configuration from typed fields only (`OSPF_START router-id hello dead
 port:cost:stub:type:priority,...`), byte-identical to the lab's own rendering, which the startup and
-the save read back. The vendor CLIs configure it: IOS and EOS `router ospf`, `router-id`, `network …
+the save read back. The guest's BusyBox `ip route` never prints a route's protocol, so BIRD's
+routes are told apart by the metric BIRD's kernel protocol gives them (32). The vendor CLIs configure it: IOS and EOS `router ospf`, `router-id`, `network …
 area 0`, `passive-interface`, `ip ospf cost|network|priority`; VRP `ospf 1 router-id`, `area 0.0.0.0`,
 `network`, `silent-interface`, `ospf cost|network-type|dr-priority`; Junos `set protocols ospf area
 0.0.0.0 interface … [passive | metric N | interface-type p2p]` and `routing-options router-id`. Live

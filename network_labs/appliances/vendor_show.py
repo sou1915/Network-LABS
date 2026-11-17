@@ -9,6 +9,7 @@ import ipaddress
 import re
 
 from .native_models import port_names
+from .guest_startup import learned as bird_route
 from .vendor_config import dialect
 
 COMMANDS = {
@@ -51,7 +52,7 @@ def observe_guest(query, node):
             continue
         network = '0.0.0.0/0' if fields[0] == 'default' else str(ipaddress.IPv4Network(fields[0], strict=False))
         gateway = fields[fields.index('via') + 1] if 'via' in fields else None
-        learned = any(fields[i] == 'proto' and fields[i + 1] in ('bird', '12') for i in range(len(fields) - 1))
+        learned = bool(node.get('ospf')) and bird_route(fields)
         if learned and gateway is None:
             continue  # BIRD's copy of a connected network: the kernel's own entry is shown
         route = {'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]}

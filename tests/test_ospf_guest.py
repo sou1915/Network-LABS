@@ -17,8 +17,10 @@ from network_labs.appliances.vendor_config import apply, render
 ADDRESSES = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
              '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 192.0.2.1/24 scope global eth0\n'
              '3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 203.0.113.1/30 scope global eth1\n')
-ROUTES = ('192.0.2.0/24 dev eth0 scope link  src 192.0.2.1\n192.0.2.0/24 dev eth0 proto bird scope link metric 32\n'
-          '198.51.100.0/24 via 203.0.113.2 dev eth1 proto bird metric 32\n203.0.113.0/30 dev eth1 scope link  src 203.0.113.1\n')
+# As the guest's BusyBox prints them (recorded beside a real BIRD 2): no protocol, BIRD's metric 32.
+ROUTES = ('192.0.2.0/24 dev eth0 scope link  src 192.0.2.1 \n192.0.2.0/24 dev eth0 scope link  metric 32 \n'
+          '198.51.100.0/24 via 203.0.113.2 dev eth1  metric 32 \n203.0.113.0/30 dev eth1 scope link  src 203.0.113.1 \n'
+          '203.0.113.0/30 dev eth1 scope link  metric 32 \n')
 NEIGHBORS = ('BIRD 2.14 ready.\nAccess restricted\nospf4:\nRouter ID   \tPri\t     State     \tDTime\tInterface  Router IP\n'
              '2.2.2.2     \t  1\tFull/PtP  \t 3.996\teth1       203.0.113.2\n')
 BIRD_ROUTES = ('BIRD 2.14 ready.\nAccess restricted\nTable master4:\n'
@@ -106,10 +108,26 @@ class SpecTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'role router'):
             validate(host)
 
+    def test_guest_readback_skips_birds_routes_in_busybox_output(self):
+        from unittest.mock import patch
+        from network_labs.appliances import guest_startup
+        node = lab()['nodes'][0]
+        replies = {'addresses': ADDRESSES, 'routes': ROUTES, 'forwarding': '1\n', 'ospf-show': ospf.config(node)}
+        with patch.object(guest_startup, 'query', lambda socket, operation, **fields: replies[operation]):
+            self.assertEqual(guest_startup.observe('/unused', node), {'addresses': [], 'routes': []})
+        replies['ospf-show'] = ospf.config(node).replace('cost 10', 'cost 11', 1)
+        with patch.object(guest_startup, 'query', lambda socket, operation, **fields: replies[operation]):
+            with self.assertRaisesRegex(ValueError, 'differs'):
+                guest_startup.observe('/unused', node)
+
     def test_bird_routes_are_recognised_and_never_saved(self):
         self.assertTrue(learned('198.51.100.0/24 via 203.0.113.2 dev eth1 proto bird metric 32'.split()))
         self.assertTrue(learned('198.51.100.0/24 via 203.0.113.2 dev eth1 proto 12 metric 32'.split()))
         self.assertFalse(learned('198.51.100.0/24 via 203.0.113.2 dev eth1'.split()))
+        # BusyBox (the guest's ip) never prints the protocol: BIRD's routes carry its kernel metric instead.
+        self.assertTrue(learned('198.51.100.0/24 via 203.0.113.2 dev eth1  metric 32'.split()))
+        self.assertTrue(learned('192.0.2.0/24 dev eth0 scope link  metric 32'.split()))
+        self.assertFalse(learned('192.0.2.0/24 dev eth0 scope link  src 192.0.2.1'.split()))
 
 
 class VendorTest(unittest.TestCase):
