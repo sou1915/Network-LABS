@@ -126,8 +126,36 @@ class QuickEditing:
         self.dragging = None
         self.choose_node(name)
         if self.states.get(name, {}).get('status') == 'running':
-            self.open_console()
+            self.open_cli(name)
         else:
             self.device_tabs.select(self.config_panel)
             self.note.set(f'{name} n’est pas démarré : ▶ Démarrer, puis double-clic pour ouvrir son terminal.')
         return 'break'
+
+    def open_cli(self, name):
+        """The device's CLI window inside the workbench (micro-VMs); an OCI node keeps its Linux shell in a terminal."""
+        from . import console_server
+        node = next((n for n in self.graph['nodes'] if n['name'] == name), None)
+        if node is None or self.states.get(name, {}).get('status') != 'running':
+            self.error(ValueError('Démarrer le lab, puis double-clic sur l’équipement pour son terminal.'))
+            return None
+        if node['runtime'] != 'firecracker':
+            return self.open_console()
+        windows = self.__dict__.setdefault('cli_windows', {})
+        if name in windows and windows[name].window.winfo_exists():
+            windows[name].window.deiconify()
+            windows[name].window.lift()
+            windows[name].entry.focus_set()
+            return windows[name]
+        if not console_server.available(self.view_lab):
+            from tkinter import messagebox
+            if messagebox.askyesno('Terminaux intégrés', 'Les terminaux de ce lab ne sont pas encore actifs (lab démarré avant '
+                                   'cette version, ou ordinateur redémarré). Les activer ? Le mot de passe est demandé une fois.',
+                                   parent=self.window):
+                self.launch('consoles')
+                self.note.set('Activation des terminaux : saisir le mot de passe, puis double-clic à nouveau sur ' + name + '.')
+            return None
+        from .ui_cli import ConsoleWindow
+        windows[name] = ConsoleWindow(self.window, self.view_lab, name, on_close=lambda node: windows.pop(node, None))
+        self.record_event('console', 'Terminal intégré : ' + name)
+        return windows[name]

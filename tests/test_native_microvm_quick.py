@@ -1,14 +1,17 @@
 """Packet Tracer style on real guests: unconfigured devices added as the workbench adds them, started, then configured
-only from their terminals (IOS abbreviations on the router, ip addr / ip route on the PCs), live; the PCs then ping."""
+only from their terminals, through the console server the workbench's CLI windows use (IOS abbreviations on the router,
+ip addr / ip route on the PCs), live; the PCs then ping."""
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
-from network_labs.appliances import guest_console, topology_edit
+from network_labs.appliances import console_server, topology_edit
 from network_labs.appliances.guest_image import build
 from network_labs.appliances.runtime import Manager
 from network_labs.appliances.ui_quick import blank_project
@@ -51,11 +54,25 @@ class QuickLabGuestTests(unittest.TestCase):
                     with manager.locked():
                         manager.start(spec)
                         wait_ready(manager, spec)
-                    for name, lines in TYPED.items():
-                        console = guest_console.Console(spec['name'], name)
-                        for line in lines:
-                            reply = console.line(line)
-                            transcript.append(console.prompt() + line + ('\n' + reply if reply else ''))
+                    # Through the console server, as the workbench's CLI windows type (no terminal emulator).
+                    alive = [True]
+                    server = console_server.Server(spec['name'], os.getuid(), root=root / 'consoles', alive=lambda: alive[0])
+                    thread = threading.Thread(target=server.serve, daemon=True)
+                    thread.start()
+                    while not server.path.exists():
+                        time.sleep(.05)
+                    ask = lambda payload: console_server.request(spec['name'], payload, root=root / 'consoles')
+                    try:
+                        for name, lines in TYPED.items():
+                            prompt = ask({'op': 'open', 'session': 'kvm' + name.lower() + 'x' * 8, 'node': name})['prompt']
+                            for line in lines:
+                                answer = ask({'op': 'line', 'session': 'kvm' + name.lower() + 'x' * 8, 'node': name, 'text': line})
+                                self.assertTrue(answer['ok'], answer)
+                                transcript.append(prompt + line + ('\n' + answer['reply'] if answer['reply'] else ''))
+                                prompt = answer['prompt']
+                    finally:
+                        alive[0] = False
+                        thread.join(10)
                 finally:
                     with manager.locked():
                         if manager.directory.exists():

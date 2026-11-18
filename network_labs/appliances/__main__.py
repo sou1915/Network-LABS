@@ -18,6 +18,10 @@ def main(arguments=None):
                                                         'ping and live configuration (routers), or ping / ip addr / ip route (hosts).')
     terminal.add_argument('lab')
     terminal.add_argument('node')
+    consoles = commands.add_parser('console-server', help='Serve the node terminals of a running lab to the workbench of one '
+                                                          'user (root; started with the lab).')
+    consoles.add_argument('lab')
+    consoles.add_argument('uid', type=int)
     first = commands.add_parser('setup', help='First launch: check KVM and tools, fetch the pinned Firecracker and kernel, '
                                               'build one guest disk (agent, iptables, BIRD) and remember the paths. No root.')
     first.add_argument('--download', action='store_true',
@@ -377,6 +381,10 @@ def main(arguments=None):
     execute.add_argument('argv', nargs=argparse.REMAINDER)
     args = parser.parse_args(arguments)
     try:
+        if args.command == 'console-server':
+            from .console_server import main as serve_consoles
+            identifier(args.lab)
+            return serve_consoles([args.lab, args.uid])
         if args.command == 'node-console':
             from .guest_console import run
             identifier(args.lab)

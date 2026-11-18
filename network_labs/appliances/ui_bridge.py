@@ -9,9 +9,10 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify','firewall','routing','show','ping','mission','trace')
+ACTIONS=('start','status','stop','inspect','verify','firewall','routing','show','ping','mission','trace','consoles')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
+CLI_BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances",run_name="__main__")'
 
 
 def private_json(path,value):
@@ -170,7 +171,9 @@ def execute_request(request):
     # a widget, result file, pipe capture, argv or application log.
     auth=subprocess.run(['sudo','-v'])
     if auth.returncode:return {'ok':False,'error':'Authentification sudo annulée ou refusée.'}
-    args=['sudo','-n',sys.executable,'-I','-c',BOOTSTRAP,str(SOURCE),'--backend',request['action'],request['target']]
+    # « consoles » re-activates the in-app terminals of a running lab: the status of the lab, then the server.
+    action='status' if request['action']=='consoles' else request['action']
+    args=['sudo','-n',sys.executable,'-I','-c',BOOTSTRAP,str(SOURCE),'--backend',action,request['target']]
     if request['node'] is not None:args.append(request['node'])
     if request['destination'] is not None:args.append(request['destination'])
     result=subprocess.run(args,stdin=subprocess.DEVNULL,capture_output=True,text=True)
@@ -178,14 +181,36 @@ def execute_request(request):
         if len(result.stdout)>8*1024*1024:raise ValueError('Response budget exceeded.')
         payload=json.loads(result.stdout)
         if not isinstance(payload,dict) or type(payload.get('ok')) is not bool:raise ValueError('Invalid response.')
-        if payload['ok'] and (result.returncode or payload.get('action')!=request['action'] or payload.get('lab')!=request['lab']):
+        if payload['ok'] and (result.returncode or payload.get('action')!=action or payload.get('lab')!=request['lab']):
             raise ValueError('Response context differs.')
         if payload['ok']:
             validate_topology(payload.get('topology'))
             if payload['topology']['name']!=request['lab'] or not isinstance(payload.get('data'),dict):raise ValueError('Invalid backend data.')
+            payload['action']=request['action']
+            if request['action'] in ('start','status','consoles'):
+                payload['consoles']=start_consoles(request['lab'])
         return payload
     except (ValueError,TypeError):
         return {'ok':False,'uncertain':True,'error':'Résultat backend non confirmé ; actualiser l’état réel.'}
+
+
+def start_consoles(lab):
+    """The lab's console server, started in the background with the sudo just given (the in-app terminals need no
+    other password). Already running: nothing to do. Returns whether the terminals are available."""
+    from .console_server import available
+    if available(lab):
+        return True
+    command=['sudo','-n',sys.executable,'-I','-c',CLI_BOOTSTRAP,str(SOURCE),'console-server',lab,str(os.getuid())]
+    try:
+        subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    except OSError:
+        return False
+    import time
+    for _ in range(30):
+        if available(lab):
+            return True
+        time.sleep(.2)
+    return False
 
 
 def read_result(path,request):

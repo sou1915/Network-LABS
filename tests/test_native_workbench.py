@@ -190,6 +190,31 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertIsNone(window.quick_add('router'))  # nothing prepared: offered to prepare the computer
             ask.assert_called_once()
 
+    def test_double_click_opens_the_devices_cli_inside_the_workbench(self):
+        from network_labs.appliances.microvm import bgp_example
+        from network_labs.appliances import console_server
+        window = self.window
+        spec = bgp_example('/assets/vmlinux', '/assets/guest.ext4')
+        window.load_spec(spec)
+        window.draw(bridge.public_topology(spec), {n['name']: {'status': 'running'} for n in spec['nodes']})
+        window.view_lab = spec['name']
+        self.root.update()
+        replies = {'open': {'ok': True, 'prompt': 'R1> ', 'banner': 'R1 · Cisco IOS.'}, 'close': {'ok': True}}
+        with patch.object(console_server, 'available', return_value=True), \
+                patch.object(console_server, 'request', side_effect=lambda lab, payload: replies[payload['op']]):
+            cli = window.device_double_click('R1') and window.cli_windows['R1']
+            self.root.update()
+            self.assertEqual(cli.window.title(), 'R1 — CLI')
+            self.assertIs(window.open_cli('R1'), cli)  # one window per device
+            with patch('network_labs.appliances.ui.launch_terminal') as terminal:
+                self.assertTrue(window.open_console())  # the CLI tab's button opens the same window, no xterm
+                terminal.assert_not_called()
+            cli.close()
+        with patch.object(console_server, 'available', return_value=False), \
+                patch('tkinter.messagebox.askyesno', return_value=True), patch.object(window, 'launch') as launch:
+            self.assertIsNone(window.open_cli('R2'))  # a lab started before this version: one password to enable them
+            launch.assert_called_once_with('consoles')
+
     def test_command_catalogue_window_lists_the_nodes_commands_and_copies_an_example(self):
         from network_labs.appliances.microvm import bgp_example
         window = self.window

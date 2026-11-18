@@ -1377,7 +1377,10 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
                 raise ValueError('Démarrer le lab puis actualiser son état avant le terminal du nœud.')
             if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
             from .ui_console import terminal_args
-            # A micro-VM opens its node terminal (vendor prompt or host shell, typed requests); an OCI node its Linux shell.
+            from . import console_server
+            if node['runtime']=='firecracker' and console_server.available(self.view_lab):
+                return bool(self.open_cli(node['name']))  # the CLI inside the workbench, no other password
+            # Otherwise: a micro-VM's node terminal or an OCI node's Linux shell, in a terminal emulator with sudo.
             launch_terminal(terminal_args(self.view_lab,node['name'],'guest' if node['runtime']=='firecracker' else 'oci'))
             self.last_response=None
             self.note.set('Terminal demandé pour '+node['name']+' ; connexion à confirmer dans le terminal.')
@@ -1479,10 +1482,12 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         states=self.states if self.view_lab==request['lab'] else {}
         if action in ('start','stop'):
             self.vendor_observation=None  # a new or stopped lab invalidates what was observed
-        if action in ('start','status'):
+        if action in ('start','status','consoles'):
             from .ui_bridge import observed_states
             states=observed_states(data)
             self.observation.set(f"{data['name']} · {data['phase']} · état observé à {time.strftime('%H:%M:%S')}")
+            if response.get('consoles'):
+                self.note.set('Lab démarré · double-clic sur un équipement : son terminal, dans l’atelier, sans autre mot de passe.')
         elif action=='stop':
             if data.get('stopped')!=request['lab']:raise ValueError('Arrêt non confirmé.')
             states={n['name']:{'status':'stopped'} for n in graph['nodes']};self.observation.set(request['lab']+' · arrêt confirmé')
