@@ -37,6 +37,23 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+### Premier lancement des micro-VM (missions, pannes, scénarios)
+
+Une seule commande vérifie la machine, télécharge Firecracker et le noyau
+officiels épinglés (sommes SHA-256 contrôlées), construit un disque unique pour
+tous les labs (agent, iptables, BIRD) et retient les chemins pour l'atelier. Elle
+ne demande aucun droit : ce qui exige `sudo` est affiché comme commande à copier.
+
+```bash
+sudo apt install -y busybox-static e2fsprogs gcc libc6-dev iptables bird2
+python3 -m network_labs.appliances setup --download
+```
+
+Le même travail se lance depuis l'atelier : onglet Scénarios, bouton
+« 🛠 Préparer cet ordinateur ». Il faut Linux avec `/dev/kvm` (virtualisation
+activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network LABS
+(`tools/guest_kernel/build.sh`).
+
 ## Micro-nodes Linux natifs et microVMs (expérimental)
 
 [État actuel du projet](docs/STATUS.md), [estimation historique](docs/PROJECT_STATUS.md)

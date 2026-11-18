@@ -242,6 +242,7 @@ timers or hardware fields a Linux node does not have. Real-KVM tested in the rou
 ```bash
 python3 -m network_labs                                   # desktop app
 python3 -m network_labs.appliances doctor                 # what this host can run
+python3 -m network_labs.appliances setup --download      # first launch: verified Firecracker + kernel, one full disk
 python3 -m network_labs.appliances microvm-rootfs --busybox "$(command -v busybox)" \
     --with-agent --with-firewall --output guest.ext4      # guest disk image
 python3 -m network_labs.appliances microvm-example --dhcp --kernel vmlinux --disk guest.ext4 > lab.json

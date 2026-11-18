@@ -14,6 +14,13 @@ def main(arguments=None):
     parser = argparse.ArgumentParser(description='Network LABS native experimental appliances')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
+    first = commands.add_parser('setup', help='First launch: check KVM and tools, fetch the pinned Firecracker and kernel, '
+                                              'build one guest disk (agent, iptables, BIRD) and remember the paths. No root.')
+    first.add_argument('--download', action='store_true', help='Download the pinned Firecracker release and guest kernel (SHA-256 checked).')
+    first.add_argument('--kernel', type=Path, help='Use this guest kernel instead of the pinned one.')
+    first.add_argument('--rebuild', action='store_true', help='Build the guest disk again even if it is up to date.')
+    first.add_argument('--dir', type=Path, help='Where to keep downloads and the disk (default ~/.local/share/network-labs).')
+    first.add_argument('--json', action='store_true')
     labs = commands.add_parser('labs', help='List recorded native lab names, phases and nodes; no liveness checks.')
     labs.add_argument('--json', action='store_true')
     manifests = commands.add_parser('manifests', help='List native JSON manifests in the current directory; no lab changes.')
@@ -363,6 +370,11 @@ def main(arguments=None):
     execute.add_argument('argv', nargs=argparse.REMAINDER)
     args = parser.parse_args(arguments)
     try:
+        if args.command == 'setup':
+            from .setup import prepare, report
+            result = prepare(download=args.download, kernel=args.kernel, rebuild=args.rebuild, folder=args.dir)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else report(result))
+            return 0 if result['ready'] else 1
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'labs':

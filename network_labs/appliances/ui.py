@@ -893,6 +893,9 @@ class ApplianceWindow:
         for row,(text,variable) in enumerate((('Noyau micro-VM',self.mission_kernel),('Disque micro-VM',self.mission_disk))):
             self.label(paths,text,MUTED,8).grid(row=row,column=0,sticky='w',padx=(0,8),pady=2)
             ttk.Entry(paths,textvariable=variable,style='Native.TEntry').grid(row=row,column=1,sticky='ew',pady=2)
+        self.setup_button=ttk.Button(paths,text='🛠 Préparer cet ordinateur (téléchargements vérifiés, disque complet)',
+                                     style='Native.TButton',command=self.prepare_computer)
+        self.setup_button.grid(row=2,column=0,columnspan=2,sticky='ew',pady=(4,0))
         actions=tk.Frame(detail,bg='white')
         actions.pack(fill='x',padx=18,pady=8)
         actions.columnconfigure((0,1),weight=1,uniform='mission')
@@ -1065,6 +1068,49 @@ class ApplianceWindow:
         self.mission_help_button.configure(text=f'Un peu d’aide ({self.mission_hints_shown}/{HELP_STEPS})')
         self.show_scenario_help()
         self.show_mission_results()
+
+    def prepare_computer(self):
+        """First launch, from the workbench: the same checks, verified downloads and disk build as « setup »,
+        in the background; no privilege. The paths are filled in and the checklist shown."""
+        import threading
+        from .setup import prepare
+        if getattr(self,'setup_thread',None) and self.setup_thread.is_alive():
+            return False
+        self.setup_button.configure(state='disabled')
+        self.mission_status.set('Préparation en cours : vérifications, téléchargements vérifiés, construction du disque…')
+        holder={}
+        kernel=self.mission_kernel.get().strip() or None  # Tk is read here: the worker thread never touches widgets
+        def work():
+            try:
+                holder['result']=prepare(download=True,kernel=kernel)
+            except Exception as error:  # reported in the panel, never lost in a thread
+                holder['error']=str(error)
+        self.setup_thread=threading.Thread(target=work,daemon=True)
+        self.setup_thread.start()
+        def finish():
+            if self.setup_thread.is_alive():
+                self.window.after(200,finish)
+                return
+            self.setup_button.configure(state='normal')
+            self.show_setup(holder)
+        self.window.after(200,finish)
+        return True
+
+    def show_setup(self,holder):
+        if 'error' in holder:
+            self.mission_status.set('Préparation interrompue : '+holder['error'])
+            return
+        result=holder['result']
+        if Path(result['kernel']).is_file():
+            self.mission_kernel.set(result['kernel'])
+        if Path(result['disk']).is_file():
+            self.mission_disk.set(result['disk'])
+        lines=[('✔ ' if item['ok'] else '✖ ')+item['title']+(' → '+item['fix'] if item['fix'] else '') for item in result['steps']]
+        self.mission_help.set('\n'.join(lines))
+        self.mission_help_box.pack(fill='x',padx=18,pady=(0,6),before=self.mission_help_anchor)
+        self.mission_status.set('Prêt : charger une mission ou un scénario.' if result['ready'] else
+                                'Presque prêt : suivre les → (copier la commande dans un terminal), puis Préparer à nouveau.')
+        self.record_event('setup','Prêt' if result['ready'] else 'Préparation incomplète')
 
     def scenario_paths(self):
         kernel,disk=self.mission_kernel.get().strip(),self.mission_disk.get().strip()
