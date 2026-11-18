@@ -38,6 +38,7 @@ the direct launch.
 | Live firewall policy change | — (`firewall LAB NODE --file`) | Rebuilt with forwarding paused; rollback and `recover` |
 | eBGP on router guests (FRR zebra + bgpd in the guest) | `--bgp` | Image built `microvm-rootfs --with-routing` (BIRD and FRR); one-hop eBGP, up to 4 peers and 8 networks; networks announced only when held exactly (FRR's import check); not yet with OSPF on the same router |
 | IOS extended access lists on router guests, inbound | — (mission « Filtrer le Wi-Fi invités ») | Compiled into the guest forward chain (image with iptables); entries in order, implicit deny, stateless; live with the routing change |
+| Node terminal on micro-VMs | — (CLI tab › « Ouvrir le terminal de … », or `node-console LAB NODE`) | One sudo; vendor prompt and modes (enable / configure terminal … end, system-view … return, configure … commit), show, ping, configuration applied live; hosts get ping, ip addr, ip route. Typed requests only, no guest shell |
 | Live routing change (static routes, gateway, OSPF) | — (CLI tab › « ⚡ Appliquer au lab en marche ») | Only what differs changes; BIRD restarts if OSPF changed; read back, rolled back on failure |
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
 | Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |

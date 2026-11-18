@@ -7,13 +7,17 @@ import sys
 
 from .catalog import capabilities
 from .runtime import Manager, RuntimeFailure, plan, static_busybox_rootfs
-from .spec import example, load
+from .spec import example, identifier, load
 
 
 def main(arguments=None):
     parser = argparse.ArgumentParser(description='Network LABS native experimental appliances')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
+    terminal = commands.add_parser('node-console', help='Interactive terminal for one running micro-VM: its vendor prompt, show, '
+                                                        'ping and live configuration (routers), or ping / ip addr / ip route (hosts).')
+    terminal.add_argument('lab')
+    terminal.add_argument('node')
     first = commands.add_parser('setup', help='First launch: check KVM and tools, fetch the pinned Firecracker and kernel, '
                                               'build one guest disk (agent, iptables, BIRD) and remember the paths. No root.')
     first.add_argument('--download', action='store_true',
@@ -373,6 +377,11 @@ def main(arguments=None):
     execute.add_argument('argv', nargs=argparse.REMAINDER)
     args = parser.parse_args(arguments)
     try:
+        if args.command == 'node-console':
+            from .guest_console import run
+            identifier(args.lab)
+            identifier(args.node)
+            return run(args.lab, args.node)
         if args.command == 'setup':
             from .setup import prepare, report
             result = prepare(download=args.download, kernel=args.kernel, rebuild=args.rebuild, folder=args.dir)

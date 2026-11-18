@@ -1,0 +1,134 @@
+"""The node terminal of a running micro-VM: vendor prompts and modes, show, ping, live configuration, the host shell."""
+import contextlib
+import copy
+import unittest
+from unittest import mock
+
+from network_labs.appliances import guest_console, missions
+from network_labs.appliances.spec import validate
+
+ADDRESSES = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
+             '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 192.0.2.1/24 scope global eth0\n'
+             '3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP>\n    inet 203.0.113.1/30 scope global eth1\n')
+
+
+class FakeManager:
+    """A running lab: its spec, a guest that answers, and the live changes asked of it."""
+    def __init__(self, spec):
+        self.spec, self.changes, self.state, self.directory = spec, [], None, mock.MagicMock()
+
+    def __call__(self, lab):
+        return self
+
+    @contextlib.contextmanager
+    def locked(self):
+        yield self
+
+    def read(self):
+        return {'spec': self.spec}
+
+    def observe_node(self, name):
+        return {'interfaces': [{'port': 'eth0', 'up': True, 'addresses': ['192.0.2.1/24']},
+                               {'port': 'eth1', 'up': True, 'addresses': ['203.0.113.1/30']}],
+                'routes': [], 'vlans': None, 'ospf': None, 'bgp': None}
+
+    def ping_node(self, name, destination, count=5):
+        return {'node': name, 'destination': destination,
+                'replies': [{'ok': True, 'ttl': 63, 'time_ms': 0.4, 'sequence': i} for i in range(count)]}
+
+    def configure_routing(self, name, node):
+        from network_labs.appliances.guest_startup import LIVE_ROUTING
+        current = next(n for n in self.spec['nodes'] if n['name'] == name)
+        if {k: v for k, v in node.items() if k not in LIVE_ROUTING} != {k: v for k, v in current.items() if k not in LIVE_ROUTING}:
+            # as the real configure_routing does
+            raise ValueError('Only static routes, the gateway and OSPF change on a running lab; restart it for the rest.')
+        self.changes.append(('routing', name, copy.deepcopy(node)))
+        self.spec = validate(dict(self.spec, nodes=[node if n['name'] == name else n for n in self.spec['nodes']]))
+        return {'configured': name}
+
+    def configure_firewall(self, name, policy):
+        self.changes.append(('firewall', name, policy))
+
+
+def lab(models=None):
+    spec = missions.BY_ID['route-manquante']['build']('/k', '/d')
+    for name, model in (models or {}).items():
+        next(n for n in spec['nodes'] if n['name'] == name)['model'] = model
+    return validate(spec)
+
+
+class ConsoleTest(unittest.TestCase):
+    def console(self, spec, node='R1'):
+        manager = FakeManager(spec)
+        return guest_console.Console(spec['name'], node, manager), manager
+
+    def test_ios_modes_show_ping_and_live_configuration(self):
+        console, manager = self.console(lab())
+        self.assertEqual(console.prompt(), 'R1> ')
+        with self.assertRaisesRegex(ValueError, 'enable'):
+            console.line('conf t')
+        console.line('enable')
+        self.assertEqual(console.prompt(), 'R1# ')
+        self.assertIn('gi0/0/0', console.line('show ip interface brief'))
+        self.assertIn('!!!!!', console.line('ping 198.51.100.20'))
+        self.assertIn('hostname R1', console.line('show running-config'))
+        self.assertIn('End with end', console.line('configure terminal'))
+        self.assertEqual(console.prompt(), 'R1(config)# ')
+        self.assertEqual(console.line('ip route 198.51.100.0 255.255.255.0 203.0.113.2'), '')
+        self.assertEqual(manager.changes, [])  # nothing applied before « end »
+        self.assertIn('Appliqué au nœud en marche', console.line('end'))
+        self.assertEqual(console.prompt(), 'R1# ')
+        kind, name, node = manager.changes[0]
+        self.assertEqual((kind, name, node['guest_network']['routes']),
+                         ('routing', 'R1', [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}]))
+        console.line('conf t')
+        console.line('interface gi0/0/0')
+        console.line('ip address 192.0.2.9 255.255.255.0')
+        self.assertIn('Pas applicable à chaud', console.line('end'))
+        console.line('disable')
+        self.assertEqual(console.prompt(), 'R1> ')
+        with self.assertRaises(EOFError):
+            console.line('exit')
+
+    def test_junos_commit_and_vrp_return_apply_live(self):
+        console, manager = self.console(lab(), 'R2')  # Juniper MX204 in this mission
+        self.assertEqual(console.prompt(), 'admin@R2> ')
+        console.line('configure')
+        self.assertEqual(console.prompt(), 'admin@R2# ')
+        console.line('set routing-options static route 10.9.0.0/16 next-hop 203.0.113.1')
+        self.assertIn('Appliqué', console.line('commit'))
+        self.assertEqual(console.prompt(), 'admin@R2# ')  # Junos stays in configuration after commit
+        console.line('set routing-options static route 10.8.0.0/16 next-hop 203.0.113.1')
+        self.assertIn('abandonnées', console.line('exit'))
+        self.assertEqual(len(manager.changes), 1)
+        vrp, other = self.console(lab({'R1': 'huawei-ar6120'}))
+        self.assertEqual(vrp.prompt(), '<R1> ')
+        vrp.line('system-view')
+        self.assertEqual(vrp.prompt(), '[R1] ')
+        vrp.line('ip route-static 198.51.100.0 255.255.255.0 203.0.113.2')
+        self.assertIn('Appliqué', vrp.line('return'))
+        self.assertEqual(vrp.prompt(), '<R1> ')
+        self.assertEqual(other.changes[0][2]['guest_network']['routes'][0]['gateway'], '203.0.113.2')
+
+    def test_host_shell_uses_the_guest_and_its_ping(self):
+        console, _ = self.console(lab(), 'VM2')
+        self.assertEqual(console.prompt(), 'root@VM2:~# ')
+        self.assertIn('4 packets transmitted, 4 packets received, 0% packet loss', console.line('ping 198.51.100.20'))
+        with mock.patch.object(guest_console.Console, 'query', return_value=ADDRESSES):
+            self.assertIn('inet 192.0.2.1/24', console.line('ip a'))
+        with self.assertRaisesRegex(ValueError, 'non disponible'):
+            console.line('rm -rf /')
+
+    def test_run_loop_reports_errors_and_closes_on_exit(self):
+        spec = lab()
+        typed = iter(['enable', 'show nonsense', 'exit'])
+        written = []
+        code = guest_console.run(spec['name'], 'R1', read=lambda prompt: next(typed), write=written.append,
+                                 manager_factory=FakeManager(spec))
+        self.assertEqual(code, 0)
+        self.assertTrue(written[0].startswith('Terminal de R1'))
+        self.assertTrue(any(line.startswith('% Commandes disponibles') for line in written))
+
+
+if __name__ == '__main__':
+    unittest.main()

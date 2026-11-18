@@ -31,7 +31,9 @@ def launch_terminal(command):
     terminal=shutil.which('x-terminal-emulator') or shutil.which('xterm')
     if not terminal or not shutil.which('sudo'):
         raise ValueError('Installer un terminal x-terminal-emulator/xterm et sudo pour le contrôle natif.')
-    return subprocess.Popen([terminal,'-e',*command],cwd=SOURCE)
+    # Plain xterm needs -u8 for the accents of the French messages; x-terminal-emulator already speaks UTF-8.
+    options=['-u8'] if Path(terminal).name=='xterm' else []
+    return subprocess.Popen([terminal,*options,'-e',*command],cwd=SOURCE)
 
 
 class ApplianceWindow(MissionsPanel):
@@ -169,7 +171,11 @@ class ApplianceWindow(MissionsPanel):
         self.build_vendor_console(self.console_panel.inner)
         self.linux_console_title=self.label(self.console_panel.inner,'Console Linux native',TEXT,11,True)
         self.linux_console_title.pack(anchor='w',padx=14,pady=16)
-        tk.Label(self.console_panel.inner,text='Ouvrir un terminal interactif dans le nœud OCI sélectionné.\n\nLe laboratoire doit être démarré et son état actualisé.\n\nAuthentification sudo dans le terminal, puis shell Linux du nœud. Taper exit pour fermer avant une autre opération sur le lab.\n\nLes commandes modifient le système actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
+        tk.Label(self.console_panel.inner,text='Ouvrir un terminal sur le nœud sélectionné, lab démarré. Micro-VM : invite du '
+                 'constructeur (show, ping, configuration appliquée au nœud en marche) ou shell du poste (ping, ip addr, ip route). '
+                 'Nœud OCI : shell Linux.\n\nAuthentification sudo une fois, dans le terminal. Taper exit pour fermer.\n\n'
+                 'Les commandes modifient le lab actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),
+                 justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
         self.console_button=ttk.Button(self.console_panel.inner,text='Ouvrir la console Linux',command=self.open_console,style='Native.Primary.TButton');self.console_button.pack(fill='x',padx=14,pady=12)
 
         self.capture_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.capture_panel,text='PCAP')
@@ -569,8 +575,11 @@ class ApplianceWindow(MissionsPanel):
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else '',width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
         running=node and self.states.get(node['name'],{}).get('status')=='running' and not self.pending
-        # A micro-VM has no remote shell (its agent takes typed requests only), but its ports can be captured.
-        self.console_button.state(['!disabled'] if running and node['runtime']=='oci' else ['disabled'])
+        # A micro-VM's terminal is its node console (typed requests to the agent, no shell); an OCI node's is a Linux shell.
+        self.console_button.state(['!disabled'] if running else ['disabled'])
+        guest=bool(node) and node['runtime']=='firecracker'
+        self.linux_console_title.configure(text='Terminal du nœud' if guest else 'Console Linux native')
+        self.console_button.configure(text=f'Ouvrir le terminal de {node["name"]}' if guest else 'Ouvrir la console Linux')
         self.capture_button.state(['!disabled'] if running else ['disabled'])
         capture_ports=list(node['interfaces']) if node else []
         if node and node['runtime']=='oci':
@@ -1321,13 +1330,12 @@ class ApplianceWindow(MissionsPanel):
         try:
             selected=self.nodes.selection()
             node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
-            if node and node['runtime']=='firecracker':
-                raise ValueError('Pas de console pour une micro-VM : son agent n’accepte que des requêtes typées, sans shell distant.')
-            if not node or node['runtime']!='oci' or self.states.get(node['name'],{}).get('status')!='running':
-                raise ValueError('Démarrer le nœud OCI puis actualiser son état avant la console.')
+            if not node or self.states.get(node['name'],{}).get('status')!='running':
+                raise ValueError('Démarrer le lab puis actualiser son état avant le terminal du nœud.')
             if self.manifest()['name']!=self.view_lab:raise ValueError('Le projet et le laboratoire observé diffèrent.')
             from .ui_console import terminal_args
-            launch_terminal(terminal_args(self.view_lab,node['name']))
+            # A micro-VM opens its node terminal (vendor prompt or host shell, typed requests); an OCI node its Linux shell.
+            launch_terminal(terminal_args(self.view_lab,node['name'],'guest' if node['runtime']=='firecracker' else 'oci'))
             self.last_response=None
             self.note.set('Terminal demandé pour '+node['name']+' ; connexion à confirmer dans le terminal.')
             self.record_event('console','Terminal demandé : '+node['name'])
