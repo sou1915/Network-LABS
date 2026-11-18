@@ -1,0 +1,834 @@
+{
+ "source": "https://github.com/openconfig/public",
+ "commit": "fa27bd6ac13d14a167719bbf4eac48b1f298e43f",
+ "generated_by": "tools/openconfig/generate.py (pyang)",
+ "leaves": [
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/config/as",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-inet:as-number",
+     "description": "A numeric identifier for an autonomous system (AS). An AS is a single domain, under common administrative control, which forms a unit of routing policy. Autonomous systems can be assigned a 2-byte identifier, or a 4-byte identifier which may have public or private scope. Private ASNs are assigned from dedicated ranges. Public ASNs are assigned from ranges allocated by IANA to the regional internet registries (RIRs)."
+    },
+    {
+     "name": "uint32"
+    }
+   ],
+   "description": "Local autonomous system number of the router. Uses the 32-bit as-number type from the model in RFC 6991."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/config/router-id",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-yang:dotted-quad",
+     "description": "An unsigned 32-bit integer expressed as a dotted quad. The format is four octets written as decimal numbers separated with a period character."
+    },
+    {
+     "name": "string",
+     "patterns": [
+      "([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])){3}"
+     ]
+    }
+   ],
+   "description": "Router id of the router - an unsigned 32-bit integer expressed in dotted quad notation."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/graceful-restart/config/enabled",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Enable or disable the graceful-restart capability."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/use-multiple-paths/ebgp/config/maximum-paths",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint32"
+   },
+   "description": "Maximum number of parallel paths to consider when using BGP multipath. The default is use a single path.",
+   "default": "1"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/route-selection-options/config/always-compare-med",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Compare multi-exit discriminator (MED) value from different ASes when selecting the best route. The default behavior is to only compare MEDs for paths received from the same AS.",
+   "default": "false"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/route-selection-options/config/ignore-as-path-length",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Ignore the AS path length when selecting the best path. The default is to use the AS path length and prefer paths with shorter length.",
+   "default": "false"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/global/route-selection-options/config/external-compare-router-id",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "When comparing similar routes received from external BGP peers, use the router-id as a criterion to select the active path.",
+   "default": "true"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/neighbor-address",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-inet:ip-address",
+     "description": "An IPv4 or IPv6 address with no prefix specified."
+    },
+    {
+     "name": "union",
+     "union": [
+      [
+       {
+        "name": "ipv4-address",
+        "description": "An IPv4 address in dotted quad notation using the default zone."
+       },
+       {
+        "name": "string",
+        "patterns": [
+         "([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])){3}"
+        ]
+       }
+      ],
+      [
+       {
+        "name": "ipv6-address",
+        "description": "An IPv6 address represented as either a full address; shortened or mixed-shortened formats, using the default zone."
+       },
+       {
+        "name": "string",
+        "patterns": [
+         "(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))"
+        ]
+       }
+      ]
+     ]
+    }
+   ],
+   "description": "Address of the BGP peer, either in IPv4 or IPv6"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/peer-as",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-inet:as-number",
+     "description": "A numeric identifier for an autonomous system (AS). An AS is a single domain, under common administrative control, which forms a unit of routing policy. Autonomous systems can be assigned a 2-byte identifier, or a 4-byte identifier which may have public or private scope. Private ASNs are assigned from dedicated ranges. Public ASNs are assigned from ranges allocated by IANA to the regional internet registries (RIRs)."
+    },
+    {
+     "name": "uint32"
+    }
+   ],
+   "description": "AS number of the peer."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/enabled",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Whether the BGP peer is enabled. In cases where the enabled leaf is set to false, the local system should not initiate connections to the neighbor, and should not respond to TCP connections attempts from the neighbor. If the state of the BGP session is ESTABLISHED at the time that this leaf is set to false, the BGP session should be ceased.",
+   "default": "true"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/description",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "string"
+   },
+   "description": "An optional textual description (intended primarily for use with a peer or group"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/auth-password",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-types:routing-password",
+     "description": "This type is indicative of a password that is used within a routing protocol which can be returned in plain text to the NMS by the local system. Such passwords are typically stored as encrypted strings. Since the encryption used is generally well known, it is possible to extract the original value from the string - and hence this format is not considered secure. Leaves specified with this type should not be modified by the system, and should be returned to the end-user in plain text. This type exists to differentiate passwords, which may be sensitive, from other string leaves. It could, for example, be used by the NMS to censor this data when viewed by particular users."
+    },
+    {
+     "name": "string"
+    }
+   ],
+   "description": "Configures an MD5 authentication password for use with neighboring devices."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/remove-private-as",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-bgp-types:remove-private-as-option",
+     "description": "Set of options for configuring how private AS path numbers are removed from advertisements"
+    },
+    {
+     "name": "identityref",
+     "identities": [
+      "PRIVATE_AS_REMOVE_ALL",
+      "PRIVATE_AS_REPLACE_ALL"
+     ]
+    }
+   ],
+   "description": "Remove private AS numbers from updates sent to peers - when this leaf is not specified, the AS_PATH attribute should be sent to the peer unchanged"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/send-community-type",
+   "keyword": "leaf-list",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-bgp-types:community-type",
+     "description": "type describing variations of community attributes: STANDARD: standard BGP community [rfc1997] EXTENDED: extended BGP community [rfc4360] LARGE: large BGP community [rfc8092]"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "STANDARD",
+       "description": "Send standard communities"
+      },
+      {
+       "name": "EXTENDED",
+       "description": "Send extended communities"
+      },
+      {
+       "name": "LARGE",
+       "description": "Send large communities"
+      },
+      {
+       "name": "BOTH",
+       "description": "Send both standard and extended communities. This value has been deprecated because the node is now a leaf-list."
+      },
+      {
+       "name": "NONE",
+       "description": "Do not send any community attribute. If this value is present then the other community-types must not be present."
+      }
+     ]
+    }
+   ],
+   "description": "Specify which types of community should be sent to the neighbor or group. The default is to not send the community attribute. Note, if the NONE community-type is specified, no other types must be specified."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/config/keepalive-interval",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint16"
+   },
+   "description": "Time interval in seconds between transmission of keepalive messages to the neighbor. Typically set to 1/3 the hold-time.",
+   "default": "30"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/config/hold-time",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint16"
+   },
+   "description": "Time interval in seconds that a BGP session will be considered active in the absence of keepalive or other messages from the peer. The hold-time is typically set to 3x the keepalive-interval.",
+   "default": "90"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/config/connect-retry",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint16"
+   },
+   "description": "Time interval in seconds between attempts to establish a session with the peer.",
+   "default": "30"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/config/minimum-advertisement-interval",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint16"
+   },
+   "description": "Minimum time which must elapse between subsequent UPDATE messages relating to a common set of NLRI being transmitted to a peer. This timer is referred to as MinRouteAdvertisementIntervalTimer by RFC 4721 and serves to reduce the number of UPDATE messages transmitted when a particular set of NLRI exhibit instability.",
+   "default": "30"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/transport/config/passive-mode",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Wait for peers to issue requests to open a BGP session, rather than initiating sessions from the local router.",
+   "default": "false"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/as-path-options/config/allow-own-as",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint8"
+   },
+   "description": "Specify the number of occurrences of the local BGP speaker's AS that can occur within the AS_PATH before it is rejected.",
+   "default": "0"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/as-path-options/config/replace-peer-as",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "boolean"
+   },
+   "description": "Replace occurrences of the peer's AS in the AS_PATH with the local autonomous system number",
+   "default": "false"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/apply-policy/config/import-policy",
+   "keyword": "leaf-list",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "leafref",
+    "path": "/oc-rpol:routing-policy/oc-rpol:policy-definitions/oc-rpol:policy-definition/oc-rpol:name"
+   },
+   "description": "list of policy names in sequence to be applied on receiving a routing update in the current context, e.g., for the current peer group, neighbor, address family, etc."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/apply-policy/config/export-policy",
+   "keyword": "leaf-list",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "leafref",
+    "path": "/oc-rpol:routing-policy/oc-rpol:policy-definitions/oc-rpol:policy-definition/oc-rpol:name"
+   },
+   "description": "list of policy names in sequence to be applied on sending a routing update in the current context, e.g., for the current peer group, neighbor, address family, etc."
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/apply-policy/config/default-import-policy",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "default-policy-type",
+     "description": "Type used to specify route disposition in a policy chain"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "ACCEPT_ROUTE",
+       "description": "Default policy to accept the route"
+      },
+      {
+       "name": "REJECT_ROUTE",
+       "description": "Default policy to reject the route"
+      }
+     ]
+    }
+   ],
+   "description": "explicitly set a default policy if no policy definition in the import policy chain is satisfied.",
+   "default": "REJECT_ROUTE"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/apply-policy/config/default-export-policy",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "default-policy-type",
+     "description": "Type used to specify route disposition in a policy chain"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "ACCEPT_ROUTE",
+       "description": "Default policy to accept the route"
+      },
+      {
+       "name": "REJECT_ROUTE",
+       "description": "Default policy to reject the route"
+      }
+     ]
+    }
+   ],
+   "description": "explicitly set a default policy if no policy definition in the export policy chain is satisfied.",
+   "default": "REJECT_ROUTE"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/ipv4-unicast/prefix-limit/config/max-prefixes",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "uint32"
+   },
+   "description": "Maximum number of prefixes that will be accepted from the neighbor"
+  },
+  {
+   "path": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/afi-safis/afi-safi/ipv4-unicast/prefix-limit/config/warning-threshold-pct",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": [
+    {
+     "name": "oc-types:percentage",
+     "description": "Integer indicating a percentage value"
+    },
+    {
+     "name": "uint8",
+     "range": "0..100"
+    }
+   ],
+   "description": "Threshold on number of prefixes that can be received from a neighbor before generation of warning messages or log entries. Expressed as a percentage of max-prefixes"
+  },
+  {
+   "path": "/network-instances/network-instance/table-connections/table-connection/config/src-protocol",
+   "keyword": "leaf",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "leafref",
+    "path": "../../../../tables/table/config/protocol"
+   },
+   "description": "The source protocol for the table connection"
+  },
+  {
+   "path": "/network-instances/network-instance/table-connections/table-connection/config/import-policy",
+   "keyword": "leaf-list",
+   "module": "openconfig-network-instance",
+   "revision": "2026-10-07",
+   "type": {
+    "name": "leafref",
+    "path": "/oc-rpol:routing-policy/oc-rpol:policy-definitions/oc-rpol:policy-definition/oc-rpol:name"
+   },
+   "description": "list of policy names in sequence to be applied on receiving a routing update in the current context, e.g., for the current peer group, neighbor, address family, etc."
+  },
+  {
+   "path": "/routing-policy/defined-sets/prefix-sets/prefix-set/config/name",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": {
+    "name": "string"
+   },
+   "description": "name / label of the prefix set -- this is used to reference the set in match conditions"
+  },
+  {
+   "path": "/routing-policy/defined-sets/prefix-sets/prefix-set/prefixes/prefix/config/ip-prefix",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": [
+    {
+     "name": "oc-inet:ip-prefix",
+     "description": "An IPv4 or IPv6 prefix."
+    },
+    {
+     "name": "union",
+     "union": [
+      [
+       {
+        "name": "ipv4-prefix",
+        "description": "An IPv4 prefix represented in dotted quad notation followed by a slash and a CIDR mask (0 <= mask <= 32)."
+       },
+       {
+        "name": "string",
+        "patterns": [
+         "([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])){3}/([0-9]|[12][0-9]|3[0-2])"
+        ]
+       }
+      ],
+      [
+       {
+        "name": "ipv6-prefix",
+        "description": "An IPv6 prefix represented in full, shortened, or mixed shortened format followed by a slash and CIDR mask (0 <= mask <= 128)."
+       },
+       {
+        "name": "string",
+        "patterns": [
+         "(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))/(12[0-8]|1[0-1][0-9]|[1-9][0-9]|[0-9])"
+        ]
+       }
+      ]
+     ]
+    }
+   ],
+   "description": "The prefix member in CIDR notation -- while the prefix may be either IPv4 or IPv6, most implementations require all members of the prefix set to be the same address family. Mixing address types in the same prefix set is likely to cause an error."
+  },
+  {
+   "path": "/routing-policy/defined-sets/prefix-sets/prefix-set/prefixes/prefix/config/masklength-range",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": {
+    "name": "string",
+    "patterns": [
+     "(([0-9]+\\.\\.[0-9]+)|exact)"
+    ]
+   },
+   "description": "Defines a range for the masklength, or 'exact' if the prefix has an exact length. Example: 10.3.192.0/21 through 10.3.192.0/24 would be expressed as prefix: 10.3.192.0/21, masklength-range: 21..24. Example: 10.3.192.0/21 would be expressed as prefix: 10.3.192.0/21, masklength-range: exact"
+  },
+  {
+   "path": "/routing-policy/defined-sets/bgp-defined-sets/community-sets/community-set/config/community-set-name",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "string"
+   },
+   "description": "name / label of the community set -- this is used to reference the set in match conditions"
+  },
+  {
+   "path": "/routing-policy/defined-sets/bgp-defined-sets/community-sets/community-set/config/community-member",
+   "keyword": "leaf-list",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "union",
+    "union": [
+     [
+      {
+       "name": "oc-bgp-types:bgp-std-community-type",
+       "description": "Type definition for standard commmunity attributes represented as a integer value, or a string of the form N:M where N and M are integers between 0 and 65535."
+      },
+      {
+       "name": "union",
+       "union": [
+        {
+         "name": "uint32"
+        },
+        {
+         "name": "string",
+         "patterns": [
+          "(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{1,3}|[0-9]):(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{1,3}|[0-9])"
+         ]
+        }
+       ]
+      }
+     ],
+     [
+      {
+       "name": "oc-bgp-types:bgp-community-regexp-type",
+       "description": "Type definition for communities specified as regular expression patterns. The regular expression must be a POSIX extended regular expression with some limitations which are commonly found in device implementations described in draft-ietf-idr-bgp-model."
+      },
+      {
+       "name": "oc-types:posix-eregexp",
+       "description": "This is a string which represents an extended POSIX regular expression."
+      },
+      {
+       "name": "string"
+      }
+     ],
+     [
+      {
+       "name": "oc-bgp-types:bgp-well-known-community-type",
+       "description": "Type definition for well-known IETF community attribute values"
+      },
+      {
+       "name": "identityref",
+       "identities": [
+        "GRACEFUL_SHUTDOWN",
+        "NOPEER",
+        "NO_ADVERTISE",
+        "NO_EXPORT",
+        "NO_EXPORT_SUBCONFED"
+       ]
+      }
+     ]
+    ]
+   },
+   "description": "Members of the community set. For an ADD operation these are the communities that will be added. The regexp type is not valid in this operation. For REMOVE or REPLACE operations then matching communities will be removed unless match-set-options is INVERT which will reverse this to mean that anything that does not match will be removed. For MATCH operations the posix-eregexp type should be evaluated against each community associated with a prefix one community at a time. Communities must be represented as strings in formats conforming to oc-bgp-types:bgp-std-community-type. For example: `1000:1000` for a standard community"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/config/name",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": {
+    "name": "string"
+   },
+   "description": "Name of the top-level policy definition -- this name is used in references to the current policy"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/config/name",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": {
+    "name": "string"
+   },
+   "description": "name of the policy statement"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/conditions/match-prefix-set/config/prefix-set",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": {
+    "name": "leafref",
+    "path": "../../../../../../../../defined-sets/prefix-sets/prefix-set/config/name"
+   },
+   "description": "References a defined prefix set"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/conditions/bgp-conditions/match-community-set/config/community-set",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "leafref",
+    "path": "/oc-rpol:routing-policy/oc-rpol:defined-sets/oc-bgp-pol:bgp-defined-sets/oc-bgp-pol:community-sets/oc-bgp-pol:community-set/oc-bgp-pol:community-set-name"
+   },
+   "description": "References a defined community set"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/config/policy-result",
+   "keyword": "leaf",
+   "module": "openconfig-routing-policy",
+   "revision": "2024-11-26",
+   "type": [
+    {
+     "name": "policy-result-type",
+     "description": "Type used to specify route disposition in a policy chain"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "ACCEPT_ROUTE",
+       "description": "Policy accepts the route and evaluation of the current policy definition stops."
+      },
+      {
+       "name": "REJECT_ROUTE",
+       "description": "Policy rejects the route and evaluation of the current policy definition stops."
+      },
+      {
+       "name": "NEXT_STATEMENT",
+       "description": "Any modifications of the route are preserved and the evaluation of the policy will continue to the next statement."
+      }
+     ]
+    }
+   ],
+   "description": "Select the final disposition for the route, either accept or reject."
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/config/set-local-pref",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "uint32"
+   },
+   "description": "set the local pref attribute on the route update"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/config/set-med",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": [
+    {
+     "name": "bgp-set-med-type",
+     "description": "Type definition for specifying how the BGP MED can be set in BGP policy actions. The MED can be specified as a direct integer value or setting it to the IGP cost. To be used in conjunction with `bgp-set-med-action` in order to specify the appropriate action to take on this value."
+    },
+    {
+     "name": "union",
+     "union": [
+      {
+       "name": "uint32"
+      },
+      {
+       "name": "enumeration",
+       "enum": [
+        {
+         "name": "IGP",
+         "description": "Set the MED value to the IGP cost toward the next hop for the route"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "description": "Set the MED metric attribute in the route update. When set to an integer metric, all `set-med-action` options apply. When set to 'IGP', the `set-med-action` must be set to 'SET'."
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/config/set-route-origin",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": [
+    {
+     "name": "oc-bgp-types:bgp-origin-attr-type",
+     "description": "Type definition for standard BGP origin attribute"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "IGP",
+       "description": "Origin of the NLRI is internal"
+      },
+      {
+       "name": "EGP",
+       "description": "Origin of the NLRI is EGP"
+      },
+      {
+       "name": "INCOMPLETE",
+       "description": "Origin of the NLRI is neither IGP or EGP"
+      }
+     ]
+    }
+   ],
+   "description": "set the origin attribute to the specified value"
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/set-as-path-prepend/config/repeat-n",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "uint8",
+    "range": "1..max"
+   },
+   "description": "Number of times to prepend the value specified in the asn leaf to the AS path. If no value is specified by the asn leaf, the local AS number of the system is used. The value should be between 1 and the maximum supported by the implementation."
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/set-as-path-prepend/config/asn",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": [
+    {
+     "name": "oc-inet:as-number",
+     "description": "A numeric identifier for an autonomous system (AS). An AS is a single domain, under common administrative control, which forms a unit of routing policy. Autonomous systems can be assigned a 2-byte identifier, or a 4-byte identifier which may have public or private scope. Private ASNs are assigned from dedicated ranges. Public ASNs are assigned from ranges allocated by IANA to the regional internet registries (RIRs)."
+    },
+    {
+     "name": "uint32"
+    }
+   ],
+   "description": "The AS number to prepend to the AS path. If neither this leaf nor use-last-as leaf is specified but repeat-n is set, then the local AS number will be used for prepending."
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/set-community/config/options",
+   "keyword": "leaf",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": [
+    {
+     "name": "bgp-set-community-option-type",
+     "description": "Type definition for options when setting the community attribute in a policy action"
+    },
+    {
+     "name": "enumeration",
+     "enum": [
+      {
+       "name": "ADD",
+       "description": "add the specified communities to the existing community attribute"
+      },
+      {
+       "name": "REMOVE",
+       "description": "remove the specified communities from the existing community attribute"
+      },
+      {
+       "name": "REPLACE",
+       "description": "replace the existing community attribute with the specified communities. If an empty set is specified, this removes the community attribute from the route."
+      }
+     ]
+    }
+   ],
+   "description": "Options for modifying the community attribute with the specified values. These options apply to both methods of setting the community attribute."
+  },
+  {
+   "path": "/routing-policy/policy-definitions/policy-definition/statements/statement/actions/bgp-actions/set-community/inline/config/communities",
+   "keyword": "leaf-list",
+   "module": "openconfig-bgp-policy",
+   "revision": "2026-03-17",
+   "type": {
+    "name": "union",
+    "union": [
+     [
+      {
+       "name": "oc-bgp-types:bgp-std-community-type",
+       "description": "Type definition for standard commmunity attributes represented as a integer value, or a string of the form N:M where N and M are integers between 0 and 65535."
+      },
+      {
+       "name": "union",
+       "union": [
+        {
+         "name": "uint32"
+        },
+        {
+         "name": "string",
+         "patterns": [
+          "(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{1,3}|[0-9]):(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{1,3}|[0-9])"
+         ]
+        }
+       ]
+      }
+     ],
+     [
+      {
+       "name": "oc-bgp-types:bgp-well-known-community-type",
+       "description": "Type definition for well-known IETF community attribute values"
+      },
+      {
+       "name": "identityref",
+       "identities": [
+        "GRACEFUL_SHUTDOWN",
+        "NOPEER",
+        "NO_ADVERTISE",
+        "NO_EXPORT",
+        "NO_EXPORT_SUBCONFED"
+       ]
+      }
+     ]
+    ]
+   },
+   "description": "Set the community values for the update inline with a list."
+  }
+ ]
+}
