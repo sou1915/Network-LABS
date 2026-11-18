@@ -64,33 +64,43 @@ class ConsoleTest(unittest.TestCase):
 
     def test_ios_modes_show_ping_and_live_configuration(self):
         console, manager = self.console(lab())
-        self.assertEqual(console.prompt(), 'R1> ')
-        with self.assertRaisesRegex(ValueError, 'enable'):
-            console.line('conf t')
+        self.assertEqual(console.prompt(), 'R1>')
+        self.assertIn("% Invalid input detected at '^' marker.", console.line('conf t'))  # not from user EXEC, as on IOS
         console.line('enable')
-        self.assertEqual(console.prompt(), 'R1# ')
-        self.assertIn('gi0/0/0', console.line('show ip interface brief'))
+        self.assertEqual(console.prompt(), 'R1#')
+        self.assertIn('GigabitEthernet0/0/0', console.line('show ip interface brief'))
         self.assertIn('!!!!!', console.line('ping 198.51.100.20'))
-        self.assertIn('hostname R1', console.line('show running-config'))
-        self.assertIn('End with end', console.line('configure terminal'))
-        self.assertEqual(console.prompt(), 'R1(config)# ')
+        running = console.line('show running-config')
+        self.assertTrue(running.startswith('Building configuration...'))
+        self.assertIn('interface GigabitEthernet0/0/0', running)
+        self.assertNotIn('Network LABS', running)
+        self.assertEqual(console.line('configure terminal'), 'Enter configuration commands, one per line.  End with CNTL/Z.')
+        self.assertEqual(console.prompt(), 'R1(config)#')
         self.assertEqual(console.line('ip route 198.51.100.0 255.255.255.0 203.0.113.2'), '')
-        self.assertEqual(manager.changes, [])  # nothing applied before « end »
-        self.assertIn('Appliqué au nœud en marche', console.line('end'))
-        self.assertEqual(console.prompt(), 'R1# ')
-        kind, name, node = manager.changes[0]
+        kind, name, node = manager.changes[0]  # applied at once, as each IOS line is
         self.assertEqual((kind, name, node['guest_network']['routes']),
                          ('routing', 'R1', [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}]))
+        self.assertEqual(console.line('end'), '%SYS-5-CONFIG_I: Configured from console by console')
+        self.assertEqual(console.prompt(), 'R1#')
         console.line('conf t')
-        console.line('interface gi0/0/0')
-        console.line('ip address 192.0.2.9 255.255.255.0')
-        self.assertIn('Appliqué au nœud en marche', console.line('end'))  # addresses change live, as on a real router
+        console.line('int g0/0/0')
+        self.assertEqual(console.line('ip add 192.0.2.9 255.255.255.0'), '')
         self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], '192.0.2.9/24')
-        console.line('conf t')
-        console.line('hostname R9')
-        self.assertIn('Renommer', console.line('end'))  # what still needs the GUI is said
+        self.assertIn('%LINK-5-CHANGED: Interface GigabitEthernet0/0/0, changed state to administratively down',
+                      console.line('shutdown'))
+        self.assertEqual(manager.changes[-1][2]['shutdown'], ['eth0'])
+        reply = console.line('no shut')
+        self.assertIn('%LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/0/0, changed state to up', reply)
+        self.assertEqual(manager.changes[-1][2]['shutdown'], [])
+        self.assertEqual(console.line('ip adress 1.1.1.1 255.0.0.0').splitlines()[-1], "% Invalid input detected at '^' marker.")
+        self.assertEqual(console.line('ip address 192.0.2.9'), '% Incomplete command.')
+        self.assertTrue(console.line('i 1').startswith('% Ambiguous command'))
+        self.assertIn('Renommer', console.line('hostname R9'))  # what still needs the GUI is said
+        self.assertEqual(console.line('end'), '%SYS-5-CONFIG_I: Configured from console by console')
+        self.assertEqual(console.line('wr'), 'Building configuration...\n[OK]')
+        self.assertIn('% Unknown command', console.line('pign 1.1.1.1'))
         console.line('disable')
-        self.assertEqual(console.prompt(), 'R1> ')
+        self.assertEqual(console.prompt(), 'R1>')
         with self.assertRaises(EOFError):
             console.line('exit')
 
@@ -131,7 +141,7 @@ class ConsoleTest(unittest.TestCase):
                                  manager_factory=FakeManager(spec))
         self.assertEqual(code, 0)
         self.assertTrue(written[0].startswith('Terminal de R1'))
-        self.assertTrue(any(line.startswith('% Commandes disponibles') for line in written))
+        self.assertTrue(any("% Invalid input detected at '^' marker." in line for line in written))
 
 
 if __name__ == '__main__':
@@ -145,21 +155,26 @@ class CatalogueHelpTest(unittest.TestCase):
 
     def test_ios_sub_mode_prompts_and_context_help(self):
         console = self.console()
-        self.assertIn('show ip bgp summary', console.line('?'))
+        top = console.line('?')
+        self.assertIn('enable', top)
+        self.assertIn('show', top)
         console.line('enable')
         console.line('configure terminal')
         console.line('interface gi0/0/1')
-        self.assertEqual(console.prompt(), 'R1(config-if)# ')
-        reply = console.line('ip ?')
-        self.assertIn('ip address A.B.C.D MASQUE', reply)
-        self.assertNotIn('ip route', reply)  # the sub-mode's own commands first
+        self.assertEqual(console.prompt(), 'R1(config-if)#')
+        reply = console.line('ip ?')  # IOS: the next words, with what they do
+        self.assertIn('address', reply)
+        self.assertNotIn('route', reply)  # the sub-mode's own commands
+        self.assertIn('A.B.C.D', console.line('ip address ?'))
+        self.assertIn('<cr>', console.line('ip address 203.0.113.1 255.255.255.252 ?'))
+        self.assertEqual(console.line('ip add?'), 'address')
         console.line('exit')
-        self.assertEqual(console.prompt(), 'R1(config)# ')
+        self.assertEqual(console.prompt(), 'R1(config)#')
         console.line('interface gi0/0/0')
         console.line('ip route 10.99.0.0 255.255.0.0 203.0.113.2')  # a global command leaves the sub-mode, as on IOS
-        self.assertEqual(console.prompt(), 'R1(config)# ')
-        self.assertIn('Appliqué', console.line('exit'))  # exit from config applies and returns to R1#
-        self.assertEqual(console.prompt(), 'R1# ')
+        self.assertEqual(console.prompt(), 'R1(config)#')
+        self.assertEqual(console.line('exit'), '%SYS-5-CONFIG_I: Configured from console by console')  # exit from config
+        self.assertEqual(console.prompt(), 'R1#')
         self.assertIn('ip access-group INVITES in', console.line('help acl'))
         self.assertEqual(console.complete('show ip b'), ['bgp'])
 

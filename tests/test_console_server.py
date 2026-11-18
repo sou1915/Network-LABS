@@ -108,7 +108,7 @@ class BridgeConsolesTest(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
 class ConsoleWindowTest(unittest.TestCase):
-    def test_typing_history_completion_and_question_mark(self):
+    def test_typing_history_completion_question_mark_and_more(self):
         import tkinter as tk
         from network_labs.appliances.ui_cli import ConsoleWindow
         root = tk.Tk()
@@ -119,42 +119,56 @@ class ConsoleWindowTest(unittest.TestCase):
         def request(payload):
             console = consoles.setdefault(payload.get('session'), FakeConsole(payload['node']))
             if payload['op'] == 'open':
-                return {'ok': True, 'prompt': console.prompt(), 'banner': 'R1 · Cisco IOS.'}
+                return {'ok': True, 'prompt': console.prompt(), 'banner': ''}
             if payload['op'] == 'complete':
                 return {'ok': True, 'words': console.complete(payload['text'])}
             if payload['op'] == 'close':
                 return {'ok': True}
-            return {'ok': True, 'reply': console.line(payload['text']), 'prompt': console.prompt(), 'closed': False}
+            text = payload['text']
+            reply = '\n'.join(f'line {i}' for i in range(40)) if text == 'show long' else console.line(text)
+            return {'ok': True, 'reply': reply, 'prompt': console.prompt(), 'closed': False}
         window = ConsoleWindow(root, 'lab-1', 'R1', request=request)
 
         def settle():
-            for _ in range(100):
+            for _ in range(200):
                 root.update()
                 if not window.busy:
                     break
                 time.sleep(.01)
             root.update()
+
+        def type_line(text):
+            window.set_typed(text)
+            window.submit()
+            settle()
+        self.assertIn('Press RETURN to get started!', window.text.get('1.0', 'end'))
+        window.submit()  # Return: the console starts
         settle()
-        self.assertEqual(window.prompt.get(), 'R1> ')
-        window.entry.insert(0, 'en')
-        window.submit()
-        settle()
-        self.assertEqual(window.prompt.get(), 'R1# ')
-        window.entry.insert(0, 'show ip b')
+        self.assertEqual(window.text.get('1.0', 'end').strip(), 'R1>')
+        type_line('en')
+        self.assertTrue(window.text.get('1.0', 'end').rstrip().endswith('R1#'))
+        window.set_typed('show ip b')
         window.complete()
         settle()
-        self.assertEqual(window.entry.get(), 'show ip bgp ')
-        window.entry.delete(0, 'end')
-        window.entry.insert(0, 'show ip')
-        window.help()  # « ? »: the line is kept, the help is shown
+        self.assertEqual(window.typed(), 'show ip bgp ')
+        window.set_typed('show ip')
+        window.help()  # « ? »: the help, then the prompt and the same line again
         settle()
-        self.assertEqual(window.entry.get(), 'show ip')
-        self.assertIn('reply to show ip ?', window.text.get('1.0', 'end'))
-        window.entry.delete(0, 'end')
+        self.assertEqual(window.typed(), 'show ip')
+        self.assertIn('reply to show ip?', window.text.get('1.0', 'end'))
+        window.set_typed('')
         window.recall(-1)
-        self.assertEqual(window.entry.get(), 'en')
+        self.assertEqual(window.typed(), 'en')
+        type_line('show long')
+        self.assertIsNotNone(window.paging)
+        self.assertTrue(window.text.get('1.0', 'end').rstrip().endswith('--More--'))
+        window.page('Return')
+        self.assertIn('line 24', window.text.get('1.0', 'end'))
+        window.page('space')
+        self.assertIn('line 39', window.text.get('1.0', 'end'))
+        self.assertIsNone(window.paging)
+        self.assertTrue(window.text.get('1.0', 'end').rstrip().endswith('R1#'))
         window.close()
-
 
 if __name__ == '__main__':
     unittest.main()

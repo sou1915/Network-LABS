@@ -70,7 +70,7 @@ class AclTest(unittest.TestCase):
         graded = missions.grade(fixed, 'acl-invites')
         self.assertTrue(all(r['status'] == 'ok' for r in graded['results'] if r['kind'] == 'configuration'))
         text = vendor_show.show(fixed['nodes'][0], {'interfaces': [], 'routes': [], 'vlans': None, 'ospf': None}, 'sh access-lists')
-        self.assertIn('Extended IP access list INVITES    (in : gi0/0)', text)
+        self.assertIn('Extended IP access list INVITES    (in : GigabitEthernet0/0)', text)
         self.assertIn('10 deny icmp 192.0.2.0 0.0.0.255 host 203.0.113.10', text)
 
 

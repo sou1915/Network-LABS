@@ -50,11 +50,11 @@ class FormatTest(unittest.TestCase):
     def test_ios_route_and_abbreviations(self):
         _, node = router('cisco-isr4331')
         text = vendor_show.show(node, observed(node), 'sh ip ro')
-        self.assertIn('S        198.51.100.0/24 [1/0] via 203.0.113.2, gi0/0/1', text)
-        self.assertIn('C        192.0.2.0/24 is directly connected, gi0/0/0', text)
+        self.assertIn('S        198.51.100.0/24 [1/0] via 203.0.113.2, GigabitEthernet0/0/1', text)
+        self.assertIn('C        192.0.2.0/24 is directly connected, GigabitEthernet0/0/0', text)
         self.assertIn('Gateway of last resort is not set', text)
         brief = vendor_show.show(node, observed(node), 'show ip interface brief')
-        self.assertRegex(brief, r'gi0/0/1\s+203\.0\.113\.1\s+YES manual up\s+up')
+        self.assertRegex(brief, r'GigabitEthernet0/0/1\s+203\.0\.113\.1\s+YES manual up\s+up')
 
     def test_fortios_junos_routeros_layouts(self):
         expectations = {'juniper-mx204': ('show route', '198.51.100.0/24    *[Static/5]'),
@@ -89,8 +89,8 @@ class FormatTest(unittest.TestCase):
         node = validate(lab)['nodes'][0]
         replies = {'addresses': '', 'routes': '', 'bridge-vlans': VLANS}
         text = vendor_show.show(node, observed(node, replies), 'show vlan brief')
-        self.assertRegex(text, r'10\s+VLAN0010\s+active\s+gi1/0/1, gi1/0/2')
-        self.assertIn('Trunks (802.1Q) : gi1/0/4', text)
+        self.assertRegex(text, r'10\s+VLAN0010\s+active\s+GigabitEthernet1/0/1, GigabitEthernet1/0/2')
+        self.assertIn('Trunks (802.1Q) : GigabitEthernet1/0/4', text)
 
     def test_unknown_commands_list_the_supported_ones(self):
         _, node = router('cisco-isr4331')
@@ -180,7 +180,7 @@ class WorkbenchShowTest(unittest.TestCase):
             with patch.object(window, 'launch', side_effect=AssertionError('observed again')):
                 window.vendor_command.set('sh ip int br')
                 self.assertTrue(window.run_vendor_show())
-            self.assertIn('gi0/0/0', window.output.get('1.0', 'end'))
+            self.assertIn('GigabitEthernet0/0/0', window.output.get('1.0', 'end'))
             with patch.object(window, 'launch', return_value=True) as launch:
                 window.vendor_command.set('ping 198.51.100.20')
                 self.assertTrue(window.run_vendor_show())

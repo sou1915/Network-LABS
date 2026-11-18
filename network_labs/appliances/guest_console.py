@@ -24,6 +24,7 @@ class Console:
         self.context = None  # configuration sub-mode (IOS config-if, VRP interface…), from the command catalogue
         self.label = ''  # what the prompt shows for it on VRP (GE0/0/0, ospf-1, bgp…)
         self.spec = None
+        self.base = None  # IOS: the lab when « configure terminal » was typed; the block typed since applies onto it
         node = self.node()
         self.syntax = vendor_config.dialect(node) if node['role'] != 'host' else None
         self.catalogue_node = node
@@ -65,9 +66,9 @@ class Console:
         name = self.name
         if self.syntax is None:
             return f'root@{name}:~# '
-        if self.syntax in ('ios', 'eos'):
+        if self.syntax in ('ios', 'eos'):  # IOS types straight after the prompt, without a space
             config = f'{name}({self.context or "config"})#'
-            return {'exec': f'{name}>', 'enable': f'{name}#', 'config': config}[self.mode] + ' '
+            return {'exec': f'{name}>', 'enable': f'{name}#', 'config': config}[self.mode]
         if self.syntax == 'vrp':
             return (f'[{name}{"-" + self.label if self.label else ""}]' if self.mode == 'config' else f'<{name}>') + ' '
         if self.syntax in ('junos', 'panos'):
@@ -78,6 +79,8 @@ class Console:
 
     def line(self, text):
         """The reply to one typed line ('' for none); raises EOFError to close the terminal."""
+        if self.syntax in ('ios', 'eos'):
+            return self.ios_line(text)
         command = ' '.join(text.split())
         low = command.lower()
         if not command:
@@ -103,6 +106,156 @@ class Console:
         if self.mode == 'config' or self.entering(low):
             return self.configure(command, low)
         return self.execute(command)
+
+    # ---- Cisco IOS (and Arista EOS), as Packet Tracer and the real CLI behave ----
+
+    def ios_line(self, text):
+        """One IOS line: « ? » help, IOS errors with the ^ marker, each configuration line applied at once."""
+        node, mode = self.catalogue_node, self.catalogue_mode()
+        if text.rstrip().endswith('?'):
+            return command_catalogue.ios_help(node, mode, text.rstrip()[:-1])
+        command = ' '.join(text.split())
+        low = command.lower()
+        if not command:
+            return ''
+        if low == 'help' or low.startswith('help '):
+            return self.topic_help(command[5:]) if low.startswith('help ') else self.help()
+        if self.mode != 'config':
+            return self.ios_exec(command)
+        if low.startswith('do '):
+            return self.ios_exec(command[3:].strip(), from_config=True)
+        command = command_catalogue.expand(node, command)
+        low = command.lower()
+        if low in ('end', 'exit') and (low == 'end' or self.context is None):
+            reply = self.ios_apply(final=True)
+            self.mode, self.context, self.pending, self.base = 'enable', None, [], None
+            return '\n'.join(part for part in (reply, '%SYS-5-CONFIG_I: Configured from console by console') if part)
+        if low == 'exit':
+            self.pending.append(command)  # the parser leaves its sub-mode too
+            self.context = None
+            return ''
+        status, detail = command_catalogue.ios_check(node, mode, command)
+        if status == 'incomplete':
+            return '% Incomplete command.'
+        if status == 'ambiguous':
+            return f'% Ambiguous command:  "{detail}"'
+        if status == 'invalid' and not self.parses(command):
+            return self.marker(detail)
+        self.pending.append(command)
+        self.enter(command, low)
+        return self.ios_apply()
+
+    def ios_exec(self, command, from_config=False):
+        """User and privileged EXEC: enable, configure, show, ping, write, as on IOS."""
+        node = self.catalogue_node
+        low = command_catalogue.expand(node, command).lower()
+        if low in ('exit', 'logout', 'quit') and not from_config:
+            raise EOFError
+        if low in ('enable', 'en'):
+            self.mode = 'enable' if not from_config else self.mode
+            return ''
+        if low == 'disable' and not from_config:
+            self.mode = 'exec'
+            return ''
+        if low in ('configure terminal', 'conf t', 'config t', 'configure') and not from_config:
+            if self.mode == 'exec':
+                return self.marker(0)
+            self.mode, self.pending, self.context = 'config', [], None
+            with self.manager().locked() as manager:
+                self.base = manager.read()['spec']
+            return 'Enter configuration commands, one per line.  End with CNTL/Z.'
+        if re.fullmatch(r'(write( memory)?|wr|copy running-config startup-config|copy run start)', low):
+            if self.mode == 'exec' and not from_config:
+                return self.marker(0)
+            return 'Destination filename [startup-config]? \nBuilding configuration...\n[OK]' if low.startswith('copy') \
+                else 'Building configuration...\n[OK]'
+        if re.fullmatch(r'(show|sh) (running-config|run)', low):
+            return self.ios_running()
+        destination = vendor_show.ping_destination(self.node(), low)
+        if destination:
+            return vendor_show.ping_text(self.node(), self.ping(destination))
+        if low.split()[0] == 'show' or low.startswith('sh '):
+            try:
+                return vendor_show.show(self.node(), self.observe(), low)
+            except ValueError as error:
+                status, detail = command_catalogue.ios_check(node, 'exec', low)
+                if status == 'incomplete':
+                    return '% Incomplete command.'
+                return self.marker(detail) if status == 'invalid' else '% ' + str(error)
+        status, detail = command_catalogue.ios_check(node, 'exec', low)
+        if status == 'incomplete':
+            return '% Incomplete command.'
+        if status == 'ambiguous':
+            return f'% Ambiguous command:  "{detail}"'
+        return (f'Translating "{command.split()[0]}"...domain server (255.255.255.255)\n'
+                '% Unknown command or computer name, or unable to find computer address')
+
+    def marker(self, position):
+        """IOS's answer to a wrong word: a ^ under it (the line is shown just above, after the prompt)."""
+        return ' ' * (len(self.prompt()) + (position or 0)) + "^\n% Invalid input detected at '^' marker."
+
+    def parses(self, command):
+        """Whether the vendor parser takes this line after the block typed so far (lines the catalogue omits)."""
+        try:
+            vendor_config.apply(self.base, self.name, '\n'.join(self.pending + [command]))
+            return True
+        except ValueError as error:
+            return not str(error).startswith(f'Ligne {len(self.pending) + 1} :')
+
+    def ios_apply(self, final=False):
+        """Apply the block typed since « configure terminal » to the running device, as IOS applies each line.
+        A block that is not complete yet (BGP without a neighbour…) waits for the next lines; at « end » it is said."""
+        if not self.pending:
+            return ''
+        try:
+            changed = vendor_config.apply(self.base, self.name, '\n'.join(self.pending))
+        except ValueError as error:
+            text = str(error)
+            if text.startswith(f'Ligne {len(self.pending)} :'):
+                self.pending.pop()
+                return '% ' + text.split('\n', 1)[-1]
+            return f'% {text} (pas encore appliqué)' if final else ''
+        wanted = next(n for n in changed['nodes'] if n['name'] == self.name)
+        with self.manager().locked() as manager:
+            manager.state = None
+            spec = manager.read()['spec']
+            before = self.node(spec)
+            reply = self.change(manager, spec, wanted)
+        if reply.startswith('%'):
+            return reply
+        return self.ios_events(before, wanted, spec)
+
+    def ios_events(self, before, after, spec):
+        """The console messages IOS prints when a port goes up or down."""
+        from .vendor_config import ios_name, port_names
+        shown = port_names(after)
+        cabled = {end[1] for link in spec['links'] for end in link if end[0] == self.name}
+        lines = []
+        for port in after['interfaces']:
+            name = ios_name(shown[port]) if self.syntax == 'ios' else shown[port]
+            was, now = port in (before.get('shutdown') or []), port in (after.get('shutdown') or [])
+            if was and not now:
+                state = 'up' if port in cabled else 'down'
+                lines.append(f'%LINK-5-CHANGED: Interface {name}, changed state to {state}')
+                if port in cabled:
+                    lines.append(f'%LINEPROTO-5-UPDOWN: Line protocol on Interface {name}, changed state to up')
+            elif now and not was:
+                lines += [f'%LINK-5-CHANGED: Interface {name}, changed state to administratively down',
+                          f'%LINEPROTO-5-UPDOWN: Line protocol on Interface {name}, changed state to down']
+        return '\n'.join(lines)
+
+    def ios_running(self):
+        """« show running-config » laid out as IOS prints it."""
+        with self.manager().locked() as manager:
+            body = vendor_config.render(manager.read()['spec'], self.name)
+        lines = [line for line in body.splitlines() if not line.startswith(('! Network LABS', '! le nœud'))]
+        while lines and lines[0] == '!':
+            lines.pop(0)
+        if lines and lines[-1] == 'end':
+            lines = lines[:-1] + ['!', 'line con 0', '!', 'line vty 0 4', ' login', '!', 'end']
+        text = '\n'.join(['version 16.9', 'no service timestamps log datetime msec', 'no service timestamps debug datetime msec',
+                          'no service password-encryption', '!'] + lines)
+        return f'Building configuration...\n\nCurrent configuration : {len(text) + 1} bytes\n!\n{text}'
 
     def execute(self, command):
         """An exec-mode command: mode changes, the running configuration, ping or a show command."""

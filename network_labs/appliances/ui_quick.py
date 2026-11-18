@@ -7,6 +7,7 @@ form stays one right-click away (« options avancées »), and Ctrl-click on the
 from pathlib import Path
 
 from . import topology_edit
+from .spec import validate
 from .native_models import default_ports, port_names
 
 PREFIXES = {'host': 'PC', 'server': 'SRV', 'switch': 'SW', 'router': 'R', 'firewall': 'FW'}
@@ -57,6 +58,11 @@ class QuickEditing:
             name = unused_name(spec, kind)
             result = topology_edit.add_microvm_node(spec, name=name, role=role, kernel=paths[0], disk=paths[1], ports=ports,
                                                     addresses='', model=model)
+            if role == 'router':
+                # As a new router in Packet Tracer: every port administratively down until « no shutdown ».
+                node = next(n for n in result['nodes'] if n['name'] == name)
+                node['shutdown'] = sorted(node['interfaces'])
+                result = validate(result)
             if at is not None:
                 self.positions[name] = (at[0] / self.zoom, at[1] / self.zoom)
             self.commit_edit(result)
@@ -145,7 +151,7 @@ class QuickEditing:
         if name in windows and windows[name].window.winfo_exists():
             windows[name].window.deiconify()
             windows[name].window.lift()
-            windows[name].entry.focus_set()
+            windows[name].text.focus_set()
             return windows[name]
         if not console_server.available(self.view_lab):
             from tkinter import messagebox

@@ -117,7 +117,8 @@ class ShowAndModelTest(unittest.TestCase):
         self.assertEqual(seen['bgp']['peers'][0]['state'], 'Established')
         self.assertIn('203.0.113.2     4        65002', vendor_show.show(spec['nodes'][0], seen, 'show ip bgp summary'))
         self.assertIn(' *>  198.51.100.0/24     203.0.113.2         65002 i', vendor_show.show(spec['nodes'][0], seen, 'sh ip bgp'))
-        self.assertIn('B        198.51.100.0/24 [20/0] via 203.0.113.2, gi0/0/1', vendor_show.show(spec['nodes'][0], seen, 'show ip route'))
+        self.assertIn('B        198.51.100.0/24 [20/0] via 203.0.113.2, GigabitEthernet0/0/1',
+                      vendor_show.show(spec['nodes'][0], seen, 'show ip route'))
         self.assertIn('*[BGP/170] AS path: 65002 I', vendor_show.show(spec['nodes'][1], seen, 'show route'))
         self.assertIn('Establ', vendor_show.show(spec['nodes'][1], seen, 'show bgp summary'))
         self.assertIn('Established', vendor_show.show(spec['nodes'][2], seen, 'display bgp peer'))

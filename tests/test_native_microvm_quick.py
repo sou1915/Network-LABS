@@ -14,6 +14,7 @@ from unittest.mock import patch
 from network_labs.appliances import console_server, topology_edit
 from network_labs.appliances.guest_image import build
 from network_labs.appliances.runtime import Manager
+from network_labs.appliances.spec import validate
 from network_labs.appliances.ui_quick import blank_project
 
 from tests.test_native_microvm_missions import wait_ready
@@ -31,7 +32,9 @@ def quick_lab(kernel, disk):
     for name in ('PC1', 'PC2'):
         spec = topology_edit.add_microvm_node(spec, name=name, role='host', kernel=kernel, disk=disk, ports=1)
     spec = topology_edit.connect(spec, ('PC1', 'eth0'), ('R1', 'eth0'))
-    return topology_edit.connect(spec, ('PC2', 'eth0'), ('R1', 'eth1'))
+    spec = topology_edit.connect(spec, ('PC2', 'eth0'), ('R1', 'eth1'))
+    next(n for n in spec['nodes'] if n['name'] == 'R1')['shutdown'] = ['eth0', 'eth1']  # a new router: ports shut
+    return validate(spec)
 
 
 @unittest.skipUnless(os.environ.get('NETWORK_LABS_MICROVM_TESTS') == '1', 'Opt-in real KVM test')
@@ -80,5 +83,9 @@ class QuickLabGuestTests(unittest.TestCase):
             text = '\n'.join(transcript)
             (evidence / 'transcript.txt').write_text(text)
             print('\n' + text, flush=True)
-            self.assertIn('192.168.1.1', transcript[-len(TYPED['PC2']) - len(TYPED['PC1']) - 1])  # R1's last sh ip int br
+            first = transcript[1]  # R1's first sh ip int br: shut ports, as on a new router
+            self.assertRegex(first, r'GigabitEthernet0/0/0\s+unassigned\s+YES unset\s+administratively down\s+down')
+            self.assertIn('%LINK-5-CHANGED: Interface GigabitEthernet0/0/0, changed state to up', text)
+            self.assertRegex(transcript[-len(TYPED['PC2']) - len(TYPED['PC1']) - 1],
+                             r'GigabitEthernet0/0/0\s+192\.168\.1\.1\s+YES manual up\s+up')  # R1's last sh ip int br
             self.assertIn('4 packets received', transcript[-1])  # PC2 reaches PC1 through R1, all configured live

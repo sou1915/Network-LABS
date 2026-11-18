@@ -147,6 +147,9 @@ def _vlans(node, listing):
 
 def _names(node):
     names = port_names(node)
+    if dialect(node) == 'ios':
+        from .vendor_config import ios_name
+        names = {port: ios_name(label) for port, label in names.items()}  # IOS writes its ports in full
 
     def name(port):
         parent, dot, vid = (port or '').partition('.')
@@ -210,7 +213,9 @@ def _ios_brief(node, observation, name):
         address = interface['addresses'][0].split('/')[0] if interface['addresses'] else 'unassigned'
         method = 'manual' if interface['addresses'] else 'unset'
         state = 'up' if interface['up'] else 'down'
-        lines.append(f'{name(interface["port"]):<23}{address:<16}YES {method:<6} {state:<22}{state}')
+        shut = interface['port'] in (node.get('shutdown') or [])
+        status, protocol = ('administratively down', 'down') if shut else (state, state)
+        lines.append(f'{name(interface["port"]):<23}{address:<16}YES {method:<6} {status:<22}{protocol}')
     return '\n'.join(lines)
 
 

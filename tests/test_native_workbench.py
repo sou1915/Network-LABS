@@ -171,6 +171,8 @@ class WorkbenchGUITests(unittest.TestCase):
         self.root.update()
         nodes = {n['name']: n for n in window.manifest()['nodes']}
         self.assertEqual(nodes['R1']['interfaces'], {'eth0': '', 'eth1': '', 'eth2': ''})  # the ISR's three ports, unconfigured
+        self.assertEqual(nodes['R1']['shutdown'], ['eth0', 'eth1', 'eth2'])  # and shut, until « no shutdown »
+        self.assertEqual(nodes['PC1'].get('shutdown', []), [])
         self.assertEqual((nodes['R1']['runtime'], nodes['R1']['kernel']), ('firecracker', '/assets/vmlinux'))
         self.assertEqual(window.positions['R1'], (200, 200))
         window.set_edit_mode('cable')
@@ -204,7 +206,7 @@ class WorkbenchGUITests(unittest.TestCase):
                 patch.object(console_server, 'request', side_effect=lambda lab, payload: replies[payload['op']]):
             cli = window.device_double_click('R1') and window.cli_windows['R1']
             self.root.update()
-            self.assertEqual(cli.window.title(), 'R1 — CLI')
+            self.assertEqual(cli.window.title(), 'R1')
             self.assertIs(window.open_cli('R1'), cli)  # one window per device
             with patch('network_labs.appliances.ui.launch_terminal') as terminal:
                 self.assertTrue(window.open_console())  # the CLI tab's button opens the same window, no xterm

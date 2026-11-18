@@ -195,7 +195,7 @@ class ShowTest(unittest.TestCase):
         self.assertEqual([r for r in seen['routes'] if r.get('protocol')],
                          [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2', 'port': 'eth1', 'protocol': 'ospf', 'metric': 20}])
         self.assertEqual(seen['ospf']['neighbors'][0]['state'], 'Full')
-        self.assertIn('O        198.51.100.0/24 [110/20] via 203.0.113.2, gi0/0/1',
+        self.assertIn('O        198.51.100.0/24 [110/20] via 203.0.113.2, GigabitEthernet0/0/1',
                       vendor_show.show(spec['nodes'][0], seen, 'show ip route'))
         self.assertIn('2.2.2.2           1   FULL/   -', vendor_show.show(spec['nodes'][0], seen, 'sh ip ospf nei'))
         self.assertIn('*[OSPF/10] metric 20', vendor_show.show(spec['nodes'][1], seen, 'show route'))

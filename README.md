@@ -68,6 +68,10 @@ Une fois la machine préparée (`setup`, ci-dessous) :
    `ip addr add 192.168.1.10/24 dev eth0` et `ip route add default via 192.168.1.1`. Tout s'applique sur
    l'équipement en marche, sans redémarrer.
 
+La fenêtre CLI se comporte comme celle de Packet Tracer : « Press RETURN to get started! », les ports d'un
+nouveau routeur sont « administratively down » jusqu'au `no shutdown`, chaque ligne s'applique aussitôt,
+`?` donne les mots suivants (`<cr>` quand la commande est complète), les erreurs sont celles d'IOS
+(`% Invalid input detected at '^' marker.`, `% Incomplete command.`), Ctrl+Z, `wr`, `--More--`.
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme
 les noms de ports usuels (`g0/0/0`, `gi0/0/0`, `GigabitEthernet0/0/0`). Le formulaire complet reste disponible
 par un clic droit sur la bibliothèque ou « Édition › Ajouter (options avancées)… ».

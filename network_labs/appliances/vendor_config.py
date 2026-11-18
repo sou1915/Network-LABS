@@ -65,6 +65,15 @@ LONG_NAMES = {'gi': 'gigabitethernet', 'fa': 'fastethernet', 'te': 'tengigabitet
               'xge': 'xgigabitethernet', 'ethernet': 'ethernet', 'et': 'ethernet'}
 
 
+IOS_NAMES = {'gi': 'GigabitEthernet', 'fa': 'FastEthernet', 'te': 'TenGigabitEthernet', 'eth': 'Ethernet'}
+
+
+def ios_name(label):
+    """A Cisco port as IOS writes it in its output: gi0/0/0 -> GigabitEthernet0/0/0 (other names unchanged)."""
+    match = re.fullmatch(r'([a-z]+)([\d/.:]+)', label)
+    return IOS_NAMES.get(match[1], match[1]) + match[2] if match and match[1] in IOS_NAMES else label
+
+
 def _port(node, name):
     """A vendor port name (any case, abbreviated as on the device: g0/0/0, gi0/0/0, GigabitEthernet0/0/0) or an eth name."""
     shown = port_names(node)
@@ -294,6 +303,8 @@ def render(spec, name):
 def _render_ios(node, eos=False):
     """IOS, or Arista EOS (same structure, prefix-length addresses and routes)."""
     shown = port_names(node)
+    if not eos:
+        shown = {port: ios_name(label) for port, label in shown.items()}  # IOS writes its ports in full
     system = 'Arista EOS' if eos else 'Cisco IOS'
     lines = [f'! Network LABS · sous-ensemble {system.split()[-1]}', f'! le nœud exécute Linux, pas {system}', '!',
              'hostname ' + node['name'], '!']
@@ -324,6 +335,8 @@ def _render_ios(node, eos=False):
             elif ospf_port['priority'] != 1:
                 lines.append(f' ip ospf priority {ospf_port["priority"]}')
             lines.append(f' ip ospf cost {ospf_port["cost"]}')
+        if port in (node.get('shutdown') or []):
+            lines.append(' shutdown')
         lines.append('!')
     for name, sub in sorted((node.get('subinterfaces') or {}).items()):
         parent, _, vid = name.partition('.')
@@ -744,12 +757,13 @@ class IOS:
             return _set_address(node, self.port, '')
         if low.startswith('switchport'):
             return self._switchport(low)
-        if low in ('no shutdown', 'shutdown') and node['runtime'] == 'oci':
+        if low in ('no shutdown', 'shutdown') and (node['runtime'] == 'oci' or node['role'] != 'switch'):
+            # A router's or firewall's port: shutdown brings its link down for real (a micro-VM too), no shutdown up.
             down = [p for p in node.get('shutdown', []) if p != self.port]
-            node['shutdown'] = down + [self.port] if low == 'shutdown' else down
+            node['shutdown'] = sorted(down + [self.port]) if low == 'shutdown' else down
             return
         if low == 'no shutdown':
-            return  # a micro-VM's ports are always up: the habit of typing it is kept
+            return  # a micro-VM switch's ports are always up: the habit of typing it is kept
         if low.startswith('description '):
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')

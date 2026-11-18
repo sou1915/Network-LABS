@@ -19,6 +19,22 @@ def _port_networks(node, profile):
             for port, primary in guest_interfaces(node).items()}
 
 
+def shut_interfaces(node):
+    """The ports administratively down, and the subinterfaces riding them: no link, no route through them."""
+    down = set(node.get('shutdown') or [])
+    return down | {name for name, sub in (node.get('subinterfaces') or {}).items() if sub['parent'] in down}
+
+
+def expected_profile(node):
+    """What the guest reads back: the declared profile without the routes through a shut port (Linux drops them)."""
+    profile = copy.deepcopy(node.get('guest_network') or {'addresses': [], 'routes': []})
+    down = shut_interfaces(node)
+    if down:
+        profile['routes'] = [r for r in profile['routes'] if route_port(node, node.get('guest_network') or profile,
+                                                                         r['gateway']) not in down]
+    return profile
+
+
 def route_port(node, profile, gateway):
     """Ports never share a subnet, so an on-link next hop identifies one port."""
     gateway = ipaddress.IPv4Address(gateway)
@@ -197,14 +213,15 @@ def observe(socket, node):
         if fields and fields[0] == 'inet' and interface in by_port:
             by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
     dynamic = set(node.get('dhcp_clients', []))
+    down = shut_interfaces(node)
     for port, primary_address in declared.items():
+        if (port in active) == (port in down):
+            raise ValueError(f'Guest interface {port} must be ' + ('down (shutdown).' if port in down else 'up.'))
         if port in dynamic or not primary_address:
-            if port not in active:
-                raise ValueError('Save requires all declared guest interfaces up.')
             continue
         primary_address = str(ipaddress.IPv4Interface(primary_address))
-        if port not in active or primary_address not in by_port[port]:
-            raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
+        if primary_address not in by_port[port]:
+            raise ValueError('Save requires all declared guest interfaces with their primary IPv4 addresses.')
     # Leased addresses come from the DHCP server on every boot; they are never saved as static ones.
     def unexpected(port, values):
         primary = str(ipaddress.IPv4Interface(declared[port])) if declared[port] else None
@@ -236,7 +253,8 @@ def observe(socket, node):
             default_seen = True
         else:
             routes.append({'network': network, 'gateway': gateway}); devices[network] = fields[4]
-    if node.get('gateway') and not default_seen: raise ValueError('Guest primary gateway missing.')
+    if node.get('gateway') and not default_seen and 'eth0' not in down:
+        raise ValueError('Guest primary gateway missing.')
     candidate = copy.deepcopy(node)
     candidate['guest_network'] = {'addresses': extras.pop('eth0'), 'routes': routes, 'port_addresses': extras}
     validate_profile(candidate)
@@ -299,7 +317,7 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
-LIVE_ROUTING = ('interfaces', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
 
 
 def _route(socket, node, operation, network, gateway):
@@ -307,6 +325,14 @@ def _route(socket, node, operation, network, gateway):
     port = route_port(node, profile, gateway)
     # eth0 keeps the original request, as at boot.
     query(socket, operation, network=network, gateway=gateway, **({} if port == 'eth0' else {'interface': port}))
+
+
+def _port(node, gateway):
+    """The interface a next hop is reached through (None when no interface holds its network)."""
+    try:
+        return route_port(node, node.get('guest_network') or {'addresses': [], 'routes': []}, gateway)
+    except ValueError:
+        return None
 
 
 def change_routing(socket, old, new):
@@ -322,15 +348,23 @@ def change_routing(socket, old, new):
         query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
     if bgp_changed and old.get('bgp'):
         query(socket, 'bgp-stop')  # zebra withdraws BGP's routes when bgpd stops
+    old_down, new_down = shut_interfaces(old), shut_interfaces(new)
     for network, gateway in sorted(before - after):
-        _route(socket, old, 'route-delete', network, gateway)
+        if _port(old, gateway) not in old_down:  # a route through a shut port is not in the guest
+            _route(socket, old, 'route-delete', network, gateway)
+    for port in sorted(set(new.get('shutdown') or []) - set(old.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='down')  # Linux drops the routes through it
     for port in readdressed:  # after the routes through the old address are gone, before those through the new one
         if old['interfaces'].get(port):
             query(socket, 'address-delete', interface=port, cidr=old['interfaces'][port])
         if new['interfaces'][port]:
             query(socket, 'address-add', interface=port, cidr=new['interfaces'][port])
-    for network, gateway in sorted(after - before):
-        _route(socket, new, 'route-add', network, gateway)
+    for port in sorted(set(old.get('shutdown') or []) - set(new.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='up')  # « no shutdown »: the port and its routes come back
+    for network, gateway in sorted(after):
+        port = _port(new, gateway)
+        if port not in new_down and ((network, gateway) not in before or port in old_down):
+            _route(socket, new, 'route-add', network, gateway)
     if ospf_changed and new.get('ospf'):
         start_ospf(socket, new)
     if bgp_changed and new.get('bgp'):
@@ -340,7 +374,7 @@ def change_routing(socket, old, new):
         from .guest_firewall import apply as apply_firewall
         # No list left: an open chain (accept, no rule but the invalid-state drop every guest chain starts with).
         apply_firewall(socket, {'firewall': policy(new)})
-    if observe(socket, new) != (new.get('guest_network') or {'addresses': [], 'routes': []}):
+    if observe(socket, new) != expected_profile(new):
         raise ValueError('Guest routing readback differs from the declared routes.')
 
 
@@ -416,8 +450,13 @@ def apply(socket, node, timeout=40, alive=None):
     for port, values in profile.get('port_addresses', {}).items():
         for address in values:
             query(socket, 'address-add', interface=port, cidr=address)
+    down = shut_interfaces(node)
+    for port in sorted(set(node.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='down')  # « shutdown »: the port stays down, its routes absent
     for route in profile['routes']:
         port = route_port(node, profile, route['gateway'])
+        if port in down:
+            continue
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
     if node.get('role') == 'firewall':
@@ -448,7 +487,7 @@ def apply(socket, node, timeout=40, alive=None):
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)
-    if observe(socket, node) != profile:
+    if observe(socket, node) != expected_profile(node):
         raise ValueError('Guest startup readback differs from saved configuration.')
 
 

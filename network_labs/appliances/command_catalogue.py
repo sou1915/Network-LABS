@@ -584,3 +584,182 @@ def check_known_shows():
             if command not in vendor_show.COMMANDS[syntax] and command not in running:
                 missing.append((syntax, command))
     return missing
+
+
+# ---- IOS context help and errors, as Packet Tracer and the real CLI give them ----
+
+GREEDY = {'TEXTE', 'SOURCE', 'DESTINATION'}  # take the rest of the line (free text, ACL address forms)
+PLACEHOLDERS = {'A.B.C.D': ('A.B.C.D', 'Adresse IPv4'), 'MASQUE': ('A.B.C.D', 'Masque de sous-réseau'),
+                'JOKER': ('A.B.C.D', 'Masque joker (inverse)'), 'PASSERELLE': ('A.B.C.D', 'Adresse du prochain saut'),
+                'RÉSEAU': ('A.B.C.D', 'Réseau de destination'), 'AS': ('<1-4294967295>', 'Numéro d’AS'),
+                'N': ('<1-65535>', 'Nombre'), 'VLAN': ('<1-4094>', 'Numéro de VLAN'), 'NOM': ('WORD', 'Nom'),
+                'TEXTE': ('LINE', 'Texte libre'), 'SEQ': ('<1-2147483647>', 'Numéro de séquence'),
+                'LISTE': ('WORD', 'Liste de VLAN (10,20 ou 10-20)'), 'JOURS': ('<0-365>', 'Jours'),
+                'HEURES': ('<0-23>', 'Heures'), 'MINUTES': ('<0-59>', 'Minutes'),
+                'SOURCE': ('any | host A.B.C.D | A.B.C.D JOKER', 'Source'),
+                'DESTINATION': ('any | host A.B.C.D | A.B.C.D JOKER', 'Destination')}
+KEYWORD_HELP = {'ip': 'Configuration IPv4', 'ospf': 'Paramètres OSPF', 'dhcp': 'Serveur DHCP', 'route': 'Route statique',
+                'router': 'Protocole de routage', 'show': 'Afficher l’état du système', 'no': 'Annuler une commande',
+                'interface': 'Choisir une interface', 'switchport': 'Port de switch (VLAN)', 'access-list': 'Liste d’accès',
+                'access-group': 'Appliquer une liste d’accès', 'bgp': 'Paramètres BGP', 'neighbor': 'Voisin BGP',
+                'network': 'Réseau annoncé', 'trunk': 'Port trunk 802.1Q', 'access': 'Port d’accès', 'mode': 'Mode du port',
+                'vlan': 'VLAN', 'interface-brief': '', 'running-config': 'Configuration courante',
+                'configure': 'Entrer en configuration', 'terminal': 'Depuis ce terminal', 'ping': 'Écho ICMP'}
+
+
+def _tokens(syntax):
+    return syntax.split()
+
+
+def _keyword(token):
+    """The keyword alternatives of a token ('permit|deny'), or None for a placeholder."""
+    if token.startswith('['):
+        return None
+    alternatives = [a for a in token.split('|')]
+    if all(a.isascii() and a.islower() for a in alternatives):
+        return alternatives
+    return None
+
+
+def _match(tokens, words, i=0, k=0):
+    """('ok' | 'incomplete' | 'invalid', furthest word index reached) for WORDS against one syntax's TOKENS."""
+    if k == len(words):
+        required = [t for t in tokens[i:] if not t.startswith('[')]
+        return ('ok', k) if not required else ('incomplete', k)
+    if i == len(tokens):
+        return 'invalid', k
+    token = tokens[i]
+    if token.startswith('['):
+        skipped = _match(tokens, words, i + 1, k)
+        used = _match(tokens, words, i + 1, k + 1) if token.strip('[]').split('|')[0] not in ('eq',) else \
+            (_match(tokens, words, i + 2, k + 2) if words[k].lower() == 'eq' else ('invalid', k))
+        return max(skipped, used, key=lambda r: ({'ok': 2, 'incomplete': 1, 'invalid': 0}[r[0]], r[1]))
+    keyword = _keyword(token)
+    if keyword is None:
+        if token in GREEDY:
+            return 'ok', len(words)
+        return _match(tokens, words, i + 1, k + 1)
+    if words[k].lower() in keyword:
+        return _match(tokens, words, i + 1, k + 1)
+    return 'invalid', k
+
+
+def _ios_entries(node, mode, own=False):
+    """The commands typed at MODE; for a check, a sub-mode also takes global commands (IOS leaves the sub-mode for
+    them), while « ? » (OWN) lists the sub-mode's own."""
+    visible = {mode} if own and mode not in ('exec', 'enable', 'config') else _modes_visible(syntax_of(node), mode)
+    if not own and mode not in ('exec', 'enable'):
+        visible |= {'config'}
+    return [e for e in entries(node) if e['mode'] in visible]
+
+
+def ios_check(node, mode, line):
+    """('ok' | 'incomplete' | 'invalid' | 'ambiguous', detail): detail is the character index of the faulty word for
+    'invalid', the typed text for 'ambiguous'."""
+    words = line.split()
+    if not words:
+        return 'ok', None
+    results = [_match(_tokens(e['syntax']), words) for e in _ios_entries(node, mode)]
+    if any(status == 'ok' for status, _ in results):
+        return 'ok', None
+    if any(status == 'incomplete' for status, _ in results):
+        return 'incomplete', None
+    furthest = max((index for _, index in results), default=0)
+    if furthest < len(words):
+        options = {o for e in _ios_entries(node, mode) for o in _next_keywords(_tokens(e['syntax']), words[:furthest])}
+        if len([o for o in options if o.startswith(words[furthest].lower())]) > 1:
+            return 'ambiguous', line
+    position = 0
+    for index, word in enumerate(words):
+        position = line.index(word, position)
+        if index == furthest:
+            break
+        position += len(word)
+    return 'invalid', position
+
+
+def _next_keywords(tokens, words):
+    """The keywords a syntax allows right after WORDS (empty if WORDS do not fit it)."""
+    found = set()
+
+    def walk(i, k):
+        if k == len(words):
+            while i < len(tokens):
+                keyword = _keyword(tokens[i].strip('[]')) if tokens[i].startswith('[') else _keyword(tokens[i])
+                if keyword:
+                    found.update(keyword)
+                if not tokens[i].startswith('['):
+                    break
+                i += 1
+            return
+        if i >= len(tokens):
+            return
+        token = tokens[i]
+        keyword = _keyword(token)
+        if token.startswith('['):
+            walk(i + 1, k)
+            walk(i + 1, k + 1)
+        elif keyword is None:
+            if token not in GREEDY:
+                walk(i + 1, k + 1)
+        elif words[k].lower() in keyword:
+            walk(i + 1, k + 1)
+    walk(0, 0)
+    return found
+
+
+def ios_help(node, mode, typed):
+    """What « ? » shows on IOS: after a space, the next words with what they do (and <cr> when the command can end);
+    right after a word, the keywords that complete it."""
+    words = typed.split()
+    if typed and not typed.endswith(' '):
+        partial, words = words[-1].lower(), words[:-1]
+        options = sorted({o for e in _ios_entries(node, mode, own=True) for o in _next_keywords(_tokens(e['syntax']), words)
+                          if o.startswith(partial)})
+        return '  '.join(options) if options else '% Unrecognized command'
+    rows, complete = {}, False
+    for entry in _ios_entries(node, mode, own=True):
+        tokens = _tokens(entry['syntax'])
+        status, _ = _match(tokens, words)
+        if status == 'ok' and words:
+            complete = True
+        for word in _next_keywords(tokens, words):
+            rows.setdefault(word, KEYWORD_HELP.get(word) or entry['help'])
+        if status in ('incomplete', 'ok'):
+            index = _position(tokens, words)
+            if index is not None and index < len(tokens) and _keyword(tokens[index].strip('[]')) is None:
+                name = tokens[index].strip('[]').split('|')[0]
+                shown, text = PLACEHOLDERS.get(name, (name, entry['help']))
+                if name == 'PORT.N':
+                    continue
+                if name == 'PORT':
+                    for label in vendor_config.port_names(node).values():
+                        rows.setdefault(vendor_config.ios_name(label) if syntax_of(node) == 'ios' else label, 'Interface')
+                else:
+                    rows.setdefault(shown, text)
+    if not rows and not complete:
+        return '% Unrecognized command'
+    width = max([len(k) for k in rows] + [4]) + 2
+    lines = [f'  {word:<{width}}{text}' for word, text in sorted(rows.items())]
+    if complete:
+        lines.append('  <cr>')
+    return '\n'.join(lines)
+
+
+def _position(tokens, words):
+    """The index of the token right after WORDS in one syntax, following its simplest path (None if it does not fit)."""
+    i = 0
+    for word in words:
+        while i < len(tokens) and tokens[i].startswith('[') and not (_keyword(tokens[i].strip('[]')) or [None])[0] == word:
+            if len(words) and i + 1 < len(tokens):
+                break
+            i += 1
+        if i >= len(tokens):
+            return None
+        keyword = _keyword(tokens[i].strip('[]'))
+        if keyword is not None and word.lower() not in keyword:
+            return None
+        if tokens[i].strip('[]') in GREEDY:
+            return None
+        i += 1
+    return i

@@ -59,6 +59,8 @@ def segments(spec):
     nodes = {n['name']: n for n in spec['nodes']}
     union = _Union()
     for a, b in spec['links']:
+        if a[1] in (nodes[a[0]].get('shutdown') or []) or b[1] in (nodes[b[0]].get('shutdown') or []):
+            continue  # a shut port carries nothing
         left, right = _frames(nodes[a[0]], a[1]), _frames(nodes[b[0]], b[1])
         if len(left) > 4094 and len(right) > 4094:
             union.join(left[None], right[None])  # two plain bridges: one segment for everything
@@ -79,12 +81,15 @@ def segments(spec):
 # ---- addresses and routes ----
 
 def addresses(node):
-    """{interface: IPv4Interface} the node holds."""
-    found = {port: ipaddress.IPv4Interface(a) for port, a in node['interfaces'].items() if a}
+    """{interface: IPv4Interface} the node holds on its working interfaces (a shut port has no connected network)."""
+    down = set(node.get('shutdown') or [])
+    found = {port: ipaddress.IPv4Interface(a) for port, a in node['interfaces'].items() if a and port not in down}
     found.update({name: ipaddress.IPv4Interface(sub['address']) for name, sub in (node.get('subinterfaces') or {}).items()
-                  if sub.get('address')})
+                  if sub.get('address') and sub['parent'] not in down})
     for port, extra in ({'eth0': (node.get('guest_network') or {}).get('addresses', [])}
                         | (node.get('guest_network') or {}).get('port_addresses', {})).items():
+        if port in down:
+            continue
         for address in extra:
             found.setdefault(port + '#' + address, ipaddress.IPv4Interface(address))
     return found
