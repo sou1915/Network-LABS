@@ -317,7 +317,7 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
-LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config')
 
 
 def _route(socket, node, operation, network, gateway):

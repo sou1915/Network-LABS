@@ -6,6 +6,7 @@ stops at « --More-- » (space: a page, Return: a line, any other key: stop). Li
 (console_server.py, started with the lab); requests run in a thread and Tk is only touched here.
 """
 import queue
+import re
 import threading
 import tkinter as tk
 import uuid
@@ -27,6 +28,8 @@ class ConsoleWindow:
         self.started = False  # « Press RETURN to get started! » until the first Return
         self.prompt = ''
         self.paging = None  # lines still to show after « --More-- »
+        self.hidden = ''  # what is typed at « Password: », never shown
+        self.opened_once = False
         self.on_close = on_close
         self.synchronous = synchronous  # the project's CLI answers at once, in Tk's thread (it may redraw the plan)
         self.window = tk.Toplevel(parent)
@@ -71,10 +74,17 @@ class ConsoleWindow:
         self.text.mark_set('insert', 'end-1c')
         self.text.see('end')
 
+    def secret(self):
+        """At « Password: » nothing typed is shown, as on IOS."""
+        return self.prompt.startswith('Password')
+
     def key(self, event):
         if self.paging is not None:
             return self.page(event.keysym)
         if self.busy:
+            return 'break'
+        if self.secret() and event.char and event.char.isprintable():
+            self.hidden += event.char
             return 'break'
         if event.char and event.char.isprintable() and self.text.compare('insert', '<', 'input'):
             self.text.mark_set('insert', 'end-1c')  # typing always goes to the line being edited
@@ -83,6 +93,9 @@ class ConsoleWindow:
         return None
 
     def backspace(self, event=None):
+        if self.secret():
+            self.hidden = self.hidden[:-1]
+            return 'break'
         if self.busy or self.paging is not None or self.text.compare('insert', '<=', 'input'):
             return 'break'
         return None
@@ -140,6 +153,8 @@ class ConsoleWindow:
             return
         self.prompt = reply['prompt'].rstrip() if reply['prompt'].endswith('# ') or reply['prompt'].endswith('> ') \
             else reply['prompt']
+        if reply.get('greeting'):
+            self.write(reply['greeting'] + '\n')  # the banner motd, « User Access Verification »
         self.write(self.prompt)
 
     def answered(self, reply, keep=''):
@@ -147,8 +162,10 @@ class ConsoleWindow:
             self.write(reply['error'] + '\n', 'error')
             return self.prompt_line(keep)
         if reply.get('closed'):
+            name = re.match(r'[^\s(>#:]+', self.prompt)  # the hostname the prompt showed (hostname may have changed it)
+            name = name[0] if name and not self.prompt.startswith('Password') else self.node
             self.started, self.prompt = False, ''
-            return self.write(f'\n{self.node} con0 is now available\n\n\n\n\n\nPress RETURN to get started.\n\n\n')
+            return self.write(f'\n{name} con0 is now available\n\n\n\n\n\nPress RETURN to get started.\n\n\n')
         prompt = reply['prompt']
         self.prompt = prompt[:-1] if prompt.endswith(('# ', '> ')) else prompt
         lines = reply['reply'].split('\n') if reply.get('reply') else []
@@ -198,13 +215,15 @@ class ConsoleWindow:
         if self.busy:
             return 'break'
         if not self.started:
-            self.started = True
-            self.text.delete('1.0', 'end')
+            if not self.opened_once:  # the first time only: « Press RETURN to get started! » gives way to the console
+                self.text.delete('1.0', 'end')
+            self.started = self.opened_once = True
             self.send({'op': 'open', 'session': self.session, 'node': self.node}, self.opened)
             return 'break'
-        text = self.typed()
+        text = self.hidden if self.secret() else self.typed()
+        self.hidden = ''
         self.write('\n')
-        if text.strip():
+        if text.strip() and not self.secret():
             self.history.append(text)
         self.position = len(self.history)
         self.send({'op': 'line', 'session': self.session, 'node': self.node, 'text': text}, self.answered)

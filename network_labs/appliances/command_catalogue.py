@@ -12,7 +12,7 @@ Example lines use {p0}, {p1}, {p2}: the node's first ports as its vendor names t
 import ipaddress
 import re
 
-from . import vendor_config, vendor_show
+from . import ios_store, vendor_config, vendor_show
 
 ROUTER, SWITCH, FIREWALL = 'R', 'S', 'F'
 ALL = 'RSF'
@@ -22,7 +22,9 @@ MODES = {
     'ios': {'exec': 'au démarrage (R1>) ; « enable » donne R1#', 'config': 'configure terminal (depuis R1#)',
             'config-if': 'interface PORT (depuis config)', 'config-subif': 'interface PORT.N (depuis config)',
             'config-router': 'router ospf N ou router bgp AS (depuis config)',
-            'config-ext-nacl': 'ip access-list extended NOM (depuis config)', 'dhcp-config': 'ip dhcp pool NOM (depuis config)'},
+            'config-ext-nacl': 'ip access-list extended NOM (depuis config)', 'dhcp-config': 'ip dhcp pool NOM (depuis config)',
+            'config-line': 'line con 0 ou line vty 0 4 (depuis config)', 'config-rip': 'router rip (depuis config)',
+            'config-eigrp': 'router eigrp AS (depuis config)'},
     'vrp': {'user': 'au démarrage (<R1>)', 'system': 'system-view (depuis <R1>)', 'interface': 'interface PORT (depuis system)',
             'ospf': 'ospf N (depuis system)', 'ospf-area': 'area 0 (depuis ospf)', 'bgp': 'bgp AS (depuis system)',
             'bgp-af-ipv4': 'ipv4-family unicast (depuis bgp)'},
@@ -173,8 +175,39 @@ _EOS_BGP_NETWORK = [('BGP', 'config-router', 'network A.B.C.D/N', 'Annoncer ce r
 _EOS_OSPF_NETWORK = [('OSPF', 'config-router', 'network A.B.C.D/N area 0.0.0.0', 'Activer OSPF sur les ports de ce réseau.',
                       ['router ospf 1', 'network {net1}/{len1} area 0.0.0.0'], 'R')]
 
+_IOS_MORE = [
+    ('Vérification', 'exec', 'show version', 'Le modèle, la mémoire, les ports, la durée de fonctionnement.', ['show version'], ALL),
+    ('Vérification', 'exec', 'show interfaces', 'L’état détaillé de chaque port.', ['show interfaces'], ALL),
+    ('Vérification', 'exec', 'show cdp neighbors', 'Les équipements Cisco voisins, par câble.', ['show cdp neighbors'], ALL),
+    ('Vérification', 'exec', 'show cdp neighbors detail', 'Les voisins CDP avec leur adresse.', ['show cdp neighbors detail'], ALL),
+    ('Vérification', 'exec', 'show startup-config', 'La configuration enregistrée (copy run start).', ['show startup-config'], ALL),
+    ('Vérification', 'exec', 'show history', 'Les dernières commandes tapées.', ['show history'], ALL),
+    ('Vérification', 'exec', 'show clock', 'L’heure de l’équipement.', ['show clock'], ALL),
+    ('Vérification', 'exec', 'show users', 'Les sessions ouvertes.', ['show users'], ALL),
+    ('Vérification', 'exec', 'show privilege', 'Le niveau de privilège courant.', ['show privilege'], ALL),
+    ('Vérification', 'exec', 'show ip protocols', 'Les protocoles de routage configurés.', ['show ip protocols'], 'R'),
+    ('VLAN', 'exec', 'show interfaces trunk', 'Les trunks et leurs VLAN.', ['show interfaces trunk'], 'S'),
+    ('Système', 'exec', 'copy running-config startup-config', 'Enregistrer la configuration (aussi : wr).',
+     ['copy running-config startup-config'], ALL),
+    ('Système', 'exec', 'write memory', 'Enregistrer la configuration.', ['write memory'], ALL),
+    ('Système', 'exec', 'erase startup-config', 'Effacer la configuration enregistrée.', ['erase startup-config'], ALL),
+    ('Système', 'exec', 'clock set HH:MM:SS JOUR MOIS ANNÉE', 'Régler l’heure.', ['clock set 10:30:00 18 nov 2026'], ALL),
+    ('Système', 'exec', 'terminal length N', 'Lignes par page (0 : sans --More--).', ['terminal length 0'], ALL),
+    ('ACL', 'config', 'access-list N permit|deny SOURCE',
+     'Liste d’accès standard numérotée (1-99) : filtre la source (any, host A.B.C.D ou A.B.C.D JOKER).',
+     ['access-list 1 permit {net0} {wild0}'], 'R'),
+    ('ACL', 'config', 'access-list N permit|deny ip|icmp|tcp|udp SOURCE DESTINATION [eq PORT]',
+     'Liste d’accès étendue numérotée (100-199).', ['access-list 101 deny tcp any host 198.51.100.10 eq 22',
+                                                    'access-list 101 permit ip any any'], 'R'),
+    ('ACL', 'config', 'no access-list N', 'Supprimer une liste numérotée.',
+     ['access-list 1 permit any', 'no access-list 1'], 'R'),
+    ('Interfaces', 'config', 'interface range PORT - N', 'Configurer plusieurs ports à la fois.',
+     ['interface range {p0} - 1', 'description utilisateurs'], 'S'),
+]
+
 CATALOGUES = {
-    'ios': _IOS_COMMON + _IOS_L3 + _IOS_OSPF + _IOS_BGP + _IOS_BGP_NETWORK + _IOS_ACL + _IOS_SWITCH,
+    'ios': _IOS_COMMON + _IOS_L3 + _IOS_OSPF + _IOS_BGP + _IOS_BGP_NETWORK + _IOS_ACL + _IOS_SWITCH + _IOS_MORE
+    + ios_store.catalogue_entries(),
     'eos': _eos(_IOS_COMMON + _IOS_L3 + [e for e in _IOS_OSPF if 'JOKER' not in e[2]] + _EOS_OSPF_NETWORK + _IOS_BGP
                 + _EOS_BGP_NETWORK + _IOS_SWITCH),
     'vrp': [
@@ -395,7 +428,9 @@ CATALOGUES = {
 
 # The prompt suffix and catalogue mode each context-entering line gives, per dialect (line order matters).
 CONTEXTS = {
-    'ios': [(r'interface \S+\.\d+', 'config-subif'), (r'interface .+', 'config-if'), (r'router (ospf|bgp) \d+', 'config-router'),
+    'ios': [(r'interface range .+', 'config-if-range'), (r'interface \S+\.\d+', 'config-subif'), (r'interface .+', 'config-if'),
+            (r'line (con|console|vty|aux) .+', 'config-line'), (r'router rip', 'config-rip'), (r'router eigrp \d+', 'config-eigrp'),
+            (r'router (ospf|bgp) \d+', 'config-router'),
             (r'ip access-list extended \S+', 'config-ext-nacl'), (r'ip dhcp pool \S+', 'dhcp-config')],
     'vrp': [(r'interface .+', 'interface'), (r'ospf \d+.*', 'ospf'), (r'area \S+', 'ospf-area'), (r'bgp \d+', 'bgp'),
             (r'ipv4-family( unicast)?', 'bgp-af-ipv4')],
@@ -569,14 +604,15 @@ def completions(node, mode, buffer):
 def show_commands(syntax):
     """Every show command the catalogue lists for SYNTAX (tests check each against vendor_show)."""
     return [e[4][0] for e in CATALOGUES[syntax] if e[1] in ('exec', 'user', 'operational')
-            and e[0] not in ('Modes',) and not e[4][0].startswith(('ping', 'execute ping', '/ping'))]
+            and e[4][0].startswith(('show ', 'display ', 'get ', '/')) and not e[4][0].startswith('/ping')]
 
 
 def check_known_shows():
     """Show commands the catalogue lists that the show code does not answer (empty when consistent)."""
     missing = []
+    from .ios_exec import SHOWS
     running = {'show running-config', 'display current-configuration', 'show configuration', 'show config running',
-               'show full-configuration', '/export'}
+               'show full-configuration', '/export', *SHOWS}
     for syntax in CATALOGUES:
         if syntax == 'shell':
             continue

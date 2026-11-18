@@ -74,6 +74,14 @@ La fenêtre CLI se comporte comme celle de Packet Tracer : « Press RETURN to ge
 nouveau routeur sont « administratively down » jusqu'au `no shutdown`, chaque ligne s'applique aussitôt,
 `?` donne les mots suivants (`<cr>` quand la commande est complète), les erreurs sont celles d'IOS
 (`% Invalid input detected at '^' marker.`, `% Incomplete command.`), Ctrl+Z, `wr`, `--More--`.
+Les commandes Cisco du CCNA sont reconnues : configuration de base et sécurité (`hostname`, `enable secret`,
+`service password-encryption`, `banner motd`, `line con 0` / `line vty`, `username`, SSH), interfaces
+(`interface range`, `description`, `speed`, `duplex`), adressage, routes statiques, OSPF, BGP, DHCP, VLAN et
+trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neighbors`, `show interfaces`,
+`copy run start`, `show startup-config`, `| include` / `| section`… Celles qui n'agissent pas encore sur le trafic
+du lab (RIP, EIGRP, NAT, port-security, spanning-tree…) sont acceptées et gardées dans la configuration ; le
+catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
+officielle (étape suivante : images constructeur sous QEMU).
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme
 les noms de ports usuels (`g0/0/0`, `gi0/0/0`, `GigabitEthernet0/0/0`). Le formulaire complet reste disponible
 par un clic droit sur la bibliothèque ou « Édition › Ajouter (options avancées)… ».

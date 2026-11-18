@@ -24,8 +24,8 @@ def validate(node):
     if (lists or ports) and (node.get('role') != 'router' or node.get('runtime') != 'firecracker'):
         raise ValueError('Access lists apply to micro-VM routers.')
     for name, entries in lists.items():
-        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,31}', name):
-            raise ValueError('Access list name: a letter, then up to 31 letters, digits, _ or -.')
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,31}|[1-9]\d{0,3}', name):
+            raise ValueError('Access list name: a letter, then up to 31 letters, digits, _ or -; or an IOS number.')
         if not isinstance(entries, list) or len(entries) > MAX_ENTRIES:
             raise ValueError(f'Access list {name}: at most {MAX_ENTRIES} entries.')
         for entry in entries:

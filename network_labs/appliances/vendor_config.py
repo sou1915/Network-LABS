@@ -10,6 +10,7 @@ import ipaddress
 import re
 import shlex
 
+from . import ios_store
 from .native_models import MODELS, port_names
 from .spec import validate
 
@@ -307,12 +308,17 @@ def _render_ios(node, eos=False):
         shown = {port: ios_name(label) for port, label in shown.items()}  # IOS writes its ports in full
     system = 'Arista EOS' if eos else 'Cisco IOS'
     lines = [f'! Network LABS · sous-ensemble {system.split()[-1]}', f'! le nœud exécute Linux, pas {system}', '!',
-             'hostname ' + node['name'], '!']
+             'hostname ' + ios_store.hostname(node), '!']
+    stored = ios_store.render_global(node)
+    if stored:
+        lines += stored + ['!']
     for vid in node.get('vlans', []):
         if vid != 1:
             lines += [f'vlan {vid}', '!']
     for port, address in node['interfaces'].items():
         lines.append('interface ' + shown[port])
+        described, extra = ios_store.render_interface(node, port)
+        lines += [' ' + line for line in described]
         switchport = node.get('switchports', {}).get(port)
         if node['role'] == 'switch':
             if switchport and switchport['mode'] == 'trunk':
@@ -335,6 +341,7 @@ def _render_ios(node, eos=False):
             elif ospf_port['priority'] != 1:
                 lines.append(f' ip ospf priority {ospf_port["priority"]}')
             lines.append(f' ip ospf cost {ospf_port["cost"]}')
+        lines += [' ' + line for line in extra]
         if port in (node.get('shutdown') or []):
             lines.append(' shutdown')
         lines.append('!')
@@ -362,6 +369,15 @@ def _render_ios(node, eos=False):
             lines.append(' dns-server ' + ' '.join(server['dns']))
         lines += [f' lease {lease // 86400} {lease % 86400 // 3600} {lease % 3600 // 60}', '!']
     for name, entries in sorted((node.get('acls') or {}).items()) if not eos else []:
+        if name.isdigit():  # a numbered list: « access-list N … » lines
+            standard = int(name) < 100 or 1300 <= int(name) <= 1999
+            for entry in entries:
+                port = f' eq {entry["dport"]}' if 'dport' in entry else ''
+                body = _acl_address(entry['source']) if standard else \
+                    f'{entry["protocol"]} {_acl_address(entry["source"])} {_acl_address(entry["destination"])}{port}'
+                lines.append(f'access-list {name} {entry["action"]} {body}')
+            lines.append('!')
+            continue
         lines.append(f'ip access-list extended {name}')
         for index, entry in enumerate(entries, 1):
             port = f' eq {entry["dport"]}' if 'dport' in entry else ''
@@ -385,7 +401,7 @@ def _render_ios(node, eos=False):
     for network, gateway in routes(node):
         net = ipaddress.IPv4Network(network)
         lines.append(f'ip route {network} {gateway}' if eos else f'ip route {net.network_address} {net.netmask} {gateway}')
-    return '\n'.join(lines + ['end']) + '\n'
+    return '\n'.join(lines + ['!'] + ios_store.render_tail(node) + ['end']) + '\n'
 
 
 def _render_vrp(node):
@@ -396,6 +412,8 @@ def _render_vrp(node):
         lines += ['vlan batch ' + ' '.join(map(str, vlans)), '#']
     for port, address in node['interfaces'].items():
         lines.append('interface ' + shown[port])
+        described, extra = ios_store.render_interface(node, port)
+        lines += [' ' + line for line in described]
         switchport = node.get('switchports', {}).get(port)
         if node['role'] == 'switch':
             if switchport and switchport['mode'] == 'trunk':
@@ -635,19 +653,33 @@ class IOS:
         self.acl = None  # inside 'ip access-list extended NAME'
         self.bgp = False  # inside 'router bgp'
         self.ospf_ports = {}  # per-port OSPF settings, applied once the networks are known
+        self.block = self.block_mode = None  # inside 'line con 0', 'router rip'…: lines kept in the configuration
+        self.range = None  # 'interface range': the ports the next interface lines apply to
 
     def line(self, command):
         node, low = self.node, command.lower()
         if low in ('enable', 'configure terminal', 'conf t', 'write memory', 'wr'):
             return
         if low in ('end', 'exit'):
-            self.port, self.ospf, self.acl, self.bgp = None, False, None, False
+            self.port, self.ospf, self.acl, self.bgp, self.block, self.range = None, False, None, False, None, None
             if self.pool is not None:
                 self.pool['open'] = False
             return
         words = command.split()
+        if self.block is not None:
+            if ios_store.store(node, self.block_mode, command, block=self.block):
+                return
+            self.block = self.block_mode = None  # a global command leaves the block, as on IOS
+        mode, header = ios_store.enter_block(node, low)
+        if mode is not None:
+            self.port, self.ospf, self.acl, self.bgp, self.range = None, False, None, False, None
+            self.block, self.block_mode = (None, None) if mode == 'removed' else (header, mode)
+            return
         if words[0].lower() == 'hostname':
-            return _check_hostname(node, words[1])
+            ios_store.store(node, 'config', command)  # the prompt and « show running-config » follow; the lab keeps its name
+            return
+        if re.fullmatch(r'(no )?access-list \d+.*', low):
+            return self._numbered_acl(low, words)
         if low.startswith(('ip dhcp ', 'no ip dhcp ')) or (self.pool is not None and self.pool.get('open')):
             return self._dhcp(low, words)
         match = re.fullmatch(r'(no )?router bgp (\d+)', low)
@@ -690,6 +722,12 @@ class IOS:
             parent, _, vid = words[2].partition('.')
             node.get('subinterfaces', {}).pop(f'{_port(node, parent)}.{vid}', None)
             return
+        match = re.fullmatch(r'interface range (.+)', low)
+        if match:
+            self.range = _port_range(node, command.split(None, 2)[2])
+            self.port = self.range[0]
+            return
+        self.range = None if low.startswith('interface ') else self.range
         if low.startswith('interface '):
             name = command.split(None, 1)[1].strip()
             if '.' in name and not name.lower().startswith('vlan'):
@@ -713,7 +751,18 @@ class IOS:
                 network, rest = _network(values[0], values[1]), values[2:]
             return _delete_route(node, network) if low.startswith('no') else _upsert_route(node, network, rest[0])
         if self.port is None:
+            if ios_store.store(node, 'config', command):
+                return
             raise ValueError('Commande non prise en charge ici (sous-ensemble : hostname, interface, ip route, vlan).')
+        if self.range and len(self.range) > 1:
+            for port in self.range:  # « interface range »: each line on every port of the range
+                self.port = port
+                self._interface(command, low, words)
+            return
+        return self._interface(command, low, words)
+
+    def _interface(self, command, low, words):
+        node = self.node
         sub = (node.get('subinterfaces') or {}).get(self.port)
         if sub is not None:
             match = re.fullmatch(r'encapsulation dot1q (\d{1,4})', low)
@@ -726,7 +775,7 @@ class IOS:
             if low == 'no ip address':
                 sub['address'] = ''
                 return
-            if low.startswith('description '):
+            if ios_store.store(node, 'config-if', command, port=self.port):
                 return
             raise ValueError('Sous-interface : encapsulation dot1Q <vlan>, ip address, description.')
         if low.startswith('ip address '):
@@ -755,7 +804,7 @@ class IOS:
             return
         if low == 'no ip address':
             return _set_address(node, self.port, '')
-        if low.startswith('switchport'):
+        if low.startswith('switchport') and not low.startswith('switchport port-security'):
             return self._switchport(low)
         if low in ('no shutdown', 'shutdown') and (node['runtime'] == 'oci' or node['role'] != 'switch'):
             # A router's or firewall's port: shutdown brings its link down for real (a micro-VM too), no shutdown up.
@@ -764,7 +813,10 @@ class IOS:
             return
         if low == 'no shutdown':
             return  # a micro-VM switch's ports are always up: the habit of typing it is kept
-        if low.startswith('description '):
+        if ios_store.store(node, 'config-if', command, port=self.port):
+            return
+        if ios_store.store(node, 'config', command):
+            self.port, self.range = None, None  # a global command leaves the interface, as on IOS
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
 
@@ -796,6 +848,45 @@ class IOS:
         if low.startswith(('ip ', 'no ip ', 'hostname ', 'vlan ', 'no vlan ', 'router ')):
             return False
         raise ValueError('router bgp : bgp router-id, neighbor A.B.C.D remote-as N, network A.B.C.D mask M.')
+
+    def _numbered_acl(self, low, words):
+        """access-list N …: 1-99 and 1300-1999 standard (a source), 100-199 and 2000-2699 extended; no access-list N."""
+        node, name = self.node, words[2] if low.startswith('no ') else words[1]
+        number = int(name)
+        if not (1 <= number <= 199 or 1300 <= number <= 2699):
+            raise ValueError('access-list : 1-99 ou 1300-1999 (standard), 100-199 ou 2000-2699 (étendue).')
+        if low.startswith('no '):
+            node.get('acls', {}).pop(name, None)
+            node['acl_ports'] = {p: n for p, n in (node.get('acl_ports') or {}).items() if n != name}
+            return
+        if node['role'] != 'router':
+            raise ValueError('Listes d’accès : sur un routeur.')
+        rest, lowered = words[2:], [w.lower() for w in words[2:]]
+        node.setdefault('acls', {}).setdefault(name, [])
+        if lowered[:1] == ['remark']:
+            return
+        if number <= 99 or 1300 <= number <= 1999:
+            if not lowered or lowered[0] not in ('permit', 'deny') or len(lowered) not in (2, 3):
+                raise ValueError('access-list N permit|deny any | host A.B.C.D | A.B.C.D JOKER')
+            if lowered[1] == 'any':
+                source = '0.0.0.0/0'
+            elif lowered[1] == 'host':
+                source = str(ipaddress.IPv4Network(lowered[2] + '/32'))
+            else:
+                source = _network(lowered[1], _mask_of_wildcard(lowered[2]) if len(lowered) == 3 else '255.255.255.255')
+            entry = {'action': lowered[0], 'protocol': 'ip', 'source': source, 'destination': '0.0.0.0/0'}
+            if entry not in node['acls'][name]:  # IOS keeps an identical entry once
+                node['acls'][name].append(entry)
+            return
+        previous, self.acl = self.acl, name
+        try:
+            if not self._acl_entry(' '.join(lowered), rest):
+                raise ValueError('access-list N permit|deny PROTO SOURCE DESTINATION [eq PORT]')
+        finally:
+            self.acl = previous
+        entries = node['acls'][name]
+        if entries and entries[-1] in entries[:-1]:
+            entries.pop()
 
     def _acl_entry(self, low, words):
         """One line of 'ip access-list extended': [SEQ] permit|deny PROTO SRC DST [eq PORT], no SEQ, remark.
@@ -958,6 +1049,26 @@ class IOS:
             current['allowed'] = 'all' if match[5] == 'all' else _vlan_list(match[5])
         ports[self.port] = current
         self._vlan(current.get('vlan') or current.get('native_vlan'), False)
+
+
+def _port_range(node, text):
+    """The ports of « interface range fa0/1 - 4 , fa0/6 »: those the node has (a micro-VM holds up to four)."""
+    found = []
+    for part in text.split(','):
+        match = re.fullmatch(r'\s*(\S*?)(\d+)\s*(?:-\s*(\d+))?\s*', part)
+        if not match:
+            raise ValueError('interface range PORT - N [, PORT]')
+        stem, first, last = match[1], int(match[2]), int(match[3] or match[2])
+        for number in range(first, last + 1):
+            try:
+                port = _port(node, f'{stem}{number}')
+            except ValueError:
+                continue
+            if port not in found:
+                found.append(port)
+    if not found:
+        raise ValueError('interface range : aucun de ces ports sur cet équipement (' + ', '.join(port_names(node).values()) + ').')
+    return found
 
 
 def _vlan_list(text):

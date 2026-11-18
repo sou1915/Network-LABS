@@ -61,7 +61,7 @@ def validate(data):
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
         keys(node, ('name', 'runtime', 'role', 'model', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command',
-                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', *LAN_FIELDS), 'Node')
+                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -94,6 +94,8 @@ def validate(data):
         validate_acls(node)
         from .bgp import validate as validate_bgp
         validate_bgp(node)
+        from .ios_store import validate as validate_cli
+        validate_cli(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):

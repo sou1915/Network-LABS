@@ -95,12 +95,13 @@ class ConsoleTest(unittest.TestCase):
         self.assertEqual(console.line('ip adress 1.1.1.1 255.0.0.0').splitlines()[-1], "% Invalid input detected at '^' marker.")
         self.assertEqual(console.line('ip address 192.0.2.9'), '% Incomplete command.')
         self.assertTrue(console.line('i 1').startswith('% Ambiguous command'))
-        self.assertIn('Renommer', console.line('hostname R9'))  # what still needs the GUI is said
+        self.assertEqual(console.line('hostname R9'), '')  # the prompt follows, as on IOS (the lab keeps its node name)
+        self.assertEqual(console.prompt(), 'R9(config)#')  # a global command leaves the interface, as on IOS
         self.assertEqual(console.line('end'), '%SYS-5-CONFIG_I: Configured from console by console')
         self.assertEqual(console.line('wr'), 'Building configuration...\n[OK]')
         self.assertIn('% Unknown command', console.line('pign 1.1.1.1'))
         console.line('disable')
-        self.assertEqual(console.prompt(), 'R1>')
+        self.assertEqual(console.prompt(), 'R9>')
         with self.assertRaises(EOFError):
             console.line('exit')
 

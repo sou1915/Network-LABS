@@ -123,7 +123,8 @@ class Server:
         if request['op'] == 'open':
             from .vendor_config import TITLES
             title = TITLES.get(console.syntax, 'shell BusyBox de la micro-VM')
-            return {'ok': True, 'prompt': console.prompt(),
+            greeting = console.greeting() if hasattr(console, 'greeting') else ''
+            return {'ok': True, 'prompt': console.prompt(), 'greeting': greeting,
                     'banner': f'{node} · {title}. « ? » : les commandes du mode · « help SUJET » · Tab : compléter.'}
         text = request.get('text')
         if not isinstance(text, str) or len(text) > 1024 or '\n' in text:

@@ -28,6 +28,12 @@ class Console:
         node = self.node()
         self.syntax = vendor_config.dialect(node) if node['role'] != 'host' else None
         self.catalogue_node = node
+        from . import ios_store
+        self.hostname = ios_store.hostname(node)
+        self.typed, self.clock_offset, self.started = [], 0.0, __import__('time').monotonic()
+        self.attempts = 0
+        # A console line with « login » and a password asks for it first, as IOS does.
+        self.awaiting = 'login' if self.syntax in ('ios', 'eos') and ios_store.console_login(node) else None
 
     # ---- the running lab ----
 
@@ -69,7 +75,11 @@ class Console:
         if self.syntax is None:
             return f'root@{name}:~# '
         if self.syntax in ('ios', 'eos'):  # IOS types straight after the prompt, without a space
-            config = f'{name}({self.context or "config"})#'
+            if self.awaiting:
+                return 'Password: '
+            name = self.hostname
+            shown = {'config-rip': 'config-router', 'config-eigrp': 'config-router'}.get(self.context, self.context)
+            config = f'{name}({shown or "config"})#'
             return {'exec': f'{name}>', 'enable': f'{name}#', 'config': config}[self.mode]
         if self.syntax == 'vrp':
             return (f'[{name}{"-" + self.label if self.label else ""}]' if self.mode == 'config' else f'<{name}>') + ' '
@@ -111,9 +121,67 @@ class Console:
 
     # ---- Cisco IOS (and Arista EOS), as Packet Tracer and the real CLI behave ----
 
+    def greeting(self):
+        """What the console shows before its first prompt: the banner motd, then the login (as IOS)."""
+        from . import ios_store
+        if self.syntax not in ('ios', 'eos'):
+            return ''
+        node = self.node()
+        parts = [ios_store.banner(node)] if ios_store.banner(node) else []
+        if self.awaiting == 'login':
+            parts.append('\nUser Access Verification\n')
+        return '\n'.join(parts)
+
+    def password(self, typed):
+        """The line typed at « Password: » (console login or enable): three tries, as IOS."""
+        from . import ios_store
+        node = self.node()
+        good = typed == ios_store.console_login(node) if self.awaiting == 'login' else bool(ios_store.check_enable(node, typed))
+        if good:
+            self.mode = 'enable' if self.awaiting == 'enable' else self.mode
+            self.awaiting, self.attempts = None, 0
+            return ''
+        self.attempts += 1
+        if self.attempts < 3:
+            return ''
+        failed, self.awaiting, self.attempts = self.awaiting, None, 0
+        if failed == 'login':
+            self.awaiting = 'login'
+            return '% Bad passwords'
+        return '% Bad secrets'
+
+    def node_now(self):
+        return self.node()
+
+    def spec_now(self):
+        with self.manager().locked() as manager:
+            return manager.read()['spec']
+
+    def uptime(self):
+        minutes = int((__import__('time').monotonic() - self.started) // 60)
+        return f'{minutes} minute' + ('s' if minutes != 1 else '')
+
+    def store_startup(self, text):
+        """« copy running-config startup-config »: the configuration kept in the device's stored IOS lines."""
+        import copy
+        from . import ios_store
+        with self.manager().locked() as manager:
+            manager.state = None
+            spec = manager.read()['spec']
+            wanted = copy.deepcopy(self.node(spec))
+            current = ios_store.config(wanted)
+            current['startup'] = text
+            wanted['cli_config'] = current
+            ios_store.validate(wanted)
+            return self.change(manager, spec, wanted)
+
     def ios_line(self, text):
         """One IOS line: « ? » help, IOS errors with the ^ marker, each configuration line applied at once."""
+        if self.awaiting:
+            return self.password(text)
         node, mode = self.catalogue_node, self.catalogue_mode()
+        if text.strip() and not text.rstrip().endswith('?'):
+            self.typed.append(' '.join(text.split()))
         if text.rstrip().endswith('?'):
             return command_catalogue.ios_help(node, mode, text.rstrip()[:-1])
         command = ' '.join(text.split())
@@ -148,12 +216,23 @@ class Console:
         return self.ios_apply()
 
     def ios_exec(self, command, from_config=False):
-        """User and privileged EXEC: enable, configure, show, ping, write, as on IOS."""
+        """User and privileged EXEC; « show … | include|exclude|begin|section TEXT » filters the output, as on IOS."""
+        match = re.fullmatch(r'(.+?)\s*\|\s*(i|in|inc|incl|include|e|ex|exc|exclude|b|be|begin|s|se|sec|section)\s+(.+)', command,
+                             re.IGNORECASE)
+        if match:
+            return _filter(self.ios_command(match[1], from_config), match[2].lower()[:1], match[3])
+        return self.ios_command(command, from_config)
+
+    def ios_command(self, command, from_config=False):
         node = self.catalogue_node
         low = command_catalogue.expand(node, command).lower()
         if low in ('exit', 'logout', 'quit') and not from_config:
             raise EOFError
         if low in ('enable', 'en'):
+            from . import ios_store
+            if not from_config and self.mode == 'exec' and ios_store.check_enable(self.node(), '') is not None:
+                self.awaiting = 'enable'  # « Password: », as IOS asks when an enable secret or password is set
+                return ''
             self.mode = 'enable' if not from_config else self.mode
             return ''
         if low == 'disable' and not from_config:
@@ -166,13 +245,15 @@ class Console:
             with self.manager().locked() as manager:
                 self.base = manager.read()['spec']
             return 'Enter configuration commands, one per line.  End with CNTL/Z.'
-        if re.fullmatch(r'(write( memory)?|wr|copy running-config startup-config|copy run start)', low):
-            if self.mode == 'exec' and not from_config:
-                return self.marker(0)
-            return 'Destination filename [startup-config]? \nBuilding configuration...\n[OK]' if low.startswith('copy') \
-                else 'Building configuration...\n[OK]'
+        if re.fullmatch(r'(write( memory)?|wr|copy running-config startup-config|copy run start|erase startup-config|write erase)',
+                        low) and self.mode == 'exec' and not from_config:
+            return self.marker(0)
         if re.fullmatch(r'(show|sh) (running-config|run)', low):
             return self.ios_running()
+        from . import ios_exec
+        extra = ios_exec.answer(self, low)
+        if extra is not None:
+            return extra
         destination = vendor_show.ping_destination(self.node(), low)
         if destination:
             return vendor_show.ping_text(self.node(), self.ping(destination))
@@ -225,6 +306,8 @@ class Console:
             reply = self.change(manager, spec, wanted)
         if reply.startswith('%'):
             return reply
+        from . import ios_store
+        self.hostname = ios_store.hostname(wanted)
         return self.ios_events(before, wanted, spec)
 
     def ios_events(self, before, after, spec):
@@ -253,10 +336,9 @@ class Console:
         lines = [line for line in body.splitlines() if not line.startswith(('! Network LABS', '! le nœud'))]
         while lines and lines[0] == '!':
             lines.pop(0)
-        if lines and lines[-1] == 'end':
-            lines = lines[:-1] + ['!', 'line con 0', '!', 'line vty 0 4', ' login', '!', 'end']
-        text = '\n'.join(['version 16.9', 'no service timestamps log datetime msec', 'no service timestamps debug datetime msec',
-                          'no service password-encryption', '!'] + lines)
+        encrypted = any(line == 'service password-encryption' for line in lines)
+        text = '\n'.join(['version 16.9', 'no service timestamps log datetime msec', 'no service timestamps debug datetime msec']
+                         + ([] if encrypted else ['no service password-encryption']) + ['!'] + lines)
         return f'Building configuration...\n\nCurrent configuration : {len(text) + 1} bytes\n!\n{text}'
 
     def execute(self, command):
@@ -358,7 +440,8 @@ class Console:
         if self.syntax is None:
             return 'shell'
         if self.syntax in ('ios', 'eos'):
-            return (self.context or 'config') if self.mode == 'config' else 'exec'
+            context = 'config-if' if self.context == 'config-if-range' else self.context
+            return (context or 'config') if self.mode == 'config' else 'exec'
         if self.syntax == 'vrp':
             return (self.context or 'system') if self.mode == 'config' else 'user'
         if self.syntax in ('junos', 'panos'):
@@ -553,3 +636,26 @@ def _readline(console):
     readline.set_completer_delims(' ')
     readline.set_completer(complete)
     readline.parse_and_bind('tab: complete')
+
+
+def _filter(text, kind, pattern):
+    """IOS output modifiers: include (i), exclude (e), begin (b), section (s); PATTERN is a regular expression."""
+    try:
+        wanted = re.compile(pattern)
+    except re.error:
+        return "% Invalid input detected at '^' marker."
+    lines = text.splitlines()
+    if kind == 'i':
+        return '\n'.join(l for l in lines if wanted.search(l))
+    if kind == 'e':
+        return '\n'.join(l for l in lines if not wanted.search(l))
+    if kind == 'b':
+        start = next((i for i, l in enumerate(lines) if wanted.search(l)), len(lines))
+        return '\n'.join(lines[start:])
+    found, keep = [], False
+    for line in lines:  # section: a matching top-level line and the indented lines under it
+        if not line.startswith(' '):
+            keep = bool(wanted.search(line))
+        if keep:
+            found.append(line)
+    return '\n'.join(found)
