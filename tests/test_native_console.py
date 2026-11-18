@@ -18,7 +18,7 @@ class ConsoleTests(unittest.TestCase):
         args=run.call_args_list[1].args[0]
         self.assertEqual(args[-6:],['exec','--tty','lab','PC1','--','/bin/sh'])
         self.assertEqual(run.call_args_list[1].kwargs,{})
-        self.assertEqual(ui_console.terminal_args('lab','PC1')[-2:],['lab','PC1'])
+        self.assertEqual(ui_console.terminal_args('lab','PC1')[-3:],['lab','PC1','oci'])
 
     def test_invalid_selection_fails_before_sudo(self):
         with patch.object(ui_console.subprocess,'run') as run:

@@ -81,8 +81,9 @@ for exact limits of each.
 
 ## GUI
 
-Tk desktop app (`python3 -m network_labs`) with the educational canvas, a native
-lab workbench (topology editing, lifecycle, inspection, capture and console
+Tk desktop app (`python3 -m network_labs`) that opens the native lab workbench directly (the old
+« Switching Studio » canvas window was removed; its engine and example labs stay, in `demo_labs.py`): the
+workbench (topology editing, lifecycle, inspection, capture and console
 entries) and browser-based management pages. For micro-VMs the workbench can add
 host, router, firewall and switch nodes (kernel, disk, 1–4 ports, static addresses
 or `dhcp`), start and stop the lab, show each node as running while its VMM is

@@ -1,3 +1,4 @@
+from network_labs import demo_labs
 import unittest
 from network_labs.engine import Lab,Node
 from network_labs.cli import Session
@@ -65,8 +66,8 @@ class ProfilesTest(unittest.TestCase):
             self.assertEqual(restored.nodes['SW'].profile,profile)
             self.assertEqual(restored.nodes['SW'].ports[first].access_vlan,10)
     def test_static_transition_clears_dhcp_binding(self):
-        from network_labs.__main__ import App
-        lab=App.security_demo(); cli=Session(lab,'PC1')
+        lab=demo_labs.security_demo()
+        cli=Session(lab,'PC1')
         self.assertFalse(cli.execute('ip dhcp').startswith('%'))
         self.assertIn('PC1',lab.leases)
         self.assertTrue(any(record['client']=='PC1' for table in lab.bindings.values() for record in table.values()))

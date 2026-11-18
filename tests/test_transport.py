@@ -1,11 +1,13 @@
+from network_labs import demo_labs
 import unittest
-from network_labs.__main__ import App
 from network_labs.cli import Session
 from network_labs.engine import Lab
 from network_labs.text_lab import parse_lab,export_lab
 
 class TransportTests(unittest.TestCase):
-    def setUp(self):self.lab=App.firewall_demo();self.fw=Session(self.lab,'FW1')
+    def setUp(self):
+        self.lab=demo_labs.firewall_demo()
+        self.fw=Session(self.lab,'FW1')
     def command(self,line):self.assertFalse(self.fw.execute(line).startswith('%'),line)
     def test_tcp_policy_port_and_stateful_return(self):
         self.command('firewall rule 20 allow tcp 192.168.10.10/32 192.168.10.20/32 445')
@@ -46,7 +48,7 @@ class TransportTests(unittest.TestCase):
         self.lab.nodes['NAS1'].ports['eth0'].shutdown=True
         self.assertFalse(self.lab.probe('PC1','192.168.10.20','tcp',445)[0])
     def test_service_lab_named_port_probes(self):
-        lab=App.service_demo()
+        lab=demo_labs.service_demo()
         self.assertTrue(lab.probe('PC1','nas.lan','tcp',445)[0])
         self.assertTrue(lab.probe('PC1','printer.lan','tcp',9100)[0])
         ok,trace=lab.probe('PC1','camera.lan','tcp',554)

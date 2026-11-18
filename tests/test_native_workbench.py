@@ -147,12 +147,14 @@ class WorkbenchGUITests(unittest.TestCase):
         self.root.update()
         window.choose_node('R7')
         self.root.update()
-        self.assertIn('disabled', window.console_button.state())
+        # A running micro-VM opens its own vendor-style terminal (guest_console), never a Linux shell.
+        self.assertNotIn('disabled', window.console_button.state())
+        self.assertIn('R7', window.console_button.cget('text'))
         self.assertNotIn('disabled', window.capture_button.state())
         self.assertEqual(list(window.capture_ports.cget('values')), ['eth0', 'eth1'])
-        with patch.object(window, 'error') as error:
-            self.assertFalse(window.open_console())
-        self.assertIn('micro-VM', str(error.call_args.args[0]))
+        with patch('network_labs.appliances.ui.launch_terminal') as launch:
+            self.assertTrue(window.open_console())
+        self.assertEqual(launch.call_args.args[0][-3:], [window.view_lab, 'R7', 'guest'])
 
     def test_firewall_policy_is_applied_to_the_running_lab_from_a_private_snapshot(self):
         from network_labs.appliances.microvm import firewall_example
@@ -311,7 +313,8 @@ class WorkbenchGUITests(unittest.TestCase):
         with patch.object(ui,'launch_terminal') as launch,patch.object(window,'error'):
             self.assertFalse(window.open_console());launch.assert_not_called()
             window.states={'PC1':{'status':'running'}};window.select_node()
-            self.assertTrue(window.open_console());self.assertEqual(launch.call_args.args[0][-2:],[window.view_lab,'PC1'])
+            self.assertTrue(window.open_console())
+            self.assertEqual(launch.call_args.args[0][-3:],[window.view_lab,'PC1','oci'])
             self.assertEqual(window.manifest(),original)
             window.pending={'action':'stop'};self.assertFalse(window.open_console());window.pending=None
             window.view_lab='foreign';self.assertFalse(window.open_console())

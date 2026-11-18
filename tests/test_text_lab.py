@@ -1,7 +1,7 @@
+from network_labs import demo_labs
 import unittest
 from pathlib import Path
 from network_labs.engine import demo
-from network_labs.__main__ import App
 from network_labs.cli import Session
 from network_labs.text_lab import parse_lab,export_lab,import_device_config,LabTextError
 
@@ -33,10 +33,10 @@ class TextLabTests(unittest.TestCase):
         self.assertTrue(result.lab.nodes['SW1'].ports['gi0/1'].shutdown)
 
     def test_roundtrip_all_integrated_labs(self):
-        for factory in (demo,App.channel_demo,App.security_demo,App.vtp_demo,App.mst_demo):
+        for factory in (demo,demo_labs.channel_demo,demo_labs.security_demo,demo_labs.vtp_demo,demo_labs.mst_demo):
             with self.subTest(factory=factory.__name__):
                 lab=factory()
-                if factory==App.security_demo:
+                if factory==demo_labs.security_demo:
                     Session(lab,'PC1').execute('ip dhcp'); Session(lab,'PC2').execute('ip dhcp')
                 restored=parse_lab(export_lab(lab)).lab
                 self.assertEqual(set(lab.nodes),set(restored.nodes))

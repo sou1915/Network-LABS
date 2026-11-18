@@ -71,7 +71,7 @@ class ApplianceWindow(MissionsPanel):
             menu=tk.Menu(menu_button,tearoff=False)
             for label,callback in commands:menu.add_command(label=label,command=callback)
             menu_button.configure(menu=menu);menu_button.pack(side='left')
-        if self.embedded:ttk.Button(header,text='Retour',command=self.close,style='Native.TButton').pack(side='right')
+        # The workbench is the whole application now: no « Retour » to the old simulator, which is gone.
         toolbar=tk.Frame(self.window,bg='#f1f5fb',padx=7,pady=2);toolbar.grid(row=1,column=0,sticky='ew',pady=(0,2))
         for title,callback in [('↖ Sélection',lambda:self.set_edit_mode(None)),('+ Ajouter un équipement',self.add_device_dialog),('⌁ Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]:
             if title.startswith('↖') or title.startswith('⌁'):
@@ -403,7 +403,6 @@ class ApplianceWindow(MissionsPanel):
         validate_topology(graph)
         selected=self.nodes.selection();previous=selected[0] if selected else None;destination=self.destination.get()
         self.graph=graph;self.view_lab=graph['name'];self.states=states or {};self.node_shapes={};self.link_shapes={}
-        from ..__main__ import App
         self.canvas.delete('all');self.nodes.delete(*self.nodes.get_children());self.library.delete(*[n['name'] for n in getattr(self,'library_graph',{}).get('nodes',[]) if self.library.exists(n['name'])]);self.library_graph=graph
         width=max(600,self.canvas.winfo_width());height=max(360,self.canvas.winfo_height())
         spec=None;members={}

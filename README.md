@@ -6,12 +6,11 @@
 > La couverture OCI actuelle ne certifie pas encore cette architecture.
 
 
-Simulateur réseau pédagogique pour Linux : construire une topologie LAN,
-configurer les équipements depuis une page web, des formulaires bureau ou une
-CLI, puis tester les trajets et les politiques. Sans VM, image constructeur,
-privilège root ou trafic vers les IP virtuelles.
-
-![Studio Linux](docs/studio.png)
+Laboratoire réseau pédagogique pour Linux : chaque équipement est une vraie
+micro-VM Firecracker (routeurs, switches, firewalls, postes) avec la CLI et les
+`show` de son constructeur, le terminal de chaque nœud, les missions, les pannes
+et les scénarios générés. `python3 -m network_labs` ouvre directement l'atelier
+(l'ancien simulateur « Switching Studio » a été retiré).
 
 ## Installation et lancement
 
@@ -41,11 +40,11 @@ système ouvre les pages de gestion ; le logiciel doit rester actif.
 
 Une seule commande vérifie la machine, télécharge Firecracker et le noyau
 officiels épinglés (sommes SHA-256 contrôlées), construit un disque unique pour
-tous les labs (agent, iptables, BIRD) et retient les chemins pour l'atelier. Elle
+tous les labs (agent, iptables, BIRD, FRR) et retient les chemins pour l'atelier. Elle
 ne demande aucun droit : ce qui exige `sudo` est affiché comme commande à copier.
 
 ```bash
-sudo apt install -y busybox-static e2fsprogs gcc libc6-dev iptables bird2
+sudo apt install -y busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr
 python3 -m network_labs.appliances setup --download
 ```
 
@@ -60,8 +59,7 @@ activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network L
 et [couverture exacte des profils LAN natifs](docs/LAN_PROTOCOL_COVERAGE.md).
 Les estimations de progression ne sont pas des pourcentages de couverture des tests.
 
-**Fichier → Micro-nodes natifs · runtimes / manifest**, ou
-`python3 -m network_labs --native-lab`, ouvre le LAN natif dans la fenêtre principale : équipements à gauche,
+`python3 -m network_labs` ouvre l'atelier dans la fenêtre principale : équipements à gauche,
 topologie au centre et inspecteur à droite, selon la disposition existante.
 Création de postes/switches/routeurs OCI, câblage par ports libres ou nouveaux,
 suppression et déplacement sont disponibles pour le brouillon. Enregistrer puis

@@ -1,5 +1,5 @@
+from network_labs import demo_labs
 import unittest
-from network_labs.__main__ import App
 from network_labs.engine import Lab,Node
 from network_labs.cli import Session
 from network_labs.text_lab import parse_lab,export_lab,import_device_config
@@ -7,7 +7,7 @@ from network_labs.profiles import PROFILES,profile_role
 
 class LANTests(unittest.TestCase):
     def setUp(self):
-        self.lab=App.lan_demo()
+        self.lab=demo_labs.lan_demo()
     def test_all_lan_endpoints_reachable(self):
         for target in ['printer.lan','nas.lan','camera.lan','phone.lan','sensor.lan']:
             ok,trace=self.lab.ping('PC1',target)
