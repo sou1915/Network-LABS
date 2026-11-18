@@ -1,0 +1,37 @@
+name: Gmail lab report
+on:
+  workflow_run:
+    workflows: ["Network LABS checks"]
+    types: [completed]
+permissions: {}
+jobs:
+  report:
+    if: github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send a short report to the configured Gmail inbox
+        env:
+          ACCOUNT: ${{ secrets.LAB_GMAIL_ADDRESS }}
+          PASSWORD: ${{ secrets.LAB_GMAIL_APP_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os, smtplib, ssl
+          from email.message import EmailMessage
+          from pathlib import Path
+
+          address = os.environ['ACCOUNT']
+          password = os.environ['PASSWORD']
+          if not address or not password:
+              raise SystemExit('Configure LAB_GMAIL_ADDRESS and LAB_GMAIL_APP_PASSWORD in Actions secrets.')
+          run = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())['workflow_run']
+          status = run['conclusion']
+          label = {'success': 'نجح الاختبار', 'failure': 'تعثّر الاختبار', 'cancelled': 'تلغى الاختبار'}.get(status, status)
+          mail = EmailMessage()
+          mail['From'] = mail['To'] = address
+          mail['Subject'] = f'بلاغ من ورشة Network-LABS — {label} (#{run["run_number"]})'
+          mail.set_content(f'أما بعد يا مول اللاب،\n\n{label}.\nالفرع: {run["head_branch"]}\nالنسخة: {run["head_sha"][:8]}\nالتفاصيل: {run["html_url"]}\n\nوالسلام من كاتب اللاب.')
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=ssl.create_default_context(), timeout=20) as server:
+              server.login(address, password)
+              server.send_message(mail)
+          PY
