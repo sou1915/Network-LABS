@@ -63,9 +63,11 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(config['network-interfaces'][0]['host_dev_name'], 'tap0')
         self.assertIn('ip=192.0.2.30::192.0.2.1:255.255.255.0:VM1:eth0:off', config['boot-source']['boot_args'])
         self.assertEqual(config['drives'][0]['path_on_host'], '/private/root.ext4')
-        spec['nodes'][-1]['interfaces']['eth1'] = ''
-        with self.assertRaisesRegex(ValueError, 'one static'):
-            validate(spec)
+        spec['nodes'][-1]['interfaces']['eth1'] = ''  # an unconfigured port is accepted: it comes up without an address
+        self.assertEqual(validate(spec)['nodes'][-1]['interfaces']['eth1'], '')
+        spec['nodes'][-1]['interfaces']['eth0'] = ''
+        with self.assertRaisesRegex(ValueError, '[Gg]ateway must'):
+            validate(spec)  # a gateway needs eth0's network
 
     def test_oci_spec_isolates_namespaces_and_limits_resources(self):
         spec = example('/rootfs'); node = spec['nodes'][0]

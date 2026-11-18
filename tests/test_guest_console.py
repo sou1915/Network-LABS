@@ -84,7 +84,11 @@ class ConsoleTest(unittest.TestCase):
         console.line('conf t')
         console.line('interface gi0/0/0')
         console.line('ip address 192.0.2.9 255.255.255.0')
-        self.assertIn('Pas applicable à chaud', console.line('end'))
+        self.assertIn('Appliqué au nœud en marche', console.line('end'))  # addresses change live, as on a real router
+        self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], '192.0.2.9/24')
+        console.line('conf t')
+        console.line('hostname R9')
+        self.assertIn('Renommer', console.line('end'))  # what still needs the GUI is said
         console.line('disable')
         self.assertEqual(console.prompt(), 'R1> ')
         with self.assertRaises(EOFError):
@@ -177,3 +181,26 @@ class CatalogueHelpTest(unittest.TestCase):
 
     def test_unknown_topic_lists_the_topics(self):
         self.assertIn('Interfaces', self.console().line('help pizza'))
+
+
+class HostShellAddressingTest(unittest.TestCase):
+    def test_a_pc_gets_its_address_and_gateway_from_its_terminal(self):
+        spec = lab()
+        host = next(n for n in spec['nodes'] if n['role'] == 'host')
+        cidr = host['interfaces']['eth0']
+        network = cidr.rsplit('.', 1)[0]
+        manager = FakeManager(spec)
+        console = guest_console.Console(spec['name'], host['name'], manager)
+        self.assertIn('ip addr del', console.line('?'))
+        with self.assertRaisesRegex(ValueError, 'ip addr del'):
+            console.line(f'ip addr add {network}.77/24 dev eth0')  # one address per port: remove the old one first
+        self.assertIn('Appliqué', console.line(f'ip addr del {cidr} dev eth0'))
+        self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], '')
+        self.assertIn('Appliqué', console.line(f'ip addr add {network}.77/24 dev eth0'))
+        self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], f'{network}.77/24')
+        import ipaddress
+        lan = ipaddress.IPv4Interface(f'{network}.77/24').network
+        gateway = next(a.split('/')[0] for n in spec['nodes'] if n['role'] == 'router' for a in n['interfaces'].values()
+                       if a and ipaddress.IPv4Interface(a).network == lan)
+        reply = console.line(f'ip route add default via {gateway}')
+        self.assertIn('Appliqué', reply)

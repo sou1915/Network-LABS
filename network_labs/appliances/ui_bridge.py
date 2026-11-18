@@ -44,7 +44,8 @@ def observed_states(status):
 def validate_topology(graph):
     if not isinstance(graph,dict) or set(graph)!={'name','nodes','links'}:raise ValueError('Invalid native topology.')
     identifier(graph['name'])
-    if not isinstance(graph['nodes'],list) or not 1<=len(graph['nodes'])<=256:raise ValueError('Invalid topology nodes.')
+    if not isinstance(graph['nodes'],list) or len(graph['nodes'])>256:
+        raise ValueError('Invalid topology nodes.')
     nodes={}
     for node in graph['nodes']:
         required,allowed={'name','role','runtime','interfaces'},{'name','role','runtime','interfaces','model'}

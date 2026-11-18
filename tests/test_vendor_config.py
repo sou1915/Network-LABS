@@ -267,8 +267,8 @@ class IOSRouterFeaturesTest(unittest.TestCase):
         added = vendor_config.apply(lab, 'R1', 'interface gi0/0/0.30\n encapsulation dot1Q 30\n ip address 203.0.113.1 255.255.255.0')
         gone = vendor_config.apply(added, 'R1', 'no interface gi0/0/0.20')
         self.assertNotIn('eth0.20', node(gone, 'R1')['subinterfaces'])
-        with self.assertRaisesRegex(ValueError, 'two routed'):  # a micro-VM router keeps two routed interfaces
-            vendor_config.apply(lab, 'R1', 'no interface gi0/0/0.20')
+        with self.assertRaisesRegex(ValueError, 'two interfaces'):  # a micro-VM router keeps two interfaces
+            vendor_config.apply(lab, 'R1', 'no interface gi0/0/0.20\nno interface gi0/0/0.10')
         with self.assertRaisesRegex(ValueError, 'Sous-interface'):
             vendor_config.apply(lab, 'R1', 'interface gi0/0/0.20\n switchport mode access')
 

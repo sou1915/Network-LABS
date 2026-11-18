@@ -500,6 +500,8 @@ class Manager:
 
     def start(self, data):
         spec = validate(data)
+        if not spec['nodes']:
+            raise ValueError('Ajouter au moins un équipement avant de démarrer.')
         if spec['name'] != self.name:
             raise ValueError('Manager/lab name mismatch.')
         if self.directory.exists():
@@ -966,7 +968,7 @@ class Manager:
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
     def configure_routing(self, name, declared):
-        """Live change of a running micro-VM's static routes, gateway and OSPF to DECLARED (the saved project's node).
+        """Live change of a running micro-VM's port addresses, routes, gateway, OSPF, BGP and ACLs to DECLARED.
         Anything else still needs a restart. The change is journalled, read back, and rolled back if it fails."""
         from .guest_startup import LIVE_ROUTING, change_routing
         state = self.read()
@@ -985,8 +987,12 @@ class Manager:
         def addresses(node):
             profile = node.get('guest_network') or {}
             return profile.get('addresses', []), profile.get('port_addresses', {})
-        if same(wanted) != same(previous) or addresses(wanted) != addresses(previous):
-            raise ValueError('Only static routes, the gateway and OSPF change on a running lab; restart it for the rest.')
+        server = previous.get('dhcp_server') or {}
+        if (same(wanted) != same(previous) or addresses(wanted) != addresses(previous)
+                or set(wanted['interfaces']) != set(previous['interfaces'])
+                or (server and wanted['interfaces'][server['interface']] != previous['interfaces'][server['interface']])):
+            raise ValueError('Only port addresses, static routes, the gateway, OSPF, BGP and access lists change on a running '
+                             'lab (not the DHCP server\'s port); restart it for the rest.')
         socket = self.directory / name / 'guest.vsock'
         state['phase'] = 'configuring'
         state['pending_spec'] = candidate

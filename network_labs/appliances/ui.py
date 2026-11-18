@@ -24,6 +24,7 @@ from .native_models import port_label,port_names
 from .workspace_art import port_offset,draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
 from .workspace_art import vlan_groups
 from .missions_ui import MissionsPanel
+from .ui_quick import QuickEditing,blank_project
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -39,7 +40,7 @@ def launch_terminal(command):
     return subprocess.Popen([terminal,*options,'-e',*command],cwd=SOURCE,env=environment)
 
 
-class ApplianceWindow(MissionsPanel):
+class ApplianceWindow(MissionsPanel,QuickEditing):
     def __init__(self,app,*,embedded=False):
         self.app=app;self.path=None;self.pending=None;self.poll_id=None;self.closed=False;self.last_response=None;self.web_portal=None
         # Use the established desktop's theme and device artwork. Native state
@@ -66,8 +67,12 @@ class ApplianceWindow(MissionsPanel):
         self.label(header,'◉  Network LABS','#ffffff',9,True).pack(side='left')
         self.project_title=tk.StringVar(value='Projet LAN')
         tk.Label(header,textvariable=self.project_title,bg='#223344',fg='#d6e2ee',font=(self.font,8)).pack(side='left',padx=18)
-        for title,commands in [('Fichier',[('Nouveau LAN',self.new),('Campus entreprise',self.new_campus),('LAN sécurité access',lambda:self.new_campus(security=True)),('Ouvrir',self.open),('Enregistrer',self.save)]),
-                               ('Édition',[('Ajouter un équipement',self.add_device_dialog),('Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]),
+        files=[('Nouveau LAN',self.new),('Campus entreprise',self.new_campus),('LAN sécurité access',lambda:self.new_campus(security=True)),
+               ('Ouvrir',self.open),('Enregistrer',self.save),('Enregistrer sous…',lambda:self.save(ask=True))]
+        edits=[('Ajouter un équipement',self.add_menu),('Ajouter (options avancées)…',self.add_device_dialog),
+               ('Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]
+        for title,commands in [('Fichier',files),
+                               ('Édition',edits),
                                ('Affichage',[('Topologie',lambda:self.tabs.select(self.topology_tab)),('Configuration du projet',lambda:self.tabs.select(self.editor_tab)),('Configuration du dispositif',lambda:self.device_tabs.select(self.config_panel))]),
                                ('Outils',[('Valider / plan',self.preview),('Actualiser l’état',lambda:self.launch('status'))])]:
             menu_button=tk.Menubutton(header,text=title,bg='#223344',fg='white',activebackground='#334b60',activeforeground='white',font=(self.font,8),padx=8)
@@ -76,7 +81,9 @@ class ApplianceWindow(MissionsPanel):
             menu_button.configure(menu=menu);menu_button.pack(side='left')
         # The workbench is the whole application now: no « Retour » to the old simulator, which is gone.
         toolbar=tk.Frame(self.window,bg='#f1f5fb',padx=7,pady=2);toolbar.grid(row=1,column=0,sticky='ew',pady=(0,2))
-        for title,callback in [('↖ Sélection',lambda:self.set_edit_mode(None)),('+ Ajouter un équipement',self.add_device_dialog),('⌁ Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]:
+        tools=[('↖ Sélection',lambda:self.set_edit_mode(None)),('+ Ajouter un équipement',self.add_menu),
+               ('⌁ Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]
+        for title,callback in tools:
             if title.startswith('↖') or title.startswith('⌁'):
                 button=ttk.Radiobutton(toolbar,text=title,command=callback,variable=self.tool_mode,value='select' if title.startswith('↖') else 'cable',style='Native.Toolbutton')
             else:button=ttk.Button(toolbar,text=title,command=callback,style='Native.TButton')
@@ -230,7 +237,10 @@ class ApplianceWindow(MissionsPanel):
         self.window.bind('<Destroy>',self.destroyed,add='+')
         self.window.bind('<Configure>',self.schedule_reference_layout,add='+')
         self.content.bind('<Configure>',self.schedule_reference_layout,add='+')
-        self.load_spec(campus_example(Path.home()/'network-labs-rootfs'));self.refresh();self.schedule_reference_layout()
+        # A blank canvas, as in Packet Tracer: devices come from the library (click or drag), cables from two clicks.
+        self.load_spec(blank_project())
+        self.refresh()
+        self.schedule_reference_layout()
 
     def schedule_reference_layout(self,event=None):
         if self.closed or (event is not None and event.widget not in (self.window,self.content)):return
@@ -313,7 +323,9 @@ class ApplianceWindow(MissionsPanel):
                     self.label(caption,shown,colour,size).configure(anchor='w')
                     caption.winfo_children()[-1].pack(fill='x')
                 def bind(widget,r=kind,m=model,card=tile):
-                    widget.bind('<Button-1>',lambda event:self.add_device_dialog(r,model=m))
+                    # Click or drag onto the canvas: the device is added at once; right-click: the full form.
+                    widget.bind('<ButtonRelease-1>',lambda event:self.tile_released(event,r,m))
+                    widget.bind('<Button-3>',lambda event:self.add_device_dialog(r,model=m))
                     widget.bind('<Enter>',lambda event:card.hover(True))
                     widget.bind('<Leave>',lambda event:card.hover(False))
                     for child in widget.winfo_children():
@@ -424,6 +436,12 @@ class ApplianceWindow(MissionsPanel):
         self.drawn_positions=positions
         for xx in range(-142,int(width/max(.65,self.zoom))+160,22):
             for yy in range(-142,int(height/max(.65,self.zoom))+160,22):self.canvas.create_oval(xx,yy,xx+1,yy+1,fill='#e8eef7',outline='',tags=('grid',))
+        if not graph['nodes']:
+            # A blank project says how to begin, as an empty Packet Tracer workspace invites a first device.
+            self.canvas.create_text(width/2,height/2-24,text='Cliquer ou glisser un équipement depuis la bibliothèque',
+                                    fill=MUTED,font=(self.font,13,'bold'),tags=('hint',))
+            self.canvas.create_text(width/2,height/2+6,text='puis « Connecter un câble » : deux clics · ▶ Démarrer · double-clic : '
+                                    'le terminal de l’équipement',fill=MUTED,font=(self.font,10),tags=('hint',))
         palette=[('#e8f4ff','#8fc0ed','#0064c7'),('#e9f8ed','#9ed4ad','#14884b'),('#fff7dd','#ead08b','#ba7a04')]
         self.vlan_members=members;captions=[]
         groups=vlan_groups(graph,members)
@@ -531,7 +549,7 @@ class ApplianceWindow(MissionsPanel):
             if node['role']=='host':
                 self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
-                caption=', '.join(ips) or 'Linux · OCI'
+                caption=', '.join(ips) or ('Linux · micro-VM' if node.get('runtime')=='firecracker' else 'Linux · OCI')
                 if node.get('model') in MODELS:
                     caption=MODELS[node['model']]['brand']+' · '+(caption if ips else MODELS[node['model']]['model'][:22])
                 self.canvas.create_text(x,y+49,text=caption,fill=MUTED,font=(self.font,8),tags=tags)
@@ -542,7 +560,7 @@ class ApplianceWindow(MissionsPanel):
                 self.canvas.create_text(x,y-34,text=subtitle,fill=MUTED,font=(self.font,8),tags=tags)
             self.canvas.create_oval(x+36,y+14,x+43,y+21,fill=color,outline='#ffffff',tags=tags)
             self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.node_pressed(event,n))
-            self.canvas.tag_bind('node:'+name,'<Double-Button-1>',lambda event,n=name:self.open_device_config(n))
+            self.canvas.tag_bind('node:'+name,'<Double-Button-1>',lambda event,n=name:self.device_double_click(n))
             self.canvas.tag_bind('node:'+name,'<Enter>',lambda event,n=name:self.hover_node(n,True))
             self.canvas.tag_bind('node:'+name,'<Leave>',lambda event,n=name:self.hover_node(n,False))
             self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],state,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
@@ -566,7 +584,9 @@ class ApplianceWindow(MissionsPanel):
                     font=self.canvas.tk.splitlist(self.canvas.itemcget(item,'font'))
                     self.canvas.itemconfigure(item,font=(font[0],max(6,round(int(font[1])*self.zoom)),*font[2:]))
             self.canvas.scale('all',0,0,self.zoom,self.zoom)
-        self.canvas.configure(scrollregion=(-100,-100,max(width,(max(x for x,y in positions.values())+90)*self.zoom)+100,max(height,(max(y for x,y in positions.values())+90)*self.zoom)+100))
+        right=max((x for x,y in positions.values()),default=0)
+        bottom=max((y for x,y in positions.values()),default=0)
+        self.canvas.configure(scrollregion=(-100,-100,max(width,(right+90)*self.zoom)+100,max(height,(bottom+90)*self.zoom)+100))
         self.zoom_label.set(f'{round(self.zoom*100)} %')
         hosts=[n['name'] for n in graph['nodes'] if n['runtime']=='oci' and n['role']=='host']
         self.targets.configure(values=hosts);self.destination.set(destination if destination in hosts else hosts[-1] if hosts else '')
@@ -956,7 +976,7 @@ class ApplianceWindow(MissionsPanel):
         self.vendor_apply=ttk.Button(actions,text='Appliquer au brouillon',command=self.apply_vendor_config,
                                      style='Native.Primary.TButton')
         self.vendor_apply.pack(side='right',fill='x',expand=True)
-        self.vendor_live=ttk.Button(frame,text='⚡ Appliquer au lab en marche (routes, passerelle, OSPF)',
+        self.vendor_live=ttk.Button(frame,text='⚡ Appliquer au lab en marche (adresses, routes, OSPF, BGP)',
                                     command=self.apply_routing_live,style='Native.TButton')
         self.vendor_live.pack(fill='x',padx=14,pady=(5,0))
         live=tk.Frame(frame,bg=BG)
@@ -1123,7 +1143,8 @@ class ApplianceWindow(MissionsPanel):
         if self.pending:return
         self.edit_mode=mode;self.panning=False;self.tool_mode.set('cable' if mode=='cable' else 'select');self.cable_source=None;self.dragging=None
         self.canvas.configure(cursor='crosshair' if mode=='cable' else '')
-        self.note.set('Câbler : choisir deux équipements, puis leurs ports libres.' if mode=='cable' else 'Sélectionner ou déplacer un équipement · clic droit sur un câble pour le retirer.')
+        cable='Câbler : cliquer deux équipements (Ctrl+clic sur le second pour choisir les ports).'
+        self.note.set(cable if mode=='cable' else 'Sélectionner ou déplacer un équipement · clic droit sur un câble pour le retirer.')
 
     def editing_spec(self):
         if self.pending:raise ValueError('Attendre la fin de l’opération native.')
@@ -1146,7 +1167,12 @@ class ApplianceWindow(MissionsPanel):
         if self.edit_mode=='cable':
             if self.cable_source is None:self.cable_source=name;self.note.set('Choisir le deuxième équipement après '+name+'.')
             elif self.cable_source!=name:
-                first=self.cable_source;self.cable_source=None;self.connect_dialog(first,name)
+                # Ctrl-click chooses the ports; a plain click takes the first free ones.
+                first,self.cable_source=self.cable_source,None
+                if getattr(event,'state',0)&4:
+                    self.connect_dialog(first,name)
+                else:
+                    self.auto_connect(first,name)
             return
         self.drag_moved=False;self.dragging=(name,self.canvas.canvasx(event.x),self.canvas.canvasy(event.y))
 
@@ -1275,13 +1301,14 @@ class ApplianceWindow(MissionsPanel):
         except (ValueError,TypeError,KeyError) as error:self.error(error);return False
 
     def new(self):
+        """A new, empty project (no question asked): devices come from the library."""
         if self.pending:return False
-        rootfs=filedialog.askdirectory(parent=self.window,title='Rootfs BusyBox natif')
-        if not rootfs:return
-        name=simpledialog.askstring('Nouveau LAN','Nom du lab :',initialvalue='micro-lan',parent=self.window)
-        if not name:return
-        try:spec=example(rootfs);spec['name']=name;self.load_spec(spec);self.tabs.select(self.topology_tab)
-        except (ValueError,TypeError,KeyError) as error:self.error(error)
+        used={p.stem for p in self.project_file(blank_project()).parent.glob('*.json')}
+        name=next(n for n in ['mon-lab']+[f'mon-lab-{i}' for i in range(2,1000)] if n not in used)
+        self.load_spec(blank_project(name))
+        self.tabs.select(self.topology_tab)
+        self.note.set('Nouveau projet vide : cliquer ou glisser un équipement depuis la bibliothèque.')
+        return True
 
     def preview(self):
         if self.pending:return False
@@ -1297,12 +1324,20 @@ class ApplianceWindow(MissionsPanel):
             try:self.load_spec(json.loads(Path(path).read_text()),path);self.tabs.select(self.topology_tab)
             except (OSError,ValueError,TypeError,KeyError) as error:self.error(error)
 
-    def save(self):
+    def save(self,ask=False):
+        """Save the project: in its file, or (never saved) in the projects folder by its name, without a dialog."""
         if self.pending:return False
         try:
-            spec=self.manifest();path=self.path or filedialog.asksaveasfilename(parent=self.window,defaultextension='.json',filetypes=[('Native lab JSON','*.json')])
+            spec=self.manifest()
+            if ask:
+                path=filedialog.asksaveasfilename(parent=self.window,defaultextension='.json',filetypes=[('Native lab JSON','*.json')])
+            else:
+                path=self.path or self.project_file(spec)
             if not path:return False
-            self.path=Path(path).resolve();private_json(self.path,spec);return True
+            self.path=Path(path).resolve()
+            private_json(self.path,spec)
+            self.project_title.set(spec['name']+' · '+self.path.name)
+            return True
         except (OSError,ValueError,TypeError,KeyError) as error:self.error(error);return False
 
     def busy(self,enabled):

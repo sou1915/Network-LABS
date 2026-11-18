@@ -299,7 +299,7 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
-LIVE_ROUTING = ('gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
+LIVE_ROUTING = ('interfaces', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
 
 
 def _route(socket, node, operation, network, gateway):
@@ -310,17 +310,25 @@ def _route(socket, node, operation, network, gateway):
 
 
 def change_routing(socket, old, new):
-    """Bring a running guest from OLD's static routes, gateway and OSPF to NEW's: only what differs changes."""
+    """Bring a running guest from OLD's port addresses, static routes, gateway, OSPF, BGP and access lists to NEW's:
+    only what differs changes."""
     from .vendor_config import routes
     before, after = set(routes(old)), set(routes(new))
-    ospf_changed = old.get('ospf') != new.get('ospf')
-    bgp_changed = old.get('bgp') != new.get('bgp')
+    readdressed = sorted(p for p in new['interfaces'] if old['interfaces'].get(p) != new['interfaces'][p])
+    # The routing daemons bind to addresses: a new address on a port restarts them with the new configuration.
+    ospf_changed = old.get('ospf') != new.get('ospf') or bool(readdressed and new.get('ospf'))
+    bgp_changed = old.get('bgp') != new.get('bgp') or bool(readdressed and new.get('bgp'))
     if ospf_changed and old.get('ospf'):
         query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
     if bgp_changed and old.get('bgp'):
         query(socket, 'bgp-stop')  # zebra withdraws BGP's routes when bgpd stops
     for network, gateway in sorted(before - after):
         _route(socket, old, 'route-delete', network, gateway)
+    for port in readdressed:  # after the routes through the old address are gone, before those through the new one
+        if old['interfaces'].get(port):
+            query(socket, 'address-delete', interface=port, cidr=old['interfaces'][port])
+        if new['interfaces'][port]:
+            query(socket, 'address-add', interface=port, cidr=new['interfaces'][port])
     for network, gateway in sorted(after - before):
         _route(socket, new, 'route-add', network, gateway)
     if ospf_changed and new.get('ospf'):

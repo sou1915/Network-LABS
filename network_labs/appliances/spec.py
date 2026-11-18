@@ -51,8 +51,8 @@ def validate(data):
     identifier(data.get('name'))
     budget = integer(data.setdefault('budget_mib', 2048), 128, 1048576, 'budget_mib')
     reserve = integer(data.setdefault('reserve_mib', 512), 64, budget, 'reserve_mib')
-    if not isinstance(data.get('nodes'), list) or not data['nodes'] or len(data['nodes']) > 256:
-        raise ValueError('1..256 nodes required.')
+    if not isinstance(data.get('nodes'), list) or len(data['nodes']) > 256:
+        raise ValueError('0..256 nodes required.')  # an empty project is a blank canvas; starting one is refused
     names = set()
     for node_index, original in enumerate(data['nodes']):
         # In-memory callers can reuse the same dict in several nodes. Each node
@@ -139,9 +139,8 @@ def validate(data):
                 validate_profile(node)
                 continue
             dynamic = set(node['dhcp_clients'])
-            parents = {sub['parent'] for sub in node['subinterfaces'].values()}  # router-on-a-stick: an unnumbered trunk port
-            if any(not address for port, address in interfaces.items() if port not in dynamic and port not in parents):
-                raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port (or a DHCP client port), contiguous eth0..eth3.')
+            # A port may stay unnumbered, as on a new device: it comes up without an address until one is configured
+            # (live, from the node's terminal). DHCP client ports and subinterface parents are unnumbered too.
             if dynamic and role != 'host':
                 raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
             server = node.get('dhcp_server')
@@ -150,10 +149,12 @@ def validate(data):
             subinterfaces = node['subinterfaces']
             if any(sub['vlan'] is None or not sub['address'] for sub in subinterfaces.values()):
                 raise ValueError('Firecracker subinterfaces need a VLAN and an IPv4 address.')
-            routed = sum(1 for address in interfaces.values() if address) + len(subinterfaces)
-            if role in ('router', 'firewall') and routed < 2:
-                raise ValueError('Firecracker router or firewall requires at least two routed interfaces (ports or subinterfaces); '
+            if role in ('router', 'firewall') and len(interfaces) + len(subinterfaces) < 2:
+                raise ValueError('Firecracker router or firewall requires at least two interfaces (ports or subinterfaces); '
                                  'a single-port guest is a host.')
+            server = node.get('dhcp_server')
+            if server and not interfaces.get(server['interface']):
+                raise ValueError('DHCP server: give its port an IPv4 address first.')
             if role == 'firewall' and node.get('firewall') is None:
                 raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
             if role != 'firewall' and node.get('firewall') is not None:
@@ -163,7 +164,8 @@ def validate(data):
             networks = [ipaddress.IPv4Interface(a).network for a in addresses_declared if a]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
                 raise ValueError('Firecracker interface subnets must not overlap.')
-            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network:
+            if node.get('gateway') and (not interfaces['eth0'] or
+                                        ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network):
                 raise ValueError('Firecracker boot gateway must be on eth0.')
         from .guest_startup import validate_profile
         validate_profile(node)

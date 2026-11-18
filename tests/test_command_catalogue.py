@@ -80,3 +80,27 @@ class CatalogueTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AbbreviationTest(unittest.TestCase):
+    def test_ios_abbreviations_and_port_name_forms_as_typed_in_packet_tracer(self):
+        spec, name = lab('ios', 'router')
+        router = next(n for n in spec['nodes'] if n['name'] == name)
+        expand = lambda line: catalogue.expand(router, line)
+        self.assertEqual(expand('int g0/0/0'), 'interface g0/0/0')
+        self.assertEqual(expand('ip add 192.0.2.1 255.255.255.0'), 'ip address 192.0.2.1 255.255.255.0')
+        self.assertEqual(expand('no shut'), 'no shutdown')
+        self.assertEqual(expand('router os 1'), 'router ospf 1')
+        self.assertEqual(expand('nei 203.0.113.2 remote-as 65002'), 'neighbor 203.0.113.2 remote-as 65002')
+        self.assertEqual(expand('ip ro 0.0.0.0 0.0.0.0 203.0.113.2'), 'ip route 0.0.0.0 0.0.0.0 203.0.113.2')
+        self.assertEqual(expand('i 1'), 'i 1')  # ambiguous: left as typed, the parser answers
+        for typed in ('g0/0/1', 'gi0/0/1', 'GigabitEthernet0/0/1', 'gig0/0/1', 'eth1'):
+            with self.subTest(typed=typed):
+                self.assertEqual(vendor_config._port(router, typed), 'eth1')
+        with self.assertRaises(ValueError):
+            vendor_config._port(router, 'fa0/0/1')
+        spec, name = lab('ios', 'switch')
+        switch = next(n for n in spec['nodes'] if n['name'] == name)
+        self.assertEqual(catalogue.expand(switch, 'sw mo acc'), 'switchport mode access')
+        self.assertEqual(catalogue.expand(switch, 'sw acc vl 20'), 'switchport access vlan 20')
+        self.assertEqual(vendor_config._port(switch, 'FastEthernet0/2'), 'eth1')

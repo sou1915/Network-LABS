@@ -61,12 +61,24 @@ def _network(value, mask=None):
     return str(ipaddress.IPv4Network(value, strict=False))
 
 
+LONG_NAMES = {'gi': 'gigabitethernet', 'fa': 'fastethernet', 'te': 'tengigabitethernet', 'ge': 'gigabitethernet',
+              'xge': 'xgigabitethernet', 'ethernet': 'ethernet', 'et': 'ethernet'}
+
+
 def _port(node, name):
-    """A vendor port name (any case) or an eth name -> the eth port."""
+    """A vendor port name (any case, abbreviated as on the device: g0/0/0, gi0/0/0, GigabitEthernet0/0/0) or an eth name."""
     shown = port_names(node)
+    typed = name.lower().replace(' ', '')
     for port, label in shown.items():
-        if name.lower() in (label.lower(), port.lower()):
+        if typed in (label.lower(), port.lower()):
             return port
+    match = re.fullmatch(r'([a-z-]+)([\d/.:]+)', typed)
+    for port, label in shown.items():
+        parts = re.fullmatch(r'([A-Za-z-]+)([\d/.:]+)', label)
+        if match and parts and match[2] == parts[2]:
+            short = parts[1].lower()
+            if any(full.startswith(match[1]) for full in (short, LONG_NAMES.get(short, short))):
+                return port
     raise ValueError(f'Port inconnu : {name} (ports : {", ".join(shown.values())})')
 
 
@@ -736,6 +748,8 @@ class IOS:
             down = [p for p in node.get('shutdown', []) if p != self.port]
             node['shutdown'] = down + [self.port] if low == 'shutdown' else down
             return
+        if low == 'no shutdown':
+            return  # a micro-VM's ports are always up: the habit of typing it is kept
         if low.startswith('description '):
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')

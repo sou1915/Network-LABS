@@ -92,8 +92,21 @@ class Console:
             return self.context_help(command[:-1])
         if self.syntax is None:
             return self.host(command, low)
+        if self.mode == 'config' and low.startswith('do '):
+            # « do show … » from configuration, as on IOS, which has applied every line typed so far.
+            applied = self.apply(quiet=True) if self.syntax in ('ios', 'eos', 'vrp') else ''
+            shown = self.execute(command[3:].strip())
+            return '\n'.join(part for part in (applied, shown) if part)
+        if self.mode == 'config' and self.syntax in ('ios', 'eos', 'vrp'):
+            command = command_catalogue.expand(self.catalogue_node, command)
+            low = command.lower()
         if self.mode == 'config' or self.entering(low):
             return self.configure(command, low)
+        return self.execute(command)
+
+    def execute(self, command):
+        """An exec-mode command: mode changes, the running configuration, ping or a show command."""
+        low = command.lower()
         if self.syntax in ('ios', 'eos') and low in ('enable', 'en'):
             self.mode = 'enable'
             return ''
@@ -142,7 +155,8 @@ class Console:
         if leaving and self.context is not None:
             self.pending.append(command)  # the parser leaves its sub-mode too
             self.up()
-            return ''
+            # The block just closed (an interface, a routing process…) takes effect now, as each line does on IOS.
+            return self.apply(quiet=True) if self.context is None else ''
         if low in ends.get(self.syntax, ()) or leaving:
             reply = self.apply()
             self.context, self.label = None, ''
@@ -203,37 +217,45 @@ class Console:
             return 'Enter system view, return user view with return command.'
         return '[edit]'
 
-    def apply(self):
-        """The collected lines, read in this vendor's syntax and applied to the running node."""
+    def apply(self, quiet=False):
+        """The collected lines, read in this vendor's syntax and applied to the running node (QUIET: say nothing when
+        nothing changed)."""
         lines, self.pending = self.pending, []
         if not lines:
             return ''
         with self.manager().locked() as manager:
             manager.state = None
             spec = manager.read()['spec']
-            current = self.node(spec)
             try:
                 changed = vendor_config.apply(spec, self.name, '\n'.join(lines))
             except ValueError as error:
                 return '% ' + str(error).replace('\n', '\n% ')
-            wanted = next(n for n in changed['nodes'] if n['name'] == self.name)
-            if wanted == current:
-                return 'Aucun changement.'
-            if wanted.get('firewall') != current.get('firewall'):
-                manager.configure_firewall(self.name, wanted['firewall'])
-                current = dict(current, firewall=wanted['firewall'])
-            if wanted != current:
-                manager.state = None
-                try:
-                    manager.configure_routing(self.name, wanted)
-                except ValueError as error:
-                    return '% Pas applicable à chaud : ' + str(error) + ' (l’atelier : Enregistrer puis redémarrer).'
+            reply = self.change(manager, spec, next(n for n in changed['nodes'] if n['name'] == self.name))
+            return '' if quiet and reply == 'Aucun changement.' else reply
+
+    def change(self, manager, spec, wanted):
+        """Bring the running node to WANTED (lock held): firewall policy, then addresses, routes and protocols."""
+        current = self.node(spec)
+        if wanted == current:
+            return 'Aucun changement.'
+        if wanted.get('firewall') != current.get('firewall'):
+            manager.configure_firewall(self.name, wanted['firewall'])
+            current = dict(current, firewall=wanted['firewall'])
+        if wanted != current:
+            manager.state = None
+            try:
+                manager.configure_routing(self.name, wanted)
+            except ValueError as error:
+                return '% Pas applicable à chaud : ' + str(error) + ' (l’atelier : Enregistrer puis redémarrer).'
         return 'Appliqué au nœud en marche (relu dans la micro-VM).'
 
     # ---- host shell ----
 
     def host(self, command, low):
         words = low.split()
+        if words[:3] in (['ip', 'addr', 'add'], ['ip', 'address', 'add'], ['ip', 'addr', 'del'], ['ip', 'address', 'del'],
+                         ['ip', 'route', 'add'], ['ip', 'route', 'del']):
+            return self.host_change(words)
         if words[0] == 'ping' and len(words) >= 2:
             address = words[-1]
             ipaddress.IPv4Address(address)
@@ -253,6 +275,44 @@ class Console:
         if words == ['hostname']:
             return self.name
         raise ValueError(f'{words[0]}: commande non disponible (ping, ip addr, ip route, hostname, exit).')
+
+    def host_change(self, words):
+        """ip addr add|del A.B.C.D/N dev ethX, ip route add|del default|NET/N via A.B.C.D: applied to the running host."""
+        from .vendor_config import _delete_route, _network, _upsert_route, routes
+        import copy
+        with self.manager().locked() as manager:
+            manager.state = None
+            spec = manager.read()['spec']
+            wanted = copy.deepcopy(self.node(spec))
+            verb = words[2]
+            if words[1] in ('addr', 'address'):
+                if len(words) != 6 or words[4] != 'dev' or words[5] not in wanted['interfaces'] or '/' not in words[3]:
+                    raise ValueError(f'ip addr {verb} A.B.C.D/N dev eth0')
+                cidr, port = str(ipaddress.IPv4Interface(words[3])), words[5]
+                if port in wanted.get('dhcp_clients', []):
+                    raise ValueError(f'{port} prend son adresse par DHCP.')
+                if verb == 'add':
+                    if wanted['interfaces'][port]:
+                        raise ValueError(f'{port} a déjà {wanted["interfaces"][port]} : « ip addr del » d’abord.')
+                    wanted['interfaces'][port] = cidr
+                else:
+                    if wanted['interfaces'][port] != cidr:
+                        raise ValueError(f'{cidr} n’est pas l’adresse de {port}.')
+                    # As on Linux: the routes through that network go with the address.
+                    lost = ipaddress.IPv4Interface(cidr).network
+                    for network, gateway in routes(wanted):
+                        if ipaddress.IPv4Address(gateway) in lost:
+                            _delete_route(wanted, network)
+                    wanted['interfaces'][port] = ''
+            else:
+                if len(words) != 6 or words[4] != 'via':
+                    raise ValueError(f'ip route {verb} default|RÉSEAU/N via A.B.C.D')
+                network = '0.0.0.0/0' if words[3] == 'default' else _network(words[3])
+                if verb == 'add':
+                    _upsert_route(wanted, network, str(ipaddress.IPv4Address(words[5])))
+                else:
+                    _delete_route(wanted, network)
+            return self.change(manager, spec, wanted)
 
     def help(self):
         """The commands of the current mode, one per line, then how to get more."""

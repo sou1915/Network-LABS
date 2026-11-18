@@ -50,6 +50,8 @@ _IOS_COMMON = [
     ('Système', 'config', 'hostname NOM', 'Nom de l’équipement (il doit rester celui du lab).', ['hostname {name}'], ALL),
     ('Interfaces', 'config', 'interface PORT', 'Configurer un port (mode config-if).', ['interface {p0}'], ALL),
     ('Interfaces', 'config-if', 'description TEXTE', 'Commentaire sur le port.', ['interface {p0}', 'description vers-LAN'], ALL),
+    ('Interfaces', 'config-if', 'no shutdown', 'Activer le port (les ports d’une micro-VM sont toujours actifs).',
+     ['interface {p0}', 'no shutdown'], ALL),
     ('Routage statique', 'config', 'no ip route RÉSEAU MASQUE', 'Supprimer une route statique.',
      ['ip route 10.99.0.0 255.255.0.0 {gw}', 'no ip route 10.99.0.0 255.255.0.0'], 'R'),
 ]
@@ -190,6 +192,8 @@ CATALOGUES = {
         ('Interfaces', 'interface', 'ip address A.B.C.D MASQUE', 'Adresse IPv4 du port.',
          ['interface {p0}', 'ip address {ip0} {mask0}'], 'R'),
         ('Interfaces', 'interface', 'description TEXTE', 'Commentaire sur le port.', ['interface {p0}', 'description vers-LAN'], ALL),
+        ('Interfaces', 'interface', 'undo shutdown', 'Activer le port (toujours actif sur une micro-VM).',
+         ['interface {p0}', 'undo shutdown'], ALL),
         ('Routage statique', 'system', 'ip route-static RÉSEAU MASQUE PASSERELLE', 'Route statique.',
          ['ip route-static 10.99.0.0 255.255.0.0 {gw}'], 'R'),
         ('Routage statique', 'system', 'undo ip route-static RÉSEAU MASQUE', 'Supprimer une route statique.',
@@ -376,6 +380,14 @@ CATALOGUES = {
         ('Vérification', 'shell', 'ip addr', 'Les ports et leurs adresses (sortie BusyBox).', ['ip addr'], 'H'),
         ('Vérification', 'shell', 'ip route', 'La table de routage du nœud.', ['ip route'], 'H'),
         ('Vérification', 'shell', 'ping A.B.C.D', 'Envoyer 4 échos ICMP.', ['ping {gw}'], 'H'),
+        ('Adressage', 'shell', 'ip addr add A.B.C.D/N dev PORT', 'Donner une adresse IPv4 au port (appliquée aussitôt).',
+         ['ip addr add 192.0.2.10/24 dev {p0}'], 'H'),
+        ('Adressage', 'shell', 'ip addr del A.B.C.D/N dev PORT', 'Retirer l’adresse du port.', ['ip addr del {ip0}/{len0} dev {p0}'], 'H'),
+        ('Adressage', 'shell', 'ip route add default via A.B.C.D', 'La passerelle par défaut (sur le réseau du port).',
+         ['ip route add default via {peer0}'], 'H'),
+        ('Adressage', 'shell', 'ip route add RÉSEAU/N via A.B.C.D', 'Une route statique.', ['ip route add 10.99.0.0/16 via {peer0}'], 'H'),
+        ('Adressage', 'shell', 'ip route del default|RÉSEAU/N via A.B.C.D', 'Supprimer une route.',
+         ['ip route del default via {peer0}'], 'H'),
         ('Système', 'shell', 'hostname', 'Le nom du nœud.', ['hostname'], 'H'),
         ('Système', 'shell', 'exit', 'Fermer le terminal.', ['exit'], 'H'),
     ],
@@ -506,6 +518,40 @@ def _modes_visible(syntax, mode):
     if syntax == 'routeros':
         return {'exec', 'config'}  # RouterOS applies each /menu line at once: no configuration mode
     return {mode}
+
+
+def expand(node, line):
+    """IOS-style abbreviations: each keyword typed as a unique prefix of the words the catalogue allows at that place
+    (« int g0/0/0 », « ip add », « no shut », « sw mo acc ») becomes the full word; values are left as typed."""
+    syntax = syntax_of(node)
+    if syntax not in ('ios', 'eos', 'vrp'):
+        return line
+    patterns = [e['syntax'].split() for e in entries(node)]  # keywords are lower case, placeholders upper case
+    typed, done = line.split(), []
+    for index, word in enumerate(typed):
+        low = word.lower()
+        options = set()
+        for pattern in patterns:
+            if len(pattern) <= index or any(not _fits(pattern[i], w) for i, w in enumerate(done)):
+                continue
+            options.update(c for c in pattern[index].split('|') if c.isascii() and c.islower() and not c.startswith('['))
+        chosen = [o for o in options if o.startswith(low)]
+        if low in options or len(chosen) != 1:
+            done.append(low if low in options else word)
+            if low not in options and not chosen:
+                done.extend(typed[index + 1:])
+                break
+            continue
+        done.append(chosen[0])
+    return ' '.join(done)
+
+
+def _fits(pattern_word, word):
+    """Whether a typed (expanded) word fits one word of a syntax line: a keyword, its alternatives, or a placeholder."""
+    alternatives = pattern_word.split('|')
+    if any(not (a.isascii() and a.islower()) or a.startswith('[') for a in alternatives):
+        return True  # a placeholder (A.B.C.D, PORT, NOM…) takes any value
+    return word.lower() in alternatives
 
 
 def completions(node, mode, buffer):

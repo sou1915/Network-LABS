@@ -36,7 +36,7 @@ class TopologyEditTests(unittest.TestCase):
             with self.subTest(operation=operation),self.assertRaises(ValueError):operation()
             self.assertEqual(self.spec,original)
         single=edit.remove_node(edit.remove_node(self.spec,'PC1'),'PC2')
-        with self.assertRaises(ValueError):edit.remove_node(single,'SW1')
+        self.assertEqual(edit.remove_node(single,'SW1')['nodes'],[])  # an empty project is a blank canvas
 
     def test_extend_full_switch_without_mutating_original_or_renaming_ports(self):
         self.assertEqual(edit.next_port(self.spec,'SW1'),'eth2')
@@ -97,7 +97,7 @@ class MicroVMDraftTests(unittest.TestCase):
         before = json.dumps(spec, sort_keys=True)
         bad = [dict(role='router', ports=2, addresses='10.9.0.1/24'), dict(role='router', ports=5, addresses=''),
                dict(role='router', ports=2, addresses='dhcp'), dict(role='host', ports=2, addresses='dhcp'),
-               dict(role='server', ports=1, addresses='10.9.0.1/24'), dict(role='host', ports=1, addresses='')]
+               dict(role='server', ports=1, addresses='10.9.0.1/24'), dict(role='router', ports=1, addresses='')]
         for case in bad:
             with self.subTest(case=case), self.assertRaises(ValueError):
                 edit.add_microvm_node(spec, name='X1', kernel='/kernel', disk='/disk', **case)

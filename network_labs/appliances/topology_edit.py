@@ -41,10 +41,13 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
         if role != 'host' or ports != 1:
             raise ValueError('DHCP : uniquement pour un poste à une interface.')
         node.update(interfaces={'eth0': ''}, dhcp_clients=['eth0'])
+    elif not text:
+        node['interfaces'] = {f'eth{i}': '' for i in range(ports)}  # unconfigured, as a new device: set from its terminal
     else:
-        values = [value.strip() for value in text.split(',')] if text else []
-        if len(values) != ports or not all(values):
-            raise ValueError(f'Donner une adresse IPv4/préfixe par interface ({ports}), séparées par des virgules, ou « dhcp ».')
+        values = [value.strip() for value in text.split(',')]
+        if len(values) != ports:
+            raise ValueError(f'Donner une adresse IPv4/préfixe par interface ({ports}) ou rien, séparées par des virgules, '
+                             'ou « dhcp ».')
         node['interfaces'] = {f'eth{i}': value for i, value in enumerate(values)}
     if role == 'firewall':
         node['firewall'] = {'default': 'drop', 'stateful': True, 'rules': [], 'nat': []}

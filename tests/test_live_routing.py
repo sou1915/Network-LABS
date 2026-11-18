@@ -46,6 +46,22 @@ class ChangeRoutingTest(unittest.TestCase):
             self.run_change(r1, r1, readback={'addresses': [], 'routes': [{'network': '10.0.0.0/8', 'gateway': '1.1.1.1'}]})
 
 
+    def test_an_address_typed_on_a_running_router_replaces_the_old_one_between_the_routes(self):
+        lab = router_chain_example('/k', '/d')
+        old = lab['nodes'][0]
+        new = copy.deepcopy(old)
+        new['interfaces']['eth1'] = '203.0.113.5/30'
+        new['guest_network']['routes'] = [{'network': '198.51.100.0/24', 'gateway': '203.0.113.6'}]
+        self.assertEqual(self.run_change(old, new), [
+            ('route-delete', {'network': '198.51.100.0/24', 'gateway': '203.0.113.2', 'interface': 'eth1'}),
+            ('address-delete', {'interface': 'eth1', 'cidr': '203.0.113.1/30'}),
+            ('address-add', {'interface': 'eth1', 'cidr': '203.0.113.5/30'}),
+            ('route-add', {'network': '198.51.100.0/24', 'gateway': '203.0.113.6', 'interface': 'eth1'})])
+        fresh = copy.deepcopy(old)
+        fresh['interfaces']['eth0'] = ''  # a new, unconfigured port: only the address is added
+        self.assertEqual(self.run_change(fresh, old), [('address-add', {'interface': 'eth0', 'cidr': '192.0.2.1/24'})])
+
+
 class ConfigureRoutingTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -77,7 +93,7 @@ class ConfigureRoutingTest(unittest.TestCase):
 
     def test_other_changes_are_refused_and_failures_roll_back(self):
         moved = self.fixed()
-        moved['interfaces']['eth0'] = '192.0.2.2/24'
+        moved['memory_mib'] = 192  # the machine itself still needs a restart
         with self.manager.locked():
             self.manager.state = None
             with self.assertRaisesRegex(ValueError, 'restart'):

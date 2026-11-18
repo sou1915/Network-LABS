@@ -53,6 +53,24 @@ Le même travail se lance depuis l'atelier : onglet Scénarios, bouton
 activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network LABS
 (`tools/guest_kernel/build.sh`).
 
+### Utilisation, comme dans Packet Tracer
+
+Une fois la machine préparée (`setup`, ci-dessous) :
+
+1. **Ajouter** : cliquer (ou glisser sur le plan) un équipement de la bibliothèque : routeur Cisco, Juniper,
+   Huawei…, switch, pare-feu, PC. Il apparaît aussitôt, sans formulaire, ses ports non configurés.
+2. **Câbler** : « Connecter un câble », puis cliquer les deux équipements (premiers ports libres ; Ctrl+clic pour
+   choisir les ports).
+3. **▶ Démarrer** (le projet s'enregistre tout seul dans `~/.local/share/network-labs/projects/`).
+4. **Configurer** : double-clic sur un équipement ouvre son terminal. Sur un routeur Cisco :
+   `en`, `conf t`, `int g0/0/0`, `ip add 192.168.1.1 255.255.255.0`, `no shut`, `end` ; sur un PC :
+   `ip addr add 192.168.1.10/24 dev eth0` et `ip route add default via 192.168.1.1`. Tout s'applique sur
+   l'équipement en marche, sans redémarrer.
+
+Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme
+les noms de ports usuels (`g0/0/0`, `gi0/0/0`, `GigabitEthernet0/0/0`). Le formulaire complet reste disponible
+par un clic droit sur la bibliothèque ou « Édition › Ajouter (options avancées)… ».
+
 ### Taper les commandes : terminal et catalogue de commandes
 
 Chaque nœud micro-VM se configure à la main dans son terminal (onglet CLI, « Ouvrir le terminal de … »), avec

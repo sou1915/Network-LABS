@@ -156,6 +156,40 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertTrue(window.open_console())
         self.assertEqual(launch.call_args.args[0][-3:], [window.view_lab, 'R7', 'guest'])
 
+    def test_packet_tracer_style_blank_project_one_click_devices_two_click_cable_and_dialog_free_save(self):
+        from network_labs.appliances import progress, ui_quick
+        window = self.window
+        self.assertTrue(window.new())
+        self.root.update()
+        self.assertEqual(window.manifest()['nodes'], [])
+        self.assertTrue(window.canvas.find_withtag('hint'))  # the blank canvas says how to begin
+        paths = {'missions': {}, 'paths': {'kernel': '/assets/vmlinux', 'disk': '/assets/guest.ext4'}, 'seen': []}
+        with patch.object(progress, 'load', return_value=paths):
+            self.assertEqual(window.quick_add('router', 'cisco-isr4331', at=(200, 200)), 'R1')
+            self.assertEqual(window.quick_add('router', 'juniper-mx204'), 'R2')
+            self.assertEqual(window.quick_add('host'), 'PC1')
+        self.root.update()
+        nodes = {n['name']: n for n in window.manifest()['nodes']}
+        self.assertEqual(nodes['R1']['interfaces'], {'eth0': '', 'eth1': '', 'eth2': ''})  # the ISR's three ports, unconfigured
+        self.assertEqual((nodes['R1']['runtime'], nodes['R1']['kernel']), ('firecracker', '/assets/vmlinux'))
+        self.assertEqual(window.positions['R1'], (200, 200))
+        window.set_edit_mode('cable')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R2')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'PC1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        self.root.update()
+        self.assertEqual(window.manifest()['links'], [[['R1', 'eth0'], ['R2', 'eth0']], [['PC1', 'eth0'], ['R1', 'eth1']]])
+        self.assertIn('gi0/0/1', window.note.get())  # the vendor's port name
+        with tempfile.TemporaryDirectory() as directory, patch.object(ui_quick, 'projects_dir', return_value=Path(directory)):
+            self.assertTrue(window.save())  # never saved: the projects folder, no file dialog
+            self.assertTrue((Path(directory) / 'mon-lab.json').is_file())
+        with patch.object(progress, 'load', return_value={'missions': {}, 'paths': {}, 'seen': []}), \
+                patch('tkinter.messagebox.askyesno', return_value=False) as ask:
+            window.new()
+            self.assertIsNone(window.quick_add('router'))  # nothing prepared: offered to prepare the computer
+            ask.assert_called_once()
+
     def test_command_catalogue_window_lists_the_nodes_commands_and_copies_an_example(self):
         from network_labs.appliances.microvm import bgp_example
         window = self.window
@@ -214,9 +248,13 @@ class WorkbenchGUITests(unittest.TestCase):
         window.commit_edit(edit.add_node(spec,name='SW2',role='switch',rootfs='/tmp/rootfs',ports=4))
         self.root.update();self.assertIn('SW2',window.node_shapes);self.assertFalse(window.states)
         window.set_edit_mode('cable')
-        with patch.object(window,'connect_dialog') as connect:
+        with patch.object(window,'connect_dialog') as connect,patch.object(window,'auto_connect') as auto:
             window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
-            window.node_pressed(SimpleNamespace(x=30,y=30),'SW2')
+            window.node_pressed(SimpleNamespace(x=30,y=30),'SW2')  # a plain click: the first free ports, no dialog
+            auto.assert_called_once_with('SW1','SW2')
+            connect.assert_not_called()
+            window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
+            window.node_pressed(SimpleNamespace(x=30,y=30,state=4),'SW2')  # Ctrl-click: choose the ports
             connect.assert_called_once_with('SW1','SW2')
         window.set_edit_mode(None);before=window.drawn_positions['SW2']
         window.node_pressed(SimpleNamespace(x=100,y=100),'SW2')

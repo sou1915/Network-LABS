@@ -121,8 +121,12 @@ class GuestStartupTests(unittest.TestCase):
     def test_router_role_needs_two_ports_and_stays_a_micro_vm_role(self):
         from network_labs.appliances.microvm import router_example
         spec=router_example('/kernel','/disk');spec['nodes'][0]['interfaces']={'eth0':'192.0.2.1/24'}
-        with self.assertRaisesRegex(ValueError, 'two routed interfaces'):
+        with self.assertRaisesRegex(ValueError, 'two interfaces'):
             validate(spec)
+        spec=router_example('/kernel','/disk')
+        spec['nodes'][0]['interfaces']['eth1']=''
+        spec['nodes'][0]['guest_network']={'addresses':[],'routes':[]}
+        self.assertEqual(validate(spec)['nodes'][0]['interfaces']['eth1'],'')  # a port not configured yet, as on a new router
         for role in ('switch','firewall'):
             spec=router_example('/kernel','/disk');spec['nodes'][0]['role']=role
             with self.subTest(role=role),self.assertRaises(ValueError):validate(spec)
@@ -211,7 +215,6 @@ class GuestStartupTests(unittest.TestCase):
         self.assertEqual((client['interfaces'], client['dhcp_clients'], router['dhcp_server']['router']), ({'eth0': ''}, ['eth0'], '192.0.2.1'))
         changes = {'client on a router': lambda nodes: nodes[0].update(dhcp_clients=['eth0'], interfaces={'eth0': '', 'eth1': '198.51.100.1/24'}),
                    'client with a static gateway': lambda nodes: nodes[1].update(gateway='192.0.2.1'),
-                   'unnumbered port without DHCP': lambda nodes: nodes[1].update(dhcp_clients=[]),
                    'remote pool': lambda nodes: nodes[0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router=''),
                    'reservation': lambda nodes: nodes[0]['dhcp_server'].update(reservations=[{'mac': '02:00:00:00:00:01', 'address': '192.0.2.110'}]),
                    'extra address on a DHCP port': lambda nodes: nodes[1].update(guest_network={'addresses': ['198.18.0.1/32'], 'routes': []})}
@@ -395,7 +398,7 @@ class RouterOnAStickTests(unittest.TestCase):
         from network_labs.appliances.microvm import router_on_a_stick_example
         spec = router_on_a_stick_example('/kernel', '/disk')
         changes = {
-            'one routed interface': lambda r: r['subinterfaces'].pop('eth0.20'),
+            'a single interface': lambda r: r['subinterfaces'].clear(),
             'subinterface without address': lambda r: r['subinterfaces']['eth0.20'].update(address=''),
             'subinterface on an undeclared port': lambda r: r['subinterfaces'].update(
                 {'eth1.30': {'parent': 'eth1', 'vlan': 30, 'address': '203.0.113.1/24'}}),
