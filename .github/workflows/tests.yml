@@ -76,7 +76,7 @@ jobs:
       - name: Require real KVM
         run: test -c /dev/kvm
       - name: Install guest and fabric tools
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2 frr
       - name: Fetch pinned official Firecracker and guest kernel
         run: |
           curl -fL --retry 3 https://github.com/firecracker-microvm/firecracker/releases/download/v1.10.1/firecracker-v1.10.1-x86_64.tgz -o /tmp/firecracker.tgz
@@ -87,7 +87,7 @@ jobs:
           curl -fL --retry 3 https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223 -o /tmp/vmlinux
           echo '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65  /tmp/vmlinux' | sha256sum -c -
       - name: Verify actual guests under the Firecracker jailer (unprivileged VMM, chroot, cgroup caps)
-        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_missions tests.test_native_microvm_ospf tests.test_native_microvm_scenarios -v
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_missions tests.test_native_microvm_ospf tests.test_native_microvm_scenarios tests.test_native_microvm_bgp -v
       - name: Verify actual guests with the direct launch used when no jailer is installed
         if: always()
         run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v

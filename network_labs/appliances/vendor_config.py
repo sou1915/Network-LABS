@@ -162,6 +162,41 @@ def _acl_address(prefix):
     return f'{network.network_address} {network.hostmask}'
 
 
+def _bgp_policy(node, asn=None):
+    if node['role'] != 'router':
+        raise ValueError('BGP : uniquement sur un routeur.')
+    if node.get('bgp') is None:
+        if asn is None:
+            raise ValueError('BGP : router bgp <AS> d’abord.')
+        node['bgp'] = {'asn': asn, 'router_id': '', 'neighbors': [], 'networks': []}
+    elif asn is not None and node['bgp']['asn'] != asn:
+        raise ValueError(f'BGP : ce routeur est déjà dans l’AS {node["bgp"]["asn"]} (no router bgp pour en changer).')
+    return node['bgp']
+
+
+def _bgp_neighbor(node, address, remote_as=None, remove=False):
+    policy = _bgp_policy(node)
+    address = str(ipaddress.IPv4Address(address))
+    policy['neighbors'] = [n for n in policy['neighbors'] if n['address'] != address]
+    if not remove:
+        policy['neighbors'].append({'address': address, 'remote_as': int(remote_as)})
+
+
+def _bgp_network(node, prefix, remove=False):
+    policy = _bgp_policy(node)
+    prefix = str(ipaddress.IPv4Network(prefix, strict=False))
+    policy['networks'] = [n for n in policy['networks'] if n != prefix] + ([] if remove else [prefix])
+
+
+def _bgp_finish(node):
+    policy = node.get('bgp')
+    if policy is not None and not policy.get('router_id'):
+        addresses = [ipaddress.IPv4Interface(a).ip for a in node['interfaces'].values() if a]
+        if not addresses:
+            raise ValueError('BGP : router-id requis.')
+        policy['router_id'] = str(max(addresses))  # like IOS: the highest interface address
+
+
 def _ospf_policy(node):
     if node['role'] != 'router':
         raise ValueError('OSPF : uniquement sur un routeur.')
@@ -308,6 +343,14 @@ def _render_ios(node, eos=False):
             lines.append(f' {index * 10} {entry["action"]} {entry["protocol"]} {_acl_address(entry["source"])} '
                          f'{_acl_address(entry["destination"])}{port}')
         lines.append('!')
+    if node.get('bgp'):
+        policy = node['bgp']
+        lines += [f'router bgp {policy["asn"]}', f' bgp router-id {policy["router_id"]}']
+        lines += [f' neighbor {n["address"]} remote-as {n["remote_as"]}' for n in policy['neighbors']]
+        for network in policy['networks']:
+            net = ipaddress.IPv4Network(network)
+            lines.append(f' network {network}' if eos else f' network {net.network_address} mask {net.netmask}')
+        lines.append('!')
     if node.get('ospf'):
         policy = node['ospf']
         lines += [f'router ospf {policy["process_id"]}', f' router-id {policy["router_id"]}']
@@ -346,6 +389,15 @@ def _render_vrp(node):
             elif ospf_port['priority'] != 1:
                 lines.append(f' ospf dr-priority {ospf_port["priority"]}')
             lines.append(f' ospf cost {ospf_port["cost"]}')
+        lines.append('#')
+    if node.get('bgp'):
+        policy = node['bgp']
+        lines += [f'bgp {policy["asn"]}', f' router-id {policy["router_id"]}']
+        lines += [f' peer {n["address"]} as-number {n["remote_as"]}' for n in policy['neighbors']]
+        lines.append(' ipv4-family unicast')
+        for network in policy['networks']:
+            net = ipaddress.IPv4Network(network)
+            lines.append(f'  network {net.network_address} {net.netmask}')
         lines.append('#')
     if node.get('ospf'):
         policy = node['ospf']
@@ -479,8 +531,18 @@ def _render_junos(node):
             lines.append(f'set interfaces {shown[port]} unit 0 family inet address {address}')
     for network, gateway in routes(node):
         lines.append(f'set routing-options static route {network} next-hop {gateway}')
+    router_id = (node.get('ospf') or node.get('bgp') or {}).get('router_id')
+    if router_id:
+        lines.append(f'set routing-options router-id {router_id}')
+    if node.get('bgp'):
+        policy = node['bgp']
+        lines += [f'set routing-options autonomous-system {policy["asn"]}', 'set protocols bgp group EBGP type external']
+        lines += [f'set protocols bgp group EBGP neighbor {n["address"]} peer-as {n["remote_as"]}' for n in policy['neighbors']]
+        if policy['networks']:
+            lines.append('set protocols bgp group EBGP export ANNONCE-BGP')
+            lines += [f'set policy-options policy-statement ANNONCE-BGP term 1 from route-filter {n} exact' for n in policy['networks']]
+            lines.append('set policy-options policy-statement ANNONCE-BGP term 1 then accept')
     if node.get('ospf'):
-        lines.append(f'set routing-options router-id {node["ospf"]["router_id"]}')
         for port, value in _ospf_enabled(node).items():
             stem = f'set protocols ospf area 0.0.0.0 interface {shown[port]}.0'
             lines.append(stem + (' interface-type p2p' if value['network_type'] == 'point-to-point' else ''))
@@ -546,6 +608,7 @@ class IOS:
         self.excluded = None  # 'ip dhcp excluded-address' ranges, when the block sets any
         self.ospf = False  # inside 'router ospf'
         self.acl = None  # inside 'ip access-list extended NAME'
+        self.bgp = False  # inside 'router bgp'
         self.ospf_ports = {}  # per-port OSPF settings, applied once the networks are known
 
     def line(self, command):
@@ -553,7 +616,7 @@ class IOS:
         if low in ('enable', 'configure terminal', 'conf t', 'write memory', 'wr'):
             return
         if low in ('end', 'exit'):
-            self.port, self.ospf, self.acl = None, False, None
+            self.port, self.ospf, self.acl, self.bgp = None, False, None, False
             if self.pool is not None:
                 self.pool['open'] = False
             return
@@ -562,6 +625,17 @@ class IOS:
             return _check_hostname(node, words[1])
         if low.startswith(('ip dhcp ', 'no ip dhcp ')) or (self.pool is not None and self.pool.get('open')):
             return self._dhcp(low, words)
+        match = re.fullmatch(r'(no )?router bgp (\d+)', low)
+        if match:
+            if match[1]:
+                node['bgp'], self.bgp = None, False
+            else:
+                _bgp_policy(node, int(match[2]))
+                self.port, self.ospf, self.acl, self.bgp = None, False, None, True
+            return
+        if self.bgp and not low.startswith('interface ') and self._bgp(low, words):
+            return
+        self.bgp = False
         match = re.fullmatch(r'(no )?ip access-list extended (\S+)', low)
         if match:
             name = words[-1]
@@ -666,6 +740,35 @@ class IOS:
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
 
+    def _bgp(self, low, words):
+        """One 'router bgp' sub-command; False for a global command, which leaves the BGP section."""
+        node = self.node
+        match = re.fullmatch(r'bgp router-id (\S+)', low)
+        if match:
+            _bgp_policy(node)['router_id'] = str(ipaddress.IPv4Address(match[1]))
+            return True
+        match = re.fullmatch(r'(no )?neighbor (\S+) remote-as (\d+)', low) or re.fullmatch(r'(no )?neighbor (\S+)()', low)
+        if match:
+            _bgp_neighbor(node, match[2], match[3] or None, remove=bool(match[1]))
+            return True
+        match = re.fullmatch(r'(no )?network (\S+)(?: mask (\S+))?', low)
+        if match:
+            if '/' in match[2]:
+                prefix = match[2]  # EOS: network A.B.C.D/N
+            elif match[3]:
+                prefix = _network(match[2], match[3])
+            else:
+                first = int(match[2].split('.')[0])  # IOS without a mask: the classful network
+                prefix = f'{match[2]}/{8 if first < 128 else 16 if first < 192 else 24}'
+            _bgp_network(node, prefix, remove=bool(match[1]))
+            return True
+        if low.startswith(('address-family ipv4', 'exit-address-family', 'bgp log-neighbor-changes', 'no bgp default ipv4-unicast',
+                           'no synchronization', 'no auto-summary')):
+            return True
+        if low.startswith(('ip ', 'no ip ', 'hostname ', 'vlan ', 'no vlan ', 'router ')):
+            return False
+        raise ValueError('router bgp : bgp router-id, neighbor A.B.C.D remote-as N, network A.B.C.D mask M.')
+
     def _acl_entry(self, low, words):
         """One line of 'ip access-list extended': [SEQ] permit|deny PROTO SRC DST [eq PORT], no SEQ, remark.
         False for a global command, which leaves the list."""
@@ -767,6 +870,7 @@ class IOS:
 
     def finish(self):
         _ospf_finish(self.node, self.ospf_ports)
+        _bgp_finish(self.node)
         if self.pool is None:
             return
         node, pool = self.node, self.pool
@@ -849,6 +953,27 @@ class VRP(IOS):
             return super().line('exit')
         if words[0].lower() == 'sysname':
             return super().line('hostname ' + words[1])
+        match = re.fullmatch(r'(undo )?bgp (\d+)', low)
+        if match:
+            return super().line(('no ' if match[1] else '') + f'router bgp {match[2]}')
+        if self.bgp:
+            match = re.fullmatch(r'router-id (\S+)', low)
+            if match:
+                return super().line('bgp router-id ' + match[1])
+            match = re.fullmatch(r'(undo )?peer (\S+) as-number (\d+)', low)
+            if match:
+                return super().line(('no ' if match[1] else '') + f'neighbor {match[2]} remote-as {match[3]}')
+            match = re.fullmatch(r'undo peer (\S+)', low)
+            if match:
+                return super().line(f'no neighbor {match[1]}')
+            if low in ('ipv4-family unicast', 'ipv4-family'):
+                return None
+            match = re.fullmatch(r'(undo )?network (\S+)(?: (\S+))?', low)
+            if match:
+                mask = match[3]
+                prefix = f'{match[2]}/{mask}' if mask and mask.isdigit() else match[2]
+                suffix = f' mask {mask}' if mask and not mask.isdigit() else ''
+                return super().line(('no ' if match[1] else '') + f'network {prefix}' + suffix)
         match = re.fullmatch(r'(undo )?ospf (\d+)(?: router-id (\S+))?', low)
         if match:
             super().line(('no ' if match[1] else '') + f'router ospf {match[2]}')
@@ -1282,6 +1407,15 @@ class Junos:
 
     def __init__(self, node):
         self.node = node
+        self.router_id = None  # routing-options router-id: OSPF's and BGP's, set at the end
+        # BGP as Junos holds it: groups of peers and export policies. It starts from the router's current BGP, so a
+        # block that only adds a neighbour keeps the rest.
+        bgp = node.get('bgp')
+        self.asn = bgp['asn'] if bgp else None
+        self.groups = {'EBGP': {'neighbors': {n['address']: n['remote_as'] for n in bgp['neighbors']}, 'peer_as': None,
+                                'exports': ['ANNONCE-BGP']}} if bgp else {}
+        self.policies = {'ANNONCE-BGP': list(bgp['networks'])} if bgp else {}
+        self.bgp_touched = False
 
     def line(self, command):
         node, words = self.node, command.split()
@@ -1308,11 +1442,15 @@ class Junos:
                 raise ValueError('set routing-options static route <réseau/n> next-hop <a.b.c.d>')
             return _upsert_route(node, network, rest[5])
         if rest[:2] == ['routing-options', 'router-id'] and len(rest) == 3:
-            if verb == 'delete':
-                _ospf_policy(node)['router_id'] = ''
-                return
-            _ospf_policy(node)['router_id'] = str(ipaddress.IPv4Address(rest[2]))
+            self.router_id = '' if verb == 'delete' else str(ipaddress.IPv4Address(rest[2]))
             return
+        if rest[:2] == ['routing-options', 'autonomous-system'] and len(rest) == 3:
+            self.asn, self.bgp_touched = (None if verb == 'delete' else int(rest[2])), True
+            return
+        if rest[:2] == ['protocols', 'bgp']:
+            return self._bgp(verb, rest[2:])
+        if rest[:2] == ['policy-options', 'policy-statement'] and len(rest) >= 3:
+            return self._policy(verb, rest[2:])
         if rest[:2] == ['protocols', 'ospf']:
             return self._ospf(verb, rest[2:])
         if rest[:1] == ['security']:
@@ -1347,8 +1485,84 @@ class Junos:
         else:
             raise ValueError('Option OSPF Junos : passive, metric N, priority N, interface-type p2p.')
 
+    def _bgp(self, verb, rest):
+        self.bgp_touched = True
+        if not rest:
+            if verb == 'delete':
+                self.groups, self.asn = {}, None
+                return
+            raise ValueError('set protocols bgp group NOM …')
+        if rest[0] != 'group' or len(rest) < 2:
+            raise ValueError('set protocols bgp group NOM type external | peer-as N | neighbor A.B.C.D [peer-as N] | export POLITIQUE')
+        name, option = rest[1], rest[2:]
+        if verb == 'delete' and not option:
+            self.groups.pop(name, None)
+            return
+        group = self.groups.setdefault(name, {'neighbors': {}, 'peer_as': None, 'exports': []})
+        if option == ['type', 'external']:
+            return
+        if option[:1] == ['type']:
+            raise ValueError('BGP Junos : type external uniquement (iBGP pas encore).')
+        if option[:1] == ['peer-as'] and len(option) == 2:
+            group['peer_as'] = None if verb == 'delete' else int(option[1])
+            return
+        if option[:1] == ['neighbor'] and len(option) in (2, 4):
+            address = str(ipaddress.IPv4Address(option[1]))
+            if verb == 'delete':
+                group['neighbors'].pop(address, None)
+            elif len(option) == 4 and option[2] == 'peer-as':
+                group['neighbors'][address] = int(option[3])
+            else:
+                group['neighbors'][address] = None  # the group's peer-as
+            return
+        if option[:1] == ['export'] and len(option) == 2:
+            group['exports'] = [e for e in group['exports'] if e != option[1]] + ([] if verb == 'delete' else [option[1]])
+            return
+        raise ValueError('Option BGP Junos : type external, peer-as N, neighbor A.B.C.D [peer-as N], export POLITIQUE.')
+
+    def _policy(self, verb, rest):
+        """policy-statement NAME term T from route-filter PREFIX exact | then accept: the prefixes BGP announces."""
+        name, option = rest[0], rest[1:]
+        self.bgp_touched = True
+        if verb == 'delete' and not option:
+            self.policies.pop(name, None)
+            return
+        prefixes = self.policies.setdefault(name, [])
+        if len(option) >= 2 and option[0] == 'term':
+            option = option[2:]
+        if option[:2] == ['from', 'route-filter'] and len(option) == 4 and option[3] == 'exact':
+            prefix = _network(option[2])
+            self.policies[name] = [p for p in prefixes if p != prefix] + ([] if verb == 'delete' else [prefix])
+            return
+        if option == ['then', 'accept']:
+            return
+        raise ValueError('Politique Junos : term T from route-filter A.B.C.D/N exact, puis term T then accept.')
+
     def finish(self):
-        _ospf_finish(self.node, {})
+        node = self.node
+        if self.bgp_touched:
+            if not self.groups or not any(g['neighbors'] for g in self.groups.values()):
+                node['bgp'] = None
+            else:
+                if self.asn is None:
+                    raise ValueError('BGP Junos : set routing-options autonomous-system N.')
+                neighbors = []
+                for group in self.groups.values():
+                    for address, remote in group['neighbors'].items():
+                        if (remote or group['peer_as']) is None:
+                            raise ValueError(f'BGP Junos : peer-as manquant pour {address}.')
+                        neighbors.append({'address': address, 'remote_as': remote or group['peer_as']})
+                exported = {e for g in self.groups.values() for e in g['exports']}
+                networks = sorted({p for name, prefixes in self.policies.items() if name in exported for p in prefixes})
+                current = node.get('bgp') or {}
+                node['bgp'] = {'asn': self.asn, 'router_id': current.get('router_id', ''), 'neighbors': neighbors,
+                               'networks': networks}
+        if self.router_id is not None:
+            for key in ('ospf', 'bgp'):
+                if node.get(key) is not None:
+                    node[key]['router_id'] = self.router_id
+        _bgp_finish(node)
+        _ospf_finish(node, {})
 
 
 class RouterOS:

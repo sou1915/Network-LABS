@@ -93,8 +93,36 @@ def install_bird(root, daemon, client):
         target.chmod(0o755)
 
 
+FRR_PROGRAMS = {'zebra': '/usr/lib/frr/zebra', 'bgpd': '/usr/lib/frr/bgpd', 'vtysh': '/usr/bin/vtysh'}
+
+
+def install_frr(root, programs=None):
+    """Copy FRR's zebra, bgpd and vtysh with their libraries (BGP on router guests). FRR runs as root in the guest and
+    still looks up root and its vty group by name, so the image gets those account entries."""
+    programs = programs or FRR_PROGRAMS
+    for name, destination in FRR_PROGRAMS.items():
+        program = Path(programs[name]).resolve()
+        _copy_files(root, _libraries(program, 'routing'))
+        target = root / destination.lstrip('/')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(program, target)
+        target.chmod(0o755)
+    etc = root / 'etc'
+    passwd, group = etc / 'passwd', etc / 'group'
+    if not passwd.exists() or 'root:' not in passwd.read_text():
+        with passwd.open('a') as stream:
+            stream.write('root:x:0:0:root:/root:/bin/sh\n')
+    lines = group.read_text().splitlines() if group.exists() else []
+    if not any(line.startswith('root:') for line in lines):
+        lines.append('root:x:0:')
+    for entry in ('frrvty:x:85:root', 'frr:x:86:root'):
+        if not any(line.startswith(entry.split(':')[0] + ':') for line in lines):
+            lines.append(entry)
+    group.write_text('\n'.join(lines) + '\n')
+
+
 def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False,
-          iptables=None, with_routing=False, bird=None, birdc=None):
+          iptables=None, with_routing=False, bird=None, birdc=None, frr=None):
     """Publish a complete ext4 image exclusively; never overwrite an existing path."""
     if type(size_mib) is not int or not 16 <= size_mib <= 1024:
         raise ValueError('Guest disk size must be an integer between 16 and 1024 MiB.')
@@ -139,6 +167,10 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             if not (Path(daemon).is_file() and Path(client).is_file()):
                 raise ValueError('Guest routing needs BIRD 2 on this machine (package bird2).')
             install_bird(root, daemon, client)
+            frr = frr or FRR_PROGRAMS
+            if not all(Path(path).is_file() for path in frr.values()):
+                raise ValueError('Guest routing needs FRR on this machine (package frr) for BGP.')
+            install_frr(root, frr)
         (root / 'etc/inittab').write_text(inittab)
         (root / 'etc/shadow').write_text('root:!:0:0:99999:7:::\n')
         (root / 'etc/shadow').chmod(0o600)

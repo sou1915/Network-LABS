@@ -184,6 +184,40 @@ static int has_nftables(void) {
 }
 /* OSPFv2 area 0 with BIRD 2. The daemon configuration is written here, from typed fields only:
    "ROUTER_ID HELLO DEAD PORT:COST:STUB:TYPE:PRIORITY[,...]" with STUB y|n and TYPE p (point-to-point) or b (broadcast). */
+/* eBGP with FRR (zebra and bgpd). The configuration is written here from typed fields only:
+   "ASN ROUTER_ID ADDRESS:REMOTE_AS[,...] PREFIX[,...]|-". The networks are announced only if they are in the
+   routing table (FRR's import check), as on a real router. */
+static int valid_asn(const char *value) {
+    if (!value[0] || value[0] == '0' || strspn(value, "0123456789") != strlen(value) || strlen(value) > 10) return 0;
+    unsigned long long number = strtoull(value, NULL, 10); return number >= 1 && number <= 4294967295ULL;
+}
+static int bgp_render(const char *fields, char *out, size_t size) {
+    char asn[11], rid[16], peers[120], networks[160], extra;
+    if (sscanf(fields, "%10s %15s %119s %159s %c", asn, rid, peers, networks, &extra) != 4) return -1;
+    if (!valid_asn(asn) || !valid_ipv4(rid)) return -1;
+    int n = snprintf(out, size, "frr defaults traditional\nrouter bgp %s\n bgp router-id %s\n no bgp ebgp-requires-policy\n", asn, rid);
+    int count = 0;
+    for (char *item = strtok(peers, ","); item; item = strtok(NULL, ",")) {
+        char address[16], remote[11], tail;
+        if (++count > 4 || sscanf(item, "%15[^:]:%10[0-9]%c", address, remote, &tail) != 2) return -1;
+        if (!valid_ipv4(address) || !valid_asn(remote) || !strcmp(remote, asn)) return -1;
+        n += snprintf(out + n, size - (size_t)n, " neighbor %s remote-as %s\n neighbor %s timers 3 9\n neighbor %s timers connect 5\n",
+                      address, remote, address, address);
+        if (n >= (int)size - 64) return -1;
+    }
+    if (!count) return -1;
+    n += snprintf(out + n, size - (size_t)n, " address-family ipv4 unicast\n");
+    if (strcmp(networks, "-")) {
+        int announced = 0;
+        for (char *item = strtok(networks, ","); item; item = strtok(NULL, ",")) {
+            if (++announced > 8 || !valid_cidr(item)) return -1;
+            n += snprintf(out + n, size - (size_t)n, "  network %s\n", item);
+            if (n >= (int)size - 64) return -1;
+        }
+    }
+    n += snprintf(out + n, size - (size_t)n, " exit-address-family\n");
+    return n;
+}
 static int ospf_render(const char *fields, char *out, size_t size) {
     char rid[16], list[100], extra; unsigned hello, dead;
     if (sscanf(fields, "%15s %u %u %99s %c", rid, &hello, &dead, list, &extra) != 4) return -1;
@@ -224,7 +258,7 @@ static void reply(int fd, int code, const char *data, size_t size) {
     if (!send_all(fd, header, (size_t)n)) (void)send_all(fd, data, size);
 }
 static void serve(int input, int output, int mutations) {
-    char request[160]; size_t used = 0;
+    char request[320]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
     while (used < sizeof(request) - 1) {
         char c; ssize_t n = read(input, &c, 1);
@@ -395,6 +429,68 @@ static void serve(int input, int output, int mutations) {
     char *const *ospf_show = !strcmp(request, "NL1 OSPF_SHOW neighbors") ? ospf_neighbors
                            : !strcmp(request, "NL1 OSPF_SHOW interfaces") ? ospf_interfaces
                            : !strcmp(request, "NL1 OSPF_SHOW routes") ? ospf_routes : NULL;
+    /* BGP: render (read-only), start zebra then bgpd as root under /run/frr, stop, and fixed vtysh JSON views. */
+    char bgp_config[2048];
+    if (!strncmp(request, "NL1 BGP_RENDER ", 15)) {
+        int n = bgp_render(request + 15, bgp_config, sizeof(bgp_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        reply(output, 0, bgp_config, (size_t)n); return;
+    }
+    if (mutations && !strncmp(request, "NL1 BGP_START ", 14)) {
+        int n = bgp_render(request + 14, bgp_config, sizeof(bgp_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        const char *missing = "the guest image has no FRR; rebuild it with --with-routing";
+        if (access("/usr/lib/frr/bgpd", X_OK) || access("/usr/lib/frr/zebra", X_OK)) { reply(output, 1, missing, strlen(missing)); return; }
+        if (pidfile_alive("/run/frr/bgpd.pid")) { reply(output, 1, "bgp already running", 19); return; }
+        mkdir("/run/frr", 0755);
+        int fd = open("/run/frr/bgpd.conf", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        int written = fd >= 0 && write(fd, bgp_config, (size_t)n) == n;
+        if (fd >= 0) close(fd);
+        fd = open("/run/frr/zebra.conf", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (fd >= 0) close(fd);
+        char *const zebra[] = {"zebra", "-u", "root", "-g", "root", "-i", "/run/frr/zebra.pid", "-z", "/run/frr/zserv.api",
+                               "--vty_socket", "/run/frr", "-f", "/run/frr/zebra.conf", NULL};
+        char *const bgpd[] = {"bgpd", "-u", "root", "-g", "root", "-i", "/run/frr/bgpd.pid", "-z", "/run/frr/zserv.api",
+                              "--vty_socket", "/run/frr", "-f", "/run/frr/bgpd.conf", NULL};
+        if (!written || fd < 0 || (!pidfile_alive("/run/frr/zebra.pid") && spawn_detached("/usr/lib/frr/zebra", zebra))) {
+            reply(output, 3, "bgp start failed", 16); return;
+        }
+        /* bgpd connects to zebra's socket as soon as it exists (it also retries on its own). */
+        for (int tries = 0; tries < 40 && access("/run/frr/zserv.api", F_OK); tries++) {
+            struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+        }
+        if (spawn_detached("/usr/lib/frr/bgpd", bgpd)) { reply(output, 3, "bgp start failed", 16); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 BGP_STOP")) {
+        /* bgpd first: zebra withdraws the routes BGP installed when bgpd goes away. */
+        const char *pids[] = {"/run/frr/bgpd.pid", "/run/frr/zebra.pid"};
+        for (int i = 0; i < 2; i++) {
+            pid_t daemon = pidfile_alive(pids[i]);
+            if (!daemon) continue;
+            kill(daemon, SIGTERM);
+            for (int tries = 0; tries < 60 && kill(daemon, 0) == 0; tries++) {
+                struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+            }
+            if (kill(daemon, 0) == 0) { reply(output, 3, "bgp stop failed", 15); return; }
+            unlink(pids[i]);
+        }
+        unlink("/run/frr/bgpd.conf");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 BGP_SHOW config")) {
+        int fd = open("/run/frr/bgpd.conf", O_RDONLY | O_CLOEXEC);
+        if (fd < 0 || !pidfile_alive("/run/frr/bgpd.pid")) {
+            if (fd >= 0) close(fd);
+            reply(output, 1, "bgp not running", 15); return;
+        }
+        ssize_t n = read(fd, bgp_config, sizeof(bgp_config)); close(fd);
+        reply(output, n < 0 ? 3 : 0, bgp_config, n < 0 ? 0 : (size_t)n); return;
+    }
+    char *const bgp_summary[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip bgp summary json", NULL};
+    char *const bgp_routes[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip bgp json", NULL};
+    char *const *bgp_show = !strcmp(request, "NL1 BGP_SHOW summary") ? bgp_summary
+                          : !strcmp(request, "NL1 BGP_SHOW routes") ? bgp_routes : NULL;
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
     char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
@@ -603,6 +699,7 @@ static void serve(int input, int output, int mutations) {
     #undef FW
     if (fw_ready) { firewall[count] = NULL; args = firewall; program = "/sbin/xtables-legacy-multi"; }
     if (ospf_show) { args = ospf_show; program = "/usr/sbin/birdc"; }
+    if (bgp_show) { args = bgp_show; program = "/usr/bin/vtysh"; }
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }

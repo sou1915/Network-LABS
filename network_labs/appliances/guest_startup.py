@@ -219,8 +219,8 @@ def observe(socket, node):
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
         if not fields: continue
-        if node.get('ospf') and learned(fields):
-            continue  # OSPF's own routes come back from the neighbours on every boot; they are never saved.
+        if (node.get('ospf') or node.get('bgp')) and learned(fields):
+            continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
             if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
@@ -256,17 +256,20 @@ def observe(socket, node):
         leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
     if node.get('ospf'):
         check_ospf(socket, node)
+    if node.get('bgp'):
+        check_bgp(socket, node)
     return candidate['guest_network']
 
 
 BIRD_METRIC = '32'  # BIRD 2's kernel protocol installs its routes with metric 32 (its default; config() keeps it)
+FRR_METRIC = '20'  # FRR's zebra installs BGP routes with metric 20
 
 
 def learned(fields):
     """A route BIRD installed. BusyBox's 'ip route' never prints the protocol, so BIRD's routes are told apart by
     their metric; static routes the agent adds and connected routes carry none. iproute2 also prints 'proto bird'."""
     pairs = {fields[i]: fields[i + 1] for i in range(len(fields) - 1)}
-    return pairs.get('proto') in ('bird', '12') or pairs.get('metric') == BIRD_METRIC
+    return pairs.get('proto') in ('bird', '12', 'bgp', '186') or pairs.get('metric') in (BIRD_METRIC, FRR_METRIC)
 
 
 def check_ospf(socket, node):
@@ -296,7 +299,7 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
-LIVE_ROUTING = ('gateway', 'guest_network', 'ospf', 'acls', 'acl_ports')
+LIVE_ROUTING = ('gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp')
 
 
 def _route(socket, node, operation, network, gateway):
@@ -311,14 +314,19 @@ def change_routing(socket, old, new):
     from .vendor_config import routes
     before, after = set(routes(old)), set(routes(new))
     ospf_changed = old.get('ospf') != new.get('ospf')
+    bgp_changed = old.get('bgp') != new.get('bgp')
     if ospf_changed and old.get('ospf'):
         query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
+    if bgp_changed and old.get('bgp'):
+        query(socket, 'bgp-stop')  # zebra withdraws BGP's routes when bgpd stops
     for network, gateway in sorted(before - after):
         _route(socket, old, 'route-delete', network, gateway)
     for network, gateway in sorted(after - before):
         _route(socket, new, 'route-add', network, gateway)
     if ospf_changed and new.get('ospf'):
         start_ospf(socket, new)
+    if bgp_changed and new.get('bgp'):
+        start_bgp(socket, new)
     if (old.get('acl_ports'), old.get('acls')) != (new.get('acl_ports'), new.get('acls')):
         from .acl import policy
         from .guest_firewall import apply as apply_firewall
@@ -326,6 +334,33 @@ def change_routing(socket, old, new):
         apply_firewall(socket, {'firewall': policy(new)})
     if observe(socket, new) != (new.get('guest_network') or {'addresses': [], 'routes': []}):
         raise ValueError('Guest routing readback differs from the declared routes.')
+
+
+def check_bgp(socket, node):
+    """The guest's FRR runs the BGP configuration the lab declares, byte for byte."""
+    from .bgp import config
+    try:
+        running = query(socket, 'bgp-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: BGP is not running in the guest ({error}).') from error
+    if running != config(node):
+        raise ValueError(f'{node["name"]}: the guest BGP configuration differs from the lab.')
+
+
+def start_bgp(socket, node, timeout=8):
+    """Start zebra and bgpd from the typed process, then wait for vtysh to answer."""
+    from .bgp import guest_process
+    query(socket, 'bgp-start', bgp=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'bgp-show', state='summary')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.2)
+    check_bgp(socket, node)
 
 
 def apply(socket, node, timeout=40, alive=None):
@@ -400,6 +435,8 @@ def apply(socket, node, timeout=40, alive=None):
                 time.sleep(.1)
     if node.get('ospf'):
         start_ospf(socket, node)
+    if node.get('bgp'):
+        start_bgp(socket, node)
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)

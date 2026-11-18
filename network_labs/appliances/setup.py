@@ -25,9 +25,10 @@ KERNEL = {'name': 'vmlinux-5.10.223',
           'sha256': '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65'}
 IMAGE = 'guest-full.ext4'
 IMAGE_MIB = 128
-PACKAGES = 'busybox-static e2fsprogs gcc libc6-dev iptables bird2'
+PACKAGES = 'busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr'
 TOOLS = {'busybox': 'busybox', 'mke2fs': 'mke2fs', 'debugfs': 'debugfs', 'gcc': 'gcc',
-         'iptables (legacy)': ('xtables-legacy-multi', 'iptables-legacy'), 'bird': 'bird', 'birdc': 'birdc'}
+         'iptables (legacy)': ('xtables-legacy-multi', 'iptables-legacy'), 'bird': 'bird', 'birdc': 'birdc',
+         'FRR zebra': '/usr/lib/frr/zebra', 'FRR bgpd': '/usr/lib/frr/bgpd', 'vtysh': 'vtysh'}
 
 
 def data_dir():
@@ -37,6 +38,10 @@ def data_dir():
 
 def _which(names):
     for name in (names,) if isinstance(names, str) else names:
+        if name.startswith('/'):
+            if Path(name).is_file():
+                return name
+            continue
         found = shutil.which(name) or next((str(Path(d) / name) for d in ('/usr/sbin', '/sbin') if (Path(d) / name).is_file()), None)
         if found:
             return found
@@ -87,8 +92,9 @@ def fetch_kernel(folder, fetch=_download):
 
 def image_stamp():
     """What the guest disk was built from: the agent source and this builder (a change means rebuild)."""
-    agent = Path(__file__).parent / 'guest' / 'agent.c'
-    return hashlib.sha256(agent.read_bytes() + Path(__file__).read_bytes()).hexdigest()[:16]
+    here = Path(__file__).parent
+    sources = [here / 'guest' / 'agent.c', here / 'guest_image.py', Path(__file__)]
+    return hashlib.sha256(b''.join(path.read_bytes() for path in sources)).hexdigest()[:16]
 
 
 def build_image(folder, tools):
@@ -161,11 +167,11 @@ def prepare(download=False, kernel=None, rebuild=False, folder=None, fetch=_down
             if rebuild and disk.is_file():
                 (folder / (IMAGE + '.stamp')).unlink(missing_ok=True)
             disk, built = build_image(folder, tools)
-            step('image', 'Disque des micro-VM (agent, iptables, BIRD)', True, f'{disk} ({"construit" if built else "à jour"})')
+            step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', True, f'{disk} ({"construit" if built else "à jour"})')
         except (OSError, ValueError) as error:
-            step('image', 'Disque des micro-VM (agent, iptables, BIRD)', False, str(error), f'sudo apt install {PACKAGES}')
+            step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', False, str(error), f'sudo apt install {PACKAGES}')
     else:
-        step('image', 'Disque des micro-VM (agent, iptables, BIRD)', False, 'outils manquants', f'sudo apt install {PACKAGES}')
+        step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', False, 'outils manquants', f'sudo apt install {PACKAGES}')
 
     ready = all(s['ok'] for s in steps)
     if kernel.is_file() and disk.is_file():

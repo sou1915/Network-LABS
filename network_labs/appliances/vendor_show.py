@@ -13,18 +13,21 @@ from .guest_startup import learned as bird_route
 from .vendor_config import dialect
 
 COMMANDS = {
-    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief', 'show ip ospf neighbor', 'show access-lists'],
+    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief', 'show ip ospf neighbor', 'show access-lists',
+            'show ip bgp summary', 'show ip bgp'],
     'fortios': ['get system interface', 'get router info routing-table all'],
-    'junos': ['show interfaces terse', 'show route', 'show ospf neighbor'],
+    'junos': ['show interfaces terse', 'show route', 'show ospf neighbor', 'show bgp summary'],
     'routeros': ['/interface print', '/ip address print', '/ip route print'],
-    'eos': ['show ip interface brief', 'show ip route', 'show vlan', 'show ip ospf neighbor'],
-    'vrp': ['display ip interface brief', 'display ip routing-table', 'display vlan', 'display ospf peer brief'],
+    'eos': ['show ip interface brief', 'show ip route', 'show vlan', 'show ip ospf neighbor', 'show ip bgp summary', 'show ip bgp'],
+    'vrp': ['display ip interface brief', 'display ip routing-table', 'display vlan', 'display ospf peer brief', 'display bgp peer',
+            'display bgp routing-table'],
     'panos': ['show interface all', 'show routing route'],
 }
 PROMPTS = {'ios': '{}#', 'fortios': '{} #', 'junos': 'admin@{}>', 'routeros': '[admin@{}] >', 'eos': '{}#',
            'vrp': '<{}>', 'panos': 'admin@{}>'}
 SWITCH_ONLY = {'show vlan brief', 'show vlan', 'display vlan'}
 OSPF_ONLY = {'show ip ospf neighbor', 'show ospf neighbor', 'display ospf peer brief'}
+BGP_ONLY = {'show ip bgp summary', 'show ip bgp', 'show bgp summary', 'display bgp peer', 'display bgp routing-table'}
 
 
 # ---- observations ----
@@ -41,6 +44,9 @@ def observe_guest(query, node):
         fields = line.split()
         if fields[:1] == ['inet'] and current in interfaces:
             interfaces[current]['addresses'].append(str(ipaddress.IPv4Interface(fields[1])))
+    bgp = None
+    if node.get('bgp'):
+        bgp = parse_bgp(query('bgp-show', state='summary'), query('bgp-show', state='routes'))
     ospf = None
     if node.get('ospf'):
         ospf = {'router_id': node['ospf']['router_id'], 'neighbors': parse_neighbors(query('ospf-show', state='neighbors')),
@@ -52,17 +58,38 @@ def observe_guest(query, node):
             continue
         network = '0.0.0.0/0' if fields[0] == 'default' else str(ipaddress.IPv4Network(fields[0], strict=False))
         gateway = fields[fields.index('via') + 1] if 'via' in fields else None
-        learned = bool(node.get('ospf')) and bird_route(fields)
+        learned = bool(node.get('ospf') or node.get('bgp')) and bird_route(fields)
         if learned and gateway is None:
             continue  # BIRD's copy of a connected network: the kernel's own entry is shown
         route = {'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]}
-        if learned:
+        if learned and bgp is not None:
+            best = bgp['paths'].get(network, {})
+            route.update(protocol='bgp', metric=0, path=best.get('path', ''))
+        elif learned:
             route.update(protocol='ospf', metric=(ospf or {}).get('metrics', {}).get(network))
         routes.append(route)
-    observation = {'node': node['name'], 'interfaces': _declared(node, interfaces), 'routes': routes, 'vlans': None, 'ospf': ospf}
+    observation = {'node': node['name'], 'interfaces': _declared(node, interfaces), 'routes': routes, 'vlans': None, 'ospf': ospf,
+                   'bgp': bgp}
     if node['role'] == 'switch':
         observation['vlans'] = _vlans(node, query('bridge-vlans'))
     return observation
+
+
+def parse_bgp(summary, table):
+    """FRR's 'show ip bgp summary json' and 'show ip bgp json': {asn, router_id, peers, paths}."""
+    import json
+    unicast = (json.loads(summary or '{}') or {}).get('ipv4Unicast', {})
+    peers = [{'address': address, 'remote_as': peer.get('remoteAs'), 'state': peer.get('state', ''),
+              'uptime': peer.get('peerUptime', ''), 'received': peer.get('pfxRcd', 0), 'sent': peer.get('pfxSnt', 0),
+              'msg_in': peer.get('msgRcvd', 0), 'msg_out': peer.get('msgSent', 0)}
+             for address, peer in sorted(unicast.get('peers', {}).items())]
+    paths = {}
+    for prefix, entries in ((json.loads(table or '{}') or {}).get('routes') or {}).items():
+        best = next((e for e in entries if e.get('bestpath')), entries[0] if entries else None)
+        if best:
+            hop = (best.get('nexthops') or [{}])[0].get('ip', '0.0.0.0')
+            paths[prefix] = {'path': best.get('path', ''), 'nexthop': hop, 'local': hop == '0.0.0.0', 'origin': best.get('origin', 'IGP')}
+    return {'asn': unicast.get('as'), 'router_id': unicast.get('routerId'), 'peers': peers, 'paths': paths}
 
 
 def parse_neighbors(text):
@@ -138,11 +165,15 @@ def _connected(observation):
 
 
 def _static(observation):
-    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') != 'ospf']
+    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') not in ('ospf', 'bgp')]
 
 
 def _ospf(observation):
     return [r for r in observation['routes'] if r.get('protocol') == 'ospf']
+
+
+def _bgp(observation):
+    return [r for r in observation['routes'] if r.get('protocol') == 'bgp']
 
 
 def _metric(route):
@@ -161,6 +192,8 @@ def show(node, observation, command):
                 raise ValueError(known + ' : uniquement sur un switch.')
             if known in OSPF_ONLY and not observation.get('ospf'):
                 raise ValueError(known + ' : OSPF n’est pas configuré sur ce routeur micro-VM.')
+            if known in BGP_ONLY and not observation.get('bgp'):
+                raise ValueError(known + ' : BGP n’est pas configuré sur ce routeur micro-VM.')
             return FORMATS[syntax, known](node, observation, _names(node))
     raise ValueError('Commandes disponibles : ' + ', '.join(COMMANDS[syntax]) + '.')
 
@@ -182,7 +215,7 @@ def _ios_brief(node, observation, name):
 
 
 def _ios_route(node, observation, name):
-    lines = ['Codes: L - local, C - connected, S - static, O - OSPF, * - candidate default', '']
+    lines = ['Codes: L - local, C - connected, S - static, O - OSPF, B - BGP, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines.append(f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0' if default
                  else 'Gateway of last resort is not set')
@@ -192,6 +225,8 @@ def _ios_route(node, observation, name):
         lines.append(f'{code}       {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
     for route in _ospf(observation):
         lines.append(f'O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
+    for route in _bgp(observation):
+        lines.append(f'B        {route["network"]} [20/0] via {route["gateway"]}, {name(route["port"])}')
     for network, address, port in _connected(observation):
         lines.append(f'C        {network} is directly connected, {name(port)}')
         lines.append(f'L        {address}/32 is directly connected, {name(port)}')
@@ -251,6 +286,9 @@ def _junos_route(node, observation, name):
         entries.append((route['network'], '*[Static/5]', f'>  to {route["gateway"]} via {name(route["port"])}.0'))
     for route in _ospf(observation):
         entries.append((route['network'], f'*[OSPF/10] metric {_metric(route)}', f'>  to {route["gateway"]} via {name(route["port"])}.0'))
+    for route in _bgp(observation):
+        entries.append((route['network'], f'*[BGP/170] AS path: {route.get("path") or ""} I',
+                        f'>  to {route["gateway"]} via {name(route["port"])}.0'))
     entries.sort(key=lambda entry: ipaddress.IPv4Network(entry[0]))
     lines = [f'inet.0: {len(entries)} destinations, {len(entries)} routes ({len(entries)} active, 0 holddown, 0 hidden)',
              '+ = Active Route, - = Last Active, * = Both', '']
@@ -297,7 +335,7 @@ def _eos_brief(node, observation, name):
 
 
 def _eos_route(node, observation, name):
-    lines = ['VRF: default', 'Codes: C - connected, S - static, O - OSPF', '']
+    lines = ['VRF: default', 'Codes: C - connected, S - static, O - OSPF, B E - BGP external', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines += [f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0/0' if default
               else 'Gateway of last resort is not set', '']
@@ -305,6 +343,8 @@ def _eos_route(node, observation, name):
         lines.append(f' S        {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
     for route in _ospf(observation):
         lines.append(f' O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
+    for route in _bgp(observation):
+        lines.append(f' B E      {route["network"]} [200/0] via {route["gateway"]}, {name(route["port"])}')
     for network, _, port in _connected(observation):
         lines.append(f' C        {network} is directly connected, {name(port)}')
     return '\n'.join(lines)
@@ -343,6 +383,7 @@ def _vrp_route(node, observation, name):
     rows = [(network, 'Direct', 0, 0, address, port) for network, address, port in _connected(observation)]
     rows += [(r['network'], 'Static', 60, 0, r['gateway'], r['port']) for r in _static(observation)]
     rows += [(r['network'], 'OSPF', 10, _metric(r), r['gateway'], r['port']) for r in _ospf(observation)]
+    rows += [(r['network'], 'EBGP', 255, 0, r['gateway'], r['port']) for r in _bgp(observation)]
     rows.sort(key=lambda row: ipaddress.IPv4Network(row[0]))
     lines = ['Route Flags: R - relay, D - download to fib', '-' * 62, 'Routing Tables: Public',
              f'         Destinations : {len(rows)}        Routes : {len(rows)}', '',
@@ -434,7 +475,67 @@ def _ios_access_lists(node, observation, name):
     return '\n'.join(lines) or 'Aucune liste d’accès.'
 
 
+def _ios_bgp_summary(node, observation, name):
+    bgp = observation['bgp']
+    lines = [f'BGP router identifier {bgp["router_id"]}, local AS number {bgp["asn"]}', '',
+             f'{"Neighbor":<16}{"V":<4}{"AS":>10} {"MsgRcvd":>8} {"MsgSent":>8} {"Up/Down":>9}  State/PfxRcd']
+    for peer in bgp['peers']:
+        state = str(peer['received']) if peer['state'] == 'Established' else peer['state']
+        lines.append(f'{peer["address"]:<16}{"4":<4}{peer["remote_as"]:>10} {peer["msg_in"]:>8} {peer["msg_out"]:>8} '
+                     f'{peer["uptime"] or "never":>9}  {state}')
+    return '\n'.join(lines)
+
+
+def _ios_bgp_table(node, observation, name):
+    bgp = observation['bgp']
+    lines = [f'BGP table version is {len(bgp["paths"])}, local router ID is {bgp["router_id"]}',
+             'Status codes: * valid, > best', 'Origin codes: i - IGP, e - EGP, ? - incomplete', '',
+             f'     {"Network":<20}{"Next Hop":<20}Path']
+    for prefix, best in sorted(bgp['paths'].items(), key=lambda item: ipaddress.IPv4Network(item[0])):
+        origin = {'IGP': 'i', 'EGP': 'e'}.get(best['origin'], '?')
+        lines.append(f' *>  {prefix:<20}{best["nexthop"]:<20}{(best["path"] + " ") if best["path"] else ""}{origin}')
+    return '\n'.join(lines)
+
+
+def _junos_bgp_summary(node, observation, name):
+    bgp = observation['bgp']
+    up = sum(1 for p in bgp['peers'] if p['state'] == 'Established')
+    lines = [f'Groups: 1 Peers: {len(bgp["peers"])} Down peers: {len(bgp["peers"]) - up}',
+             f'{"Peer":<20}{"AS":>10}{"InPkt":>8}{"OutPkt":>8}  {"Last Up/Dwn":<12}State|#Active/Received/Accepted']
+    for peer in bgp['peers']:
+        state = (f'Establ\n  inet.0: {peer["received"]}/{peer["received"]}/{peer["received"]}' if peer['state'] == 'Established'
+                 else peer['state'])
+        lines.append(f'{peer["address"]:<20}{peer["remote_as"]:>10}{peer["msg_in"]:>8}{peer["msg_out"]:>8}  {peer["uptime"]:<12}{state}')
+    return '\n'.join(lines)
+
+
+def _vrp_bgp_peer(node, observation, name):
+    bgp = observation['bgp']
+    up = sum(1 for p in bgp['peers'] if p['state'] == 'Established')
+    lines = ['', f' BGP local router ID : {bgp["router_id"]}', f' Local AS number : {bgp["asn"]}',
+             f' Total number of peers : {len(bgp["peers"])}\t\t Peers in established state : {up}', '',
+             f'  {"Peer":<16}{"V":<4}{"AS":>10}{"MsgRcvd":>9}{"MsgSent":>9}  {"Up/Down":<10}{"State":<13}PrefRcv']
+    for peer in bgp['peers']:
+        lines.append(f'  {peer["address"]:<16}{"4":<4}{peer["remote_as"]:>10}{peer["msg_in"]:>9}{peer["msg_out"]:>9}  '
+                     f'{peer["uptime"]:<10}{peer["state"]:<13}{peer["received"]}')
+    return '\n'.join(lines)
+
+
+def _vrp_bgp_table(node, observation, name):
+    bgp = observation['bgp']
+    lines = ['', f' BGP Local router ID is {bgp["router_id"]}', ' Status codes: * - valid, > - best', '',
+             f' Total Number of Routes: {len(bgp["paths"])}', f'      {"Network":<20}{"NextHop":<18}Path/Ogn']
+    for prefix, best in sorted(bgp['paths'].items(), key=lambda item: ipaddress.IPv4Network(item[0])):
+        origin = {'IGP': 'i', 'EGP': 'e'}.get(best['origin'], '?')
+        lines.append(f' *>   {prefix:<20}{best["nexthop"]:<18}{(best["path"] + " ") if best["path"] else ""}{origin}')
+    return '\n'.join(lines)
+
+
 FORMATS = {
+    ('ios', 'show ip bgp summary'): _ios_bgp_summary, ('ios', 'show ip bgp'): _ios_bgp_table,
+    ('eos', 'show ip bgp summary'): _ios_bgp_summary, ('eos', 'show ip bgp'): _ios_bgp_table,
+    ('junos', 'show bgp summary'): _junos_bgp_summary,
+    ('vrp', 'display bgp peer'): _vrp_bgp_peer, ('vrp', 'display bgp routing-table'): _vrp_bgp_table,
     ('ios', 'show access-lists'): _ios_access_lists,
     ('ios', 'show ip ospf neighbor'): _ios_neighbors, ('eos', 'show ip ospf neighbor'): _ios_neighbors,
     ('junos', 'show ospf neighbor'): _junos_neighbors, ('vrp', 'display ospf peer brief'): _vrp_peers,

@@ -38,6 +38,8 @@ def main(arguments=None):
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
     vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
     vm_sample.add_argument('--dhcp',action='store_true',help='Three guests: a router guest serving DHCP to one host guest, a static host behind it.')
+    vm_sample.add_argument('--bgp', action='store_true',
+                           help='Five guests: three router guests in three ASes (Cisco, Juniper, Huawei models) peering in eBGP with FRR.')
     vm_sample.add_argument('--ospf', action='store_true',
                            help='Five guests: three router guests (Cisco, Juniper, Huawei models) running OSPF with BIRD, two hosts.')
     vm_sample.add_argument('--router-on-a-stick', action='store_true',
@@ -418,7 +420,8 @@ def main(arguments=None):
                        'router_chain': microvm.router_chain_example, 'router_quad': microvm.quad_router_example,
                        'firewall': microvm.firewall_example, 'firewall_nat': microvm.firewall_nat_example,
                        'dhcp': microvm.dhcp_example, 'switch': microvm.switch_example, 'switch_vlans': microvm.switch_vlan_example,
-                       'router_on_a_stick': microvm.router_on_a_stick_example, 'ospf': microvm.ospf_example}
+                       'router_on_a_stick': microvm.router_on_a_stick_example, 'ospf': microvm.ospf_example,
+                       'bgp': microvm.bgp_example}
             chosen = [flag for flag in choices if getattr(args, flag)]
             if len(chosen) > 1:
                 raise ValueError('Choose one of ' + ', '.join('--' + flag.replace('_', '-') for flag in choices) + '.')

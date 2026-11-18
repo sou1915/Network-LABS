@@ -165,3 +165,24 @@ def ospf_example(kernel, disk):
     spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['R3', 'eth0']],
                      [['R3', 'eth1'], ['VM3', 'eth0']]]
     return validate(spec)
+
+
+def bgp_example(kernel, disk):
+    """VM2 - R1 (AS 65001) - R2 (AS 65002) - R3 (AS 65003) - VM3: three router guests in three ASes exchange their LANs over
+    eBGP (FRR in the guest). No static route anywhere: the routers' guest images need FRR (microvm-rootfs --with-routing)."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-bgp'
+    first, left, right = spec['nodes']
+    r1 = dict(first, name='R1', model='cisco-isr4331', interfaces={'eth0': '192.0.2.1/24', 'eth1': '203.0.113.1/30'},
+              bgp={'asn': 65001, 'router_id': '1.1.1.1', 'neighbors': [{'address': '203.0.113.2', 'remote_as': 65002}],
+                   'networks': ['192.0.2.0/24']})
+    r2 = dict(first, name='R2', model='juniper-mx204', interfaces={'eth0': '203.0.113.2/30', 'eth1': '203.0.113.5/30'},
+              bgp={'asn': 65002, 'router_id': '2.2.2.2', 'networks': [],
+                   'neighbors': [{'address': '203.0.113.1', 'remote_as': 65001}, {'address': '203.0.113.6', 'remote_as': 65003}]})
+    r3 = dict(first, name='R3', model='huawei-ar6120', interfaces={'eth0': '203.0.113.6/30', 'eth1': '198.51.100.1/24'},
+              bgp={'asn': 65003, 'router_id': '3.3.3.3', 'neighbors': [{'address': '203.0.113.5', 'remote_as': 65002}],
+                   'networks': ['198.51.100.0/24']})
+    spec['nodes'] = [r1, r2, r3, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['R3', 'eth0']],
+                     [['R3', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)

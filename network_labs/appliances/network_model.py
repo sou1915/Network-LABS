@@ -150,6 +150,46 @@ def ospf_routes(spec, seg):
     return found
 
 
+def bgp_routes(spec, seg):
+    """{router: [(network, next hop)]} as eBGP converges: sessions only where both sides name each other with the
+    right AS on a shared segment, networks announced only when held exactly, shortest AS path, no AS loops."""
+    from .bgp import announced
+    routers = {n['name']: n for n in spec['nodes'] if n.get('bgp')}
+    sessions = {name: [] for name in routers}
+    for name, node in routers.items():
+        mine = addresses(node)
+        for neighbor in node['bgp']['neighbors']:
+            target = ipaddress.IPv4Address(neighbor['address'])
+            port = next((p for p, a in mine.items() if target in a.network), None)
+            for other, peer in routers.items():
+                theirs = {p: a for p, a in addresses(peer).items() if a.ip == target}
+                if other == name or not theirs or peer['bgp']['asn'] != neighbor['remote_as']:
+                    continue
+                peer_port, peer_address = next(iter(theirs.items()))
+                back = any(n['address'] == str(mine[port].ip) and n['remote_as'] == node['bgp']['asn'] for n in peer['bgp']['neighbors'])
+                if back and seg.get((name, _port_of(port))) == seg.get((other, _port_of(peer_port))):
+                    sessions[name].append((other, target))
+    rib = {}
+    for name, node in routers.items():
+        static = [r['network'] for r in (node.get('guest_network') or {}).get('routes', [])]
+        rib[name] = {ipaddress.IPv4Network(n): ((), None) for n in announced(node, static)}
+    for _ in range(len(routers) + 2):
+        changed = False
+        for name, node in routers.items():
+            for other, hop in sessions[name]:
+                for prefix, (path, _) in list(rib[other].items()):
+                    candidate = (routers[other]['bgp']['asn'],) + path
+                    if node['bgp']['asn'] in candidate:
+                        continue
+                    current = rib[name].get(prefix)
+                    if current is None or (current[1] is not None and len(candidate) < len(current[0])):
+                        rib[name][prefix] = (candidate, hop)
+                        changed = True
+        if not changed:
+            break
+    return {name: [(prefix, hop) for prefix, (_, hop) in table.items() if hop is not None] for name, table in rib.items()}
+
+
 # ---- forwarding ----
 
 class Model:
@@ -158,6 +198,7 @@ class Model:
         self.nodes = {n['name']: n for n in spec['nodes']}
         self.seg = segments(spec)
         self.ospf = ospf_routes(spec, self.seg)
+        self.bgp = bgp_routes(spec, self.seg)
         self.leases = {}  # (node, port) -> (address, gateway): DHCP clients take the first free pool address
         servers = [(n, n['dhcp_server']) for n in spec['nodes'] if n.get('dhcp_server')]
         for node in spec['nodes']:
@@ -198,6 +239,7 @@ class Model:
         candidates += [(ipaddress.IPv4Network('0.0.0.0/0'), router, 'passerelle DHCP') for (n, _), (_, router) in self.leases.items()
                        if n == name and router]
         candidates += [(network, gateway, 'route OSPF') for network, gateway, _ in self.ospf.get(name, [])]
+        candidates += [(network, gateway, 'route BGP') for network, gateway in self.bgp.get(name, [])]
         for network, gateway, kind in candidates:
             if destination in network and (best is None or network.prefixlen > best[0]):
                 port = next((_port_of(i) for i, a in held.items() if gateway in a.network), None)

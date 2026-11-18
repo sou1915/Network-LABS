@@ -36,6 +36,7 @@ the direct launch.
 | Firewall guest, stateful IPv4 filtering | `--firewall` | iptables in the guest; installed and read back before forwarding |
 | Firewall NAT (masquerade, SNAT, DNAT) | `--firewall-nat` | Source NAT matches the outbound port only |
 | Live firewall policy change | — (`firewall LAB NODE --file`) | Rebuilt with forwarding paused; rollback and `recover` |
+| eBGP on router guests (FRR zebra + bgpd in the guest) | `--bgp` | Image built `microvm-rootfs --with-routing` (BIRD and FRR); one-hop eBGP, up to 4 peers and 8 networks; networks announced only when held exactly (FRR's import check); not yet with OSPF on the same router |
 | IOS extended access lists on router guests, inbound | — (mission « Filtrer le Wi-Fi invités ») | Compiled into the guest forward chain (image with iptables); entries in order, implicit deny, stateless; live with the routing change |
 | Live routing change (static routes, gateway, OSPF) | — (CLI tab › « ⚡ Appliquer au lab en marche ») | Only what differs changes; BIRD restarts if OSPF changed; read back, rolled back on failure |
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
@@ -52,7 +53,7 @@ the direct launch.
 - SVIs (an address on a switch VLAN) on switch guests, and firewall rules on subinterfaces (guest firewall
   rules name physical ports only). Static routes through a subinterface are unit-tested only.
 - STP, LACP and switch security features on guests.
-- OSPF areas other than 0, OSPF on subinterfaces or switch guests, other routing protocols; DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
+- OSPF areas other than 0, OSPF on subinterfaces or switch guests, iBGP and route policies beyond announced networks, OSPF and BGP on one router (OSPF moves to FRR next), other routing protocols; DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
   (these exist on containers only).
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.

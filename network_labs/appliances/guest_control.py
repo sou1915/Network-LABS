@@ -14,8 +14,33 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bridge-vlan-add': 'BRIDGE_VLAN_ADD', 'bridge-vlan-delete': 'BRIDGE_VLAN_DEL',
               'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES',
               'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
-              'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW'}
+              'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
+              'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW'}
 OSPF_SHOW = ('neighbors', 'interfaces', 'routes', 'config')
+BGP_SHOW = ('summary', 'routes', 'config')
+
+
+def bgp_fields(bgp):
+    """'ASN ROUTER_ID ADDRESS:REMOTE_AS,... PREFIX,...|-' for one eBGP process; the guest checks it again."""
+    if not isinstance(bgp, dict) or set(bgp) != {'asn', 'router_id', 'neighbors', 'networks'}:
+        raise ValueError('Guest BGP requires asn, router_id, neighbors and networks.')
+    asn = bgp['asn']
+    if type(asn) is not int or not 1 <= asn <= 4294967295:
+        raise ValueError('Guest BGP AS number: 1..4294967295.')
+    peers = bgp['neighbors']
+    if not isinstance(peers, list) or not 1 <= len(peers) <= 4:
+        raise ValueError('Guest BGP: 1..4 neighbours.')
+    items = []
+    for peer in peers:
+        remote = peer.get('remote_as') if isinstance(peer, dict) else None
+        if type(remote) is not int or not 1 <= remote <= 4294967295 or remote == asn:
+            raise ValueError('Guest BGP neighbour: another AS, 1..4294967295.')
+        items.append(f"{ipaddress.IPv4Address(peer['address'])}:{remote}")
+    networks = bgp['networks']
+    if not isinstance(networks, list) or len(networks) > 8:
+        raise ValueError('Guest BGP: at most 8 networks.')
+    announced = ','.join(str(ipaddress.IPv4Network(n, strict=True)) for n in networks) or '-'
+    return f"{asn} {ipaddress.IPv4Address(bgp['router_id'])} {','.join(items)} {announced}"
 
 
 def ospf_fields(ospf):
@@ -153,9 +178,21 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('bgp-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf)):
+            raise ValueError('Guest BGP operations accept only the process (render, start) or what to show.')
+        if operation in ('bgp-render', 'bgp-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the BGP process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + bgp_fields(bgp), timeout)
+        if bgp is not None or (operation == 'bgp-stop') != (state is None) or (state is not None and state not in BGP_SHOW):
+            raise ValueError('Guest bgp-show requires one of ' + ', '.join(BGP_SHOW) + '; bgp-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if bgp is not None:
+        raise ValueError('Only bgp-render and bgp-start accept a BGP process.')
     if operation.startswith('ospf-'):
         if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan)):
             raise ValueError('Guest OSPF operations accept only the process (render, start) or what to show.')

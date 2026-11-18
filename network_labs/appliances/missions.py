@@ -7,7 +7,7 @@ A mission is solved when every check passes; real checks only count once the lab
 """
 import ipaddress
 
-from .microvm import (dhcp_example, firewall_nat_example, ospf_example, quad_router_example, router_chain_example,
+from .microvm import (bgp_example, dhcp_example, firewall_nat_example, ospf_example, quad_router_example, router_chain_example,
                       router_on_a_stick_example, switch_vlan_example)
 from .native_models import port_names
 from .spec import validate
@@ -79,7 +79,14 @@ def _acl_lab(kernel, disk):
     return validate(lab)
 
 
-REAL_KINDS = ('reach', 'ospf-neighbor')
+def _bgp_lab(kernel, disk):
+    lab = bgp_example(kernel, disk)
+    lab['name'] = 'mission-bgp-trois-operateurs'
+    lab['nodes'][0]['bgp'] = None  # R1 (Cisco, AS 65001) has not joined: R2 (Juniper) and R3 (Huawei) already peer
+    return validate(lab)
+
+
+REAL_KINDS = ('reach', 'ospf-neighbor', 'bgp-peer')
 
 
 MISSIONS = [{'id': 'route-manquante',
@@ -246,6 +253,27 @@ MISSIONS.append(
                  'text': 'Invité joint Internet (ping réel)'},
                 {'kind': 'reach', 'source': 'Personnel', 'destination': '203.0.113.10', 'expect': True,
                  'text': 'Le personnel joint le serveur (ping réel)'}]})
+MISSIONS.append(
+    {'id': 'bgp-trois-operateurs', 'lab': 'mission-bgp-trois-operateurs', 'title': 'BGP entre trois opérateurs',
+     'level': 'Avancé', 'kind': 'Configuration', 'vendors': 'Cisco ISR 4331 · Juniper MX204 · Huawei AR6120',
+     'story': 'Trois opérateurs : AS 65001 (R1, Cisco), AS 65002 (R2, Juniper) et AS 65003 (R3, Huawei). R2 et R3 '
+              'échangent déjà leurs routes en eBGP, et R2 attend R1 sur 203.0.113.1. Faire entrer R1 dans BGP et '
+              'annoncer son LAN 192.0.2.0/24, pour que VM2 et VM3 se joignent sans route statique. Nécessite le '
+              'disque complet (FRR).',
+     'hints': ['Sur R2 : show bgp summary. Sur R1 : router bgp 65001.',
+               'neighbor 203.0.113.2 remote-as 65002, puis network 192.0.2.0 mask 255.255.255.0 : le masque doit '
+               'être exactement celui du LAN, sinon rien n’est annoncé.'],
+     'build': _bgp_lab,
+     'checks': [{'kind': 'bgp-neighbor', 'node': 'R1', 'address': '203.0.113.2', 'remote_as': 65002,
+                 'text': 'R1 a pour voisin 203.0.113.2 dans l’AS 65002'},
+                {'kind': 'bgp-network', 'node': 'R1', 'network': '192.0.2.0/24',
+                 'text': 'R1 annonce son LAN 192.0.2.0/24 (présent dans sa table)'},
+                {'kind': 'bgp-peer', 'node': 'R1', 'neighbor': '203.0.113.2',
+                 'text': 'La session BGP R1 ↔ R2 est établie (Established, réel)'},
+                {'kind': 'reach', 'source': 'VM2', 'destination': '198.51.100.20', 'expect': True,
+                 'text': 'VM2 joint VM3 à travers trois AS (ping réel)'},
+                {'kind': 'reach', 'source': 'VM3', 'destination': '192.0.2.20', 'expect': True,
+                 'text': 'VM3 répond à VM2 (ping réel)'}]})
 BY_ID = {mission['id']: mission for mission in MISSIONS}
 
 
@@ -355,6 +383,26 @@ def _check_config(spec, check):
         if ipaddress.IPv4Address(server['start']) < ipaddress.IPv4Address(check['first']):
             problems.append(f'le pool commence à {server["start"]}')
         return not problems, f'{name} : {server["start"]} – {server["end"]}' + (' (' + ', '.join(problems) + ')' if problems else '')
+    if kind == 'bgp-neighbor':
+        bgp = node.get('bgp')
+        if not bgp:
+            return False, 'pas de processus BGP'
+        found = next((n for n in bgp['neighbors'] if n['address'] == check['address']), None)
+        if found is None:
+            return False, f'AS {bgp["asn"]} : aucun voisin {check["address"]}'
+        ok = found['remote_as'] == check['remote_as']
+        return ok, f'AS {bgp["asn"]} : voisin {found["address"]} remote-as {found["remote_as"]}' + ('' if ok else
+                                                                                                    f' (attendu : {check["remote_as"]})')
+    if kind == 'bgp-network':
+        from .bgp import announced
+        bgp = node.get('bgp')
+        if not bgp:
+            return False, 'pas de processus BGP'
+        static = [r['network'] for r in (node.get('guest_network') or {}).get('routes', [])]
+        if check['network'] in announced(node, static):
+            return True, f'network {check["network"]} : dans la table, annoncé'
+        declared = ', '.join(bgp['networks']) or 'aucun'
+        return False, f'annoncés : {declared} (un network doit correspondre exactement à un réseau de la table)'
     if kind == 'acl':
         from .acl import evaluate
         name = shown.get(check['port'], check['port'])
@@ -433,6 +481,9 @@ def run_real(manager, mission_id, probes=None):
         if check['kind'] == 'ospf-neighbor':
             found.append([index, *_neighbor(manager, check)])
             continue
+        if check['kind'] == 'bgp-peer':
+            found.append([index, *_bgp_peer(manager, check)])
+            continue
         if check['kind'] != 'reach':
             continue
         result = manager.ping_node(check['source'], check['destination'], count=3)
@@ -456,3 +507,17 @@ def _neighbor(manager, check):
     if row is None:
         return False, 'voisins : ' + (', '.join(f'{r} {v["state"]}' for r, v in rows.items()) or 'aucun')
     return row['state'] == 'Full', f'{check["neighbor"]} : {row["state"]}' + ('' if row['state'] == 'Full' else ' (attendu : Full)')
+
+
+def _bgp_peer(manager, check):
+    """(ok, detail) from the running router's FRR: the session with the neighbour is Established."""
+    try:
+        observation = manager.observe_node(check['node'])
+    except Exception as error:  # FRR stopped or an image without FRR: the check fails with the reason
+        return False, str(error)
+    if not observation.get('bgp'):
+        return False, 'BGP ne tourne pas sur ' + check['node']
+    peer = next((p for p in observation['bgp']['peers'] if p['address'] == check['neighbor']), None)
+    if peer is None:
+        return False, 'aucune session avec ' + check['neighbor']
+    return peer['state'] == 'Established', f'{check["neighbor"]} : {peer["state"]}, {peer["received"]} préfixe(s) reçu(s)'
