@@ -13,7 +13,8 @@ from .native_models import MODELS, port_names
 from .vendor_config import ios_name
 
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
-         'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols', 'show interfaces trunk']
+         'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
+         'show interfaces trunk']
 
 
 def answer(console, low):
