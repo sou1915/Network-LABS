@@ -112,6 +112,15 @@ def oci_config(spec, node, index, rootfs):
     }
 
 
+def needs_guest_startup(node):
+    """False only for a plain one-port host, fully set by the kernel's ip= boot option. Any other guest goes through the
+    guest startup; an unnumbered or shut port among them, since nothing else would bring it up, or keep it down."""
+    simple = (node['role'] == 'host' and len(node['interfaces']) == 1 and bool(node['interfaces']['eth0'])
+              and not node.get('shutdown') and 'guest_network' not in node and not node.get('dhcp_server')
+              and not node.get('dhcp_clients'))
+    return not simple
+
+
 def firecracker_config(node, kernel, disk):
     boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
     if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
@@ -735,7 +744,7 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host' or node.get('dhcp_server') or node.get('dhcp_clients'):
+            if needs_guest_startup(node):
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)

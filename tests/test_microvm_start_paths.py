@@ -16,6 +16,15 @@ EXAMPLES = sorted(name for name, function in inspect.getmembers(microvm, inspect
                   if name.endswith('example') and list(inspect.signature(function).parameters)[:2] == ['kernel', 'disk'])
 
 
+class GuestStartupDecisionTest(unittest.TestCase):
+    def test_unnumbered_or_shut_hosts_go_through_guest_startup(self):
+        host = {'role': 'host', 'interfaces': {'eth0': '192.0.2.10/24'}}
+        self.assertFalse(runtime.needs_guest_startup(host))  # the kernel's ip= does it all
+        self.assertTrue(runtime.needs_guest_startup(dict(host, interfaces={'eth0': ''})))  # a new PC: eth0 must come up
+        self.assertTrue(runtime.needs_guest_startup(dict(host, shutdown=['eth0'])))
+        self.assertTrue(runtime.needs_guest_startup({'role': 'router', 'interfaces': {'eth0': '', 'eth1': ''}}))
+
+
 class MicroVMStartPathTests(unittest.TestCase):
     def test_reference_labs_start_and_stop_without_container_code(self):
         self.assertGreaterEqual(len(EXAMPLES), 8, EXAMPLES)
