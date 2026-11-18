@@ -49,6 +49,17 @@ class OspfGuestTests(unittest.TestCase):
                                     break
                                 time.sleep(1)
                             results[label] = missions.grade(spec, MISSION, real)
+                            if label == 'broken':
+                                # Live: the student's IOS fix reaches the running R1 (BIRD starts there), no restart.
+                                manager.state = None
+                                manager.configure_routing('R1', next(n for n in fixed['nodes'] if n['name'] == 'R1'))
+                                deadline = time.monotonic() + 40
+                                while True:
+                                    real = {i: (ok, d) for i, ok, d in missions.run_real(manager, MISSION)['results']}
+                                    if all(ok for ok, _ in real.values()) or time.monotonic() >= deadline:
+                                        break
+                                    time.sleep(1)
+                                results['live'] = missions.grade(fixed, MISSION, real)
                             if label == 'fixed':
                                 for name, command in (('R1', 'show ip ospf neighbor'), ('R1', 'show ip route'),
                                                       ('R2', 'show ospf neighbor'), ('R2', 'show route'),
@@ -72,5 +83,6 @@ class OspfGuestTests(unittest.TestCase):
             print('\nOSPF mission grades:', json.dumps({k: (v['passed'], v['total']) for k, v in results.items()}), flush=True)
             self.assertFalse(any(r['status'] == 'ok' for r in results['broken']['results'] if r['kind'] == 'réel'), results['broken'])
             self.assertTrue(results['fixed']['solved'], results['fixed'])
+            self.assertTrue(results['live']['solved'], results['live'])
             self.assertIn('FULL', shows['R1> show ip ospf neighbor'])
             self.assertIn('O        198.51.100.0/24', shows['R1> show ip route'])

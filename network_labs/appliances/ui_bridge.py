@@ -9,7 +9,7 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify','firewall','show','ping','mission','trace')
+ACTIONS=('start','status','stop','inspect','verify','firewall','routing','show','ping','mission','trace')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
 
@@ -72,7 +72,7 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify','firewall','show','ping','mission','trace'):
+    if action in ('inspect','verify','firewall','routing','show','ping','mission','trace'):
         identifier(node)
     elif node is not None:
         raise ValueError('Unexpected node argument.')
@@ -85,7 +85,7 @@ def backend(action,target,node=None,destination=None):
         decode_probes(destination)  # a generated scenario's own pings
     elif destination is not None:
         raise ValueError('Unexpected destination argument.')
-    spec=load(target) if action in ('start','firewall') else None
+    spec=load(target) if action in ('start','firewall','routing') else None
     lab=spec['name'] if spec else identifier(target)
     if action=='trace':
         # Recording must not hold the lab lock: each capture takes it only while it starts.
@@ -115,6 +115,12 @@ def backend(action,target,node=None,destination=None):
             data=run_real(manager,node,destination)
         elif action=='firewall':
             data=firewall_result
+        elif action=='routing':
+            # The saved project's node: its static routes, gateway and OSPF replace the running ones (rollback on failure).
+            declared=next((n for n in spec['nodes'] if n['name']==node),None)
+            if declared is None:
+                raise ValueError('The saved project has no such node.')
+            data=manager.configure_routing(node,declared)
         elif action=='verify':
             from .verify import verify
             data=verify(manager,node,destination,count=2,bidirectional=True)
@@ -131,11 +137,11 @@ def validate_request(request):
     if action not in ACTIONS:raise ValueError('Unknown GUI operation.')
     target=request['target']
     if not isinstance(target,str) or '\0' in target or len(target)>4096:raise ValueError('Invalid operation target.')
-    if action in ('start','firewall'):
+    if action in ('start','firewall','routing'):
         if not Path(target).is_absolute():
             raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify','firewall','show','ping','mission','trace'):
+    if action in ('inspect','verify','firewall','routing','show','ping','mission','trace'):
         identifier(request['node'])
     elif request['node'] is not None:
         raise ValueError('Unexpected node argument.')

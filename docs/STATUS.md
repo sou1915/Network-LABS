@@ -36,6 +36,7 @@ the direct launch.
 | Firewall guest, stateful IPv4 filtering | `--firewall` | iptables in the guest; installed and read back before forwarding |
 | Firewall NAT (masquerade, SNAT, DNAT) | `--firewall-nat` | Source NAT matches the outbound port only |
 | Live firewall policy change | — (`firewall LAB NODE --file`) | Rebuilt with forwarding paused; rollback and `recover` |
+| Live routing change (static routes, gateway, OSPF) | — (CLI tab › « ⚡ Appliquer au lab en marche ») | Only what differs changes; BIRD restarts if OSPF changed; read back, rolled back on failure |
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
 | Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |
 | Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
@@ -55,7 +56,7 @@ the direct launch.
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.
 - Device-style CLI/web management on guests (only resources and firewall pages today).
-- Live changes from the GUI other than the firewall policy (addresses, VLAN ports, DHCP apply on restart), and a guest console.
+- Live changes other than firewall policy, static routes, gateway and OSPF (addresses, VLAN ports, DHCP apply on restart), and a guest console.
 - VMware/VirtualBox attachment, VXLAN/EVPN, WAN.
 
 ## Containers (OCI) — what works

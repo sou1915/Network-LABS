@@ -965,6 +965,56 @@ class Manager:
                     'note': 'Guest IPv4 policy rebuilt with the chain closed, then read back; forwarding paused for the change. Existing conntrack sessions retained.'}
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
+    def configure_routing(self, name, declared):
+        """Live change of a running micro-VM's static routes, gateway and OSPF to DECLARED (the saved project's node).
+        Anything else still needs a restart. The change is journalled, read back, and rolled back if it fails."""
+        from .guest_startup import LIVE_ROUTING, change_routing
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before configuration.')
+        index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
+        if index is None or state['spec']['nodes'][index]['runtime'] != 'firecracker' or \
+                state['spec']['nodes'][index]['role'] not in ('host', 'router', 'firewall'):
+            raise ValueError('Live routing changes apply to a running micro-VM host, router or firewall.')
+        previous = state['spec']['nodes'][index]
+        candidate = copy.deepcopy(state['spec'])
+        candidate['nodes'][index] = copy.deepcopy(declared)
+        candidate = validate(candidate)
+        wanted = candidate['nodes'][index]
+        same = lambda node: {k: v for k, v in node.items() if k not in LIVE_ROUTING}
+        def addresses(node):
+            profile = node.get('guest_network') or {}
+            return profile.get('addresses', []), profile.get('port_addresses', {})
+        if same(wanted) != same(previous) or addresses(wanted) != addresses(previous):
+            raise ValueError('Only static routes, the gateway and OSPF change on a running lab; restart it for the rest.')
+        socket = self.directory / name / 'guest.vsock'
+        state['phase'] = 'configuring'
+        state['pending_spec'] = candidate
+        state['pending_node'] = name
+        self.save()
+        try:
+            change_routing(socket, previous, wanted)
+        except (OSError, ValueError, RuntimeFailure) as original:
+            try:
+                change_routing(socket, wanted, previous)
+            except (OSError, ValueError, RuntimeFailure) as rollback:
+                state['phase'] = 'configuration-failed'
+                self.save()
+                raise RuntimeFailure(f'Routing change failed: {original}; rollback failed: {rollback}. Stop the lab.') from original
+            state['phase'] = 'running'
+            state.pop('pending_spec')
+            state.pop('pending_node', None)
+            self.save()
+            raise RuntimeFailure(f'Routing change failed and was rolled back: {original}') from original
+        state['spec'] = candidate
+        state['revision'] = state.get('revision', 0) + 1
+        state['phase'] = 'running'
+        state.pop('pending_spec')
+        state.pop('pending_node', None)
+        self.save()
+        return {'configured': name, 'revision': state['revision'],
+                'note': 'Static routes, gateway and OSPF changed in the running guest, then read back.'}
+
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
             if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'firecracker':

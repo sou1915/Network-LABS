@@ -59,6 +59,12 @@ class MissionGuestTests(unittest.TestCase):
                                 if label == 'broken' or all(ok for ok, _ in real.values()):
                                     break
                             results[label] = missions.grade(spec, 'route-manquante', real)
+                            if label == 'broken':
+                                # Live: the missing route reaches the running R1, no restart.
+                                manager.state = None
+                                manager.configure_routing('R1', next(n for n in fixed['nodes'] if n['name'] == 'R1'))
+                                found = missions.run_real(manager, 'route-manquante')['results']
+                                results['live'] = missions.grade(fixed, 'route-manquante', {i: (ok, d) for i, ok, d in found})
                         finally:
                             if manager.directory.exists():
                                 manager.stop()  # a lab that failed to start has already been cleaned up
@@ -66,6 +72,7 @@ class MissionGuestTests(unittest.TestCase):
             print('\nMission grades:', json.dumps({k: (v['passed'], v['total']) for k, v in results.items()}), flush=True)
             self.assertFalse(any(r['status'] == 'ok' for r in results['broken']['results'] if r['kind'] == 'réel'), results['broken'])
             self.assertTrue(results['fixed']['solved'], results['fixed'])
+            self.assertTrue(results['live']['solved'], results['live'])
 
     def test_firewall_health_probes_hold_on_the_working_lab_and_catch_a_fault(self):
         """The panne lab's probes are what the working lab really does; an inbound DENY fault fails the publication probe."""

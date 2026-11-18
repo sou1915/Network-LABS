@@ -1525,6 +1525,9 @@ class ApplianceWindow:
         self.vendor_apply=ttk.Button(actions,text='Appliquer au brouillon',command=self.apply_vendor_config,
                                      style='Native.Primary.TButton')
         self.vendor_apply.pack(side='right',fill='x',expand=True)
+        self.vendor_live=ttk.Button(frame,text='⚡ Appliquer au lab en marche (routes, passerelle, OSPF)',
+                                    command=self.apply_routing_live,style='Native.TButton')
+        self.vendor_live.pack(fill='x',padx=14,pady=(5,0))
         live=tk.Frame(frame,bg=BG)
         live.pack(fill='x',padx=14,pady=(8,0))
         self.vendor_command=tk.StringVar()
@@ -1577,6 +1580,22 @@ class ApplianceWindow:
         self.vendor_text.delete('1.0','end')
         self.vendor_text.insert('1.0',text)
         self.vendor_message.set('Configuration du brouillon. Modifier ou taper des commandes, puis appliquer.')
+
+    def apply_routing_live(self):
+        """Apply the draft (vendor commands or forms) first, then send the saved node's static routes, gateway and OSPF
+        to the running micro-VM: no restart. Other changes still need one; the bridge refuses them."""
+        name=self.vendor_node
+        node=next((n for n in self.editing_spec()['nodes'] if n['name']==name),None)
+        running=self.view_lab==self.manifest()['name'] and self.states.get(name,{}).get('status')=='running'
+        if node is None or node['runtime']!='firecracker' or node['role']=='switch' or not running:
+            self.vendor_message.set('À chaud : un poste, routeur ou pare-feu micro-VM d’un lab démarré. '
+                                    'Sinon, enregistrer puis redémarrer.')
+            return False
+        if self.vendor_text.get('1.0','end').strip() and not self.apply_vendor_config():
+            return False
+        self.nodes.selection_set(name)
+        self.vendor_message.set('Application à chaud : confirmer avec sudo dans le terminal.')
+        return self.launch('routing')
 
     def apply_vendor_config(self):
         from . import vendor_config
@@ -1906,23 +1925,23 @@ class ApplianceWindow:
         if self.pending:return False
         directory=None
         try:
-            if action in ('start','firewall'):
+            if action in ('start','firewall','routing'):
                 if not self.save():
                     return False
                 spec=self.manifest()
                 lab=spec['name'] if action=='start' else self.view_lab
-                if action=='firewall' and spec['name']!=lab:
+                if action in ('firewall','routing') and spec['name']!=lab:
                     raise ValueError('Le projet et le laboratoire observé diffèrent.')
             else:
                 lab=self.view_lab
             directory=tempfile.TemporaryDirectory(prefix='network-labs-gui-')
             target=lab
             # Both carry a private snapshot of the saved project: start the lab from it, or take the node's policy from it.
-            if action in ('start','firewall'):
+            if action in ('start','firewall','routing'):
                 target=str(Path(directory.name)/'manifest.json')
                 private_json(target,spec)
             selected=self.nodes.selection()
-            node=selected[0] if selected and action in ('inspect','verify','firewall','show','ping','trace') else None
+            node=selected[0] if selected and action in ('inspect','verify','firewall','routing','show','ping','trace') else None
             if action=='mission':
                 node=self.mission_current  # the bridge's node field carries the mission id
             destination={'verify':self.destination.get(),'ping':getattr(self,'vendor_ping_destination',None),

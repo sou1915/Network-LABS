@@ -292,6 +292,33 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
+LIVE_ROUTING = ('gateway', 'guest_network', 'ospf')
+
+
+def _route(socket, node, operation, network, gateway):
+    profile = node.get('guest_network') or {'addresses': [], 'routes': []}
+    port = route_port(node, profile, gateway)
+    # eth0 keeps the original request, as at boot.
+    query(socket, operation, network=network, gateway=gateway, **({} if port == 'eth0' else {'interface': port}))
+
+
+def change_routing(socket, old, new):
+    """Bring a running guest from OLD's static routes, gateway and OSPF to NEW's: only what differs changes."""
+    from .vendor_config import routes
+    before, after = set(routes(old)), set(routes(new))
+    ospf_changed = old.get('ospf') != new.get('ospf')
+    if ospf_changed and old.get('ospf'):
+        query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
+    for network, gateway in sorted(before - after):
+        _route(socket, old, 'route-delete', network, gateway)
+    for network, gateway in sorted(after - before):
+        _route(socket, new, 'route-add', network, gateway)
+    if ospf_changed and new.get('ospf'):
+        start_ospf(socket, new)
+    if observe(socket, new) != (new.get('guest_network') or {'addresses': [], 'routes': []}):
+        raise ValueError('Guest routing readback differs from the declared routes.')
+
+
 def apply(socket, node, timeout=40, alive=None):
     """Fresh boot only: wait for agent, then apply once; failures abort lab startup."""
     deadline = time.monotonic() + timeout
