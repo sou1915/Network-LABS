@@ -16,7 +16,8 @@ def main(arguments=None):
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
     first = commands.add_parser('setup', help='First launch: check KVM and tools, fetch the pinned Firecracker and kernel, '
                                               'build one guest disk (agent, iptables, BIRD) and remember the paths. No root.')
-    first.add_argument('--download', action='store_true', help='Download the pinned Firecracker release and guest kernel (SHA-256 checked).')
+    first.add_argument('--download', action='store_true',
+                       help='Download the pinned Firecracker release and guest kernel (SHA-256 checked).')
     first.add_argument('--kernel', type=Path, help='Use this guest kernel instead of the pinned one.')
     first.add_argument('--rebuild', action='store_true', help='Build the guest disk again even if it is up to date.')
     first.add_argument('--dir', type=Path, help='Where to keep downloads and the disk (default ~/.local/share/network-labs).')
