@@ -128,22 +128,23 @@ class QuickEditing:
         return Path(folder) / (spec['name'] + '.json')
 
     def device_double_click(self, name):
-        """As in Packet Tracer: a running device opens its terminal; otherwise its configuration panel."""
+        """As in Packet Tracer: a double-click opens the device's CLI, to type at once (running or not)."""
         self.dragging = None
         self.choose_node(name)
-        if self.states.get(name, {}).get('status') == 'running':
-            self.open_cli(name)
+        node = next((n for n in self.graph['nodes'] if n['name'] == name), None)
+        if node is not None and node['runtime'] != 'firecracker' and self.states.get(name, {}).get('status') != 'running':
+            self.device_tabs.select(self.config_panel)  # a Linux container: its form (its shell once it runs)
         else:
-            self.device_tabs.select(self.config_panel)
-            self.note.set(f'{name} n’est pas démarré : ▶ Démarrer, puis double-clic pour ouvrir son terminal.')
+            self.open_cli(name)
         return 'break'
 
     def open_cli(self, name):
-        """The device's CLI window inside the workbench (micro-VMs); an OCI node keeps its Linux shell in a terminal."""
+        """The device's CLI window inside the workbench. A running micro-VM: its live terminal. A stopped lab: the same
+        CLI on the project (configuration saved in it, applied at ▶ Démarrer; show and ping from the network model).
+        An OCI node keeps its Linux shell in a terminal emulator."""
         from . import console_server
         node = next((n for n in self.graph['nodes'] if n['name'] == name), None)
-        if node is None or self.states.get(name, {}).get('status') != 'running':
-            self.error(ValueError('Démarrer le lab, puis double-clic sur l’équipement pour son terminal.'))
+        if node is None:
             return None
         if node['runtime'] != 'firecracker':
             return self.open_console()
@@ -153,7 +154,9 @@ class QuickEditing:
             windows[name].window.lift()
             windows[name].text.focus_set()
             return windows[name]
-        if not console_server.available(self.view_lab):
+        from .ui_cli import ConsoleWindow
+        running = self.states.get(name, {}).get('status') == 'running'
+        if running and not console_server.available(self.view_lab):
             from tkinter import messagebox
             if messagebox.askyesno('Terminaux intégrés', 'Les terminaux de ce lab ne sont pas encore actifs (lab démarré avant '
                                    'cette version, ou ordinateur redémarré). Les activer ? Le mot de passe est demandé une fois.',
@@ -161,7 +164,32 @@ class QuickEditing:
                 self.launch('consoles')
                 self.note.set('Activation des terminaux : saisir le mot de passe, puis double-clic à nouveau sur ' + name + '.')
             return None
-        from .ui_cli import ConsoleWindow
-        windows[name] = ConsoleWindow(self.window, self.view_lab, name, on_close=lambda node: windows.pop(node, None))
-        self.record_event('console', 'Terminal intégré : ' + name)
+        close = lambda node: windows.pop(node, None)
+        if running:
+            windows[name] = ConsoleWindow(self.window, self.view_lab, name, on_close=close,
+                                          status='micro-VM en marche : chaque commande s’applique à l’équipement réel')
+        else:
+            windows[name] = ConsoleWindow(self.window, self.view_lab, name, on_close=close, request=self.draft_cli().answer,
+                                          synchronous=True,
+                                          status='lab arrêté : la configuration va dans le projet (appliquée au ▶ Démarrer) · '
+                                                 'show et ping calculés par le modèle')
+        self.record_event('console', 'Terminal : ' + name + ('' if running else ' (projet)'))
         return windows[name]
+
+    def draft_cli(self):
+        """The console server's request handling, in this process, on the project instead of a running lab."""
+        from . import console_server, guest_console
+        from .draft_lab import DraftLab
+        lab = DraftLab(self.editing_spec, self.draft_commit)
+        spec = self.editing_spec()
+        return console_server.Server(spec['name'], 0, console=lambda node: guest_console.Console(spec['name'], node, lambda _: lab))
+
+    def draft_commit(self, spec):
+        """A change typed in a stopped device's CLI: into the project's draft, the drawing follows (no tab switch)."""
+        import json
+        spec = validate(spec)
+        self.editor.delete('1.0', 'end')
+        self.editor.insert('1.0', json.dumps(spec, indent=2))
+        from .ui_bridge import public_topology
+        self.draw(public_topology(spec), self.states)
+        self.observation.set('Projet modifié depuis la CLI · ▶ Démarrer pour l’appliquer aux micro-VM.')

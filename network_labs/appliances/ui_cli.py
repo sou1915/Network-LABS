@@ -17,7 +17,7 @@ PAGE = 24
 
 
 class ConsoleWindow:
-    def __init__(self, parent, lab, node, font='DejaVu Sans Mono', request=None, on_close=None):
+    def __init__(self, parent, lab, node, font='DejaVu Sans Mono', request=None, on_close=None, status='', synchronous=False):
         self.lab, self.node = lab, node
         self.request = request or (lambda payload: console_server.request(lab, payload))
         self.session = uuid.uuid4().hex
@@ -28,6 +28,7 @@ class ConsoleWindow:
         self.prompt = ''
         self.paging = None  # lines still to show after « --More-- »
         self.on_close = on_close
+        self.synchronous = synchronous  # the project's CLI answers at once, in Tk's thread (it may redraw the plan)
         self.window = tk.Toplevel(parent)
         self.window.title(f'{node}')
         self.window.geometry('820x540')
@@ -36,7 +37,8 @@ class ConsoleWindow:
         self.window.protocol('WM_DELETE_WINDOW', self.close)
         frame = tk.Frame(self.window, bg=BACKGROUND)
         frame.pack(fill='both', expand=True)
-        tk.Label(frame, text='CLI', bg='#e9e9e9', fg='#222', font=('DejaVu Sans', 9, 'bold'), anchor='w', padx=8).pack(fill='x')
+        tk.Label(frame, text='CLI' + (f'   ·   {status}' if status else ''), bg='#e9e9e9', fg='#222', font=('DejaVu Sans', 9, 'bold'),
+                 anchor='w', padx=8).pack(fill='x')
         self.text = tk.Text(frame, bg=BACKGROUND, fg=FOREGROUND, insertbackground=FOREGROUND, font=(font, 10), relief='flat',
                             wrap='char', padx=6, pady=4, undo=False)
         scroll = tk.Scrollbar(frame, command=self.text.yview)
@@ -103,6 +105,13 @@ class ConsoleWindow:
 
     def send(self, payload, then):
         self.busy = True
+        if self.synchronous:
+            try:
+                reply = self.request(payload)
+            except (OSError, ValueError) as error:
+                reply = {'ok': False, 'error': f'% {error}'}
+            self.busy = False
+            return then(reply)
 
         def work():
             try:

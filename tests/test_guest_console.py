@@ -209,13 +209,13 @@ class HostShellAddressingTest(unittest.TestCase):
         self.assertIn('ip addr del', console.line('?'))
         with self.assertRaisesRegex(ValueError, 'ip addr del'):
             console.line(f'ip addr add {network}.77/24 dev eth0')  # one address per port: remove the old one first
-        self.assertIn('Appliqué', console.line(f'ip addr del {cidr} dev eth0'))
+        self.assertEqual(console.line(f'ip addr del {cidr} dev eth0'), '')  # silent when it works, as on Linux
         self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], '')
-        self.assertIn('Appliqué', console.line(f'ip addr add {network}.77/24 dev eth0'))
+        self.assertEqual(console.line(f'ip addr add {network}.77/24 dev eth0'), '')
         self.assertEqual(manager.changes[-1][2]['interfaces']['eth0'], f'{network}.77/24')
         import ipaddress
         lan = ipaddress.IPv4Interface(f'{network}.77/24').network
         gateway = next(a.split('/')[0] for n in spec['nodes'] if n['role'] == 'router' for a in n['interfaces'].values()
                        if a and ipaddress.IPv4Interface(a).network == lan)
-        reply = console.line(f'ip route add default via {gateway}')
-        self.assertIn('Appliqué', reply)
+        self.assertEqual(console.line(f'ip route add default via {gateway}'), '')
+        self.assertEqual(manager.changes[-1][2]['gateway'], gateway)

@@ -217,6 +217,40 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertIsNone(window.open_cli('R2'))  # a lab started before this version: one password to enable them
             launch.assert_called_once_with('consoles')
 
+    def test_double_click_a_stopped_device_and_type_its_configuration_straight_away(self):
+        from network_labs.appliances import progress
+        window = self.window
+        window.new()
+        paths = {'missions': {}, 'paths': {'kernel': '/assets/vmlinux', 'disk': '/assets/guest.ext4'}, 'seen': []}
+        with patch.object(progress, 'load', return_value=paths):
+            window.quick_add('router', 'cisco-isr4331')
+            window.quick_add('host')
+        window.set_edit_mode('cable')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'PC1')
+        window.set_edit_mode(None)
+        self.root.update()
+
+        def type_lines(cli, *lines):
+            for line in lines:
+                cli.set_typed(line)
+                cli.submit()
+            self.root.update()
+        router = window.device_double_click('R1') and window.cli_windows['R1']
+        self.assertTrue(router.synchronous)  # the lab is stopped: the CLI works on the project
+        router.submit()  # Press RETURN to get started!
+        type_lines(router, 'en', 'conf t', 'int g0/0/0', 'ip add 192.168.1.1 255.255.255.0', 'no shut', 'end')
+        text = router.text.get('1.0', 'end')
+        self.assertIn('%LINK-5-CHANGED: Interface GigabitEthernet0/0/0, changed state to up', text)
+        r1 = next(n for n in window.manifest()['nodes'] if n['name'] == 'R1')
+        self.assertEqual((r1['interfaces']['eth0'], r1['shutdown']), ('192.168.1.1/24', ['eth1', 'eth2']))  # in the project
+        pc = window.open_cli('PC1')
+        pc.submit()
+        type_lines(pc, 'ip addr add 192.168.1.10/24 dev eth0', 'ip route add default via 192.168.1.1', 'ping 192.168.1.1')
+        self.assertIn('4 packets received', pc.text.get('1.0', 'end'))  # the network model's answer
+        router.close()
+        pc.close()
+
     def test_command_catalogue_window_lists_the_nodes_commands_and_copies_an_example(self):
         from network_labs.appliances.microvm import bgp_example
         window = self.window

@@ -58,6 +58,8 @@ class Console:
     def query(self, operation):
         from .guest_startup import query
         with self.manager().locked() as manager:
+            if hasattr(manager, 'query_node'):  # the project, while the lab is stopped (draft_lab.DraftLab)
+                return manager.query_node(self.name, operation)
             return query(manager.directory / self.name / 'guest.vsock', operation)
 
     # ---- prompt ----
@@ -400,6 +402,8 @@ class Console:
                 manager.configure_routing(self.name, wanted)
             except ValueError as error:
                 return '% Pas applicable à chaud : ' + str(error) + ' (l’atelier : Enregistrer puis redémarrer).'
+        if hasattr(manager, 'query_node'):  # the lab is stopped: the CLI wrote into the project
+            return 'Enregistré dans le projet (appliqué au ▶ Démarrer).'
         return 'Appliqué au nœud en marche (relu dans la micro-VM).'
 
     # ---- host shell ----
@@ -465,7 +469,8 @@ class Console:
                     _upsert_route(wanted, network, str(ipaddress.IPv4Address(words[5])))
                 else:
                     _delete_route(wanted, network)
-            return self.change(manager, spec, wanted)
+            reply = self.change(manager, spec, wanted)
+            return reply if reply.startswith('%') else ''  # as on Linux: ip addr / ip route say nothing when they work
 
     def help(self):
         """The commands of the current mode, one per line, then how to get more."""

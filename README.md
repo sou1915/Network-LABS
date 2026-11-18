@@ -62,8 +62,10 @@ Une fois la machine préparée (`setup`, ci-dessous) :
 2. **Câbler** : « Connecter un câble », puis cliquer les deux équipements (premiers ports libres ; Ctrl+clic pour
    choisir les ports).
 3. **▶ Démarrer** (le projet s'enregistre tout seul dans `~/.local/share/network-labs/projects/`).
-4. **Configurer** : double-clic sur un équipement ouvre sa fenêtre CLI, dans l'atelier (aucun autre mot de passe :
-   les terminaux sont activés au démarrage du lab ; ↑/↓ historique, Tab complète, « ? » aide). Sur un routeur Cisco :
+4. **Configurer** : double-clic sur un équipement ouvre sa CLI, tout de suite, même avant ▶ Démarrer : on tape ce
+   qu'on veut. Lab arrêté, la configuration va dans le projet (appliquée au démarrage) et `show`/`ping` sont
+   calculés par le modèle du réseau ; lab démarré, chaque commande s'applique à la micro-VM réelle (aucun autre
+   mot de passe ; ↑/↓ historique, Tab complète, « ? » aide). Sur un routeur Cisco :
    `en`, `conf t`, `int g0/0/0`, `ip add 192.168.1.1 255.255.255.0`, `no shut`, `end` ; sur un PC :
    `ip addr add 192.168.1.10/24 dev eth0` et `ip route add default via 192.168.1.1`. Tout s'applique sur
    l'équipement en marche, sans redémarrer.
