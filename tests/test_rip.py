@@ -77,6 +77,13 @@ class RipTest(unittest.TestCase):
         self.assertIsNone(self.node('R1').get('ospf'))
 
 
+class RipMetricTest(unittest.TestCase):
+    def test_bird_metrics_become_ios_hop_counts(self):
+        from network_labs.appliances.vendor_show import parse_rip_metrics
+        text = ('Table master4:\n10.0.23.0/30         unicast [rip4 22:41:02.113] * (120/2)\n'
+                '\tvia 10.0.12.2 on eth1\n192.168.3.0/24       unicast [rip4 22:41:07.204] * (120/3)\n\tvia 10.0.12.2 on eth1\n')
+        self.assertEqual(parse_rip_metrics(text), {'10.0.23.0/30': 1, '192.168.3.0/24': 2})  # as the model and IOS count
+
 @unittest.skipUnless(shutil.which('gcc') and shutil.which('bird'), 'gcc and BIRD required')
 class RipAgentTest(unittest.TestCase):
     def test_the_agent_renders_a_rip_configuration_bird_accepts_and_refuses_bad_fields(self):

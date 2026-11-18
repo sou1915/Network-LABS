@@ -110,12 +110,13 @@ def parse_neighbors(text):
 
 
 def parse_rip_metrics(text):
-    """BIRD 'show route protocol rip4': {network: hop count}."""
+    """BIRD 'show route protocol rip4': {network: hop count as IOS shows it}. BIRD's metric includes the cost of the
+    network itself (a neighbour's connected network comes in at 2), IOS counts the routers on the way (1): one less."""
     metrics = {}
     for line in text.splitlines():
         match = re.match(r'^(\d+\.\d+\.\d+\.\d+/\d+)\s+unicast \[rip4[^\]]*\][^(]*\((\d+)/(\d+)', line)
         if match:
-            metrics[match[1]] = int(match[3])
+            metrics[match[1]] = max(1, int(match[3]) - 1)
     return metrics
 
 
