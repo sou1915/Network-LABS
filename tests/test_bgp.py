@@ -143,6 +143,8 @@ class ImageTest(unittest.TestCase):
             build(shutil.which('busybox'), disk, size_mib=128, with_agent=True, with_routing=True)
             listing = subprocess.run(['debugfs', '-R', 'ls /usr/lib/frr', str(disk)], capture_output=True, text=True).stdout
             group = subprocess.run(['debugfs', '-R', 'cat /etc/group', str(disk)], capture_output=True, text=True).stdout
+            vtysh = subprocess.run(['debugfs', '-R', 'cat /etc/frr/vtysh.conf', str(disk)], capture_output=True, text=True).stdout
+        self.assertEqual(vtysh, 'username root nopassword\n')  # vtysh would otherwise need PAM, absent from the guest
         self.assertIn('bgpd', listing)
         self.assertIn('frrvty:x:85:root', group)
 

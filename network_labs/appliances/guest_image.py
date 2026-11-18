@@ -119,6 +119,10 @@ def install_frr(root, programs=None):
         if not any(line.startswith(entry.split(':')[0] + ':') for line in lines):
             lines.append(entry)
     group.write_text('\n'.join(lines) + '\n')
+    # vtysh reads this file, and without it authenticates root through PAM, which the minimal guest has none of.
+    frr_etc = etc / 'frr'
+    frr_etc.mkdir(parents=True, exist_ok=True)
+    (frr_etc / 'vtysh.conf').write_text('username root nopassword\n')
 
 
 def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False,
