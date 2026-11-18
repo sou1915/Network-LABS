@@ -976,7 +976,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.vendor_apply=ttk.Button(actions,text='Appliquer au brouillon',command=self.apply_vendor_config,
                                      style='Native.Primary.TButton')
         self.vendor_apply.pack(side='right',fill='x',expand=True)
-        self.vendor_live=ttk.Button(frame,text='⚡ Appliquer au lab en marche (adresses, routes, OSPF, BGP)',
+        self.vendor_live=ttk.Button(frame,text='⚡ Appliquer au lab en marche',
                                     command=self.apply_routing_live,style='Native.TButton')
         self.vendor_live.pack(fill='x',padx=14,pady=(5,0))
         live=tk.Frame(frame,bg=BG)
