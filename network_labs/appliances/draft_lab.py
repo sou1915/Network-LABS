@@ -61,6 +61,9 @@ class DraftLab:
             for network, gateway, cost in model.ospf.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'ospf', 'metric': cost})
+            for network, gateway, hops in model.rip.get(name, []):
+                port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
+                routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'rip', 'metric': hops})
             for network, gateway in model.bgp.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'bgp', 'metric': 0,

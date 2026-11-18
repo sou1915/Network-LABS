@@ -243,6 +243,37 @@ static int ospf_render(const char *fields, char *out, size_t size) {
     n += snprintf(out + n, size - (size_t)n, "  };\n}\n");
     return n;
 }
+/* RIP with BIRD 2 (shares BIRD's files with OSPF; a router runs one or the other). From typed fields only:
+   "ROUTER_ID VERSION PORT:a|p[,...]": the ports RIP runs on, a(ctive) or p(assive: announced, no updates sent). */
+static int rip_render(const char *fields, char *out, size_t size) {
+    char rid[16], list[64], copy[64], extra; unsigned version;
+    if (sscanf(fields, "%15s %u %63s %c", rid, &version, list, &extra) != 3) return -1;
+    if (!valid_ipv4(rid) || (version != 1 && version != 2)) return -1;
+    memcpy(copy, list, sizeof(copy));
+    char names[4][5]; char modes[4]; int count = 0;
+    for (char *item = strtok(copy, ","); item; item = strtok(NULL, ",")) {
+        char port[5], mode, tail;
+        if (count >= 4 || sscanf(item, "%4[^:]:%c%c", port, &mode, &tail) != 2) return -1;
+        if (!valid_port(port) || (mode != 'a' && mode != 'p')) return -1;
+        for (int i = 0; i < count; i++) if (!strcmp(names[i], port)) return -1;
+        memcpy(names[count], port, 5); modes[count++] = mode;
+    }
+    if (!count) return -1;
+    int n = snprintf(out, size, "router id %s;\nlog stderr all;\nprotocol device { scan time 1; }\n"
+                     "protocol direct direct4 { ipv4; interface ", rid);
+    for (int i = 0; i < count; i++) n += snprintf(out + n, size - (size_t)n, "%s\"%s\"", i ? ", " : "", names[i]);
+    n += snprintf(out + n, size - (size_t)n, "; }\n"
+                  "protocol kernel kernel4 { scan time 1; ipv4 { import none; export where source = RTS_RIP; }; }\n"
+                  "protocol rip rip4 {\n  ipv4 { import all; export where source = RTS_DEVICE || source = RTS_RIP; };\n");
+    for (int i = 0; i < count; i++) {
+        n += snprintf(out + n, size - (size_t)n, "  interface \"%s\" { version %u; mode %s; update time 5; timeout time 30; "
+                      "garbage time 20; passive %s; };\n", names[i], version, version == 1 ? "broadcast" : "multicast",
+                      modes[i] == 'p' ? "yes" : "no");
+        if (n >= (int)size - 16) return -1;
+    }
+    n += snprintf(out + n, size - (size_t)n, "}\n");
+    return n;
+}
 static int send_all(int fd, const char *data, size_t size) {
     while (size) {
         ssize_t n = write(fd, data, size);
@@ -423,12 +454,54 @@ static void serve(int input, int output, int mutations) {
         ssize_t n = read(fd, ospf_config, sizeof(ospf_config)); close(fd);
         reply(output, n < 0 ? 3 : 0, ospf_config, n < 0 ? 0 : (size_t)n); return;
     }
+    /* RIP: the same BIRD daemon and files as OSPF (never both): render, start, stop, configuration and routes. */
+    if (!strncmp(request, "NL1 RIP_RENDER ", 15)) {
+        int n = rip_render(request + 15, ospf_config, sizeof(ospf_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        reply(output, 0, ospf_config, (size_t)n); return;
+    }
+    if (mutations && !strncmp(request, "NL1 RIP_START ", 14)) {
+        int n = rip_render(request + 14, ospf_config, sizeof(ospf_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        const char *missing = "the guest image has no BIRD; rebuild it with --with-routing";
+        if (access("/usr/sbin/bird", X_OK)) { reply(output, 1, missing, strlen(missing)); return; }
+        if (pidfile_alive("/run/bird.pid")) { reply(output, 1, "rip already running", 19); return; }
+        int fd = open("/run/bird.conf", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        int written = fd >= 0 && write(fd, ospf_config, (size_t)n) == n;
+        if (fd >= 0) close(fd);
+        char *const bird[] = {"bird", "-f", "-c", "/run/bird.conf", "-s", "/run/bird.ctl", "-P", "/run/bird.pid", NULL};
+        if (!written || spawn_detached("/usr/sbin/bird", bird)) { reply(output, 3, "rip start failed", 16); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 RIP_STOP")) {
+        pid_t bird = pidfile_alive("/run/bird.pid");
+        if (bird) {
+            kill(bird, SIGTERM);
+            for (int tries = 0; tries < 40 && kill(bird, 0) == 0; tries++) {
+                struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+            }
+            if (kill(bird, 0) == 0) { reply(output, 3, "rip stop failed", 15); return; }
+        }
+        unlink("/run/bird.pid"); unlink("/run/bird.conf");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 RIP_SHOW config")) {
+        int fd = open("/run/bird.conf", O_RDONLY | O_CLOEXEC);
+        if (fd < 0 || !pidfile_alive("/run/bird.pid")) {
+            if (fd >= 0) close(fd);
+            reply(output, 1, "rip not running", 15); return;
+        }
+        ssize_t n = read(fd, ospf_config, sizeof(ospf_config)); close(fd);
+        reply(output, n < 0 ? 3 : 0, ospf_config, n < 0 ? 0 : (size_t)n); return;
+    }
+    char *const rip_routes[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "route", "protocol", "rip4", NULL};
     char *const ospf_neighbors[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "ospf", "neighbors", "ospf4", NULL};
     char *const ospf_interfaces[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "ospf", "interface", "ospf4", NULL};
     char *const ospf_routes[] = {"birdc", "-r", "-s", "/run/bird.ctl", "show", "route", "protocol", "ospf4", NULL};
     char *const *ospf_show = !strcmp(request, "NL1 OSPF_SHOW neighbors") ? ospf_neighbors
                            : !strcmp(request, "NL1 OSPF_SHOW interfaces") ? ospf_interfaces
-                           : !strcmp(request, "NL1 OSPF_SHOW routes") ? ospf_routes : NULL;
+                           : !strcmp(request, "NL1 OSPF_SHOW routes") ? ospf_routes
+                           : !strcmp(request, "NL1 RIP_SHOW routes") ? rip_routes : NULL;
     /* BGP: render (read-only), start zebra then bgpd as root under /run/frr, stop, and fixed vtysh JSON views. */
     char bgp_config[2048];
     if (!strncmp(request, "NL1 BGP_RENDER ", 15)) {

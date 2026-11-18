@@ -96,6 +96,8 @@ def validate(data):
         validate_bgp(node)
         from .ios_store import validate as validate_cli
         validate_cli(node)
+        from .rip import validate as validate_rip
+        validate_rip(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):

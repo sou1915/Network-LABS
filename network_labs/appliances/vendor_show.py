@@ -51,6 +51,8 @@ def observe_guest(query, node):
     if node.get('ospf'):
         ospf = {'router_id': node['ospf']['router_id'], 'neighbors': parse_neighbors(query('ospf-show', state='neighbors')),
                 'metrics': parse_ospf_metrics(query('ospf-show', state='routes'))}
+    from .rip import process as rip_process
+    rip = parse_rip_metrics(query('rip-show', state='routes')) if rip_process(node) else None
     routes = []
     for line in query('routes').splitlines():
         fields = line.split()
@@ -58,11 +60,13 @@ def observe_guest(query, node):
             continue
         network = '0.0.0.0/0' if fields[0] == 'default' else str(ipaddress.IPv4Network(fields[0], strict=False))
         gateway = fields[fields.index('via') + 1] if 'via' in fields else None
-        learned = bool(node.get('ospf') or node.get('bgp')) and bird_route(fields)
+        learned = bool(node.get('ospf') or node.get('bgp') or rip is not None) and bird_route(fields)
         if learned and gateway is None:
             continue  # BIRD's copy of a connected network: the kernel's own entry is shown
         route = {'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]}
-        if learned and bgp is not None:
+        if learned and rip is not None:
+            route.update(protocol='rip', metric=rip.get(network))
+        elif learned and bgp is not None:
             best = bgp['paths'].get(network, {})
             route.update(protocol='bgp', metric=0, path=best.get('path', ''))
         elif learned:
@@ -103,6 +107,16 @@ def parse_neighbors(text):
         rows.append({'router_id': fields[0], 'priority': int(fields[1]), 'state': state, 'role': role,
                      'dead': float(fields[3]), 'port': fields[4], 'address': fields[5]})
     return rows
+
+
+def parse_rip_metrics(text):
+    """BIRD 'show route protocol rip4': {network: hop count}."""
+    metrics = {}
+    for line in text.splitlines():
+        match = re.match(r'^(\d+\.\d+\.\d+\.\d+/\d+)\s+unicast \[rip4[^\]]*\][^(]*\((\d+)/(\d+)', line)
+        if match:
+            metrics[match[1]] = int(match[3])
+    return metrics
 
 
 def parse_ospf_metrics(text):
@@ -168,7 +182,11 @@ def _connected(observation):
 
 
 def _static(observation):
-    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') not in ('ospf', 'bgp')]
+    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') not in ('ospf', 'bgp', 'rip')]
+
+
+def _rip(observation):
+    return [r for r in observation['routes'] if r.get('protocol') == 'rip']
 
 
 def _ospf(observation):
@@ -220,7 +238,7 @@ def _ios_brief(node, observation, name):
 
 
 def _ios_route(node, observation, name):
-    lines = ['Codes: L - local, C - connected, S - static, O - OSPF, B - BGP, * - candidate default', '']
+    lines = ['Codes: L - local, C - connected, S - static, R - RIP, O - OSPF, B - BGP, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines.append(f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0' if default
                  else 'Gateway of last resort is not set')
@@ -228,6 +246,8 @@ def _ios_route(node, observation, name):
     for route in _static(observation):
         code = 'S*' if route['network'] == '0.0.0.0/0' else 'S '
         lines.append(f'{code}       {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
+    for route in _rip(observation):
+        lines.append(f'R        {route["network"]} [120/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for route in _ospf(observation):
         lines.append(f'O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for route in _bgp(observation):
@@ -641,17 +661,20 @@ def parse_sessions(text, limit=100):
     for line in text.splitlines():
         words = [w.strip('[]') for w in line.split()]  # conntrack writes flags as [ASSURED], [UNREPLIED]
         protocol = next((w for w in words if w in ('tcp', 'udp', 'icmp')), None)
-        fields = {}
+        fields, replies = {}, {}
         for word in words:
             key, sign, value = word.partition('=')
             if sign and key not in fields:
                 fields[key] = value  # the first src/dst/dport are the original direction
+            elif sign and key not in replies:
+                replies[key] = value  # the second ones, the reply direction (after NAT)
         if protocol is None or 'src' not in fields or 'dst' not in fields:
             continue
         state = next((w for w in words if w.isupper() and w.isalpha() and w not in ('ASSURED', 'UNREPLIED')), '')
         sessions.append({'protocol': protocol, 'source': fields['src'], 'destination': fields['dst'],
                          'port': fields.get('dport', ''), 'state': state or ('ASSURED' if 'ASSURED' in words else ''),
-                         'replied': 'UNREPLIED' not in words})
+                         'replied': 'UNREPLIED' not in words, 'reply_source': replies.get('src', ''),
+                         'reply_destination': replies.get('dst', '')})
         if len(sessions) >= limit:
             break
     return sessions

@@ -827,7 +827,8 @@ class Manager:
                 observation = vendor_show.observe_guest(lambda operation, **fields: query(socket, operation, **fields), node)
             except (OSError, ValueError) as error:
                 raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
-        if node.get('firewall') is not None:
+        from .ios_nat import entries as ios_nat
+        if node.get('firewall') is not None or ios_nat(node):
             # Tracked connections; a guest kernel without conntrack reports none rather than failing the observation.
             try:
                 observation['sessions'] = vendor_show.parse_sessions(self.sessions(name)['output'])
@@ -1032,7 +1033,8 @@ class Manager:
 
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
-            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'firecracker':
+            from .ios_nat import entries as ios_nat
+            if node['name'] == name and (node.get('firewall') is not None or ios_nat(node)) and node['runtime'] == 'firecracker':
                 if clear:
                     raise ValueError('Clearing sessions is not available on micro-VM firewalls yet; the guest has no conntrack tool.')
                 from .guest_control import request

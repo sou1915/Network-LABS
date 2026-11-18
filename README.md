@@ -78,9 +78,11 @@ Les commandes Cisco du CCNA sont reconnues : configuration de base et sécurité
 `service password-encryption`, `banner motd`, `line con 0` / `line vty`, `username`, SSH), interfaces
 (`interface range`, `description`, `speed`, `duplex`), adressage, routes statiques, OSPF, BGP, DHCP, VLAN et
 trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neighbors`, `show interfaces`,
-`copy run start`, `show startup-config`, `| include` / `| section`… Celles qui n'agissent pas encore sur le trafic
-du lab (RIP, EIGRP, NAT, port-security, spanning-tree…) sont acceptées et gardées dans la configuration ; le
-catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
+`copy run start`, `show startup-config`, `| include` / `| section`, RIP (`router rip`, `network`,
+`passive-interface`, routes `R` dans `show ip route`) et le PAT (`ip nat inside` / `outside`,
+`ip nat inside source list N interface X overload`, `show ip nat translations`), qui agissent pour de vrai.
+Celles qui n'agissent pas encore sur le trafic du lab (EIGRP, NAT statique, port-security, spanning-tree…) sont
+acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme
 les noms de ports usuels (`g0/0/0`, `gi0/0/0`, `GigabitEthernet0/0/0`). Le formulaire complet reste disponible

@@ -155,6 +155,41 @@ def ospf_routes(spec, seg):
     return found
 
 
+def rip_routes(spec, seg):
+    """{router: [(network, gateway, hops)]} as RIP converges: updates sent by active RIP ports, heard by RIP ports on the
+    same segment; each router announces its RIP ports' networks; fewest hops wins, 15 at most."""
+    from .rip import process
+    running = {n['name']: (n, process(n)) for n in spec['nodes'] if process(n)}
+    if not running:
+        return {}
+    down = {name: set(node.get('shutdown') or []) for name, (node, _) in running.items()}
+    ports = {name: {p['port']: p['passive'] for p in rip['interfaces'] if p['port'] not in down[name]}
+             for name, (_, rip) in running.items()}
+    tables = {name: {ipaddress.IPv4Interface(node['interfaces'][port]).network: (0, None) for port in ports[name]}
+              for name, (node, _) in running.items()}
+    for _ in range(16):
+        changed = False
+        for name, (node, _) in running.items():
+            for other, (peer, _) in running.items():
+                if other == name:
+                    continue
+                for port in ports[name]:
+                    for peer_port, passive in ports[other].items():
+                        if passive or seg.get((name, port)) is None or seg.get((name, port)) != seg.get((other, peer_port)):
+                            continue
+                        hop = ipaddress.IPv4Interface(peer['interfaces'][peer_port]).ip
+                        for network, (hops, _) in list(tables[other].items()):
+                            candidate = hops + 1
+                            current = tables[name].get(network)
+                            if candidate <= 15 and (current is None or candidate < current[0]):
+                                tables[name][network] = (candidate, hop)
+                                changed = True
+        if not changed:
+            break
+    return {name: [(network, hop, hops) for network, (hops, hop) in table.items() if hop is not None]
+            for name, table in tables.items()}
+
+
 def bgp_routes(spec, seg):
     """{router: [(network, next hop)]} as eBGP converges: sessions only where both sides name each other with the
     right AS on a shared segment, networks announced only when held exactly, shortest AS path, no AS loops."""
@@ -204,6 +239,7 @@ class Model:
         self.seg = segments(spec)
         self.ospf = ospf_routes(spec, self.seg)
         self.bgp = bgp_routes(spec, self.seg)
+        self.rip = rip_routes(spec, self.seg)
         self.leases = {}  # (node, port) -> (address, gateway): DHCP clients take the first free pool address
         servers = [(n, n['dhcp_server']) for n in spec['nodes'] if n.get('dhcp_server')]
         for node in spec['nodes']:
@@ -245,6 +281,7 @@ class Model:
                        if n == name and router]
         candidates += [(network, gateway, 'route OSPF') for network, gateway, _ in self.ospf.get(name, [])]
         candidates += [(network, gateway, 'route BGP') for network, gateway in self.bgp.get(name, [])]
+        candidates += [(network, gateway, 'route RIP') for network, gateway, _ in self.rip.get(name, [])]
         for network, gateway, kind in candidates:
             if destination in network and (best is None or network.prefixlen > best[0]):
                 port = next((_port_of(i) for i, a in held.items() if gateway in a.network), None)
@@ -265,9 +302,19 @@ class Model:
             return None, f'{name} : {what} {hop} ne répond pas sur ce segment ({kind})', None
         return owner[0], owner[1], interface
 
+    def nat(self, name):
+        """The NAT entries a node runs: a firewall's policy, or a router's IOS NAT (PAT)."""
+        node = self.nodes[name]
+        if node['role'] == 'firewall':
+            return (node.get('firewall') or {}).get('nat', [])
+        if node['role'] == 'router' and node.get('cli_config'):
+            from .ios_nat import entries
+            return entries(node)
+        return []
+
     def _nat_out(self, name, port, source):
-        """Source NAT on leaving firewall NAME by PORT: the translated source address, or SOURCE."""
-        for entry in (self.nodes[name].get('firewall') or {}).get('nat', []):
+        """Source NAT on leaving NAME by PORT: the translated source address, or SOURCE."""
+        for entry in self.nat(name):
             if entry['type'] in ('masquerade', 'snat') and entry.get('out') == port and (
                     not entry.get('source') or source in ipaddress.IPv4Network(entry['source'])):
                 if entry['type'] == 'snat':
@@ -277,7 +324,7 @@ class Model:
         return source
 
     def _nat_in(self, name, port, destination):
-        for entry in (self.nodes[name].get('firewall') or {}).get('nat', []):
+        for entry in self.nat(name):
             if (entry['type'] == 'dnat' and entry.get('in') == port and entry.get('protocol', 'any') in ('any', 'icmp')
                     and destination in ipaddress.IPv4Network(entry['destination'])):
                 return ipaddress.IPv4Address(entry['to'])
@@ -299,7 +346,8 @@ class Model:
                     from .native_models import port_names
                     shown = port_names(node).get(ingress, ingress)
                     return False, path, f'{here} : l’ACL {node["acl_ports"][ingress]} de {shown} refuse le paquet', tracked, here
-            if node['role'] == 'firewall' and ingress is not None:
+            translating = node['role'] == 'firewall' or bool(self.nat(here))
+            if translating and ingress is not None:
                 if reply:
                     for firewall, before, after in tracked:
                         if firewall == here and packet['destination'] == after[0]:
@@ -307,7 +355,7 @@ class Model:
                 else:
                     wanted = {'in': ingress, 'source': str(packet['source']), 'destination': str(packet['destination']),
                               'protocol': 'icmp'}
-                    if evaluate_policy(node, wanted) != 'accept':
+                    if node['role'] == 'firewall' and evaluate_policy(node, wanted) != 'accept':
                         return False, path, f'{here} bloque le flux (politique de pare-feu)', tracked, here
                     translated = self._nat_in(here, ingress, packet['destination'])
                     if translated != packet['destination']:
@@ -320,7 +368,7 @@ class Model:
             following, port, egress = self.step(here, packet['destination'])
             if following is None:
                 return False, path, port, tracked, here
-            if node['role'] == 'firewall' and not reply:
+            if translating and not reply:
                 translated = self._nat_out(here, egress, packet['source'])
                 if translated != packet['source']:
                     original = next((b for f, b, _ in tracked if f == here), (packet['source'], packet['destination']))

@@ -83,7 +83,7 @@ class CcnaTest(unittest.TestCase):
         self.assertIn('  show version', r1.line('show history'))
         self.run_lines(r1, 'conf t', 'router rip', 'version 2', 'network 192.168.1.0', 'no auto-summary', 'end')
         self.assertIn('router rip\n version 2\n network 192.168.1.0\n no auto-summary', r1.line('show run'))
-        self.assertIn('RIP ne tourne pas encore', r1.line('show ip protocols'))
+        self.assertIn('Routing Protocol is "rip"', r1.line('show ip protocols'))
         self.assertIn('Description: vers R2', self.run_lines(r1, 'conf t', 'int g0/0/1', 'description vers R2', 'end',
                                                              'show interfaces g0/0/1')[-1])
 
@@ -102,6 +102,26 @@ class CcnaTest(unittest.TestCase):
         self.assertEqual([node['switchports'][p]['vlan'] for p in ('eth0', 'eth1', 'eth2')], [10, 10, 10])
         self.assertEqual(ios_store.config(node)['interfaces']['eth2'], ['spanning-tree portfast'])
         self.assertIn('(config-if-range)#', (sw.line('conf t'), sw.line('int range fa0/1 - 2'), sw.prompt())[2])
+
+    def test_pat_overload_lets_a_private_lan_reach_a_network_that_has_no_route_back(self):
+        spec = self.box['spec']
+        r2 = next(n for n in spec['nodes'] if n['name'] == 'R2')
+        r2['guest_network'] = {'addresses': [], 'routes': []}  # R2 knows nothing of 192.168.1.0/24
+        self.box['spec'] = validate(spec)
+        r1 = self.console('R1')
+        self.run_lines(r1, 'en', 'conf t', 'ip route 0.0.0.0 0.0.0.0 192.168.2.2', 'end')
+        self.assertFalse(Model(self.box['spec']).ping('PC1', '10.0.0.1')[0])  # the reply has no way back
+        self.run_lines(r1, 'conf t', 'access-list 1 permit 192.168.1.0 0.0.0.255',
+                       'ip nat inside source list 1 interface g0/0/1 overload', 'end')
+        self.assertFalse(Model(self.box['spec']).ping('PC1', '10.0.0.1')[0])  # no inside/outside ports: IOS does not translate
+        self.run_lines(r1, 'conf t', 'int g0/0/0', 'ip nat inside', 'int g0/0/1', 'ip nat outside', 'end')
+        from network_labs.appliances.acl import policy
+        self.assertEqual(policy(self.node('R1'))['nat'], [{'name': 'nat-1-1', 'type': 'masquerade', 'out': 'eth1', 'protocol': 'any',
+                                                          'source': '192.168.1.0/24'}])
+        ok, why = Model(self.box['spec']).ping('PC1', '10.0.0.1')
+        self.assertTrue(ok, why)  # PC1 leaves as 192.168.2.1, R2 answers it
+        self.assertIn('Dynamic mappings: 1 (overload)', r1.line('show ip nat statistics'))
+        self.assertTrue(r1.line('show ip nat translations').startswith('Pro  Inside global'))
 
 
 if __name__ == '__main__':

@@ -57,7 +57,8 @@ def policy(node):
                 rule['dport'] = entry['dport']
             rules.append(rule)
         rules.append({'name': f'{name}-implicit-deny', 'in': port, 'action': 'drop', 'protocol': 'any'})
-    return {'default': 'accept', 'stateful': False, 'rules': rules, 'nat': []}
+    from .ios_nat import entries
+    return {'default': 'accept', 'stateful': False, 'rules': rules, 'nat': entries(node)}  # IOS NAT (PAT), when configured
 
 
 def evaluate(node, port, packet):

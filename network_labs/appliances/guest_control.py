@@ -15,7 +15,25 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES',
               'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
               'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
-              'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW'}
+              'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
+              'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW'}
+RIP_SHOW = ('config', 'routes')
+
+
+def rip_fields(rip):
+    """'ROUTER_ID VERSION PORT:a|p,...' for one RIP process; the guest checks it again."""
+    if not isinstance(rip, dict) or set(rip) != {'router_id', 'version', 'interfaces'}:
+        raise ValueError('Guest RIP requires router_id, version and interfaces.')
+    if rip['version'] not in (1, 2) or not isinstance(rip['interfaces'], list) or not 1 <= len(rip['interfaces']) <= 4:
+        raise ValueError('Guest RIP: version 1 or 2, on 1..4 ports.')
+    items = []
+    for port in rip['interfaces']:
+        if not isinstance(port, dict) or set(port) != {'port', 'passive'} or port['port'] not in ('eth0', 'eth1', 'eth2', 'eth3'):
+            raise ValueError('Guest RIP port: eth0..eth3 and passive.')
+        items.append(f"{port['port']}:{'p' if port['passive'] else 'a'}")
+    if len(set(items)) != len(items):
+        raise ValueError('Guest RIP: each port once.')
+    return f"{ipaddress.IPv4Address(rip['router_id'])} {rip['version']} {','.join(items)}"
 OSPF_SHOW = ('neighbors', 'interfaces', 'routes', 'config')
 BGP_SHOW = ('summary', 'routes', 'config')
 
@@ -178,9 +196,21 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('rip-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp)):
+            raise ValueError('Guest RIP operations accept only the process (render, start) or what to show.')
+        if operation in ('rip-render', 'rip-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the RIP process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + rip_fields(rip), timeout)
+        if rip is not None or (operation == 'rip-stop') != (state is None) or (state is not None and state not in RIP_SHOW):
+            raise ValueError('Guest rip-show requires config or routes; rip-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if rip is not None:
+        raise ValueError('Only rip-render and rip-start accept a RIP process.')
     if operation.startswith('bgp-'):
         if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf)):
             raise ValueError('Guest BGP operations accept only the process (render, start) or what to show.')

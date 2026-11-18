@@ -12,8 +12,8 @@ from . import ios_store
 from .native_models import MODELS, port_names
 from .vendor_config import ios_name
 
-SHOWS = ['show version', 'show cdp neighbors', 'show cdp neighbors detail', 'show interfaces', 'show startup-config',
-         'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols', 'show interfaces trunk']
+SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
+         'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols', 'show interfaces trunk']
 
 
 def answer(console, low):
@@ -48,6 +48,8 @@ def answer(console, low):
         return f'Current privilege level is {15 if console.mode == "enable" else 1}'
     if full == 'show ip protocols':
         return protocols(console)
+    if full in ('show ip nat translations', 'show ip nat statistics'):
+        return nat(console, statistics=full.endswith('statistics'))
     if full in ('copy running-config startup-config', 'write memory', 'write'):
         return save(console, copy=full.startswith('copy'))
     if full in ('erase startup-config', 'write erase'):
@@ -66,7 +68,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'clo': 'clock', 'clock': 'clock', 'priv': 'privilege', 'privilege': 'privilege', 'prot': 'protocols',
          'protocols': 'protocols', 'wr': 'write', 'write': 'write', 'mem': 'memory', 'memory': 'memory', 'copy': 'copy',
          'term': 'terminal', 'terminal': 'terminal', 'len': 'length', 'length': 'length', 'width': 'width',
-         'users': 'users', 'cdp': 'cdp', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set'}
+         'users': 'users', 'cdp': 'cdp', 'nat': 'nat', 'trans': 'translations', 'translations': 'translations',
+         'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set'}
 
 
 def _expand(words):
@@ -241,8 +244,16 @@ def protocols(console):
         lines.append('  Distance: external 20 internal 200 local 200')
     rip = next((b for b in ios_store.config(node)['blocks'] if b['header'] == 'router rip'), None)
     if rip:
-        lines += ['', 'Routing Protocol is "rip" (configuration enregistrée ; RIP ne tourne pas encore dans la micro-VM)',
+        from .rip import process
+        running = process(node)
+        lines += ['', 'Routing Protocol is "rip"', '  Sending updates every 5 seconds (Network LABS : rythme accéléré)',
+                  f'  Default version control: send version {running["version"] if running else 2}',
                   '  Routing for Networks:'] + [f'    {l.split()[1]}' for l in rip['lines'] if l.startswith('network ')]
+        if running:
+            passive = [p['port'] for p in running['interfaces'] if p['passive']]
+            if passive:
+                lines += ['  Passive Interface(s):'] + [f'    {_label(node, p)}' for p in passive]
+        lines.append('  Distance: (default is 120)')
     return '\n'.join(lines)
 
 
@@ -252,3 +263,24 @@ def save(console, copy=False):
     body = '\n'.join(l for l in text.splitlines() if not l.startswith(('! Network LABS', '! le nœud')))
     console.store_startup(body)
     return ('Destination filename [startup-config]? \n' if copy else '') + 'Building configuration...\n[OK]'
+
+
+def nat(console, statistics=False):
+    """« show ip nat translations »: the guest kernel's tracked connections that leave translated (PAT)."""
+    from .ios_nat import entries
+    node = console.node()
+    rules = entries(node)
+    sessions = [s for s in (console.observe().get('sessions') or [])
+                if s.get('reply_destination') and s['reply_destination'] != s['source']]
+    if statistics:
+        from .vendor_config import port_names
+        outside = sorted({ios_name(port_names(node)[r['out']]) for r in rules})
+        return '\n'.join([f'Total active translations: {len(sessions)} (0 static, {len(sessions)} dynamic; {len(sessions)} extended)',
+                          'Outside interfaces:', *(f'  {name}' for name in outside),
+                          f'Dynamic mappings: {len(rules)} (overload)'])
+    lines = [f'{"Pro":<5}{"Inside global":<23}{"Inside local":<23}{"Outside local":<23}Outside global']
+    for s in sessions:
+        port = f':{s["port"]}' if s.get('port') else ''
+        lines.append(f'{s["protocol"]:<5}{s["reply_destination"] + port:<23}{s["source"] + port:<23}'
+                     f'{s["destination"] + port:<23}{s["destination"] + port}')
+    return '\n'.join(lines)

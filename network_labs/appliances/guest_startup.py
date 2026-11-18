@@ -236,7 +236,7 @@ def observe(socket, node):
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
         if not fields: continue
-        if (node.get('ospf') or node.get('bgp')) and learned(fields):
+        if (node.get('ospf') or node.get('bgp') or _runs_rip(node)) and learned(fields):
             continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
@@ -317,6 +317,39 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
+def _runs_rip(node):
+    from .rip import process
+    return process(node) is not None
+
+
+def check_rip(socket, node):
+    """The guest's BIRD runs the RIP configuration the lab declares (rendered by the agent from the same fields)."""
+    from .rip import guest_process
+    wanted = query(socket, 'rip-render', rip=guest_process(node))
+    try:
+        running = query(socket, 'rip-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: RIP is not running in the guest ({error}).') from error
+    if running != wanted:
+        raise ValueError(f'{node["name"]}: the guest RIP configuration differs from the lab.')
+
+
+def start_rip(socket, node, timeout=8):
+    """Start BIRD's RIP from the typed process, then wait for birdc to answer."""
+    from .rip import guest_process
+    query(socket, 'rip-start', rip=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'rip-show', state='routes')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    check_rip(socket, node)
+
+
 LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config')
 
 
@@ -344,6 +377,10 @@ def change_routing(socket, old, new):
     # The routing daemons bind to addresses: a new address on a port restarts them with the new configuration.
     ospf_changed = old.get('ospf') != new.get('ospf') or bool(readdressed and new.get('ospf'))
     bgp_changed = old.get('bgp') != new.get('bgp') or bool(readdressed and new.get('bgp'))
+    from .rip import process as rip_process
+    rip_changed = rip_process(old) != rip_process(new)
+    if rip_changed and rip_process(old):
+        query(socket, 'rip-stop')  # BIRD withdraws the routes RIP installed as it stops
     if ospf_changed and old.get('ospf'):
         query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
     if bgp_changed and old.get('bgp'):
@@ -369,8 +406,10 @@ def change_routing(socket, old, new):
         start_ospf(socket, new)
     if bgp_changed and new.get('bgp'):
         start_bgp(socket, new)
-    if (old.get('acl_ports'), old.get('acls')) != (new.get('acl_ports'), new.get('acls')):
-        from .acl import policy
+    if rip_changed and rip_process(new):
+        start_rip(socket, new)
+    from .acl import policy
+    if old.get('role') == 'router' and policy(old) != policy(new):  # access lists or IOS NAT changed
         from .guest_firewall import apply as apply_firewall
         # No list left: an open chain (accept, no rule but the invalid-state drop every guest chain starts with).
         apply_firewall(socket, {'firewall': policy(new)})
@@ -463,9 +502,9 @@ def apply(socket, node, timeout=40, alive=None):
         # Filter first: forwarding is never switched on before the declared policy is in place.
         from .guest_firewall import apply as apply_firewall
         apply_firewall(socket, node)
-    if node.get('acl_ports'):
-        # A router's access lists run in its forward chain, installed before forwarding starts.
-        from .acl import policy
+    from .acl import policy
+    if node.get('role') == 'router' and (policy(node)['rules'] or policy(node)['nat']):
+        # A router's access lists and IOS NAT run in its firewall chains, installed before forwarding starts.
         from .guest_firewall import apply as apply_firewall
         apply_firewall(socket, {'firewall': policy(node)})
     if node.get('role') in ('router', 'firewall'):
@@ -484,6 +523,9 @@ def apply(socket, node, timeout=40, alive=None):
         start_ospf(socket, node)
     if node.get('bgp'):
         start_bgp(socket, node)
+    from .rip import process as rip_process
+    if rip_process(node):
+        start_rip(socket, node)
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)
