@@ -53,6 +53,20 @@ Le même travail se lance depuis l'atelier : onglet Scénarios, bouton
 activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network LABS
 (`tools/guest_kernel/build.sh`).
 
+### Taper les commandes : terminal et catalogue de commandes
+
+Chaque nœud micro-VM se configure à la main dans son terminal (onglet CLI, « Ouvrir le terminal de … »), avec
+l'invite et les modes de son constructeur (`R1(config-if)#`, `[R1-GE0/0/1]`, `admin@R2#`). Pour trouver une
+commande :
+
+- dans le terminal : `?` liste les commandes du mode, `show ip ?` celles qui commencent ainsi, `help bgp` un
+  sujet avec ses exemples, Tab complète les mots ;
+- dans l'atelier : « 📖 Catalogue de commandes » (sous le bouton du terminal) liste toutes les commandes du nœud
+  sélectionné, par sujet, avec recherche et un exemple écrit avec ses ports et ses adresses, à copier.
+
+Le catalogue ne contient que des commandes réellement acceptées : les tests passent chaque exemple dans
+l'analyseur du terminal.
+
 ## Micro-nodes Linux natifs et microVMs (expérimental)
 
 [État actuel du projet](docs/STATUS.md), [estimation historique](docs/PROJECT_STATUS.md)

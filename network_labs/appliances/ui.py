@@ -33,7 +33,10 @@ def launch_terminal(command):
         raise ValueError('Installer un terminal x-terminal-emulator/xterm et sudo pour le contrôle natif.')
     # Plain xterm needs -u8 for the accents of the French messages; x-terminal-emulator already speaks UTF-8.
     options=['-u8'] if Path(terminal).name=='xterm' else []
-    return subprocess.Popen([terminal,*options,'-e',*command],cwd=SOURCE)
+    environment=dict(os.environ)
+    if 'utf' not in (environment.get('LC_ALL') or environment.get('LC_CTYPE') or environment.get('LANG') or '').lower().replace('-',''):
+        environment['LC_ALL']='C.UTF-8'  # without a UTF-8 locale xterm shows the accents as Ã©
+    return subprocess.Popen([terminal,*options,'-e',*command],cwd=SOURCE,env=environment)
 
 
 class ApplianceWindow(MissionsPanel):
@@ -177,6 +180,11 @@ class ApplianceWindow(MissionsPanel):
                  'Les commandes modifient le lab actif ; elles ne réécrivent pas le brouillon.',bg=BG,fg=MUTED,font=(self.font,9),
                  justify='left',wraplength=275).pack(fill='x',padx=14,pady=8)
         self.console_button=ttk.Button(self.console_panel.inner,text='Ouvrir la console Linux',command=self.open_console,style='Native.Primary.TButton');self.console_button.pack(fill='x',padx=14,pady=12)
+        # The commands this node's terminal accepts, with examples: available before the lab runs, to prepare.
+        self.catalogue_button=ttk.Button(self.console_panel.inner,text='📖 Catalogue de commandes',command=self.open_catalogue,
+                                         style='Native.TButton')
+        self.catalogue_button.pack(fill='x',padx=14,pady=(0,12))
+        self.catalogue_window=None
 
         self.capture_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.capture_panel,text='PCAP')
         self.capture_scroll=ScrollPanel(self.capture_panel.inner,PANEL);self.capture_scroll.canvas.configure(bd=0,relief='flat');self.capture_scroll.scroll.configure(style='Native.Vertical.TScrollbar');self.capture_scroll.pack(fill='both',expand=True)
@@ -579,6 +587,7 @@ class ApplianceWindow(MissionsPanel):
         guest=bool(node) and node['runtime']=='firecracker'
         self.linux_console_title.configure(text='Terminal du nœud' if guest else 'Console Linux native')
         self.console_button.configure(text=f'Ouvrir le terminal de {node["name"]}' if guest else 'Ouvrir la console Linux')
+        self.catalogue_button.state(['!disabled'] if guest else ['disabled'])
         self.capture_button.state(['!disabled'] if running else ['disabled'])
         capture_ports=list(node['interfaces']) if node else []
         if node and node['runtime']=='oci':
@@ -1341,6 +1350,22 @@ class ApplianceWindow(MissionsPanel):
             return True
         except (OSError,ValueError,TypeError,KeyError) as error:
             self.error(error);return False
+
+    def open_catalogue(self):
+        """The command catalogue of the selected micro-VM, for its vendor and role, with its own ports in the examples."""
+        try:
+            selected=self.nodes.selection()
+            node=next((n for n in self.manifest()['nodes'] if selected and n['name']==selected[0]),None)
+            if not node or node['runtime']!='firecracker':
+                raise ValueError('Choisir un nœud micro-VM pour voir ses commandes.')
+            from .ui_catalogue import CatalogueWindow
+            if self.catalogue_window is not None and self.catalogue_window.window.winfo_exists():
+                self.catalogue_window.window.destroy()
+            self.catalogue_window=CatalogueWindow(self.window,node,self.font)
+            return self.catalogue_window
+        except (ValueError,KeyError,TypeError) as error:
+            self.error(error)
+            return None
 
     def launch(self,action):
         if self.pending:return False

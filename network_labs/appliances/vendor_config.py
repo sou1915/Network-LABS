@@ -950,6 +950,14 @@ class VRP(IOS):
             self.port = None
             return
         if low == 'quit':
+            # One level up, as on VRP: an OSPF area returns to its process, the BGP address family to BGP, the rest to system.
+            if self.ospf and getattr(self, 'in_area', False):
+                self.in_area = False
+                return None
+            if self.bgp and getattr(self, 'in_family', False):
+                self.in_family = False
+                return None
+            self.in_area = self.in_family = False
             return super().line('exit')
         if words[0].lower() == 'sysname':
             return super().line('hostname ' + words[1])
@@ -967,6 +975,7 @@ class VRP(IOS):
             if match:
                 return super().line(f'no neighbor {match[1]}')
             if low in ('ipv4-family unicast', 'ipv4-family'):
+                self.in_family = True
                 return None
             match = re.fullmatch(r'(undo )?network (\S+)(?: (\S+))?', low)
             if match:
@@ -983,6 +992,7 @@ class VRP(IOS):
         if self.ospf:
             match = re.fullmatch(r'area (\S+)', low)
             if match:
+                self.in_area = True
                 return _ospf_area(match[1])
             match = re.fullmatch(r'(undo )?network (\S+) (\S+)', low)
             if match:

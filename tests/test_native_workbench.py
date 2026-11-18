@@ -156,6 +156,29 @@ class WorkbenchGUITests(unittest.TestCase):
             self.assertTrue(window.open_console())
         self.assertEqual(launch.call_args.args[0][-3:], [window.view_lab, 'R7', 'guest'])
 
+    def test_command_catalogue_window_lists_the_nodes_commands_and_copies_an_example(self):
+        from network_labs.appliances.microvm import bgp_example
+        window = self.window
+        window.load_spec(bgp_example('/assets/vmlinux', '/assets/guest.ext4'))
+        self.root.update()
+        window.choose_node('R2')
+        self.root.update()
+        self.assertNotIn('disabled', window.catalogue_button.state())  # before the lab runs, to prepare
+        catalogue = window.open_catalogue()
+        self.root.update()
+        self.assertIn('Junos', catalogue.window.title())
+        catalogue.query.set('bgp neighbor')
+        self.root.update()
+        rows = [catalogue.table.item(i)['values'][1] for i in catalogue.table.get_children()]
+        self.assertTrue(rows and all('neighbor' in row for row in rows))
+        catalogue.query.set('')
+        catalogue.topic.set('Interfaces')
+        catalogue.fill()
+        self.root.update()
+        self.assertIn('set interfaces xe-0/0/0 unit 0 family inet address', catalogue.copy())
+        self.assertEqual(self.root.clipboard_get(), catalogue.copy())
+        catalogue.window.destroy()
+
     def test_firewall_policy_is_applied_to_the_running_lab_from_a_private_snapshot(self):
         from network_labs.appliances.microvm import firewall_example
         window = self.window

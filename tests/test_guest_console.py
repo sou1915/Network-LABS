@@ -132,3 +132,48 @@ class ConsoleTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CatalogueHelpTest(unittest.TestCase):
+    def console(self, models=None, node='R1'):
+        spec = lab(models)
+        return guest_console.Console(spec['name'], node, FakeManager(spec))
+
+    def test_ios_sub_mode_prompts_and_context_help(self):
+        console = self.console()
+        self.assertIn('show ip bgp summary', console.line('?'))
+        console.line('enable')
+        console.line('configure terminal')
+        console.line('interface gi0/0/1')
+        self.assertEqual(console.prompt(), 'R1(config-if)# ')
+        reply = console.line('ip ?')
+        self.assertIn('ip address A.B.C.D MASQUE', reply)
+        self.assertNotIn('ip route', reply)  # the sub-mode's own commands first
+        console.line('exit')
+        self.assertEqual(console.prompt(), 'R1(config)# ')
+        console.line('interface gi0/0/0')
+        console.line('ip route 10.99.0.0 255.255.0.0 203.0.113.2')  # a global command leaves the sub-mode, as on IOS
+        self.assertEqual(console.prompt(), 'R1(config)# ')
+        self.assertIn('Appliqué', console.line('exit'))  # exit from config applies and returns to R1#
+        self.assertEqual(console.prompt(), 'R1# ')
+        self.assertIn('ip access-group INVITES in', console.line('help acl'))
+        self.assertEqual(console.complete('show ip b'), ['bgp'])
+
+    def test_vrp_views_and_quit_one_level_up(self):
+        console = self.console({'R1': 'huawei-ar6120'})
+        self.assertEqual(console.prompt(), '<R1> ')
+        console.line('system-view')
+        console.line('interface GE0/0/1')
+        self.assertEqual(console.prompt(), '[R1-GE0/0/1] ')
+        console.line('quit')
+        self.assertEqual(console.prompt(), '[R1] ')
+        console.line('undo ip route-static 198.51.100.0 255.255.255.0')
+        console.line('ospf 1 router-id 1.1.1.1')
+        console.line('area 0')
+        self.assertEqual(console.prompt(), '[R1-ospf-1-area-0.0.0.0] ')
+        self.assertIn('network A.B.C.D JOKER', console.line('?'))
+        console.line('quit')
+        self.assertEqual(console.prompt(), '[R1-ospf-1] ')
+
+    def test_unknown_topic_lists_the_topics(self):
+        self.assertIn('Interfaces', self.console().line('help pizza'))
