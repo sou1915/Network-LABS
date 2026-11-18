@@ -10,6 +10,8 @@ SOLUTIONS = {
                            ' default-router 192.0.2.1'),
     'ospf-multi-constructeurs': ('R1', 'router ospf 1\n network 192.0.2.0 0.0.0.255 area 0\n network 203.0.113.0 0.0.0.3 area 0\n'
                                        ' passive-interface gi0/0/0'),
+    'acl-invites': ('R1', 'ip access-list extended INVITES\n deny icmp 192.0.2.0 0.0.0.255 host 203.0.113.10\n'
+                          ' permit ip any any\ninterface gi0/0\n ip access-group INVITES in'),
     'route-manquante': ('R1', 'ip route 198.51.100.0 255.255.255.0 203.0.113.2'),
     'isoler-un-vlan': ('SW1', 'interface gi1/0/3\n switchport access vlan 20'),
     'publier-un-serveur': ('FW1', 'config firewall vip\n edit "srv"\n set extip 198.51.100.1\n set mappedip "192.0.2.20"\n'

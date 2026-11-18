@@ -146,6 +146,22 @@ def _check_hostname(node, value):
 # OSPF, area 0 only, on routers. IOS, EOS and VRP declare networks with wildcard masks; Junos names interfaces.
 # Every dialect shows the interface network type it runs; the lab default is point-to-point on every link.
 
+def _mask_of_wildcard(wildcard):
+    value = int(ipaddress.IPv4Address(wildcard))
+    if value & (value + 1):
+        raise ValueError('Masque générique contigu attendu (par exemple 0.0.0.255).')
+    return str(ipaddress.IPv4Address(0xffffffff ^ value))
+
+
+def _acl_address(prefix):
+    network = ipaddress.IPv4Network(prefix)
+    if network.prefixlen == 0:
+        return 'any'
+    if network.prefixlen == 32:
+        return f'host {network.network_address}'
+    return f'{network.network_address} {network.hostmask}'
+
+
 def _ospf_policy(node):
     if node['role'] != 'router':
         raise ValueError('OSPF : uniquement sur un routeur.')
@@ -252,6 +268,8 @@ def _render_ios(node, eos=False):
             lines.append(f' ip address {address}' if eos else f' ip address {interface.ip} {interface.netmask}')
         else:
             lines.append(' no ip address')
+        if (node.get('acl_ports') or {}).get(port) and not eos:
+            lines.append(f' ip access-group {node["acl_ports"][port]} in')
         ospf_port = _ospf_enabled(node).get(port)
         if ospf_port:
             if ospf_port['network_type'] == 'point-to-point':
@@ -283,6 +301,13 @@ def _render_ios(node, eos=False):
         if server.get('dns'):
             lines.append(' dns-server ' + ' '.join(server['dns']))
         lines += [f' lease {lease // 86400} {lease % 86400 // 3600} {lease % 3600 // 60}', '!']
+    for name, entries in sorted((node.get('acls') or {}).items()) if not eos else []:
+        lines.append(f'ip access-list extended {name}')
+        for index, entry in enumerate(entries, 1):
+            port = f' eq {entry["dport"]}' if 'dport' in entry else ''
+            lines.append(f' {index * 10} {entry["action"]} {entry["protocol"]} {_acl_address(entry["source"])} '
+                         f'{_acl_address(entry["destination"])}{port}')
+        lines.append('!')
     if node.get('ospf'):
         policy = node['ospf']
         lines += [f'router ospf {policy["process_id"]}', f' router-id {policy["router_id"]}']
@@ -520,6 +545,7 @@ class IOS:
         self.pool = None  # 'ip dhcp pool' being configured: {'network', 'router', 'dns', 'lease'}
         self.excluded = None  # 'ip dhcp excluded-address' ranges, when the block sets any
         self.ospf = False  # inside 'router ospf'
+        self.acl = None  # inside 'ip access-list extended NAME'
         self.ospf_ports = {}  # per-port OSPF settings, applied once the networks are known
 
     def line(self, command):
@@ -527,7 +553,7 @@ class IOS:
         if low in ('enable', 'configure terminal', 'conf t', 'write memory', 'wr'):
             return
         if low in ('end', 'exit'):
-            self.port, self.ospf = None, False
+            self.port, self.ospf, self.acl = None, False, None
             if self.pool is not None:
                 self.pool['open'] = False
             return
@@ -536,6 +562,20 @@ class IOS:
             return _check_hostname(node, words[1])
         if low.startswith(('ip dhcp ', 'no ip dhcp ')) or (self.pool is not None and self.pool.get('open')):
             return self._dhcp(low, words)
+        match = re.fullmatch(r'(no )?ip access-list extended (\S+)', low)
+        if match:
+            name = words[-1]
+            if match[1]:
+                node.get('acls', {}).pop(name, None)
+                node['acl_ports'] = {p: n for p, n in (node.get('acl_ports') or {}).items() if n != name}
+                self.acl = None
+            else:
+                node.setdefault('acls', {}).setdefault(name, [])
+                self.port, self.ospf, self.acl = None, False, name
+            return
+        if self.acl is not None and not low.startswith('interface ') and self._acl_entry(low, words):
+            return
+        self.acl = None
         if re.fullmatch(r'no router ospf \d+', low):
             self.node['ospf'], self.ospf, self.ospf_ports = None, False, {}
             return
@@ -592,6 +632,18 @@ class IOS:
             raise ValueError('Sous-interface : encapsulation dot1Q <vlan>, ip address, description.')
         if low.startswith('ip address '):
             return _set_address(node, self.port, _prefix(words[2]) if '/' in words[2] else _prefix(words[2], words[3]))
+        match = re.fullmatch(r'(no )?ip access-group (\S+) (in|out)', low)
+        if match:
+            if match[3] == 'out':
+                raise ValueError('ACL sortante non prise en charge : appliquer la liste en entrée (in) sur l’interface d’arrivée.')
+            if '.' in self.port:
+                raise ValueError('ip access-group : sur un port physique.')
+            ports = node.setdefault('acl_ports', {})
+            if match[1]:
+                ports.pop(self.port, None)
+            else:
+                ports[self.port] = command.split()[-2]
+            return
         match = re.fullmatch(r'ip ospf (cost (\d+)|network (point-to-point|broadcast)|priority (\d+))', low)
         if match:
             settings = self.ospf_ports.setdefault(self.port, {})
@@ -613,6 +665,50 @@ class IOS:
         if low.startswith('description '):
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
+
+    def _acl_entry(self, low, words):
+        """One line of 'ip access-list extended': [SEQ] permit|deny PROTO SRC DST [eq PORT], no SEQ, remark.
+        False for a global command, which leaves the list."""
+        entries = self.node['acls'][self.acl]
+        if low.startswith('remark'):
+            return True
+        match = re.fullmatch(r'no (\d+)', low)
+        if match:
+            index = int(match[1]) // 10 - 1
+            if int(match[1]) % 10 or not 0 <= index < len(entries):
+                raise ValueError(f'Entrée {match[1]} absente de la liste {self.acl}.')
+            entries.pop(index)
+            return True
+        rest = words[1:] if words[0].isdigit() else words
+        if not rest or rest[0].lower() not in ('permit', 'deny'):
+            return False
+        sequence = int(words[0]) if words[0].isdigit() else None
+        entry = {'action': rest[0].lower(), 'protocol': rest[1].lower()}
+        tokens = [w.lower() for w in rest[2:]]
+        for field in ('source', 'destination'):
+            if not tokens:
+                raise ValueError('ACL : permit|deny PROTO SOURCE DESTINATION [eq PORT] (any, host A.B.C.D, ou A.B.C.D masque).')
+            if tokens[0] == 'any':
+                entry[field], tokens = '0.0.0.0/0', tokens[1:]
+            elif tokens[0] == 'host':
+                entry[field], tokens = str(ipaddress.IPv4Network(tokens[1] + '/32')), tokens[2:]
+            else:
+                entry[field], tokens = _network(tokens[0], _mask_of_wildcard(tokens[1])), tokens[2:]
+        if tokens[:1] == ['eq'] and len(tokens) == 2:
+            entry['dport'] = int(tokens[1])
+        elif tokens:
+            raise ValueError('ACL : seul « eq PORT » est accepté après la destination.')
+        if sequence is None:
+            entries.append(entry)
+        elif sequence % 10 or sequence < 10:
+            raise ValueError('ACL : numéros de séquence 10, 20, 30…')
+        elif sequence // 10 - 1 < len(entries):
+            entries[sequence // 10 - 1] = entry
+        elif sequence // 10 - 1 == len(entries):
+            entries.append(entry)
+        else:
+            raise ValueError(f'ACL : la prochaine entrée de {self.acl} est {10 * (len(entries) + 1)}.')
+        return True
 
     def _ospf(self, low, words):
         """One 'router ospf' sub-command; False for a global command, which leaves the OSPF section."""

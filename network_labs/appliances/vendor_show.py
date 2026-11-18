@@ -13,7 +13,7 @@ from .guest_startup import learned as bird_route
 from .vendor_config import dialect
 
 COMMANDS = {
-    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief', 'show ip ospf neighbor'],
+    'ios': ['show ip interface brief', 'show ip route', 'show vlan brief', 'show ip ospf neighbor', 'show access-lists'],
     'fortios': ['get system interface', 'get router info routing-table all'],
     'junos': ['show interfaces terse', 'show route', 'show ospf neighbor'],
     'routeros': ['/interface print', '/ip address print', '/ip route print'],
@@ -420,7 +420,22 @@ def _vrp_peers(node, observation, name):
     return '\n'.join(lines + [' ' + '-' * 76])
 
 
+def _ios_access_lists(node, observation, name):
+    """The lists the node runs (the guest's forward chain is read back at start and on each change); no hit counters."""
+    from .vendor_config import _acl_address
+    lines = []
+    for list_name, entries in sorted((node.get('acls') or {}).items()):
+        bound = [name(p) for p, n in sorted((node.get('acl_ports') or {}).items()) if n == list_name]
+        lines.append(f'Extended IP access list {list_name}' + (f'    (in : {", ".join(bound)})' if bound else '    (non appliquée)'))
+        for index, entry in enumerate(entries, 1):
+            port = f' eq {entry["dport"]}' if 'dport' in entry else ''
+            lines.append(f'    {index * 10} {entry["action"]} {entry["protocol"]} {_acl_address(entry["source"])} '
+                         f'{_acl_address(entry["destination"])}{port}')
+    return '\n'.join(lines) or 'Aucune liste d’accès.'
+
+
 FORMATS = {
+    ('ios', 'show access-lists'): _ios_access_lists,
     ('ios', 'show ip ospf neighbor'): _ios_neighbors, ('eos', 'show ip ospf neighbor'): _ios_neighbors,
     ('junos', 'show ospf neighbor'): _junos_neighbors, ('vrp', 'display ospf peer brief'): _vrp_peers,
     ('ios', 'show ip interface brief'): _ios_brief, ('ios', 'show ip route'): _ios_route, ('ios', 'show vlan brief'): _ios_vlan,

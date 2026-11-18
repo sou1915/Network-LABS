@@ -248,6 +248,10 @@ def observe(socket, node):
     if node.get('role') == 'firewall':
         from .guest_firewall import check
         check(socket, node)
+    elif node.get('acl_ports'):
+        from .acl import policy
+        from .guest_firewall import check
+        check(socket, {'firewall': policy(node)})
     if node.get('dhcp_server'):
         leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
     if node.get('ospf'):
@@ -292,7 +296,7 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
-LIVE_ROUTING = ('gateway', 'guest_network', 'ospf')
+LIVE_ROUTING = ('gateway', 'guest_network', 'ospf', 'acls', 'acl_ports')
 
 
 def _route(socket, node, operation, network, gateway):
@@ -315,6 +319,11 @@ def change_routing(socket, old, new):
         _route(socket, new, 'route-add', network, gateway)
     if ospf_changed and new.get('ospf'):
         start_ospf(socket, new)
+    if (old.get('acl_ports'), old.get('acls')) != (new.get('acl_ports'), new.get('acls')):
+        from .acl import policy
+        from .guest_firewall import apply as apply_firewall
+        # No list left: an open chain (accept, no rule but the invalid-state drop every guest chain starts with).
+        apply_firewall(socket, {'firewall': policy(new)})
     if observe(socket, new) != (new.get('guest_network') or {'addresses': [], 'routes': []}):
         raise ValueError('Guest routing readback differs from the declared routes.')
 
@@ -372,6 +381,11 @@ def apply(socket, node, timeout=40, alive=None):
         # Filter first: forwarding is never switched on before the declared policy is in place.
         from .guest_firewall import apply as apply_firewall
         apply_firewall(socket, node)
+    if node.get('acl_ports'):
+        # A router's access lists run in its forward chain, installed before forwarding starts.
+        from .acl import policy
+        from .guest_firewall import apply as apply_firewall
+        apply_firewall(socket, {'firewall': policy(node)})
     if node.get('role') in ('router', 'firewall'):
         query(socket, 'forward', state='on')
     if node.get('dhcp_server'):

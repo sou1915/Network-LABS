@@ -36,6 +36,7 @@ the direct launch.
 | Firewall guest, stateful IPv4 filtering | `--firewall` | iptables in the guest; installed and read back before forwarding |
 | Firewall NAT (masquerade, SNAT, DNAT) | `--firewall-nat` | Source NAT matches the outbound port only |
 | Live firewall policy change | — (`firewall LAB NODE --file`) | Rebuilt with forwarding paused; rollback and `recover` |
+| IOS extended access lists on router guests, inbound | — (mission « Filtrer le Wi-Fi invités ») | Compiled into the guest forward chain (image with iptables); entries in order, implicit deny, stateless; live with the routing change |
 | Live routing change (static routes, gateway, OSPF) | — (CLI tab › « ⚡ Appliquer au lab en marche ») | Only what differs changes; BIRD restarts if OSPF changed; read back, rolled back on failure |
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
 | Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |

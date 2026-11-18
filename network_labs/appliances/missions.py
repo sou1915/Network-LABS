@@ -7,8 +7,8 @@ A mission is solved when every check passes; real checks only count once the lab
 """
 import ipaddress
 
-from .microvm import (dhcp_example, firewall_nat_example, ospf_example, router_chain_example, router_on_a_stick_example,
-                      switch_vlan_example)
+from .microvm import (dhcp_example, firewall_nat_example, ospf_example, quad_router_example, router_chain_example,
+                      router_on_a_stick_example, switch_vlan_example)
 from .native_models import port_names
 from .spec import validate
 from .vendor_config import routes
@@ -65,6 +65,17 @@ def _ospf_lab(kernel, disk):
     lab = ospf_example(kernel, disk)
     lab['name'] = 'mission-ospf-multi-constructeurs'
     lab['nodes'][0]['ospf'] = None  # R1 (Cisco) has not joined OSPF yet: R2 (Juniper) and R3 (Huawei) already run it
+    return validate(lab)
+
+
+def _acl_lab(kernel, disk):
+    lab = quad_router_example(kernel, disk)
+    lab['name'] = 'mission-acl-invites'
+    lab['nodes'][0]['model'] = 'cisco-ios-router'
+    names = {'VM1': 'Invite', 'VM2': 'Personnel', 'VM3': 'Serveur', 'VM4': 'Internet'}
+    for node in lab['nodes']:
+        node['name'] = names.get(node['name'], node['name'])
+    lab['links'] = [[[names.get(a, a), p], [names.get(b, b), q]] for (a, p), (b, q) in lab['links']]
     return validate(lab)
 
 
@@ -213,6 +224,28 @@ MISSIONS.append(
                  'text': 'VM2 joint VM3 à travers les trois routeurs (ping réel)'},
                 {'kind': 'reach', 'source': 'VM3', 'destination': '192.0.2.20', 'expect': True,
                  'text': 'VM3 répond à VM2 (ping réel)'}]})
+MISSIONS.append(
+    {'id': 'acl-invites', 'lab': 'mission-acl-invites', 'title': 'Filtrer le Wi-Fi invités avec une ACL', 'level': 'Intermédiaire',
+     'kind': 'Configuration', 'vendors': 'Cisco IOS',
+     'story': 'Le Wi-Fi invités (gi0/0, 192.0.2.0/24) joint le serveur interne 203.0.113.10. Il ne doit plus le joindre, mais '
+              'doit toujours sortir vers Internet (100.64.0.10), et le personnel (gi0/1) joint toujours le serveur. Une ACL '
+              'étendue appliquée en entrée sur gi0/0. Nécessite le disque complet (Préparer cet ordinateur).',
+     'hints': ['ip access-list extended INVITES, une ligne deny puis une ligne permit : sans permit, tout est refusé.',
+               'deny icmp 192.0.2.0 0.0.0.255 host 203.0.113.10, permit ip any any, puis interface gi0/0 et '
+               'ip access-group INVITES in.'],
+     'build': _acl_lab,
+     'checks': [{'kind': 'acl', 'node': 'R1', 'port': 'eth0', 'packet': {'source': '192.0.2.10', 'destination': '203.0.113.10',
+                                                                         'protocol': 'icmp'}, 'expect': 'deny',
+                 'text': 'L’ACL de gi0/0 refuse le ping des invités vers le serveur'},
+                {'kind': 'acl', 'node': 'R1', 'port': 'eth0', 'packet': {'source': '192.0.2.10', 'destination': '100.64.0.10',
+                                                                         'protocol': 'icmp'}, 'expect': 'permit',
+                 'text': 'Les invités sortent toujours vers Internet'},
+                {'kind': 'reach', 'source': 'Invite', 'destination': '203.0.113.10', 'expect': False,
+                 'text': 'Invité ne joint plus le serveur (ping réel)'},
+                {'kind': 'reach', 'source': 'Invite', 'destination': '100.64.0.10', 'expect': True,
+                 'text': 'Invité joint Internet (ping réel)'},
+                {'kind': 'reach', 'source': 'Personnel', 'destination': '203.0.113.10', 'expect': True,
+                 'text': 'Le personnel joint le serveur (ping réel)'}]})
 BY_ID = {mission['id']: mission for mission in MISSIONS}
 
 
@@ -322,6 +355,13 @@ def _check_config(spec, check):
         if ipaddress.IPv4Address(server['start']) < ipaddress.IPv4Address(check['first']):
             problems.append(f'le pool commence à {server["start"]}')
         return not problems, f'{name} : {server["start"]} – {server["end"]}' + (' (' + ', '.join(problems) + ')' if problems else '')
+    if kind == 'acl':
+        from .acl import evaluate
+        name = shown.get(check['port'], check['port'])
+        listed = (node.get('acl_ports') or {}).get(check['port'])
+        verdict = evaluate(node, check['port'], check['packet'])
+        detail = f'{name} : ' + (f'liste {listed}, ' if listed else 'aucune liste, ') + ('autorisé' if verdict == 'permit' else 'refusé')
+        return verdict == check['expect'], detail
     if kind == 'ospf':
         name = shown.get(check['port'], check['port'])
         if not node.get('ospf'):

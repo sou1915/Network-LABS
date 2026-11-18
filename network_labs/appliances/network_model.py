@@ -245,6 +245,13 @@ class Model:
         tracked = tracked if reply else []
         for _ in range(MAX_HOPS):
             node = self.nodes[here]
+            if node.get('acl_ports') and ingress is not None:
+                from .acl import evaluate
+                wanted = {'source': str(packet['source']), 'destination': str(packet['destination']), 'protocol': 'icmp'}
+                if evaluate(node, ingress, wanted) != 'permit':
+                    from .native_models import port_names
+                    shown = port_names(node).get(ingress, ingress)
+                    return False, path, f'{here} : l’ACL {node["acl_ports"][ingress]} de {shown} refuse le paquet', tracked, here
             if node['role'] == 'firewall' and ingress is not None:
                 if reply:
                     for firewall, before, after in tracked:

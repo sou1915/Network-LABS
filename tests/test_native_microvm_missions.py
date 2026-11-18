@@ -135,3 +135,37 @@ class MissionGuestTests(unittest.TestCase):
             print('\nDHCP mission grade:', grade['passed'], '/', grade['total'], flush=True)
             self.assertTrue(grade['solved'], grade)
 
+    def test_acl_mission_fixed_live_on_the_running_router(self):
+        """The guest Wi-Fi reaches the server; the IOS ACL sent to the running R1 blocks it, nothing else."""
+        self.assertEqual(os.geteuid(), 0)
+        kernel = Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
+        with tempfile.TemporaryDirectory(prefix='nlacl-') as temporary:
+            root = Path(temporary)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True, with_firewall=True)
+            broken = missions.mission('acl-invites')['build'](kernel, root / 'base.ext4')
+            fixed = vendor_config.apply(broken, 'R1', 'ip access-list extended INVITES\n deny icmp 192.0.2.0 0.0.0.255 host '
+                                                       '203.0.113.10\n permit ip any any\ninterface gi0/0\n ip access-group INVITES in')
+            grades = {}
+            state_root = patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state')
+            with state_root, patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
+                manager = Manager(broken['name'])
+                with manager.locked():
+                    try:
+                        manager.start(broken)
+                        wait_ready(manager, broken)
+                        for label, spec in (('broken', broken), ('live', fixed)):
+                            if label == 'live':
+                                manager.state = None
+                                manager.configure_routing('R1', next(n for n in fixed['nodes'] if n['name'] == 'R1'))
+                            for _ in range(3):
+                                found = {i: (ok, d) for i, ok, d in missions.run_real(manager, 'acl-invites')['results']}
+                                if label == 'broken' or all(ok for ok, _ in found.values()):
+                                    break
+                            grades[label] = missions.grade(spec, 'acl-invites', found)
+                    finally:
+                        if manager.directory.exists():
+                            manager.stop()
+            print('\nACL mission grades:', json.dumps({k: (v['passed'], v['total']) for k, v in grades.items()}), flush=True)
+            self.assertFalse(grades['broken']['solved'])
+            self.assertTrue(grades['live']['solved'], grades['live'])
+
