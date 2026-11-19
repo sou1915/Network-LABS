@@ -471,11 +471,13 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         blocked=set()
         try:
             from .guest_stp import blocked_ports
-            if spec:blocked=blocked_ports(spec)  # amber link lights: the ports spanning tree blocks
+            if spec:
+                blocked=blocked_ports(spec)  # amber link lights: the ports spanning tree blocks
         except (ValueError,KeyError,TypeError):pass
         shut={(n['name'],port) for n in (spec or {}).get('nodes',[]) for port in n.get('shutdown') or []}
         parallel={}  # several cables between the same two devices (a redundant link): drawn side by side
-        for a,b in graph['links']:parallel.setdefault(frozenset((a[0],b[0])),[]).append((a,b))
+        for a,b in graph['links']:
+            parallel.setdefault(frozenset((a[0],b[0])),[]).append((a,b))
         router_links={}
         for a,b in graph['links']:
             if graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router':
@@ -487,8 +489,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             side=(abs(y-yy)>=45 and abs(x-xx)>=120 and graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router'
                   and max(router_links.get(a[0],0),router_links.get(b[0],0))<=2)  # a chain, not a hub with its branches
             if abs(y-yy)<45:
-                group=parallel[frozenset((a[0],b[0]))];shift=(group.index((a,b))-(len(group)-1)/2)*12
-                sign=1 if xx>x else -1;ax=x+sign*55;ay=y+shift;bx=xx-sign*55;by=yy+shift;points=(ax,ay,bx,by)
+                group=parallel[frozenset((a[0],b[0]))]
+                shift=(group.index((a,b))-(len(group)-1)/2)*12
+                sign=1 if xx>x else -1
+                ax,ay,bx,by=x+sign*55,y+shift,xx-sign*55,yy+shift
+                points=(ax,ay,bx,by)
             elif side:
                 # An L: down from the upper device's port, then into the lower device's side, clear of its title.
                 if y<yy:
@@ -508,7 +513,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
                     bx+=port_offset(graph_nodes[b[0]],b[1])
                 mid=min(ay,by)+8+(index%3)*8
                 points=(ax,ay,ax,mid,bx,mid,bx,by)
-            self.link_shapes[index]=self.canvas.create_line(*points,fill='#3886b9',width=1.5,joinstyle='round',capstyle='round',tags=('link','link:'+str(index)))
+            self.link_shapes[index]=self.canvas.create_line(*points,fill='#3886b9',width=1.5,joinstyle='round',capstyle='round',
+                                                            tags=('link','link:'+str(index)))
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
             for endpoint,peer,px,py in ((a,b,ax,ay),(b,a,bx,by)):
                 light=tuple(endpoint)
