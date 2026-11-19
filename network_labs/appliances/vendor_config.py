@@ -386,7 +386,7 @@ def _render_ios(node, eos=False):
             if low <= high and not (low == high == own):
                 lines.append(f'ip dhcp excluded-address {low}' + (f' {high}' if high != low else ''))
         lease = int(server.get('lease_seconds', 86400))
-        lines += ['ip dhcp pool LAN', f' network {network.network_address} {network.netmask}']
+        lines += [f'ip dhcp pool {server.get("name", "LAN")}', f' network {network.network_address} {network.netmask}']
         if server.get('router'):
             lines.append(f' default-router {server["router"]}')
         if server.get('dns'):
@@ -1038,7 +1038,7 @@ class IOS:
             self.pool = None
             return
         if low.startswith('ip dhcp pool '):
-            self.pool = {'open': True}
+            self.pool = {'open': True, 'name': words[3]}  # IOS shows the pool under the name typed
             return
         if self.pool is None or not self.pool.get('open'):
             raise ValueError('ip dhcp pool <nom> d’abord.')
@@ -1093,6 +1093,9 @@ class IOS:
         server = {'interface': port, 'start': str(start), 'end': str(end), 'router': pool.get('router', current.get('router', '')),
                   'dns': pool.get('dns', current.get('dns', [])), 'lease_seconds': pool.get('lease', current.get('lease_seconds', 86400)),
                   **({'network': str(network)} if relayed else {})}
+        name = pool.get('name') or current.get('name')
+        if name and name != 'LAN':  # the default name stays implicit
+            server['name'] = name
         if node['runtime'] == 'firecracker':
             server['lease_seconds'] = min(server['lease_seconds'], 604800)
         node['dhcp_server'] = server

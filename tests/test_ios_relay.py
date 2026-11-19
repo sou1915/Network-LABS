@@ -44,6 +44,7 @@ class IosRelayTest(unittest.TestCase):
         server = self.node('R2')['dhcp_server']
         self.assertEqual({k: server[k] for k in ('interface', 'network', 'start', 'router')},
                          {'interface': 'eth1', 'network': '192.168.10.0/24', 'start': '192.168.10.10', 'router': '192.168.10.1'})
+        self.assertIn('ip dhcp pool LAN10\n network 192.168.10.0 255.255.255.0', self.type('R2', ['en', 'sh run'])[-1])
         self.assertEqual(Model(self.box['spec']).leases, {})  # no relay yet: PC1's broadcasts stay on its LAN
         self.type('R1', HELPER)
         relay = ios_relay.process(self.node('R1'))

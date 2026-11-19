@@ -1,5 +1,6 @@
 """BusyBox DHCP server/client inside OCI nodes, with a real DHCP event hook."""
 import ipaddress
+import re
 from pathlib import Path
 
 from .lan import addresses
@@ -121,7 +122,9 @@ def validate_server(node):
     from .spec import keys, integer
     all_interfaces = addresses(node)
     server = node['dhcp_server']
-    keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network'), 'DHCP server')
+    keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network', 'name'), 'DHCP server')
+    if 'name' in server and not (isinstance(server['name'], str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,32}', server['name'])):
+        raise ValueError('DHCP pool name: 1..32 letters, digits, _ . or -.')
     if 'network' in server and node.get('runtime') == 'firecracker' and node.get('role') == 'router':
         # A relayed pool on a router guest is served where the relayed requests arrive: toward its network.
         from .ios_relay import toward
