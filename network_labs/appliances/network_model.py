@@ -397,7 +397,8 @@ class Model:
             node = self.nodes[here]
             if node.get('acl_ports') and ingress is not None:
                 from .acl import evaluate
-                wanted = {'source': str(packet['source']), 'destination': str(packet['destination']), 'protocol': 'icmp'}
+                wanted = {'source': str(packet['source']), 'destination': str(packet['destination']),
+                          'protocol': packet.get('protocol', 'icmp'), **({'dport': packet['dport']} if packet.get('dport') else {})}
                 if evaluate(node, ingress, wanted) != 'permit':
                     from .native_models import port_names
                     shown = port_names(node).get(ingress, ingress)
@@ -407,10 +408,11 @@ class Model:
                 if reply:
                     for firewall, before, after in tracked:
                         if firewall == here and packet['destination'] == after[0]:
-                            packet = {'source': before[1], 'destination': before[0]}  # the reply, translated back
+                            packet = {'source': before[1], 'destination': before[0],  # the reply, translated back
+                                      'protocol': packet.get('protocol', 'icmp')}
                 else:
                     wanted = {'in': ingress, 'source': str(packet['source']), 'destination': str(packet['destination']),
-                              'protocol': 'icmp'}
+                              'protocol': packet.get('protocol', 'icmp'), **({'dport': packet['dport']} if packet.get('dport') else {})}
                     if node['role'] == 'firewall' and evaluate_policy(node, wanted) != 'accept':
                         return False, path, f'{here} bloque le flux (politique de pare-feu)', tracked, here
                     translated = self._nat_in(here, ingress, packet['destination'])
@@ -445,19 +447,21 @@ class Model:
         held = self.held(name)
         return next((a.ip for i, a in held.items() if _port_of(i) == interface), None)
 
-    def ping(self, source, destination):
-        """(ok, explanation): the request reaches DESTINATION and its reply comes back to SOURCE."""
+    def ping(self, source, destination, protocol='icmp', dport=None):
+        """(ok, explanation): the request reaches DESTINATION and its reply comes back to SOURCE. PROTOCOL and DPORT
+        make it a TCP or UDP connection's first packet (« telnet » is tcp 23), for the access lists on the way."""
         destination = ipaddress.IPv4Address(destination)
         address = self.source_address(source, destination)
         if address is None:
             return False, self.route(source, destination)[2]
-        ok, path, why, tracked, target = self.deliver(source, {'source': address, 'destination': destination})
+        ok, path, why, tracked, target = self.deliver(source, {'source': address, 'destination': destination, 'protocol': protocol,
+                                                                **({'dport': dport} if dport else {})})
         if not ok:
             return False, 'aller : ' + ' → '.join(path) + ' · ' + why
         # The reply leaves the target towards the address it saw (after translations on the way).
         seen = next((after[0] for _, _, after in reversed(tracked) if after[0] != address), address)
         reply_to = seen
-        back, back_path, why, _, _ = self.deliver(target, {'source': destination, 'destination': reply_to}, tracked)
+        back, back_path, why, _, _ = self.deliver(target, {'source': destination, 'destination': reply_to, 'protocol': protocol}, tracked)
         if not back:
             return False, 'retour : ' + ' → '.join(back_path) + ' · ' + why
         return True, ' → '.join(path) + ' (retour ' + ' → '.join(back_path) + ')'

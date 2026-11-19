@@ -32,6 +32,8 @@ class Console:
         self.hostname = ios_store.hostname(node)
         self.typed, self.clock_offset, self.started = [], 0.0, __import__('time').monotonic()
         self.attempts = 0
+        self.remote = self.remote_address = self.login_state = None  # telnet / ssh into another device
+        self.vty = False  # this console is a telnet / ssh session (IOS's vty rules)
         # A console line with « login » and a password asks for it first, as IOS does.
         self.awaiting = 'login' if self.syntax in ('ios', 'eos') and ios_store.console_login(node) else None
 
@@ -75,6 +77,66 @@ class Console:
             from .guest_startup import leases
             return leases(manager.directory / self.name / 'guest.vsock', node['dhcp_server']['interface'])
 
+    # ---- telnet / ssh into another device ----
+
+    def remote_open(self, command):
+        """« telnet A » / « ssh -l USER A »: IOS's answer, and the login (or the session) it starts."""
+        from . import ios_store, network_model, remote_login
+        kind, user, address = remote_login.parse(command)
+        try:
+            address = str(ipaddress.IPv4Address(address))
+        except ValueError:
+            return '% Unknown command or computer name, or unable to find computer address'
+        trying = f'Trying {address} ...' if kind == 'telnet' else ''
+        spec = self.spec_now()
+        target = remote_login.owner(spec, address)
+        model = network_model.Model(spec)
+        # The address must answer for real (a ping through the running guests), and no list may drop the connection.
+        answered = target is not None and any(r['ok'] for r in self.ping(address, count=2)['replies'])
+        if not answered or not model.ping(self.name, address, 'tcp', 23 if kind == 'telnet' else 22)[0]:
+            return '\n'.join(filter(None, [trying, remote_login.TIMED_OUT]))
+        why = remote_login.opening(kind, target, model.source_address(self.name, ipaddress.IPv4Address(address)))
+        if why == remote_login.REFUSED:
+            return '\n'.join(filter(None, [trying, why]))
+        opened = [f'{trying}Open'] if kind == 'telnet' else []
+        if why:
+            return '\n'.join(opened + ['', why, '', f'[Connection to {address} closed by foreign host]'])
+        banner = ios_store.banner(target)
+        opened += ([banner] if banner else []) + (['', 'User Access Verification', ''] if kind == 'telnet' else [''])
+        login = remote_login.login(target)
+        state = {'kind': kind, 'target': target['name'], 'address': address, 'user': user, 'attempts': 0, 'login': login,
+                 'stage': 'username' if kind == 'telnet' and login == 'local' else 'password'}
+        if login is None:  # no « login » on the vty lines: straight in
+            self.remote_start(state)
+        else:
+            self.login_state = state
+        return '\n'.join(opened)
+
+    def remote_login(self, typed):
+        """A line typed at the Username: / Password: of a telnet or ssh login: three tries, as IOS."""
+        from . import remote_login
+        state = self.login_state
+        if state['stage'] == 'username':
+            state['user'], state['stage'] = typed.strip(), 'password'
+            return ''
+        target = next(n for n in self.spec_now()['nodes'] if n['name'] == state['target'])
+        local = state['login'] == 'local'
+        if (remote_login.user_ok(target, state['user'], typed) if local else typed == remote_login.line_password(target)):
+            self.login_state = None
+            self.remote_start(state)
+            return ''
+        state['attempts'] += 1
+        if state['attempts'] < 3:
+            state['stage'] = 'username' if local and state['kind'] == 'telnet' else 'password'
+            return '% Login invalid\n' if local else ''
+        self.login_state = None
+        return ('% Login invalid' if local else '% Bad passwords') + f'\n\n[Connection to {state["address"]} closed by foreign host]'
+
+    def remote_start(self, state):
+        remote = Console(self.lab, state['target'], self.factory)
+        remote.awaiting, remote.vty = None, True
+        self.remote, self.remote_address = remote, state['address']
+
     def trace(self, destination):
         with self.manager().locked() as manager:
             manager.state = None
@@ -100,6 +162,10 @@ class Console:
     # ---- prompt ----
 
     def prompt(self):
+        if self.remote is not None:
+            return self.remote.prompt()
+        if self.login_state is not None:
+            return 'Username: ' if self.login_state['stage'] == 'username' else 'Password: '
         name = self.name
         if self.syntax is None:
             return f'root@{name}:~# '
@@ -120,6 +186,14 @@ class Console:
 
     def line(self, text):
         """The reply to one typed line ('' for none); raises EOFError to close the terminal."""
+        if self.remote is not None:  # inside telnet / ssh: the other device answers, « exit » comes back here
+            try:
+                return self.remote.line(text)
+            except EOFError:
+                address, self.remote = self.remote_address, None
+                return f'\n[Connection to {address} closed by foreign host]'
+        if self.login_state is not None:
+            return self.remote_login(text)
         if self.syntax in ('ios', 'eos'):
             return self.ios_line(text)
         command = ' '.join(text.split())
@@ -262,6 +336,8 @@ class Console:
             if not from_config and self.mode == 'exec' and ios_store.check_enable(self.node(), '') is not None:
                 self.awaiting = 'enable'  # « Password: », as IOS asks when an enable secret or password is set
                 return ''
+            if not from_config and self.vty and self.mode == 'exec':
+                return '% No password set'  # over telnet / ssh, IOS wants an enable secret before privileged mode
             self.mode = 'enable' if not from_config else self.mode
             return ''
         if low == 'disable' and not from_config:
@@ -283,6 +359,9 @@ class Console:
         extra = ios_exec.answer(self, low)
         if extra is not None:
             return extra
+        from .remote_login import parse as remote_command
+        if remote_command(command):
+            return self.remote_open(command)
         traced = self.traceroute(self.syntax, low)
         if traced is not None:
             return traced
@@ -549,6 +628,9 @@ class Console:
         traced = self.traceroute('host', command)
         if traced is not None:
             return traced
+        from .remote_login import parse as remote_command
+        if remote_command(command):
+            return self.remote_open(command)
         if words[0] == 'ipconfig' and words[1:] in ([], ['/all']):  # Windows-style, as Packet Tracer's PCs
             from .pc_commands import ipconfig
             return ipconfig(self.name, self.query('addresses'), self.query('routes'), self.node().get('dhcp_clients') or [],
@@ -643,6 +725,8 @@ class Console:
 
     def complete(self, buffer):
         """Tab completion: the words that can follow BUFFER in this mode."""
+        if self.remote is not None:
+            return self.remote.complete(buffer)
         return command_catalogue.completions(self.catalogue_node, self.catalogue_mode(), buffer)
 
 def run(lab, node, read=input, write=print, manager_factory=None):

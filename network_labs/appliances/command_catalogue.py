@@ -51,6 +51,10 @@ _IOS_COMMON = [
     ('Vérification', 'exec', 'ping A.B.C.D', 'Envoyer 5 échos ICMP depuis ce nœud (!!!!! = réponses).', ['ping {gw}'], ALL),
     ('Vérification', 'exec', 'traceroute A.B.C.D', 'Le chemin jusqu’à la destination, routeur par routeur (sondes réelles '
      'depuis la micro-VM).', ['traceroute {gw}'], ALL),
+    ('Accès distant', 'exec', 'telnet A.B.C.D', 'Ouvrir une session Telnet sur un équipement (line vty : login, password).',
+     ['telnet {gw}'], ALL),
+    ('Accès distant', 'exec', 'ssh -l NOM A.B.C.D', 'Ouvrir une session SSH (username, login local, crypto key generate rsa).',
+     ['ssh -l admin {gw}'], ALL),
     ('Système', 'config', 'hostname NOM', 'Nom de l’équipement (il doit rester celui du lab).', ['hostname {name}'], ALL),
     ('Interfaces', 'config', 'interface PORT', 'Configurer un port (mode config-if).', ['interface {p0}'], ALL),
     ('Interfaces', 'config-if', 'description TEXTE', 'Commentaire sur le port.', ['interface {p0}', 'description vers-LAN'], ALL),
@@ -449,6 +453,10 @@ CATALOGUES = {
         ('Vérification', 'shell', 'ipconfig /all', 'Avec l’adresse MAC et le DHCP.', ['ipconfig /all'], 'H'),
         ('Vérification', 'shell', 'arp -a', 'La table ARP du PC (voisins et leur adresse MAC).', ['arp -a'], 'H'),
         ('Vérification', 'shell', 'ip neigh', 'La même table, comme Linux l’écrit.', ['ip neigh'], 'H'),
+        ('Accès distant', 'shell', 'telnet A.B.C.D', 'Se connecter en Telnet à un routeur ou un switch (exit pour revenir).',
+         ['telnet {gw}'], 'H'),
+        ('Accès distant', 'shell', 'ssh -l NOM A.B.C.D', 'Se connecter en SSH (le compte username du routeur).',
+         ['ssh -l admin {gw}'], 'H'),
         ('Adressage', 'shell', 'ip addr add A.B.C.D/N dev PORT', 'Donner une adresse IPv4 au port (appliquée aussitôt).',
          ['ip addr add 192.0.2.10/24 dev {p0}'], 'H'),
         ('Adressage', 'shell', 'ip addr del A.B.C.D/N dev PORT', 'Retirer l’adresse du port.', ['ip addr del {ip0}/{len0} dev {p0}'], 'H'),
@@ -685,6 +693,17 @@ def _tokens(syntax):
     return syntax.split()
 
 
+def _variants(syntax):
+    """The flat forms of a syntax line: each optional group of several words (« [privilege N] ») typed or left out.
+    One-word options, nested ones and « [eq PORT] » are matched as they are (_match)."""
+    match = re.search(r'\[([^\[\]]* [^\[\]]*)\]', syntax)
+    if not match or match[1].startswith('eq '):
+        return [syntax]
+    typed = syntax[:match.start()] + match[1] + syntax[match.end():]
+    left_out = ' '.join((syntax[:match.start()] + syntax[match.end():]).split())
+    return _variants(typed) + _variants(left_out)
+
+
 def _keyword(token):
     """The keyword alternatives of a token ('permit|deny'), or None for a placeholder."""
     if token.startswith('['):
@@ -733,14 +752,15 @@ def ios_check(node, mode, line):
     words = line.split()
     if not words:
         return 'ok', None
-    results = [_match(_tokens(e['syntax']), words) for e in _ios_entries(node, mode)]
+    results = [_match(_tokens(v), words) for e in _ios_entries(node, mode) for v in _variants(e['syntax'])]
     if any(status == 'ok' for status, _ in results):
         return 'ok', None
     if any(status == 'incomplete' for status, _ in results):
         return 'incomplete', None
     furthest = max((index for _, index in results), default=0)
     if furthest < len(words):
-        options = {o for e in _ios_entries(node, mode) for o in _next_keywords(_tokens(e['syntax']), words[:furthest])}
+        options = {o for e in _ios_entries(node, mode) for v in _variants(e['syntax'])
+                   for o in _next_keywords(_tokens(v), words[:furthest])}
         if len([o for o in options if o.startswith(words[furthest].lower())]) > 1:
             return 'ambiguous', line
     position = 0
@@ -788,12 +808,12 @@ def ios_help(node, mode, typed):
     words = typed.split()
     if typed and not typed.endswith(' '):
         partial, words = words[-1].lower(), words[:-1]
-        options = sorted({o for e in _ios_entries(node, mode, own=True) for o in _next_keywords(_tokens(e['syntax']), words)
+        options = sorted({o for e in _ios_entries(node, mode, own=True) for v in _variants(e['syntax'])
+                          for o in _next_keywords(_tokens(v), words)
                           if o.startswith(partial)})
         return '  '.join(options) if options else '% Unrecognized command'
     rows, complete = {}, False
-    for entry in _ios_entries(node, mode, own=True):
-        tokens = _tokens(entry['syntax'])
+    for entry, tokens in [(e, _tokens(v)) for e in _ios_entries(node, mode, own=True) for v in _variants(e['syntax'])]:
         status, _ = _match(tokens, words)
         if status == 'ok' and words:
             complete = True

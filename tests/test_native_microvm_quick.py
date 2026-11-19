@@ -1,6 +1,6 @@
 """Packet Tracer style on real guests: unconfigured devices added as the workbench adds them, started, then configured
 only from their terminals, through the console server the workbench's CLI windows use (IOS abbreviations on the router,
-ip addr / ip route on the PCs), live; the PCs then ping."""
+ip addr / ip route on the PCs), live; the PCs then ping, and PC2 telnets into R1."""
 import json
 import os
 from pathlib import Path
@@ -23,6 +23,9 @@ TYPED = {'R1': ['en', 'sh ip int br', 'conf t', 'int g0/0/0', 'ip add 192.168.1.
                 'int g0/0/1', 'ip add 192.168.2.1 255.255.255.0', 'no shut', 'end', 'sh ip int br'],
          'PC1': ['ip addr add 192.168.1.10/24 dev eth0', 'ip route add default via 192.168.1.1', 'ip addr'],
          'PC2': ['ip addr add 192.168.2.10/24 dev eth0', 'ip route add default via 192.168.2.1', 'ping 192.168.1.10']}
+# Then Telnet from PC2 into R1, as in Packet Tracer: a vty password and an enable secret first.
+REMOTE = {'R1': ['en', 'conf t', 'line vty 0 4', 'password cisco', 'login', 'exit', 'enable secret class', 'end'],
+          'PC2': ['telnet 192.168.2.1', 'cisco', 'en', 'class', 'sh ip int br', 'exit']}
 
 
 def quick_lab(kernel, disk):
@@ -49,7 +52,7 @@ class QuickLabGuestTests(unittest.TestCase):
             root = Path(temporary)
             build(shutil.which('busybox'), root / 'base.ext4', size_mib=128, with_agent=True)
             spec = quick_lab(str(kernel), str(root / 'base.ext4'))
-            transcript = []
+            transcript, remote = [], []
             with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), \
                     patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
                 manager = Manager(spec['name'])
@@ -66,13 +69,16 @@ class QuickLabGuestTests(unittest.TestCase):
                         time.sleep(.05)
                     ask = lambda payload: console_server.request(spec['name'], payload, root=root / 'consoles')
                     try:
-                        for name, lines in TYPED.items():
-                            prompt = ask({'op': 'open', 'session': 'kvm' + name.lower() + 'x' * 8, 'node': name})['prompt']
-                            for line in lines:
-                                answer = ask({'op': 'line', 'session': 'kvm' + name.lower() + 'x' * 8, 'node': name, 'text': line})
-                                self.assertTrue(answer['ok'], answer)
-                                transcript.append(prompt + line + ('\n' + answer['reply'] if answer['reply'] else ''))
-                                prompt = answer['prompt']
+                        for steps, written in ((TYPED, transcript), (REMOTE, remote)):
+                            for name, lines in steps.items():
+                                session = 'kvm' + name.lower() + 'x' * 8
+                                prompt = ask({'op': 'open', 'session': session, 'node': name})['prompt']
+                                for line in lines:
+                                    answer = ask({'op': 'line', 'session': session, 'node': name, 'text': line})
+                                    self.assertTrue(answer['ok'], answer)
+                                    shown = '*' * len(line) if prompt.startswith('Password') else line
+                                    written.append(prompt + shown + ('\n' + answer['reply'] if answer['reply'] else ''))
+                                    prompt = answer['prompt']
                     finally:
                         alive[0] = False
                         thread.join(10)
@@ -89,3 +95,9 @@ class QuickLabGuestTests(unittest.TestCase):
             self.assertRegex(transcript[-len(TYPED['PC2']) - len(TYPED['PC1']) - 1],
                              r'GigabitEthernet0/0/0\s+192\.168\.1\.1\s+YES manual up\s+up')  # R1's last sh ip int br
             self.assertIn('4 packets received', transcript[-1])  # PC2 reaches PC1 through R1, all configured live
+            telnet = '\n'.join(remote)
+            print('\n' + telnet, flush=True)
+            self.assertIn('Trying 192.168.2.1 ...Open\n\nUser Access Verification', telnet)
+            self.assertIn('R1>en\n', telnet)  # logged in with the vty password, over the real network
+            self.assertRegex(telnet, r'R1#sh ip int br\n.*\nGigabitEthernet0/0/0\s+192\.168\.1\.1')
+            self.assertTrue(telnet.endswith('R1#exit\n\n[Connection to 192.168.2.1 closed by foreign host]'), telnet[-200:])
