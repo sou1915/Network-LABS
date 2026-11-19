@@ -16,8 +16,9 @@ def _mac(bridge_id):
     return '.'.join(digits[i:i + 4] for i in range(0, 12, 4))
 
 
-def from_guest(listing, node):
-    """The view from the guest bridge's sysfs values."""
+def from_guest(listing, node, cabled=None):
+    """The view from the guest bridge's sysfs values; CABLED, when given, the ports with a cable (an IOS port without
+    one is notconnect, out of the tree, while its guest tap still counts as up)."""
     bridge = listing['bridge']
     root_port = int(bridge['root_port'], 0)
     view = {'priority': int(bridge['priority']), 'address': _mac(bridge['bridge_id']),
@@ -27,7 +28,7 @@ def from_guest(listing, node):
             'ports': []}
     for port in node['interfaces']:
         values = listing.get(port)
-        if not values or values.get('state') == '0':
+        if not values or values.get('state') == '0' or (cabled is not None and port not in cabled):
             continue  # a shut or unconnected port is not in the tree
         number = int(values['port_no'], 0)
         role = 'Root' if number == root_port else 'Altn' if values['state'] == '4' else 'Desg'

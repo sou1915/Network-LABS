@@ -157,10 +157,12 @@ def _declared(node, interfaces):
     """Declared ports and their subinterfaces, in port order; loopback and bridge devices are not ports."""
     wanted = [*node['interfaces'], *node.get('subinterfaces', {})]
     found = [interfaces.get(port, {'port': port, 'up': False, 'addresses': []}) for port in wanted]
-    bridge = interfaces.get('br0', {'addresses': []})
+    from .svi import routed
+    devices = {held['name']: held['device'] for held in routed(node)}  # a routing switch's SVIs: br0.N in the guest
     for name, policy in (node.get('svis') or {}).items() if node.get('runtime') == 'firecracker' else ():
-        # A switch's management SVI: up when its address is on the guest bridge; IOS shows the address even when shut.
-        found.append({'port': name, 'up': bool(bridge['addresses']), 'addresses': [policy['address']] if policy.get('address') else []})
+        # A switch's SVI: up when its address is on the guest bridge (or its br0.N); IOS shows the address even when shut.
+        device = interfaces.get(devices.get(name, 'br0'), {'addresses': []})
+        found.append({'port': name, 'up': bool(device['addresses']), 'addresses': [policy['address']] if policy.get('address') else []})
     return found
 
 
@@ -259,6 +261,12 @@ def _ios_brief(node, observation, name):
 
 
 def _ios_route(node, observation, name):
+    from .svi import management, routing
+    if node.get('role') == 'switch' and node.get('runtime') == 'firecracker' and not routing(node):
+        svi = management(node)  # a Layer 2 switch (or a Layer 3 one before « ip routing ») has no routing table
+        gateway = svi['gateway'] if svi else None
+        return '\n'.join([f'Default gateway is {gateway}' if gateway else 'Default gateway is not set', '',
+                          'Host               Gateway           Last Use    Total Uses  Interface', 'ICMP redirect cache is empty'])
     lines = ['Codes: L - local, C - connected, S - static, R - RIP, D - EIGRP, O - OSPF, B - BGP, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines.append(f'Gateway of last resort is {default["gateway"] or "0.0.0.0"} to network 0.0.0.0' if default

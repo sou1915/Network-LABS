@@ -111,8 +111,9 @@ def forwarding(socket):
 
 
 def check_forwarding(socket, node):
+    from .svi import routing
     state = forwarding(socket)
-    if node.get('role') in ('router', 'firewall'):
+    if node.get('role') in ('router', 'firewall') or routing(node):  # a Layer 3 switch with « ip routing » too
         if state is not True:
             raise ValueError('Router or firewall guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
                              else 'Router or firewall guest is not forwarding IPv4.')
@@ -180,22 +181,35 @@ def check_switch(socket, node):
     ports = sorted(query(socket, 'bridge-ports').split())
     if ports != sorted(node['interfaces']):
         raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
+    from .svi import management, routed
+    devices = {svi['device'] for svi in routed(node)} - {'br0'}  # a routing switch's SVIs: br0.N
     up = set(); interface = None; held = []
     for line in query(socket, 'addresses').splitlines():
         header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
         if header:
             interface = header[1]
-            if interface not in ('lo', 'br0') and interface not in node['interfaces']:
+            if interface not in ('lo', 'br0') and interface not in node['interfaces'] and interface not in devices:
                 raise ValueError('Guest has an undeclared interface.')
             if 'UP' in header[2].split(','): up.add(interface)
-        elif line.split()[:1] == ['inet'] and interface == 'br0':
-            held.append(str(ipaddress.IPv4Interface(line.split()[1])))
+        elif line.split()[:1] == ['inet'] and (interface == 'br0' or interface in devices):
+            held.append((interface, str(ipaddress.IPv4Interface(line.split()[1]))))
         elif line.split()[:1] == ['inet'] and interface != 'lo':
             raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
-    from .svi import management
     svi = management(node)
-    if held != ([svi['address']] if svi else []):
-        raise ValueError('Switch guest bridge holds ' + (', '.join(held) or 'no address') + ' instead of its management SVI.')
+    wanted = [('br0', svi['address'])] if svi else [(s['device'], s['address']) for s in routed(node)]
+    if sorted(held) != sorted(wanted):
+        raise ValueError('Switch guest bridge holds ' + (', '.join(a for _, a in held) or 'no address')
+                         + ' instead of its SVIs (' + (', '.join(a for _, a in wanted) or 'none') + ').')
+    if not devices <= up:
+        raise ValueError('Switch guest SVI interfaces must be up.')
+    from .svi import static_routes
+    wanted_routes = static_routes(node)
+    if wanted_routes:
+        listed = [line.split() for line in query(socket, 'routes').splitlines()]
+        for network, gateway, device, _ in wanted_routes:
+            shown = 'default' if network.prefixlen == 0 else str(network)
+            if not any(fields[:5] == [shown, 'via', str(gateway), 'dev', device] for fields in listed):
+                raise ValueError(f'Switch guest lacks its route to {network} via {gateway}.')
     if svi and svi['gateway'] and not any(line.split()[:5] == ['default', 'via', svi['gateway'], 'dev', 'br0']
                                           for line in query(socket, 'routes').splitlines()):
         raise ValueError('Switch guest lacks its ip default-gateway route.')
@@ -498,12 +512,45 @@ def _svi(socket, node, plan, add):
         query(socket, 'bridge-vlan-delete', interface='br0', vlan=svi['vlan'])
 
 
+def _routed(socket, node, plan, add):
+    """A routing switch's SVIs (svi.routed) on its guest: the bridge's VLAN interface br0.N, tagged in VLAN N on the
+    bridge itself (VLAN 1's default untagged entry gives way), its address, up; or all of that taken off."""
+    from .svi import routed
+    for svi in routed(node):
+        device, vid = svi['device'], svi['vlan']
+        if add:
+            if device != 'br0':
+                if vid == 1:
+                    query(socket, 'bridge-vlan-delete', interface='br0', vlan=1)
+                query(socket, 'bridge-vlan-add', interface='br0', vlan=vid, state='tagged')
+                query(socket, 'vlan-add', interface='br0', vlan=vid)
+                query(socket, 'link', interface=device, state='up')
+            query(socket, 'address-add', interface=device, cidr=svi['address'])
+            continue
+        if device == 'br0':
+            query(socket, 'address-delete', interface=device, cidr=svi['address'])
+            continue
+        query(socket, 'vlan-delete', interface=device)
+        query(socket, 'bridge-vlan-delete', interface='br0', vlan=vid)
+        if vid == 1:
+            query(socket, 'bridge-vlan-add', interface='br0', vlan=1, state='pvid')
+
+
 def change_switch(socket, old, new):
     """Bring a running switch guest from OLD's VLANs, access/trunk ports, shut ports and management SVI to NEW's:
     only what differs."""
-    from .svi import management
+    from .svi import management, routed, routing, static_routes
     before, after = vlan_plan(old), vlan_plan(new)
     svi_changed = management(old) != management(new) or before != after
+    routed_changed = routed(old) != routed(new) or before != after
+    routes_changed = routed_changed or static_routes(old) != static_routes(new)
+    if routing(old) and not routing(new):
+        query(socket, 'forward', state='off')  # « no ip routing »: the switch stops routing first
+    if routes_changed:  # a routing switch's « ip route » lines, while their SVIs still exist
+        for network, gateway, device, _ in static_routes(old):
+            query(socket, 'route-delete', network=str(network), gateway=str(gateway), interface=device)
+    if routed_changed:
+        _routed(socket, old, before, add=False)
     if svi_changed:
         _svi(socket, old, before, add=False)
     if before != after:
@@ -525,6 +572,13 @@ def change_switch(socket, old, new):
             query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
     if svi_changed:
         _svi(socket, new, after, add=True)
+    if routed_changed:
+        _routed(socket, new, after, add=True)
+    if routes_changed:
+        for network, gateway, device, _ in static_routes(new):
+            query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
+    if routing(new) and not routing(old):
+        query(socket, 'forward', state='on')  # « ip routing »
     if (old.get('spanning_tree') or {}) != (new.get('spanning_tree') or {}):
         _stp(socket, new)  # spanning-tree vlan 1 priority …, or a loop closed by a new cable after a restart
     check_switch(socket, new)
@@ -711,6 +765,12 @@ def apply(socket, node, timeout=40, alive=None):
             for port, vid, mode in sorted(plan, key=lambda entry: (entry[2] == 'pvid', entry)):
                 query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
         _svi(socket, node, plan, add=True)  # interface vlan N: the management address on the bridge
+        _routed(socket, node, plan, add=True)  # or, with ip routing, every SVI as a router interface
+        from .svi import routing, static_routes
+        for network, gateway, device, _ in static_routes(node):
+            query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
+        if routing(node):
+            query(socket, 'forward', state='on')
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():

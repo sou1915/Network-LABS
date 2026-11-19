@@ -31,9 +31,14 @@
 static int valid_port(const char *value) {
     return strlen(value) == 4 && !strncmp(value, "eth", 3) && value[3] >= '0' && value[3] <= '3';
 }
-/* A guest port eth0..eth3, or one of its 802.1Q subinterfaces eth0.1 .. eth3.4094. */
+/* A guest port eth0..eth3, one of its 802.1Q subinterfaces eth0.1 .. eth3.4094, or the bridge br0 and its VLANs. */
 static int valid_interface(const char *value) {
     if (!strcmp(value, "br0")) return 1;  /* a switch guest's bridge: its management address (IOS interface vlan N) */
+    if (!strncmp(value, "br0.", 4)) {  /* a routing switch's SVI: the bridge's VLAN interface br0.1 .. br0.4094 */
+        const char *vid = value + 4;
+        if (!vid[0] || vid[0] == '0' || strlen(vid) > 4 || strspn(vid, "0123456789") != strlen(vid)) return 0;
+        long number = atol(vid); return number >= 1 && number <= 4094;
+    }
     if (strlen(value) == 4) return valid_port(value);
     if (strlen(value) < 6 || strlen(value) > 9 || value[4] != '.') return 0;
     char base[5]; memcpy(base, value, 4); base[4] = 0;
@@ -933,11 +938,11 @@ static void serve(int input, int output, int mutations) {
         snprintf(trace_ttl, sizeof(trace_ttl), "%u", ttl);
         args = trace;
     }
-    /* 802.1Q subinterfaces, named ethN.VID, through the kernel's VLAN ioctl as vconfig does. */
+    /* 802.1Q subinterfaces, named ethN.VID (br0.VID: a routing switch's SVI), through the kernel's VLAN ioctl as vconfig does. */
     unsigned subinterface_vid;
     int subinterface_add = sscanf(request, "NL1 VLAN_ADD %4s %u %c", port, &subinterface_vid, &extra) == 2;
     int subinterface_delete = !subinterface_add && sscanf(request, "NL1 VLAN_DEL %9s %c", port, &extra) == 1;
-    if (mutations && ((subinterface_add && valid_port(port) && subinterface_vid >= 1 && subinterface_vid <= 4094) ||
+    if (mutations && ((subinterface_add && (valid_port(port) || !strcmp(port, "br0")) && subinterface_vid >= 1 && subinterface_vid <= 4094) ||
                       (subinterface_delete && valid_interface(port) && strlen(port) > 4))) {
         int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
         struct vlan_ioctl_args vlan;

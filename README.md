@@ -93,6 +93,9 @@ passe en `BLK`, orange sur le schéma ; un port `shutdown` y est rouge), `spanni
 l'arbre, `show spanning-tree` le montre (calculé d'après les câbles tant que le lab est arrêté), et couper le port racine
 fait passer le câble de secours en `FWD`. Un seul arbre pour tous les VLAN (celui du VLAN 1), en STP classique (pas de
 Rapid PVST+). Chaque port de micro-VM a une adresse MAC fixe, d'un démarrage à l'autre.
+Un Catalyst 9200L est un switch de niveau 3 : `ip routing` et une `interface vlan N` par VLAN routent entre les VLAN
+sans routeur (routage inter-VLAN, `show ip route` avec ses réseaux `C`, `ip route` vers un routeur) ; un 2960 reste
+de niveau 2 et refuse `ip routing`, comme dans Packet Tracer.
 Celles qui n'agissent pas encore sur le trafic du lab (port-security, portfast, bpduguard…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).

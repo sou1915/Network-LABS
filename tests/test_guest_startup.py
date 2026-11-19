@@ -418,8 +418,9 @@ class RouterOnAStickTests(unittest.TestCase):
     def test_wire_format_and_rejections(self):
         from network_labs.appliances.guest_control import guest_interface, request
         # br0: a switch guest's bridge, which holds its management SVI address and route (interface vlan N).
-        self.assertTrue(all(guest_interface(name) for name in ('eth0', 'eth3', 'eth0.1', 'eth2.4094', 'br0')))
-        refused = ('eth4', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0.10', 'br1', 'eth0.10;id', None)
+        # br0.N: a routing switch's SVIs (the bridge's VLAN interfaces).
+        self.assertTrue(all(guest_interface(name) for name in ('eth0', 'eth3', 'eth0.1', 'eth2.4094', 'br0', 'br0.10', 'br0.1')))
+        refused = ('eth4', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0.0', 'br0.4095', 'br0.', 'br1', 'br1.10', 'eth0.10;id', None)
         self.assertFalse(any(guest_interface(name) for name in refused))
         for operation, kwargs in (('vlan-add', {'interface': 'eth0.10', 'vlan': 10}), ('vlan-add', {'interface': 'eth0', 'vlan': 0}),
                                   ('vlan-delete', {'interface': 'eth0'}), ('vlan-delete', {'interface': 'eth0.10', 'vlan': 10}),

@@ -150,6 +150,8 @@ class GuestStpTest(unittest.TestCase):
         self.assertIn('Bridge ID  Priority    32769  (priority 32768 sys-id-ext 1)\n             Address     02cc.d4f6.1200', shown)
         self.assertEqual(ports(shown), {'Fa0/1': ('Root', 'FWD'), 'Fa0/2': ('Altn', 'BLK'), 'Fa0/3': ('Desg', 'FWD')})
         self.assertIn('Fa0/2               Altn BLK 19        128.2    P2p', shown)
+        cabled = guest_stp.from_guest(parse_stp(LISTING.replace('eth3 state 0', 'eth3 state 3')), node, {'eth0', 'eth1'})
+        self.assertEqual([p['port'] for p in cabled['ports']], ['eth0', 'eth1'])  # a port with no cable is notconnect
 
 
 class GuestStpStartupTest(unittest.TestCase):

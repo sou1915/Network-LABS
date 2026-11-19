@@ -52,12 +52,14 @@ class DraftLab:
             parent = port.split('.')[0]
             addresses = [str(a) for i, a in held.items() if network_model._port_of(i) == port]
             interfaces.append({'port': port, 'up': parent not in down, 'addresses': addresses})
-        from .svi import management
+        from .svi import management, routed
         svi = management(node)
-        for name, policy in (node.get('svis') or {}).items():  # a switch's management SVI: up once it runs
-            interfaces.append({'port': name, 'up': bool(svi), 'addresses': [policy['address']] if policy.get('address') else []})
+        running = ({svi['name']} if svi else set()) | {held['name'] for held in routed(node)}
+        for name, policy in (node.get('svis') or {}).items():  # a switch's SVIs: up once it runs (a routing switch's all)
+            interfaces.append({'port': name, 'up': name in running, 'addresses': [policy['address']] if policy.get('address') else []})
         routes = []
-        if node['role'] != 'switch':
+        from .svi import routing
+        if node['role'] != 'switch' or routing(node):  # a Layer 3 switch's « ip route » lines too
             for network, gateway in network_model.static_routes(node):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 if port is not None:

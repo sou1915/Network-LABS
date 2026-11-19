@@ -14,8 +14,9 @@ def validate_svis(node):
     if not isinstance(svis, dict) or len(svis) > 32:
         raise ValueError('svis must be an object with at most 32 entries.')
     guest = node['runtime'] == 'firecracker' and node['role'] == 'switch'
-    if svis and guest and len(svis) > 1:
-        raise ValueError('Switch micro-VM: one management SVI (interface vlan N), as a Layer 2 Catalyst.')
+    if svis and guest and len(svis) > (8 if layer3(node) else 1):
+        raise ValueError('Switch micro-VM: one management SVI (interface vlan N) on a Layer 2 Catalyst (2960), '
+                         'eight on a Layer 3 one (9200L, with ip routing).')
     if svis and not guest and (node['runtime'] != 'oci' or node['role'] != 'switch' or node.get('switch_backend', 'linux') != 'linux'
                                or node.get('startup') or node.get('dhcp_clients')):
         raise ValueError('SVIs require an OCI Linux-bridge switch without untracked startup or DHCP clients.')
@@ -43,12 +44,79 @@ def validate_svis(node):
             networks.append(interface.network)
 
 
+L3_MODELS = ('cisco-9200l',)  # Catalysts that route between their SVIs once « ip routing » is typed (a 2960 does not)
+
+
+def layer3(node):
+    return node.get('role') == 'switch' and node.get('runtime') == 'firecracker' and node.get('model') in L3_MODELS
+
+
+def routing(node):
+    """True when a Layer 3 switch micro-VM routes: « ip routing » is in its configuration."""
+    if not layer3(node) or not node.get('cli_config'):
+        return False
+    from . import ios_store
+    return any(line.strip().lower() == 'ip routing' for line in ios_store.config(node)['global'])
+
+
+def routed(node):
+    """A routing switch's SVIs as router interfaces: [{'name', 'vlan', 'address', 'device'}], in VLAN order; the guest
+    device is the bridge's VLAN interface br0.N (br0 itself on a bridge without VLAN filtering, which carries VLAN 1
+    only). Shut or unaddressed SVIs are left out, as their connected networks are on IOS."""
+    if not routing(node):
+        return []
+    from .guest_startup import vlan_plan
+    plan = vlan_plan(node)
+    found = []
+    for name, policy in sorted((node.get('svis') or {}).items(), key=lambda item: item[1]['vlan']):
+        if not policy.get('address') or name in (node.get('shutdown') or []) or (plan is None and policy['vlan'] != 1):
+            continue
+        found.append({'name': name, 'vlan': policy['vlan'], 'address': str(ipaddress.IPv4Interface(policy['address'])),
+                      'device': 'br0' if plan is None else f'br0.{policy["vlan"]}'})
+    return found
+
+
+SWITCH_ROUTE = re.compile(r'ip route (\d+\.\d+\.\d+\.\d+) (\d+\.\d+\.\d+\.\d+) (\d+\.\d+\.\d+\.\d+)', re.IGNORECASE)
+
+
+def static_routes(node):
+    """A routing switch's « ip route NET MASK NEXT-HOP » lines in use: [(network, gateway, device, svi)] for each next hop
+    that lies in one of its routed SVIs' networks (IOS keeps the others, unused)."""
+    held = [(ipaddress.IPv4Interface(svi['address']).network, svi['device'], svi['name']) for svi in routed(node)]
+    if not held:
+        return []
+    from . import ios_store
+    found = []
+    for line in ios_store.config(node)['global']:
+        match = SWITCH_ROUTE.fullmatch(line.strip())
+        if not match:
+            continue
+        network, gateway = ipaddress.IPv4Network(f'{match[1]}/{match[2]}'), ipaddress.IPv4Address(match[3])
+        through = next(((device, name) for subnet, device, name in held if gateway in subnet), None)
+        if through:
+            found.append((network, gateway, *through))
+    return found
+
+
+def store_route(node, network, gateway=None, remove=False):
+    """Keep (or drop) a Layer 3 switch's « ip route NET MASK NEXT-HOP » line; one route per network, as typed last."""
+    from . import ios_store
+    current = ios_store.config(node)
+    kept = [line for line in current['global'] if not ((match := SWITCH_ROUTE.fullmatch(line.strip()))
+                                                     and ipaddress.IPv4Network(f'{match[1]}/{match[2]}') == network
+                                                     and (gateway is None or ipaddress.IPv4Address(match[3]) == gateway or not remove))]
+    if not remove:
+        kept.append(f'ip route {network.network_address} {network.netmask} {gateway}')
+    current['global'] = kept
+    node['cli_config'] = current
+
+
 def management(node):
     """A switch micro-VM's management SVI as it runs: {'name', 'vlan', 'address', 'gateway'}, or None when it has none,
     it is shut, it has no address, or (on a bridge without VLANs) it is not VLAN 1. The gateway is the stored
     « ip default-gateway » when it lies in the SVI's subnet (IOS keeps the line either way)."""
-    if node.get('role') != 'switch' or node.get('runtime') != 'firecracker' or not node.get('svis'):
-        return None
+    if node.get('role') != 'switch' or node.get('runtime') != 'firecracker' or not node.get('svis') or routing(node):
+        return None  # a routing switch's SVIs are router interfaces (routed), and IOS then ignores ip default-gateway
     name, policy = next(iter(node['svis'].items()))
     if not policy.get('address') or name in (node.get('shutdown') or []):
         return None

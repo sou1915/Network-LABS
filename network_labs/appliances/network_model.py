@@ -13,6 +13,8 @@ correct fix passes), and to tell a student, step by step, where a packet stops.
 import heapq
 import ipaddress
 
+from .svi import routing
+
 MAX_HOPS = 32
 
 
@@ -73,10 +75,11 @@ def segments(spec):
     for node in spec['nodes']:
         if node['role'] == 'switch':
             from .guest_startup import vlan_plan
-            from .svi import management
-            svi = management(node)  # a switch's management SVI sits on its VLAN's segment
-            if svi:
-                found[(node['name'], svi['name'])] = union.find(('switch', node['name'], None if vlan_plan(node) is None else svi['vlan']))
+            from .svi import management, routed
+            svi = management(node)  # a switch's management SVI sits on its VLAN's segment, a routing switch's SVIs on theirs
+            plan = vlan_plan(node)
+            for held in ([svi] if svi else []) + routed(node):
+                found[(node['name'], held['name'])] = union.find(('switch', node['name'], None if plan is None else held['vlan']))
             continue
         for name in [*node['interfaces'], *(node.get('subinterfaces') or {})]:
             found[(node['name'], name)] = union.find(('port', node['name'], name))
@@ -88,9 +91,11 @@ def segments(spec):
 def addresses(node):
     """{interface: IPv4Interface} the node holds on its working interfaces (a shut port has no connected network)."""
     if node.get('role') == 'switch':
-        from .svi import management
-        svi = management(node)  # a switch holds only its management SVI's address
-        return {svi['name']: ipaddress.IPv4Interface(svi['address'])} if svi else {}
+        from .svi import management, routed
+        svi = management(node)  # a switch holds only its management SVI's address, or a routing switch its SVIs'
+        if svi:
+            return {svi['name']: ipaddress.IPv4Interface(svi['address'])}
+        return {held['name']: ipaddress.IPv4Interface(held['address']) for held in routed(node)}
     down = set(node.get('shutdown') or [])
     found = {port: ipaddress.IPv4Interface(a) for port, a in node['interfaces'].items() if a and port not in down}
     found.update({name: ipaddress.IPv4Interface(sub['address']) for name, sub in (node.get('subinterfaces') or {}).items()
@@ -111,9 +116,11 @@ def _port_of(name):
 def static_routes(node):
     """[(network, gateway)] including the default route."""
     if node.get('role') == 'switch':  # « ip default-gateway », when it lies in the management SVI's subnet
-        from .svi import management
-        svi = management(node)
-        return [(ipaddress.IPv4Network('0.0.0.0/0'), ipaddress.IPv4Address(svi['gateway']))] if svi and svi['gateway'] else []
+        from .svi import management, static_routes as switch_routes
+        svi = management(node)  # or a routing switch's « ip route » lines
+        if svi:
+            return [(ipaddress.IPv4Network('0.0.0.0/0'), ipaddress.IPv4Address(svi['gateway']))] if svi['gateway'] else []
+        return [(network, gateway) for network, gateway, _, _ in switch_routes(node)]
     from .vendor_config import routes
     return [(ipaddress.IPv4Network(network), ipaddress.IPv4Address(gateway)) for network, gateway in routes(node)]
 
@@ -456,7 +463,7 @@ class Model:
                         packet = dict(packet, destination=translated)
             if self.local(here, packet['destination']):
                 return True, path, None, tracked, here
-            if here != source and node['role'] not in ('router', 'firewall'):
+            if here != source and node['role'] not in ('router', 'firewall') and not routing(node):  # a Layer 3 switch routes
                 return False, path, f'{here} reçoit le paquet mais ne route pas', tracked, here
             following, port, egress = self.step(here, packet['destination'])
             if following is None:

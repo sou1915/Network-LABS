@@ -795,10 +795,22 @@ class IOS:
                 return
             self.port = _port(node, name)
             return
+        if low in ('ip routing', 'no ip routing') and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            from .native_models import MODELS
+            from .svi import layer3
+            if not layer3(node):
+                model = MODELS.get(node.get('model'), {}).get('title') or 'switch'
+                raise ValueError(f'Network LABS : le {model} est un switch de niveau 2 ; ip routing demande un switch de niveau 3 '
+                                 '(Catalyst 9200L).')
+            self.port, self.range = None, None  # a global command leaves the interface, as on IOS
+            ios_store.store(node, 'config', low)  # the SVIs route between them (svi.routed), live too
+            return
         match = re.fullmatch(r'(no )?spanning-tree vlan (\S+)(?: priority(?: (\d+))?| root (primary|secondary))?', low)
         if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
             self.port, self.range = None, None  # a global command leaves the interface, as on IOS
             return self._stp_priority(match)
+        if low.startswith(('ip route ', 'no ip route ')) and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            return self._switch_route(low, words)
         if low.startswith(('ip route ', 'no ip route ')):
             values = words[3:] if low.startswith('no') else words[2:]
             # 'ip route 10.0.0.0 255.0.0.0 GW' (IOS) or 'ip route 10.0.0.0/8 GW' (EOS).
@@ -837,8 +849,12 @@ class IOS:
         node, name = self.node, f'vlan{vid}'
         svis = node.setdefault('svis', {})
         if name not in svis:
-            if svis and node.get('runtime') == 'firecracker':
-                raise ValueError('Une seule interface vlan de gestion par switch dans le lab (switch de niveau 2).')
+            from .svi import layer3
+            if svis and node.get('runtime') == 'firecracker' and not layer3(node):
+                raise ValueError('Une seule interface vlan de gestion sur ce switch de niveau 2 (Catalyst 2960) ; '
+                                 'un Catalyst 9200L en prend plusieurs et route entre elles (ip routing).')
+            if len(svis) >= 8 and node.get('runtime') == 'firecracker':
+                raise ValueError('Huit interfaces vlan au plus par switch dans le lab.')
             self._vlan(vid, False)
             svis[name] = {'vlan': vid, 'address': ''}
             node['shutdown'] = sorted(set(node.get('shutdown') or []) | {name})
@@ -923,6 +939,23 @@ class IOS:
             self.port, self.range = None, None  # a global command leaves the interface, as on IOS
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
+
+    def _switch_route(self, low, words):
+        """« ip route NET MASK NEXT-HOP » on a Layer 3 switch: kept as the IOS line, used once ip routing is on (svi)."""
+        from .svi import layer3, store_route
+        if not layer3(self.node):
+            raise ValueError('Network LABS : un switch de niveau 2 n’a pas de table de routage ; ip default-gateway donne sa '
+                             'passerelle (un Catalyst 9200L route, avec ip routing).')
+        self.port, self.range = None, None
+        values = words[3:] if low.startswith('no') else words[2:]
+        if len(values) < (2 if low.startswith('no') else 3):
+            raise ValueError('Incomplete command.')
+        network = ipaddress.IPv4Network(_network(values[0], values[1]))
+        if low.startswith('no'):
+            return store_route(self.node, network, ipaddress.IPv4Address(values[2]) if len(values) > 2 else None, remove=True)
+        if not _is_ipv4(values[2]):
+            raise ValueError('Network LABS : sur un switch de niveau 3, ip route NET MASK ADRESSE-DU-SAUT-SUIVANT.')
+        store_route(self.node, network, ipaddress.IPv4Address(values[2]))
 
     def _stp_priority(self, match):
         """« spanning-tree vlan N priority X » and « … root primary|secondary » (stored as the priority line it writes, as

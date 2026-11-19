@@ -73,6 +73,8 @@ GRAMMAR = [
      rf'ip nat pool \S+ {IP} {IP} (?:netmask {IP}|prefix-length \d+)', 4,
      'Plage d’adresses publiques pour le NAT dynamique (16 adresses au plus dans le lab).',
      ['ip nat pool PUBLIC 203.0.113.10 203.0.113.20 netmask 255.255.255.0'], EFFECT, 'R'),
+    ('config', 'ip routing', r'ip routing', 2,
+     'Switch de niveau 3 (Catalyst 9200L) : router entre ses interfaces vlan (routage inter-VLAN).', ['ip routing'], EFFECT, 'S'),
     ('config', 'spanning-tree mode pvst|rapid-pvst|mst', r'spanning-tree mode (?:pvst|rapid-pvst|mst)', 2,
      'Mode de spanning tree.', ['spanning-tree mode rapid-pvst'], STORED, 'S'),
     ('config', 'spanning-tree vlan VLAN priority N', r'spanning-tree vlan \S+ priority \d+', 3,

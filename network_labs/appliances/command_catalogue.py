@@ -64,6 +64,11 @@ _IOS_COMMON = [
      ['interface {p0}', 'shutdown'], ALL),
     ('Routage statique', 'config', 'no ip route RÉSEAU MASQUE', 'Supprimer une route statique.',
      ['ip route 10.99.0.0 255.255.0.0 {gw}', 'no ip route 10.99.0.0 255.255.0.0'], 'R'),
+    ('Routage inter-VLAN', 'config', 'ip route RÉSEAU MASQUE SAUT-SUIVANT',
+     'Route statique d’un switch de niveau 3 (ip routing) : par l’interface vlan dont le réseau contient le saut suivant.',
+     ['ip route 10.99.0.0 255.255.0.0 192.0.2.254'], 'S'),
+    ('Routage inter-VLAN', 'config', 'no ip route RÉSEAU MASQUE [SAUT-SUIVANT]', 'Supprimer une route statique du switch.',
+     ['ip route 10.99.0.0 255.255.0.0 192.0.2.254', 'no ip route 10.99.0.0 255.255.0.0'], 'S'),
 ]
 _IOS_L3 = [
     ('Interfaces', 'config-if', 'ip address A.B.C.D MASQUE', 'Adresse IPv4 du port.',
@@ -509,16 +514,23 @@ def _role_letter(node):
     return {'router': ROUTER, 'switch': SWITCH, 'firewall': FIREWALL}.get(node.get('role'), 'H')
 
 
+LAYER3_ONLY = ('ip routing',)  # and the « Routage inter-VLAN » topic
+
+
 def entries(node):
     """The node's catalogue: [{'topic', 'mode', 'syntax', 'help', 'example'}], examples with its own port names."""
     syntax = syntax_of(node)
     shown = vendor_config.port_names(node) if syntax != 'shell' else {p: p for p in node.get('interfaces', {})}
     values = placeholders(node, shown)
     letter = _role_letter(node)
+    from .svi import layer3
+    layer2 = node.get('role') == 'switch' and node.get('runtime') == 'firecracker' and not layer3(node)
     found = []
     for topic, mode, text, explanation, example, roles in CATALOGUES[syntax]:
         if syntax != 'shell' and letter not in roles:
             continue
+        if layer2 and (text in LAYER3_ONLY or topic == 'Routage inter-VLAN'):
+            continue  # a 2960 refuses them, as on IOS; a 9200L routes
         found.append({'topic': topic, 'mode': mode, 'syntax': text, 'help': explanation,
                       'example': [line.format(**values) for line in example]})
     return found

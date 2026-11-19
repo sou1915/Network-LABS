@@ -303,8 +303,9 @@ def spanning_tree(console, vlan=None):
     if vlan not in (None, 1):
         return (f'Spanning tree instance(s) for vlan {vlan} does not exist.\n'
                 '% Network LABS : ce switch fait tourner un seul arbre 802.1D pour tous ses VLAN (show spanning-tree vlan 1).')
-    listing = parse_stp(console.query('bridge-stp-show'))
-    view = guest_stp.from_guest(listing, node) if listing.get('bridge') else guest_stp.from_model(console.spec_now(), node['name'])
+    listing, spec = parse_stp(console.query('bridge-stp-show')), console.spec_now()
+    cabled = {end[1] for link in spec['links'] for end in link if end[0] == node['name']}
+    view = guest_stp.from_guest(listing, node, cabled) if listing.get('bridge') else guest_stp.from_model(spec, node['name'])
     return guest_stp.render(node, view)
 
 
