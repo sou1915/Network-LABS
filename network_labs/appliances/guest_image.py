@@ -93,11 +93,11 @@ def install_bird(root, daemon, client):
         target.chmod(0o755)
 
 
-FRR_PROGRAMS = {'zebra': '/usr/lib/frr/zebra', 'bgpd': '/usr/lib/frr/bgpd', 'vtysh': '/usr/bin/vtysh'}
+FRR_PROGRAMS = {'zebra': '/usr/lib/frr/zebra', 'bgpd': '/usr/lib/frr/bgpd', 'eigrpd': '/usr/lib/frr/eigrpd', 'vtysh': '/usr/bin/vtysh'}
 
 
 def install_frr(root, programs=None):
-    """Copy FRR's zebra, bgpd and vtysh with their libraries (BGP on router guests). FRR runs as root in the guest and
+    """Copy FRR's zebra, bgpd, eigrpd and vtysh with their libraries (BGP and EIGRP on router guests). FRR runs as root in the guest and
     still looks up root and its vty group by name, so the image gets those account entries."""
     programs = programs or FRR_PROGRAMS
     for name, destination in FRR_PROGRAMS.items():

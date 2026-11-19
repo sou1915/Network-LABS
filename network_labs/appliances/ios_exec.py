@@ -15,8 +15,8 @@ from .vendor_config import ios_name
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
-         'show mac address-table', 'show ip route static']
-ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'ospf': 'O', 'bgp': 'B'}
+         'show mac address-table', 'show ip route static', 'show ip eigrp neighbors']
+ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
 def answer(console, low):
@@ -33,6 +33,8 @@ def answer(console, low):
         return status(console)
     if full == 'show ip dhcp binding':
         return bindings(console)
+    if full == 'show ip eigrp neighbors':
+        return eigrp_neighbors(console)
     if full in ('show arp', 'show ip arp'):
         return arp(console)
     if full in ('show mac address-table', 'show mac-address-table'):
@@ -90,7 +92,7 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set',
          'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding', 'arp': 'arp', 'mac': 'mac',
          'add': 'address-table', 'address-table': 'address-table', 'mac-address-table': 'mac-address-table', 'ro': 'route',
-         'route': 'route'}
+         'route': 'route', 'eigrp': 'eigrp'}
 
 
 def _expand(words):
@@ -365,6 +367,33 @@ def protocols(console):
             if passive:
                 lines += ['  Passive Interface(s):'] + [f'    {_label(node, p)}' for p in passive]
         lines.append('  Distance: (default is 120)')
+    from .eigrp import process as eigrp_process
+    eigrp = eigrp_process(node)
+    if eigrp:
+        lines += ['', f'Routing Protocol is "eigrp {eigrp["asn"]}"', '  EIGRP-IPv4 Protocol for AS({})'.format(eigrp['asn']),
+                  f'    Router-ID: {eigrp["router_id"]}', '  Routing for Networks:']
+        lines += [f'    {ipaddress.IPv4Network(n).network_address} {ipaddress.IPv4Network(n).hostmask}' for n in eigrp['networks']]
+        if eigrp['passive']:
+            lines += ['  Passive Interface(s):'] + [f'    {_label(node, p)}' for p in eigrp['passive']]
+        lines.append('  Distance: internal 90 external 170')
+    return '\n'.join(lines)
+
+
+def eigrp_neighbors(console):
+    """« show ip eigrp neighbors »: the adjacencies FRR's eigrpd reports in the guest (the model's on a stopped lab)."""
+    from .vendor_config import ios_short
+    node = console.node()
+    eigrp = console.observe().get('eigrp')
+    if not eigrp:
+        return ''
+    lines = [f'EIGRP-IPv4 Neighbors for AS({eigrp["asn"]})',
+             'H   Address                 Interface              Hold Uptime   SRTT   RTO  Q  Seq',
+             '                                                   (sec)         (ms)       Cnt Num']
+    for index, n in enumerate(eigrp['neighbors']):
+        uptime = int(n['uptime']) if n['uptime'].isdigit() else 0
+        clock = f'{uptime // 3600:02d}:{uptime // 60 % 60:02d}:{uptime % 60:02d}'
+        lines.append(f'{index:<4}{n["address"]:<24}{ios_short(_label(node, n["port"])):<23}{n["hold"]:>4} {clock:<9}'
+                     f'{n["srtt"]:>4} {n["rto"]:>5}  {n["queue"]:<3}{n["seq"]}')
     return '\n'.join(lines)
 
 

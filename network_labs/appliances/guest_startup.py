@@ -253,7 +253,7 @@ def observe(socket, node):
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
         if not fields: continue
-        if (node.get('ospf') or node.get('bgp') or _runs_rip(node)) and learned(fields):
+        if (node.get('ospf') or node.get('bgp') or _runs_rip(node) or _runs_eigrp(node)) and learned(fields):
             continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
@@ -297,14 +297,14 @@ def observe(socket, node):
 
 
 BIRD_METRIC = '32'  # BIRD 2's kernel protocol installs its routes with metric 32 (its default; config() keeps it)
-FRR_METRIC = '20'  # FRR's zebra installs BGP routes with metric 20
+FRR_METRIC = '20'  # FRR's zebra installs BGP and EIGRP routes with metric 20
 
 
 def learned(fields):
     """A route BIRD installed. BusyBox's 'ip route' never prints the protocol, so BIRD's routes are told apart by
     their metric; static routes the agent adds and connected routes carry none. iproute2 also prints 'proto bird'."""
     pairs = {fields[i]: fields[i + 1] for i in range(len(fields) - 1)}
-    return pairs.get('proto') in ('bird', '12', 'bgp', '186') or pairs.get('metric') in (BIRD_METRIC, FRR_METRIC)
+    return pairs.get('proto') in ('bird', '12', 'bgp', '186', 'eigrp', '192') or pairs.get('metric') in (BIRD_METRIC, FRR_METRIC)
 
 
 def check_ospf(socket, node):
@@ -388,6 +388,39 @@ def start_rip(socket, node, timeout=8):
                 raise
             time.sleep(.1)
     check_rip(socket, node)
+
+
+def check_eigrp(socket, node):
+    """The guest's eigrpd runs the EIGRP configuration the lab declares (rendered by the agent from the same fields)."""
+    from .eigrp import process
+    wanted = query(socket, 'eigrp-render', eigrp=process(node))
+    try:
+        running = query(socket, 'eigrp-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: EIGRP is not running in the guest ({error}).') from error
+    if running != wanted:
+        raise ValueError(f'{node["name"]}: the guest EIGRP configuration differs from the lab.')
+
+
+def start_eigrp(socket, node, timeout=8):
+    """Start zebra and eigrpd from the typed process, then wait for vtysh to answer."""
+    from .eigrp import process
+    query(socket, 'eigrp-start', eigrp=process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'eigrp-show', state='neighbors')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.2)
+    check_eigrp(socket, node)
+
+
+def _runs_eigrp(node):
+    from .eigrp import process
+    return process(node) is not None
 
 
 LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config', 'svis')
@@ -478,6 +511,10 @@ def change_routing(socket, old, new):
     rip_changed = rip_process(old) != rip_process(new)
     if rip_changed and rip_process(old):
         query(socket, 'rip-stop')  # BIRD withdraws the routes RIP installed as it stops
+    from .eigrp import process as eigrp_process
+    eigrp_changed = eigrp_process(old) != eigrp_process(new) or bool(readdressed and eigrp_process(new))
+    if eigrp_changed and eigrp_process(old):
+        query(socket, 'eigrp-stop')  # zebra withdraws EIGRP's routes as eigrpd stops
     if ospf_changed and old.get('ospf'):
         query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
     if bgp_changed and old.get('bgp'):
@@ -511,6 +548,8 @@ def change_routing(socket, old, new):
         start_bgp(socket, new)
     if rip_changed and rip_process(new):
         start_rip(socket, new)
+    if eigrp_changed and eigrp_process(new):
+        start_eigrp(socket, new)
     from .ios_relay import process as relay_process
     if relay_process(old) != relay_process(new):  # « ip helper-address » typed or removed
         if relay_process(old):
@@ -641,6 +680,8 @@ def apply(socket, node, timeout=40, alive=None):
     from .rip import process as rip_process
     if rip_process(node):
         start_rip(socket, node)
+    if _runs_eigrp(node):
+        start_eigrp(socket, node)
     from .ios_relay import process as relay_process
     if relay_process(node):  # « ip helper-address »: relays even before the server's guest boots
         start_relay(socket, node)

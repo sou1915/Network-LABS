@@ -134,14 +134,15 @@ GRAMMAR = [
      ['router rip', 'passive-interface {p0}'], EFFECT, 'R'),
     ('config-rip', 'default-information originate', r'default-information originate', 2, 'Annoncer la route par défaut.',
      ['router rip', 'default-information originate'], STORED, 'R'),
-    ('config-eigrp', 'network A.B.C.D [JOKER]', rf'network {IP}(?: {IP})?', 2, 'Réseau où EIGRP est actif.',
-     ['router eigrp 10', 'network 192.0.2.0 0.0.0.255'], STORED, 'R'),
+    ('config-eigrp', 'network A.B.C.D [JOKER]', rf'network {IP}(?: {IP})?', 2, 'Réseau où EIGRP est actif (et annoncé).',
+     ['router eigrp 10', 'network 192.0.2.0 0.0.0.255'], EFFECT, 'R'),
     ('config-eigrp', 'no auto-summary', r'no auto-summary', 2, 'Pas de résumé par classe.', ['router eigrp 10', 'no auto-summary'],
      STORED, 'R'),
-    ('config-eigrp', 'passive-interface PORT', r'passive-interface \S+', 2, 'Port sans voisinage EIGRP.',
+    ('config-eigrp', 'passive-interface PORT', r'passive-interface \S+', 2,
+     'Port sans voisinage EIGRP (gardé dans la configuration ; eigrpd de FRR y envoie encore ses hello).',
      ['router eigrp 10', 'passive-interface {p0}'], STORED, 'R'),
     ('config-eigrp', 'eigrp router-id A.B.C.D', rf'eigrp router-id {IP}', 2, 'Identifiant EIGRP.',
-     ['router eigrp 10', 'eigrp router-id 1.1.1.1'], STORED, 'R'),
+     ['router eigrp 10', 'eigrp router-id 1.1.1.1'], EFFECT, 'R'),
     ('config-vlan', 'name NOM', r'name [!-~]{1,32}', 1, 'Nom du VLAN (show vlan brief, show running-config).',
      ['vlan 30', 'name SERVEURS'], EFFECT, 'S'),
 ]
@@ -152,7 +153,8 @@ BLOCKS = [('config', 'line con 0', r'line con(?:sole)? 0', 'config-line', 'Ligne
           ('config', 'line aux 0', r'line aux 0', 'config-line', 'Ligne auxiliaire.', ['line aux 0'], 'R'),
           ('config', 'router rip', r'router rip', 'config-rip', 'Démarrer RIP (BIRD dans la micro-VM ; pas avec OSPF).',
            ['router rip'], 'R'),
-          ('config', 'router eigrp AS', r'router eigrp \d+', 'config-eigrp', 'Démarrer EIGRP (configuration seulement pour l’instant).',
+          ('config', 'router eigrp AS', r'router eigrp \d+', 'config-eigrp', 'Démarrer EIGRP (eigrpd de FRR dans la micro-VM ; '
+           'seul protocole dynamique du routeur).',
            ['router eigrp 10'], 'R')]
 CANONICAL_HEADERS = {'line console 0': 'line con 0'}
 

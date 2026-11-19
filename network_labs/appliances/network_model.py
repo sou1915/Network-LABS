@@ -172,6 +172,17 @@ def rip_routes(spec, seg):
     """{router: [(network, gateway, hops)]} as RIP converges: updates sent by active RIP ports, heard by RIP ports on the
     same segment; each router announces its RIP ports' networks; fewest hops wins, 15 at most."""
     from .rip import process
+    return _vector_routes(spec, seg, process, 15)
+
+
+def eigrp_routes(spec, seg):
+    """{router: [(network, gateway, hops)]} as EIGRP converges on the lab's identical links: neighbours on shared
+    segments of EIGRP ports, each announcing its EIGRP ports' networks; the lowest metric is the fewest hops."""
+    from .eigrp import process
+    return _vector_routes(spec, seg, process, 100)
+
+
+def _vector_routes(spec, seg, process, limit):
     running = {n['name']: (n, process(n)) for n in spec['nodes'] if process(n)}
     if not running:
         return {}
@@ -180,7 +191,7 @@ def rip_routes(spec, seg):
              for name, (_, rip) in running.items()}
     tables = {name: {ipaddress.IPv4Interface(node['interfaces'][port]).network: (0, None) for port in ports[name]}
               for name, (node, _) in running.items()}
-    for _ in range(16):
+    for _ in range(limit + 1):
         changed = False
         for name, (node, _) in running.items():
             for other, (peer, _) in running.items():
@@ -194,7 +205,7 @@ def rip_routes(spec, seg):
                         for network, (hops, _) in list(tables[other].items()):
                             candidate = hops + 1
                             current = tables[name].get(network)
-                            if candidate <= 15 and (current is None or candidate < current[0]):
+                            if candidate <= limit and (current is None or candidate < current[0]):
                                 tables[name][network] = (candidate, hop)
                                 changed = True
         if not changed:
@@ -253,6 +264,7 @@ class Model:
         self.ospf = ospf_routes(spec, self.seg)
         self.bgp = bgp_routes(spec, self.seg)
         self.rip = rip_routes(spec, self.seg)
+        self.eigrp = eigrp_routes(spec, self.seg)
         self.leases = {}  # (node, port) -> (address, gateway): DHCP clients take the first free pool address
         servers = [(n, n['dhcp_server']) for n in spec['nodes'] if n.get('dhcp_server')]
         for node in spec['nodes']:
@@ -337,6 +349,7 @@ class Model:
         candidates += [(network, gateway, 'route OSPF') for network, gateway, _ in self.ospf.get(name, [])]
         candidates += [(network, gateway, 'route BGP') for network, gateway in self.bgp.get(name, [])]
         candidates += [(network, gateway, 'route RIP') for network, gateway, _ in self.rip.get(name, [])]
+        candidates += [(network, gateway, 'route EIGRP') for network, gateway, _ in self.eigrp.get(name, [])]
         for network, gateway, kind in candidates:
             if destination in network and (best is None or network.prefixlen > best[0]):
                 port = next((_port_of(i) for i, a in held.items() if gateway in a.network), None)

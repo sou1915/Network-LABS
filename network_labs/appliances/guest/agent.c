@@ -274,6 +274,28 @@ static int bgp_render(const char *fields, char *out, size_t size) {
     n += snprintf(out + n, size - (size_t)n, " exit-address-family\n");
     return n;
 }
+/* EIGRP with FRR (zebra and eigrpd), from typed fields only: "AS ROUTER_ID NET[,NET...] PORT[,PORT...]|-". */
+static int eigrp_render(const char *fields, char *out, size_t size) {
+    char asn[6], rid[16], networks[160], passive[24], extra;
+    if (sscanf(fields, "%5s %15s %159s %23s %c", asn, rid, networks, passive, &extra) != 4) return -1;
+    if (!valid_asn(asn) || atol(asn) > 65535 || !valid_ipv4(rid)) return -1;
+    int n = snprintf(out, size, "frr defaults traditional\nrouter eigrp %s\n eigrp router-id %s\n", asn, rid);
+    int count = 0;
+    for (char *item = strtok(networks, ","); item; item = strtok(NULL, ",")) {
+        if (++count > 8 || !valid_cidr(item)) return -1;
+        n += snprintf(out + n, size - (size_t)n, " network %s\n", item);
+        if (n >= (int)size - 64) return -1;
+    }
+    if (!count) return -1;
+    if (strcmp(passive, "-")) {
+        int ports = 0;
+        for (char *item = strtok(passive, ","); item; item = strtok(NULL, ",")) {
+            if (++ports > 4 || !valid_port(item)) return -1;
+            n += snprintf(out + n, size - (size_t)n, " passive-interface %s\n", item);
+        }
+    }
+    return n;
+}
 static int ospf_render(const char *fields, char *out, size_t size) {
     char rid[16], list[100], extra; unsigned hello, dead;
     if (sscanf(fields, "%15s %u %u %99s %c", rid, &hello, &dead, list, &extra) != 4) return -1;
@@ -629,6 +651,67 @@ static void serve(int input, int output, int mutations) {
     char *const bgp_routes[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip bgp json", NULL};
     char *const *bgp_show = !strcmp(request, "NL1 BGP_SHOW summary") ? bgp_summary
                           : !strcmp(request, "NL1 BGP_SHOW routes") ? bgp_routes : NULL;
+    /* EIGRP: render (read-only), start zebra then eigrpd under /run/frr, stop, and fixed vtysh views. */
+    char eigrp_config[1024];
+    if (!strncmp(request, "NL1 EIGRP_RENDER ", 17)) {
+        int n = eigrp_render(request + 17, eigrp_config, sizeof(eigrp_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        reply(output, 0, eigrp_config, (size_t)n); return;
+    }
+    if (mutations && !strncmp(request, "NL1 EIGRP_START ", 16)) {
+        int n = eigrp_render(request + 16, eigrp_config, sizeof(eigrp_config));
+        if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
+        const char *missing = "the guest image has no FRR eigrpd; rebuild it with --with-routing";
+        if (access("/usr/lib/frr/eigrpd", X_OK) || access("/usr/lib/frr/zebra", X_OK)) { reply(output, 1, missing, strlen(missing)); return; }
+        if (pidfile_alive("/run/frr/eigrpd.pid")) { reply(output, 1, "eigrp already running", 21); return; }
+        mkdir("/run/frr", 0755);
+        int fd = open("/run/frr/eigrpd.conf", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        int written = fd >= 0 && write(fd, eigrp_config, (size_t)n) == n;
+        if (fd >= 0) close(fd);
+        fd = open("/run/frr/zebra.conf", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+        if (fd >= 0) close(fd);
+        char *const zebra[] = {"zebra", "-u", "root", "-g", "root", "-i", "/run/frr/zebra.pid", "-z", "/run/frr/zserv.api",
+                               "--vty_socket", "/run/frr", "-f", "/run/frr/zebra.conf", NULL};
+        char *const eigrpd[] = {"eigrpd", "-u", "root", "-g", "root", "-i", "/run/frr/eigrpd.pid", "-z", "/run/frr/zserv.api",
+                                "--vty_socket", "/run/frr", "-f", "/run/frr/eigrpd.conf", NULL};
+        if (!written || fd < 0 || (!pidfile_alive("/run/frr/zebra.pid") && spawn_detached("/usr/lib/frr/zebra", zebra))) {
+            reply(output, 3, "eigrp start failed", 18); return;
+        }
+        for (int tries = 0; tries < 40 && access("/run/frr/zserv.api", F_OK); tries++) {
+            struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+        }
+        if (spawn_detached("/usr/lib/frr/eigrpd", eigrpd)) { reply(output, 3, "eigrp start failed", 18); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 EIGRP_STOP")) {
+        /* eigrpd first: zebra withdraws its routes when it goes away; zebra stays if bgpd still uses it. */
+        const char *pids[] = {"/run/frr/eigrpd.pid", "/run/frr/zebra.pid"};
+        for (int i = 0; i < 2; i++) {
+            pid_t daemon = pidfile_alive(pids[i]);
+            if (!daemon || (i == 1 && pidfile_alive("/run/frr/bgpd.pid"))) continue;
+            kill(daemon, SIGTERM);
+            for (int tries = 0; tries < 60 && kill(daemon, 0) == 0; tries++) {
+                struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+            }
+            if (kill(daemon, 0) == 0) { reply(output, 3, "eigrp stop failed", 17); return; }
+            unlink(pids[i]);
+        }
+        unlink("/run/frr/eigrpd.conf");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 EIGRP_SHOW config")) {
+        int fd = open("/run/frr/eigrpd.conf", O_RDONLY | O_CLOEXEC);
+        if (fd < 0 || !pidfile_alive("/run/frr/eigrpd.pid")) {
+            if (fd >= 0) close(fd);
+            reply(output, 1, "eigrp not running", 17); return;
+        }
+        ssize_t n = read(fd, eigrp_config, sizeof(eigrp_config)); close(fd);
+        reply(output, n < 0 ? 3 : 0, eigrp_config, n < 0 ? 0 : (size_t)n); return;
+    }
+    char *const eigrp_neighbors[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip eigrp neighbors", NULL};
+    char *const eigrp_topology[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip eigrp topology", NULL};
+    char *const *eigrp_show = !strcmp(request, "NL1 EIGRP_SHOW neighbors") ? eigrp_neighbors
+                            : !strcmp(request, "NL1 EIGRP_SHOW topology") ? eigrp_topology : NULL;
     /* DHCP relay (IOS « ip helper-address »): this agent's --dhcp-relay mode, one per guest. */
     char relay_server[16], relay_clients[48], relay_extra;
     if (mutations && sscanf(request, "NL1 DHCP_RELAY_START %15s %47s %c", relay_server, relay_clients, &relay_extra) == 2) {
@@ -894,6 +977,7 @@ static void serve(int input, int output, int mutations) {
     if (fw_ready) { firewall[count] = NULL; args = firewall; program = "/sbin/xtables-legacy-multi"; }
     if (ospf_show) { args = ospf_show; program = "/usr/sbin/birdc"; }
     if (bgp_show) { args = bgp_show; program = "/usr/bin/vtysh"; }
+    if (eigrp_show) { args = eigrp_show; program = "/usr/bin/vtysh"; }
     if (!args) { reply(output, 2, "unsupported operation", 21); return; }
     int pipes[2];
     if (pipe(pipes)) { reply(output, 3, "pipe failed", 11); return; }

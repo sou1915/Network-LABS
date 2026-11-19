@@ -10,7 +10,7 @@ import contextlib
 import copy
 import ipaddress
 
-from . import network_model
+from . import network_model, vendor_config
 
 
 class DraftLab:
@@ -68,12 +68,20 @@ class DraftLab:
             for network, gateway, hops in model.rip.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'rip', 'metric': hops})
+            from .eigrp import ios_metric
+            for network, gateway, hops in model.eigrp.get(name, []):
+                port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
+                gigabit = vendor_config.port_names(node).get(port, '').lower().startswith('gi')
+                # FRR's metric on its 100 Mbit/s links: 256 × (100 + 10 per interface on the way), one more than the hops.
+                routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'eigrp',
+                               'metric': ios_metric(256 * (100 + 10 * (hops + 1)), gigabit)})
             for network, gateway in model.bgp.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'bgp', 'metric': 0,
                                'path': ''})
         return {'node': name, 'interfaces': interfaces, 'routes': routes, 'vlans': _vlans(node),
-                'ospf': _ospf(spec, model, node), 'bgp': _bgp(spec, model, node), 'sessions': None}
+                'ospf': _ospf(spec, model, node), 'bgp': _bgp(spec, model, node), 'sessions': None,
+                'eigrp': _eigrp(spec, model, node)}
 
     def ping_node(self, name, destination, count=5):
         ok, why = network_model.Model(self.get_spec()).ping(name, str(ipaddress.IPv4Address(destination)))
@@ -116,6 +124,25 @@ def _vlans(node):
     if plan is None:
         return [{'port': port, 'vlan': 1, 'untagged': True} for port in node['interfaces']]
     return [{'port': port, 'vlan': vid, 'untagged': mode == 'pvid'} for port, vid, mode in sorted(plan)]
+
+
+def _eigrp(spec, model, node):
+    """EIGRP neighbours as they would form: another EIGRP router (same AS) on the segment of an EIGRP port."""
+    from .eigrp import process
+    mine = process(node)
+    if not mine:
+        return None
+    neighbors = []
+    for other in spec['nodes']:
+        theirs = process(other) if other['name'] != node['name'] else None
+        if not theirs or theirs['asn'] != mine['asn']:
+            continue
+        for port in (p['port'] for p in mine['interfaces']):
+            for peer_port in (p['port'] for p in theirs['interfaces']):
+                if model.seg.get((node['name'], port)) is not None and model.seg.get((node['name'], port)) == model.seg.get((other['name'], peer_port)):
+                    neighbors.append({'address': other['interfaces'][peer_port].split('/')[0], 'port': port, 'hold': '13', 'uptime': '0',
+                                      'srtt': '1', 'rto': '100', 'queue': '0', 'seq': '3'})
+    return {'asn': mine['asn'], 'metrics': {}, 'neighbors': neighbors}
 
 
 def _ospf(spec, model, node):

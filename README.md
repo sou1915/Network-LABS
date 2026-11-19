@@ -87,7 +87,8 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 (routeurs) / `tracert` (PC, comme dans Packet Tracer), `ipconfig` / `arp -a` sur les PC, `show arp` / `show mac address-table`, `telnet` / `ssh -l` vers un routeur ou un switch
 (`line vty`, `login local`, `username`, `crypto key generate rsa`, `access-class`), et le relais DHCP `ip helper-address` (avec un pool pour un LAN
 distant, `show ip dhcp binding`), qui agissent pour de vrai.
-Celles qui n'agissent pas encore sur le trafic du lab (EIGRP, port-security, spanning-tree…) sont
+EIGRP (`router eigrp`, routes `D`, `show ip eigrp neighbors`) agit aussi pour de vrai.
+Celles qui n'agissent pas encore sur le trafic du lab (port-security, spanning-tree…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme

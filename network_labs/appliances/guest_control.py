@@ -18,7 +18,9 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
               'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
               'trace': 'TRACE', 'dhcp-relay-start': 'DHCP_RELAY_START', 'dhcp-relay-stop': 'DHCP_RELAY_STOP',
-              'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB'}
+              'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB',
+              'eigrp-render': 'EIGRP_RENDER', 'eigrp-start': 'EIGRP_START', 'eigrp-stop': 'EIGRP_STOP', 'eigrp-show': 'EIGRP_SHOW'}
+EIGRP_SHOW = ('config', 'neighbors', 'topology')
 RIP_SHOW = ('config', 'routes')
 
 
@@ -218,9 +220,22 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('eigrp-'):  # FRR's eigrpd, from the typed process
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay)):
+            raise ValueError('Guest EIGRP operations accept only the process (render, start) or what to show.')
+        if operation in ('eigrp-render', 'eigrp-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the EIGRP process.')
+            from .eigrp import fields
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + fields(eigrp), timeout)
+        if eigrp is not None or (operation == 'eigrp-stop') != (state is None) or (state is not None and state not in EIGRP_SHOW):
+            raise ValueError('Guest eigrp-show requires config, neighbors or topology; eigrp-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if eigrp is not None:
+        raise ValueError('Only eigrp-render and eigrp-start accept an EIGRP process.')
     if operation.startswith('dhcp-relay-'):  # IOS « ip helper-address »: the agent's own relay
         if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl)) \
                 or (relay is None) != (operation != 'dhcp-relay-start'):

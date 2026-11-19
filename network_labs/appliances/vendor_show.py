@@ -53,6 +53,12 @@ def observe_guest(query, node):
                 'metrics': parse_ospf_metrics(query('ospf-show', state='routes'))}
     from .rip import process as rip_process
     rip = parse_rip_metrics(query('rip-show', state='routes')) if rip_process(node) else None
+    from . import eigrp as eigrp_module
+    eigrp = None
+    if eigrp_module.process(node):  # FRR's feasible distances and adjacencies, read in the guest
+        eigrp = {'metrics': eigrp_module.parse_topology(query('eigrp-show', state='topology')),
+                 'neighbors': eigrp_module.parse_neighbors(query('eigrp-show', state='neighbors')),
+                 'asn': eigrp_module.process(node)['asn']}
     routes = []
     for line in query('routes').splitlines():
         fields = line.split()
@@ -60,11 +66,15 @@ def observe_guest(query, node):
             continue
         network = '0.0.0.0/0' if fields[0] == 'default' else str(ipaddress.IPv4Network(fields[0], strict=False))
         gateway = fields[fields.index('via') + 1] if 'via' in fields else None
-        learned = bool(node.get('ospf') or node.get('bgp') or rip is not None) and bird_route(fields)
+        learned = bool(node.get('ospf') or node.get('bgp') or rip is not None or eigrp is not None) and bird_route(fields)
         if learned and gateway is None:
             continue  # BIRD's copy of a connected network: the kernel's own entry is shown
         route = {'network': network, 'gateway': gateway, 'port': fields[fields.index('dev') + 1]}
-        if learned and rip is not None:
+        if learned and eigrp is not None:
+            frr = eigrp['metrics'].get(network)
+            gigabit = port_names(node).get(route['port'], '').lower().startswith('gi')
+            route.update(protocol='eigrp', metric=eigrp_module.ios_metric(frr, gigabit) if frr else None)
+        elif learned and rip is not None:
             route.update(protocol='rip', metric=rip.get(network))
         elif learned and bgp is not None:
             best = bgp['paths'].get(network, {})
@@ -73,7 +83,7 @@ def observe_guest(query, node):
             route.update(protocol='ospf', metric=(ospf or {}).get('metrics', {}).get(network))
         routes.append(route)
     observation = {'node': node['name'], 'interfaces': _declared(node, interfaces), 'routes': routes, 'vlans': None, 'ospf': ospf,
-                   'bgp': bgp}
+                   'bgp': bgp, 'eigrp': eigrp}
     if node['role'] == 'switch':
         observation['vlans'] = _vlans(node, query('bridge-vlans'))
     return observation
@@ -189,11 +199,15 @@ def _connected(observation):
 
 
 def _static(observation):
-    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') not in ('ospf', 'bgp', 'rip')]
+    return [r for r in observation['routes'] if r['gateway'] and r.get('protocol') not in ('ospf', 'bgp', 'rip', 'eigrp')]
 
 
 def _rip(observation):
     return [r for r in observation['routes'] if r.get('protocol') == 'rip']
+
+
+def _eigrp(observation):
+    return [r for r in observation['routes'] if r.get('protocol') == 'eigrp']
 
 
 def _ospf(observation):
@@ -245,7 +259,7 @@ def _ios_brief(node, observation, name):
 
 
 def _ios_route(node, observation, name):
-    lines = ['Codes: L - local, C - connected, S - static, R - RIP, O - OSPF, B - BGP, * - candidate default', '']
+    lines = ['Codes: L - local, C - connected, S - static, R - RIP, D - EIGRP, O - OSPF, B - BGP, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
     lines.append(f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0' if default
                  else 'Gateway of last resort is not set')
@@ -255,6 +269,8 @@ def _ios_route(node, observation, name):
         lines.append(f'{code}       {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
     for route in _rip(observation):
         lines.append(f'R        {route["network"]} [120/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
+    for route in _eigrp(observation):
+        lines.append(f'D        {route["network"]} [90/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for route in _ospf(observation):
         lines.append(f'O        {route["network"]} [110/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for route in _bgp(observation):

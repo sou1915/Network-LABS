@@ -100,6 +100,8 @@ def validate(data):
         validate_rip(node)
         from .ios_relay import validate as validate_relay
         validate_relay(node)
+        from .eigrp import validate as validate_eigrp
+        validate_eigrp(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
