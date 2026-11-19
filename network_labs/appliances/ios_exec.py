@@ -265,11 +265,15 @@ def mac_table(console):
     node = console.node()
     if node['role'] != 'switch':
         return "% Invalid input detected at '^' marker."
-    rows = []
+    from .guest_startup import vlan_plan
+    plan = vlan_plan(node)  # None: a plain bridge, every port in VLAN 1
+    members = None if plan is None else {(port, vid) for port, vid, _ in plan}
+    rows = set()  # once each; entries learned before VLAN filtering (vid 0) or before a port changed VLAN are stale
     for line in console.query('bridge-fdb').splitlines():
         port, mac, vlan = line.split()
-        if port in node['interfaces']:
-            rows.append((int(vlan) or 1, _cisco_mac(mac), ios_short(_label(node, port))))
+        vid = 1 if members is None else int(vlan)
+        if port in node['interfaces'] and (members is None or (port, vid) in members):
+            rows.add((vid, _cisco_mac(mac), ios_short(_label(node, port))))
     lines = ['          Mac Address Table', '-' * 43, '', f'{"Vlan":<8}{"Mac Address":<18}{"Type":<12}Ports',
              f'{"----":<8}{"-----------":<18}{"--------":<12}-----', '']
     lines += [f'{vlan:>4}    {mac:<18}{"DYNAMIC":<12}{port}' for vlan, mac, port in sorted(rows)]

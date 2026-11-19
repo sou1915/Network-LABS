@@ -56,10 +56,16 @@ class IosTablesTest(unittest.TestCase):
 
     def test_mac_address_table_from_the_bridge(self):
         switch = next(n for n in switch_lab('/k', '/d')['nodes'] if n['name'] == 'SW1')
-        text = ios_exec.mac_table(Console(switch, {'bridge-fdb': 'eth0 1a:de:c7:b4:72:eb 0\neth1 7a:38:59:37:93:55 10\n'}))
-        self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1', text)
-        self.assertIn('  10    7a38.5937.9355    DYNAMIC     Fa0/2', text)
+        switch.update(vlans=[1, 10], switchports={'eth0': {'mode': 'access', 'vlan': 1}, 'eth1': {'mode': 'access', 'vlan': 10},
+                                                   'eth2': {'mode': 'access', 'vlan': 10}})
+        # As seen on real KVM: the same MAC learned without VLAN (before filtering) and in VLAN 1 (before Fa0/2 moved).
+        learned = ('eth0 1a:de:c7:b4:72:eb 1\neth0 1a:de:c7:b4:72:eb 0\neth0 1a:de:c7:b4:72:eb 1\n'
+                   'eth1 7a:38:59:37:93:55 1\neth1 7a:38:59:37:93:55 10\n')
+        text = ios_exec.mac_table(Console(switch, {'bridge-fdb': learned}))
+        self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1\n  10    7a38.5937.9355    DYNAMIC     Fa0/2\n', text)
         self.assertTrue(text.endswith('Total Mac Addresses for this criterion: 2'))
+        plain = next(n for n in switch_lab('/k', '/d')['nodes'] if n['name'] == 'SW1')  # no VLANs: all in VLAN 1
+        self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1', ios_exec.mac_table(Console(plain, {'bridge-fdb': 'eth0 1a:de:c7:b4:72:eb 0\n'})))
 
 
 if __name__ == '__main__':
