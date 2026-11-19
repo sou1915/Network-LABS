@@ -61,6 +61,20 @@ class Console:
             manager.state = None
             return manager.ping_node(self.name, destination, count=count)
 
+    def dhcp_bindings(self):
+        """[{'address', 'mac'}] this node's DHCP server has given: the guest's lease file, or the model's leases."""
+        node = self.node()
+        if not node.get('dhcp_server'):
+            return []
+        with self.manager().locked() as manager:
+            if hasattr(manager, 'query_node'):  # the lab is stopped: the leases the network model gives
+                from . import network_model
+                from .dhcp import pool_network
+                model = network_model.Model(manager.read()['spec'])
+                return [{'address': str(lease.ip), 'mac': ''} for lease, _ in model.leases.values() if lease.ip in pool_network(node)]
+            from .guest_startup import leases
+            return leases(manager.directory / self.name / 'guest.vsock', node['dhcp_server']['interface'])
+
     def trace(self, destination):
         with self.manager().locked() as manager:
             manager.state = None

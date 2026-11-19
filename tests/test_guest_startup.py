@@ -215,12 +215,14 @@ class GuestStartupTests(unittest.TestCase):
         self.assertEqual((client['interfaces'], client['dhcp_clients'], router['dhcp_server']['router']), ({'eth0': ''}, ['eth0'], '192.0.2.1'))
         changes = {'client on a router': lambda nodes: nodes[0].update(dhcp_clients=['eth0'], interfaces={'eth0': '', 'eth1': '198.51.100.1/24'}),
                    'client with a static gateway': lambda nodes: nodes[1].update(gateway='192.0.2.1'),
-                   'remote pool': lambda nodes: nodes[0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router=''),
                    'reservation': lambda nodes: nodes[0]['dhcp_server'].update(reservations=[{'mac': '02:00:00:00:00:01', 'address': '192.0.2.110'}]),
                    'extra address on a DHCP port': lambda nodes: nodes[1].update(guest_network={'addresses': ['198.18.0.1/32'], 'routes': []})}
         for label, change in changes.items():
             bad = copy.deepcopy(spec); change(bad['nodes'])
             with self.subTest(label), self.assertRaises(ValueError): validate(bad)
+        relayed = copy.deepcopy(spec)  # a remote pool, served to an « ip helper-address » relay: accepted on guests
+        relayed['nodes'][0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router='')
+        self.assertEqual(validate(relayed)['nodes'][0]['dhcp_server']['network'], '10.9.0.0/24')
 
     def test_dhcp_wire_format_and_rejections(self):
         from network_labs.appliances.guest_control import _dhcp_command, request

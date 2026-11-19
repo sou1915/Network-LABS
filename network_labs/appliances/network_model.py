@@ -245,12 +245,15 @@ class Model:
         for node in spec['nodes']:
             for port in node.get('dhcp_clients') or []:
                 for server_node, server in servers:
+                    if 'network' in server:
+                        continue  # a relayed pool serves the remote LAN only, through its relay (below)
                     if self.seg.get((server_node['name'], server['interface'])) == self.seg.get((node['name'], port)):
                         prefix = ipaddress.IPv4Interface(server_node['interfaces'][server['interface']]).network.prefixlen
                         offered = ipaddress.IPv4Address(server['start']) + sum(1 for _ in self.leases)
                         router = ipaddress.IPv4Address(server['router']) if server.get('router') else None
                         self.leases[(node['name'], port)] = (ipaddress.IPv4Interface(f'{offered}/{prefix}'), router)
                         break
+        self._relayed_leases(servers)
         self.owners = {}  # (segment, address) -> (node, interface)
         for node in spec['nodes']:
             if node['role'] == 'switch':
@@ -262,6 +265,43 @@ class Model:
             for port, values in public_addresses(node).items():  # a router answers for its static NAT and pool addresses
                 for value in values:
                     self.owners.setdefault((self.seg.get((node['name'], port)), ipaddress.IPv4Interface(value).ip), (node['name'], port))
+
+    def _relayed_leases(self, servers):
+        """Leases through an « ip helper-address » relay: a router on the client's segment relays to a server whose
+        relayed pool holds the relay port's address (giaddr), with a route each way and the pool served on the port the
+        relayed requests reach the server by."""
+        from .ios_relay import process
+        relays = [(n, process(n)) for n in self.spec['nodes'] if process(n)]
+        for node in self.spec['nodes']:
+            for port in node.get('dhcp_clients') or []:
+                if (node['name'], port) in self.leases:
+                    continue
+                for relay_node, relay in relays:
+                    for client_port in relay['clients']:
+                        held = addresses(relay_node).get(client_port)
+                        if held is None or self.seg.get((relay_node['name'], client_port)) != self.seg.get((node['name'], port)):
+                            continue
+                        lease = self._relayed_lease(servers, relay_node['name'], relay['server'], held.ip)
+                        if lease is not None:
+                            self.leases[(node['name'], port)] = lease
+                            break
+                    if (node['name'], port) in self.leases:
+                        break
+
+    def _relayed_lease(self, servers, relay, server_address, giaddr):
+        server_address = ipaddress.IPv4Address(server_address)
+        for server_node, server in servers:
+            if 'network' not in server or giaddr not in ipaddress.IPv4Network(server['network']):
+                continue
+            if not any(a.ip == server_address for a in addresses(server_node).values()):
+                continue
+            there, back = self.route(relay, server_address)[0], self.route(server_node['name'], giaddr)[0]
+            if there is None or back is None or _port_of(back) != server['interface']:
+                return None
+            offered = ipaddress.IPv4Address(server['start']) + sum(1 for _ in self.leases)
+            router = ipaddress.IPv4Address(server['router']) if server.get('router') else None
+            return ipaddress.IPv4Interface(f'{offered}/{ipaddress.IPv4Network(server["network"]).prefixlen}'), router
+        return None
 
     def held(self, name):
         found = addresses(self.nodes[name])

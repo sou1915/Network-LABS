@@ -7,6 +7,7 @@ switch VLAN ports) that the workbench forms edit. Commands outside the subset ar
 """
 import copy
 import ipaddress
+import itertools
 import re
 import shlex
 
@@ -1012,27 +1013,35 @@ class IOS:
         node, pool = self.node, self.pool
         current = node.get('dhcp_server') or {}
         network = ipaddress.IPv4Network(pool['network']) if 'network' in pool else None
+        if network is None and current.get('network'):
+            network = ipaddress.IPv4Network(current['network'])  # editing the existing relayed pool
         if network is None and node['interfaces'].get(current.get('interface')):
             network = ipaddress.IPv4Interface(node['interfaces'][current['interface']]).network  # editing the existing pool
-        port = next((p for p, a in node['interfaces'].items() if a and network and ipaddress.IPv4Interface(a).network == network),
-                    current.get('interface'))
-        if network is None or port is None:
-            raise ValueError('ip dhcp pool : « network » doit être le réseau d’un port du routeur.')
-        own = ipaddress.IPv4Interface(node['interfaces'][port]).ip
+        if network is None:
+            raise ValueError('ip dhcp pool : « network » d’abord.')
+        port = next((p for p, a in node['interfaces'].items() if a and ipaddress.IPv4Interface(a).network == network), None)
+        relayed = port is None
+        if relayed:  # a remote LAN (ip helper-address on its router): served on the port the relayed requests arrive by
+            from .ios_relay import toward
+            port = toward(node, network) or next((p for p, a in node['interfaces'].items() if a), None)
+            if port is None:
+                raise ValueError('ip dhcp pool : donnez d’abord une adresse à un port du routeur.')
+        own = None if relayed else ipaddress.IPv4Interface(node['interfaces'][port]).ip
         excluded = self.excluded if self.excluded is not None else []
-        free = [h for h in network.hosts() if h != own and not any(a <= h <= b for a, b in excluded)]
-        if not free:
+        free = (h for h in network.hosts() if h != own and not any(a <= h <= b for a, b in excluded))  # lazy: a /8 is 16M hosts
+        start = end = next(free, None)
+        if start is None:
             raise ValueError('ip dhcp pool : aucune adresse libre hors des exclusions.')
-        start = end = free[0]
-        for host in free[1:256]:
+        for host in itertools.islice(free, 255):
             if int(host) != int(end) + 1:
                 break
             end = host
-        if self.excluded is None and current.get('interface') == port:
+        if self.excluded is None and current.get('interface') == port and current.get('network') == (str(network) if relayed else None):
             # A block that edits the pool without restating exclusions keeps the existing range.
             start, end = current['start'], current['end']
         server = {'interface': port, 'start': str(start), 'end': str(end), 'router': pool.get('router', current.get('router', '')),
-                  'dns': pool.get('dns', current.get('dns', [])), 'lease_seconds': pool.get('lease', current.get('lease_seconds', 86400))}
+                  'dns': pool.get('dns', current.get('dns', [])), 'lease_seconds': pool.get('lease', current.get('lease_seconds', 86400)),
+                  **({'network': str(network)} if relayed else {})}
         if node['runtime'] == 'firecracker':
             server['lease_seconds'] = min(server['lease_seconds'], 604800)
         node['dhcp_server'] = server

@@ -98,6 +98,8 @@ def validate(data):
         validate_cli(node)
         from .rip import validate as validate_rip
         validate_rip(node)
+        from .ios_relay import validate as validate_relay
+        validate_relay(node)
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
@@ -148,8 +150,8 @@ def validate(data):
             if dynamic and role != 'host':
                 raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
             server = node.get('dhcp_server')
-            if server and ('network' in server or server['reservations']):
-                raise ValueError('Firecracker DHCP server: local pool only; remote networks and reservations are not available on guests yet.')
+            if server and server['reservations']:
+                raise ValueError('Firecracker DHCP server: no reservations on guests yet.')  # a remote (relayed) network is fine
             subinterfaces = node['subinterfaces']
             if any(sub['vlan'] is None or not sub['address'] for sub in subinterfaces.values()):
                 raise ValueError('Firecracker subinterfaces need a VLAN and an IPv4 address.')

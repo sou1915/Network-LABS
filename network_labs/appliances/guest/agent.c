@@ -26,6 +26,7 @@
 #include <string.h>
 
 #define LIMIT 32768
+#define RELAY_PORTS 4
 static int valid_port(const char *value) {
     return strlen(value) == 4 && !strncmp(value, "eth", 3) && value[3] >= '0' && value[3] <= '3';
 }
@@ -63,7 +64,7 @@ static pid_t pidfile_alive(const char *path) {
     return pid > 1 && kill((pid_t)pid, 0) == 0 ? (pid_t)pid : 0;
 }
 /* Start a long-lived service outside this request: own session, no inherited output, reparented to init. */
-static int spawn_detached(const char *program, char *const argv[]) {
+static int spawn_detached_pid(const char *program, char *const argv[], const char *pidfile) {
     pid_t first = fork();
     if (first < 0) return -1;
     if (first == 0) {
@@ -72,6 +73,12 @@ static int spawn_detached(const char *program, char *const argv[]) {
         if (second == 0) {
             int null = open("/dev/null", O_RDWR);
             if (null < 0 || dup2(null, 0) < 0 || dup2(null, 1) < 0 || dup2(null, 2) < 0) _exit(126);
+            if (pidfile) { /* for a daemon that writes none (dhcprelay): exec keeps this pid */
+                char text[16]; int n = snprintf(text, sizeof(text), "%d\n", (int)getpid());
+                int fd = open(pidfile, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+                if (fd < 0 || write(fd, text, (size_t)n) != n) _exit(125);
+                close(fd);
+            }
             char *const env[] = {"PATH=/bin", "LC_ALL=C", NULL};
             execve(program, argv, env); _exit(127);
         }
@@ -81,6 +88,7 @@ static int spawn_detached(const char *program, char *const argv[]) {
     while (waitpid(first, &status, 0) < 0) if (errno != EINTR) return -1;
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
 }
+static int spawn_detached(const char *program, char *const argv[]) { return spawn_detached_pid(program, argv, NULL); }
 /* One VLAN on one bridge port, through rtnetlink as `bridge vlan add|del` does (BusyBox has no bridge tool). */
 static int bridge_vlan(int command, const char *port, unsigned vid, unsigned short flags) {
     struct { struct nlmsghdr header; struct ifinfomsg link; char attributes[64]; } message;
@@ -564,6 +572,45 @@ static void serve(int input, int output, int mutations) {
     char *const bgp_routes[] = {"vtysh", "--vty_socket", "/run/frr", "-c", "show ip bgp json", NULL};
     char *const *bgp_show = !strcmp(request, "NL1 BGP_SHOW summary") ? bgp_summary
                           : !strcmp(request, "NL1 BGP_SHOW routes") ? bgp_routes : NULL;
+    /* DHCP relay (IOS « ip helper-address »): this agent's --dhcp-relay mode, one per guest. */
+    char relay_server[16], relay_clients[48], relay_extra;
+    if (mutations && sscanf(request, "NL1 DHCP_RELAY_START %15s %47s %c", relay_server, relay_clients, &relay_extra) == 2) {
+        struct in_addr server_address;
+        int ok = inet_pton(AF_INET, relay_server, &server_address) == 1, ports = 0;
+        char copy[48]; strcpy(copy, relay_clients);
+        for (char *item = strtok(copy, ","); item && ok; item = strtok(NULL, ",")) ok = valid_interface(item) && ++ports <= RELAY_PORTS;
+        if (!ok) { reply(output, 2, "invalid dhcp relay", 18); return; }
+        if (pidfile_alive("/run/dhcprelay.pid")) { reply(output, 1, "dhcp relay already running", 26); return; }
+        char *const relay[] = {"network-labs-agent", "--dhcp-relay", relay_server, relay_clients, NULL};
+        if (spawn_detached_pid("/sbin/network-labs-agent", relay, "/run/dhcprelay.pid")) {
+            reply(output, 3, "dhcp relay start failed", 23); return;
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 DHCP_RELAY_STOP")) {
+        pid_t relay = pidfile_alive("/run/dhcprelay.pid");
+        if (relay) {
+            kill(relay, SIGTERM);
+            for (int tries = 0; tries < 40 && kill(relay, 0) == 0; tries++) {
+                struct timespec pause = {0, 50 * 1000 * 1000}; nanosleep(&pause, NULL);
+            }
+            if (kill(relay, 0) == 0) { reply(output, 3, "dhcp relay stop failed", 22); return; }
+        }
+        unlink("/run/dhcprelay.pid");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 DHCP_RELAY_SHOW")) { /* the running relay's command line, words separated by spaces */
+        pid_t relay = pidfile_alive("/run/dhcprelay.pid");
+        if (!relay) { reply(output, 1, "dhcp relay not running", 22); return; }
+        char path[40], line[160]; snprintf(path, sizeof(path), "/proc/%d/cmdline", (int)relay);
+        int fd = open(path, O_RDONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : read(fd, line, sizeof(line) - 1);
+        if (fd >= 0) close(fd);
+        if (n <= 0) { reply(output, 3, "dhcp relay unreadable", 21); return; }
+        for (ssize_t i = 0; i < n; i++) if (!line[i]) line[i] = ' ';
+        while (n > 0 && line[n - 1] == ' ') n--;
+        reply(output, 0, line, (size_t)n); return;
+    }
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
     char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
@@ -816,9 +863,81 @@ static void serve(int input, int output, int mutations) {
     int code = overflow ? 3 : (WIFEXITED(status) ? WEXITSTATUS(status) : 3);
     reply(output, code, buffer, length);
 }
+static int port_address(const char *name, struct in_addr *address) {
+    struct ifreq request; memset(&request, 0, sizeof(request));
+    snprintf(request.ifr_name, sizeof(request.ifr_name), "%s", name);
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    int failed = fd < 0 || ioctl(fd, SIOCGIFADDR, &request) < 0;
+    if (fd >= 0) close(fd);
+    if (!failed) *address = ((struct sockaddr_in *)&request.ifr_addr)->sin_addr;
+    return failed;
+}
+/* DHCP relay (RFC 1542), as IOS « ip helper-address » relays: a request broadcast on a helper port goes to the server
+ * with giaddr set to that port's address (the server picks the pool by it and answers to it); a reply to one of those
+ * addresses goes back out its port, broadcast, since the client has no address yet. The kernel routes to the server. */
+static int dhcp_relay(const char *server_text, const char *clients_text) {
+    struct in_addr server;
+    char names[RELAY_PORTS][IFNAMSIZ]; unsigned indexes[RELAY_PORTS]; int count = 0;
+    if (inet_pton(AF_INET, server_text, &server) != 1 || strlen(clients_text) >= 48) return 2;
+    char copy[48]; strcpy(copy, clients_text);
+    for (char *item = strtok(copy, ","); item; item = strtok(NULL, ",")) {
+        if (count == RELAY_PORTS || !valid_interface(item)) return 2;
+        snprintf(names[count], IFNAMSIZ, "%s", item);
+        if (!(indexes[count] = if_nametoindex(item))) return 1;
+        count++;
+    }
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), on = 1;
+    struct sockaddr_in local = {.sin_family = AF_INET, .sin_port = htons(67), .sin_addr.s_addr = htonl(INADDR_ANY)};
+    if (!count || fd < 0 || setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) ||
+        setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) || setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) ||
+        bind(fd, (struct sockaddr *)&local, sizeof(local))) return 1;
+    for (;;) {
+        unsigned char packet[1500]; char control[CMSG_SPACE(sizeof(struct in_pktinfo))];
+        struct sockaddr_in from; struct iovec io = {packet, sizeof(packet)};
+        struct msghdr message = {.msg_name = &from, .msg_namelen = sizeof(from), .msg_iov = &io, .msg_iovlen = 1,
+                                 .msg_control = control, .msg_controllen = sizeof(control)};
+        ssize_t n = recvmsg(fd, &message, 0);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) return 1;
+        static const unsigned char cookie[4] = {99, 130, 83, 99};
+        if (n < 240 || memcmp(packet + 236, cookie, 4)) continue;
+        unsigned arrived = 0;
+        for (struct cmsghdr *c = CMSG_FIRSTHDR(&message); c; c = CMSG_NXTHDR(&message, c))
+            if (c->cmsg_level == IPPROTO_IP && c->cmsg_type == IP_PKTINFO) arrived = ((struct in_pktinfo *)CMSG_DATA(c))->ipi_ifindex;
+        struct in_addr gateway, address; memcpy(&gateway, packet + 24, 4);
+        if (packet[0] == 1) {  /* BOOTREQUEST: only from a client on a helper port */
+            int port = -1;
+            for (int i = 0; i < count; i++) if (indexes[i] == arrived) port = i;
+            if (port < 0 || packet[3] >= 16) continue;
+            packet[3]++;
+            if (!gateway.s_addr) {
+                if (port_address(names[port], &address)) continue;
+                memcpy(packet + 24, &address, 4);
+            }
+            struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(67), .sin_addr = server};
+            (void)sendto(fd, packet, (size_t)n, 0, (struct sockaddr *)&to, sizeof(to));
+        } else if (packet[0] == 2) {  /* BOOTREPLY: to the helper port whose address is its giaddr */
+            for (int i = 0; i < count; i++) {
+                if (port_address(names[i], &address) || address.s_addr != gateway.s_addr) continue;
+                struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(68), .sin_addr.s_addr = htonl(INADDR_BROADCAST)};
+                char out[CMSG_SPACE(sizeof(struct in_pktinfo))]; memset(out, 0, sizeof(out));
+                struct iovec body = {packet, (size_t)n};
+                struct msghdr reply_message = {.msg_name = &to, .msg_namelen = sizeof(to), .msg_iov = &body, .msg_iovlen = 1,
+                                               .msg_control = out, .msg_controllen = sizeof(out)};
+                struct cmsghdr *c = CMSG_FIRSTHDR(&reply_message);
+                c->cmsg_level = IPPROTO_IP; c->cmsg_type = IP_PKTINFO; c->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+                struct in_pktinfo *info = (struct in_pktinfo *)CMSG_DATA(c);
+                info->ipi_ifindex = (int)indexes[i]; info->ipi_spec_dst = address;
+                (void)sendmsg(fd, &reply_message, 0);
+                break;
+            }
+        }
+    }
+}
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     if (argc == 2 && !strcmp(argv[1], "--stdio")) { serve(0, 1, 0); return 0; }
+    if (argc == 4 && !strcmp(argv[1], "--dhcp-relay")) return dhcp_relay(argv[2], argv[3]);
     if (argc != 1) return 2;
     int server = socket(AF_VSOCK, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_vm address = {.svm_family=AF_VSOCK, .svm_cid=VMADDR_CID_ANY, .svm_port=19001};

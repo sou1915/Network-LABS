@@ -194,6 +194,8 @@ _IOS_MORE = [
      ['show ip nat translations'], 'R'),
     ('NAT', 'exec', 'show ip nat statistics', 'Les règles de NAT actives et leurs ports.', ['show ip nat statistics'], 'R'),
     ('VLAN', 'exec', 'show interfaces trunk', 'Les trunks et leurs VLAN.', ['show interfaces trunk'], 'S'),
+    ('DHCP', 'exec', 'show ip dhcp binding', 'Les adresses que le serveur DHCP du routeur a données (lues dans la micro-VM).',
+     ['show ip dhcp binding'], 'R'),
     ('VLAN', 'exec', 'show interfaces status', 'Chaque port : état (connected, notconnect, disabled), VLAN ou trunk.',
      ['show interfaces status'], 'S'),
     ('Système', 'exec', 'copy running-config startup-config', 'Enregistrer la configuration (aussi : wr).',

@@ -121,9 +121,10 @@ def check_forwarding(socket, node):
 
 
 def dhcp_pool(node):
+    from .dhcp import pool_network  # the port's network, or the remote LAN of a relayed pool
     server = node['dhcp_server']
     return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
-            'lease_seconds': server['lease_seconds'], 'netmask': ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network.prefixlen}
+            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(node).prefixlen}
 
 
 def leases(socket, interface):
@@ -324,6 +325,29 @@ def start_ospf(socket, node, timeout=5):
     check_ospf(socket, node)
 
 
+def relay_command(relay):
+    """The command line the guest's relay runs for RELAY (what DHCP_RELAY_SHOW reads back)."""
+    return f'network-labs-agent --dhcp-relay {relay["server"]} ' + ','.join(relay['clients'])
+
+
+def start_relay(socket, node, timeout=3):
+    """Start the guest's DHCP relay for the router's « ip helper-address » ports, then read it back."""
+    from .ios_relay import process
+    wanted = process(node)
+    query(socket, 'dhcp-relay-start', relay=wanted)
+    deadline = time.monotonic() + timeout
+    while True:  # the relay writes its pid file just after the request returns
+        try:
+            running = query(socket, 'dhcp-relay-show')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    if running != relay_command(wanted):
+        raise ValueError(f'{node["name"]}: the guest DHCP relay differs from its helper addresses ({running}).')
+
+
 def _runs_rip(node):
     from .rip import process
     return process(node) is not None
@@ -446,6 +470,12 @@ def change_routing(socket, old, new):
         start_bgp(socket, new)
     if rip_changed and rip_process(new):
         start_rip(socket, new)
+    from .ios_relay import process as relay_process
+    if relay_process(old) != relay_process(new):  # « ip helper-address » typed or removed
+        if relay_process(old):
+            query(socket, 'dhcp-relay-stop')
+        if relay_process(new):
+            start_relay(socket, new)
     from .acl import policy
     if old.get('role') == 'router' and policy(old) != policy(new):  # access lists or IOS NAT changed
         from .guest_firewall import apply as apply_firewall
@@ -569,6 +599,9 @@ def apply(socket, node, timeout=40, alive=None):
     from .rip import process as rip_process
     if rip_process(node):
         start_rip(socket, node)
+    from .ios_relay import process as relay_process
+    if relay_process(node):  # « ip helper-address »: relays even before the server's guest boots
+        start_relay(socket, node)
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)

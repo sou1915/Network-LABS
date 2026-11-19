@@ -14,7 +14,7 @@ from .vendor_config import ios_name
 
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
-         'show interfaces trunk', 'show interfaces status']
+         'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding']
 
 
 def answer(console, low):
@@ -29,6 +29,8 @@ def answer(console, low):
         return cdp(console, detail=full.endswith('detail'))
     if full == 'show interfaces status':
         return status(console)
+    if full == 'show ip dhcp binding':
+        return bindings(console)
     if full == 'show interfaces' or re.fullmatch(r'show interfaces \S+', full) and words[-1] not in ('trunk',):
         return interfaces(console, None if full == 'show interfaces' else low.split()[-1])
     if full == 'show interfaces trunk':
@@ -73,7 +75,7 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'term': 'terminal', 'terminal': 'terminal', 'len': 'length', 'length': 'length', 'width': 'width',
          'users': 'users', 'cdp': 'cdp', 'nat': 'nat', 'trans': 'translations', 'translations': 'translations',
          'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set',
-         'status': 'status'}
+         'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding'}
 
 
 def _expand(words):
@@ -220,6 +222,20 @@ def status(console):
         description = next((l[12:] for l in ios_store.config(node)['interfaces'].get(port, []) if l.lower().startswith('description ')),
                            '')
         lines.append(f'{ios_short(label):<10}{description[:18]:<19}{state:<13}{vlan:<11}{duplex:>6} {speed:>6} {kind}')
+    return '\n'.join(lines)
+
+
+def bindings(console):
+    """« show ip dhcp binding »: the leases the router's DHCP server has given (read in the guest when it runs)."""
+    node = console.node()
+    port = (node.get('dhcp_server') or {}).get('interface')
+    lines = ['Bindings from all pools not associated with VRF:',
+             f'{"IP address":<16}{"Client-ID/":<24}{"Lease expiration":<24}{"Type":<11}{"State":<11}Interface',
+             f'{"":<16}Hardware address/', f'{"":<16}User name']
+    for lease in console.dhcp_bindings():
+        digits = '01' + lease['mac'].replace(':', '') if lease['mac'] else ''
+        client = '.'.join(digits[i:i + 4] for i in range(0, len(digits), 4)) or '(projet)'
+        lines.append(f'{lease["address"]:<16}{client:<24}{"--":<24}{"Automatic":<11}{"Active":<11}{_label(node, port) if port else ""}')
     return '\n'.join(lines)
 
 

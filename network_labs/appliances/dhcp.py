@@ -122,6 +122,10 @@ def validate_server(node):
     all_interfaces = addresses(node)
     server = node['dhcp_server']
     keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network'), 'DHCP server')
+    if 'network' in server and node.get('runtime') == 'firecracker' and node.get('role') == 'router':
+        # A relayed pool on a router guest is served where the relayed requests arrive: toward its network.
+        from .ios_relay import toward
+        server['interface'] = toward(node, server['network']) or server.get('interface')
     interface = server.get('interface')
     if interface not in all_interfaces or not all_interfaces[interface] or node['role'] == 'switch':
         raise ValueError('DHCP server requires a numbered interface on a host/router/firewall.')

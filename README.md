@@ -83,7 +83,8 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 (`ip nat pool`, `… list N pool P [overload]`) et le PAT (`ip nat inside` / `outside`,
 `ip nat inside source list N interface X overload`, `show ip nat translations`) et, sur un switch en marche,
 `vlan N` / `name`, `switchport access vlan N`, `shutdown` (`show vlan brief`, `show interfaces status`), et `traceroute`
-(routeurs) / `tracert` (PC, comme dans Packet Tracer), qui agissent pour de vrai.
+(routeurs) / `tracert` (PC, comme dans Packet Tracer), et le relais DHCP `ip helper-address` (avec un pool pour un LAN
+distant, `show ip dhcp binding`), qui agissent pour de vrai.
 Celles qui n'agissent pas encore sur le trafic du lab (EIGRP, port-security, spanning-tree…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).

@@ -286,5 +286,5 @@ class IOSRouterFeaturesTest(unittest.TestCase):
         self.assertEqual((server['start'], server['end'], server['lease_seconds']), ('192.0.2.2', '192.0.2.254', 3600))
         kept = node(vendor_config.apply(lab, 'R1', 'ip dhcp pool LAN\n dns-server 192.0.2.53'), 'R1')['dhcp_server']
         self.assertEqual((kept['start'], kept['end'], kept['dns']), ('192.0.2.100', '192.0.2.120', ['192.0.2.53']))
-        with self.assertRaisesRegex(ValueError, 'réseau'):
-            vendor_config.apply(bare, 'R1', 'ip dhcp pool LAN\n network 10.0.0.0 255.0.0.0')
+        relayed = node(vendor_config.apply(bare, 'R1', 'ip dhcp pool LAN\n network 10.0.0.0 255.0.0.0'), 'R1')['dhcp_server']
+        self.assertEqual((relayed['network'], relayed['start']), ('10.0.0.0/8', '10.0.0.1'))  # a remote LAN: a relayed pool

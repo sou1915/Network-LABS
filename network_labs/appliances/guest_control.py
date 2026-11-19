@@ -17,7 +17,8 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
               'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
               'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
-              'trace': 'TRACE'}
+              'trace': 'TRACE', 'dhcp-relay-start': 'DHCP_RELAY_START', 'dhcp-relay-stop': 'DHCP_RELAY_STOP',
+              'dhcp-relay-show': 'DHCP_RELAY_SHOW'}
 RIP_SHOW = ('config', 'routes')
 
 
@@ -150,6 +151,14 @@ def _nat_fields(state, rule):
     return ' '.join(fields)
 
 
+def relay_fields(relay):
+    """« SERVER PORT[,PORT…] » for DHCP_RELAY_START: the helper address and the ports it relays for (1..4)."""
+    if not isinstance(relay, dict) or set(relay) != {'server', 'clients'} or not isinstance(relay['clients'], list) \
+            or not 1 <= len(relay['clients']) <= 4 or not all(guest_interface(p) for p in relay['clients']):
+        raise ValueError('Guest DHCP relay: a server address and 1..4 client ports.')
+    return f'{ipaddress.IPv4Address(relay["server"])} ' + ','.join(relay['clients'])
+
+
 def nat_to(value, kind):
     """A NAT target address; source NAT also takes an ascending range A-B (an IOS pool without overload)."""
     first, dash, last = str(value).partition('-')
@@ -207,9 +216,16 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('dhcp-relay-'):  # IOS « ip helper-address »: the agent's own relay
+        if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl)) \
+                or (relay is None) != (operation != 'dhcp-relay-start'):
+            raise ValueError('Guest dhcp-relay-start takes only the relay; stop and show take nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + (' ' + relay_fields(relay) if relay else ''), timeout)
+    if relay is not None:
+        raise ValueError('Only dhcp-relay-start accepts a relay.')
     if operation == 'trace':  # one traceroute hop: a UDP probe at TTL
         if any(value is not None for value in (interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip)) \
                 or type(ttl) is not int or not 1 <= ttl <= 30:
