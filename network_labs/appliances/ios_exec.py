@@ -8,13 +8,15 @@ import datetime
 import ipaddress
 import re
 
-from . import ios_store
+from . import ios_store, vendor_show
 from .native_models import MODELS, port_names
 from .vendor_config import ios_name
 
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
-         'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding']
+         'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
+         'show mac address-table', 'show ip route static']
+ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'ospf': 'O', 'bgp': 'B'}
 
 
 def answer(console, low):
@@ -31,6 +33,14 @@ def answer(console, low):
         return status(console)
     if full == 'show ip dhcp binding':
         return bindings(console)
+    if full in ('show arp', 'show ip arp'):
+        return arp(console)
+    if full in ('show mac address-table', 'show mac-address-table'):
+        return mac_table(console)
+    match = re.fullmatch(r'show ip route (\S+)', full)
+    kinds = [k for k in ROUTE_CODES if match and k.startswith(words[-1])]  # the word as typed (« stat » is not statistics)
+    if len(kinds) == 1:  # « sh ip ro stat »: only the static routes
+        return routes_of(console, ROUTE_CODES[kinds[0]])
     if full == 'show interfaces' or re.fullmatch(r'show interfaces \S+', full) and words[-1] not in ('trunk',):
         return interfaces(console, None if full == 'show interfaces' else low.split()[-1])
     if full == 'show interfaces trunk':
@@ -75,7 +85,9 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'term': 'terminal', 'terminal': 'terminal', 'len': 'length', 'length': 'length', 'width': 'width',
          'users': 'users', 'cdp': 'cdp', 'nat': 'nat', 'trans': 'translations', 'translations': 'translations',
          'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set',
-         'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding'}
+         'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding', 'arp': 'arp', 'mac': 'mac',
+         'add': 'address-table', 'address-table': 'address-table', 'mac-address-table': 'mac-address-table', 'ro': 'route',
+         'route': 'route'}
 
 
 def _expand(words):
@@ -223,6 +235,55 @@ def status(console):
                            '')
         lines.append(f'{ios_short(label):<10}{description[:18]:<19}{state:<13}{vlan:<11}{duplex:>6} {speed:>6} {kind}')
     return '\n'.join(lines)
+
+
+def _cisco_mac(mac):
+    digits = mac.replace(':', '').lower()
+    return '.'.join(digits[i:i + 4] for i in range(0, 12, 4))
+
+
+def arp(console):
+    """« show arp »: the router's own addresses (age -) and the neighbours its guest kernel has resolved."""
+    from .pc_commands import interfaces, neighbors
+    node = console.node()
+    names = {p: _label(node, p) for p in node['interfaces']}
+    lines = [f'{"Protocol":<10}{"Address":<17}{"Age (min)":<11}{"Hardware Addr":<16}{"Type":<7}Interface']
+    rows = []
+    for interface in interfaces(console.query('addresses')):
+        for address in interface['addresses'] if interface['mac'] and interface['name'] in names else []:
+            rows.append((address.ip, '-', interface['mac'], names[interface['name']]))
+    for entry in neighbors(console.query('neighbors')):
+        if entry['port'] in names:
+            rows.append((ipaddress.IPv4Address(entry['address']), '0', entry['mac'], names[entry['port']]))
+    lines += [f'{"Internet":<10}{str(ip):<17}{age:>8}   {_cisco_mac(mac):<16}{"ARPA":<7}{port}' for ip, age, mac, port in sorted(rows)]
+    return '\n'.join(lines)
+
+
+def mac_table(console):
+    """« show mac address-table »: the MAC addresses the switch guest's bridge has learned, per VLAN and port."""
+    from .vendor_config import ios_short
+    node = console.node()
+    if node['role'] != 'switch':
+        return "% Invalid input detected at '^' marker."
+    rows = []
+    for line in console.query('bridge-fdb').splitlines():
+        port, mac, vlan = line.split()
+        if port in node['interfaces']:
+            rows.append((int(vlan) or 1, _cisco_mac(mac), ios_short(_label(node, port))))
+    lines = ['          Mac Address Table', '-' * 43, '', f'{"Vlan":<8}{"Mac Address":<18}{"Type":<12}Ports',
+             f'{"----":<8}{"-----------":<18}{"--------":<12}-----', '']
+    lines += [f'{vlan:>4}    {mac:<18}{"DYNAMIC":<12}{port}' for vlan, mac, port in sorted(rows)]
+    lines.append(f'Total Mac Addresses for this criterion: {len(rows)}')
+    return '\n'.join(lines)
+
+
+def routes_of(console, codes):
+    """« show ip route static » (connected, rip, ospf, bgp): the full table's header and its routes of those codes."""
+    text = vendor_show.show(console.node(), console.observe(), 'show ip route')
+    head, _, body = text.partition('\n\n')
+    gateway, _, routes = body.partition('\n\n')
+    kept = [line for line in routes.splitlines() if line[:1] in codes]
+    return '\n'.join([head, '', gateway, ''] + kept)
 
 
 def bindings(console):

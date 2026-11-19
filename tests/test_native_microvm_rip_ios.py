@@ -59,6 +59,9 @@ class RipGuestTests(unittest.TestCase):
                     transcript.append('R1#show ip protocols\n' + r1.line('show ip protocols'))
                     traces['PC1 tracert'] = pc1.line('tracert 192.168.3.10')
                     traces['R1 traceroute'] = r1.line('traceroute 192.168.3.10')
+                    traces['R1 show arp'] = r1.line('show arp')
+                    traces['PC1 arp -a'] = pc1.line('arp -a')
+                    traces['PC1 ipconfig /all'] = pc1.line('ipconfig /all')
                 finally:
                     with manager.locked():
                         if manager.directory.exists():
@@ -77,3 +80,10 @@ class RipGuestTests(unittest.TestCase):
             self.assertRegex(traces['PC1 tracert'], r'  1 .* ms  192\.168\.1\.1\n  2 .* ms  10\.0\.12\.2\n  3 .* ms  10\.0\.23\.2\n'
                                                     r'  4 .* ms  192\.168\.3\.10\n\nTrace complete\.')
             self.assertRegex(traces['R1 traceroute'], r'  1 10\.0\.12\.2 \d+ msec.*\n  2 10\.0\.23\.2 .*\n  3 192\.168\.3\.10 \d+ msec')
+            # ARP tables read in the guests: R1 knows PC1 and R2, PC1 knows its gateway; ipconfig from PC1's own state.
+            self.assertRegex(traces['R1 show arp'], r'Internet  192\.168\.1\.10\s+0   [0-9a-f.]{14}  ARPA   GigabitEthernet0/0/0')
+            self.assertRegex(traces['R1 show arp'], r'Internet  192\.168\.1\.1\s+-   [0-9a-f.]{14}  ARPA   GigabitEthernet0/0/0')
+            self.assertRegex(traces['PC1 arp -a'], r'192\.168\.1\.1\s+([0-9A-F]{2}-){5}[0-9A-F]{2}\s+dynamic')
+            self.assertIn('IPv4 Address. . . . . . . . . . . : 192.168.1.10', traces['PC1 ipconfig /all'])
+            self.assertIn('Default Gateway . . . . . . . . . : 192.168.1.1', traces['PC1 ipconfig /all'])
+            self.assertRegex(traces['PC1 ipconfig /all'], r'Physical Address\. [. ]+: ([0-9A-F]{2}-){5}[0-9A-F]{2}')

@@ -49,7 +49,7 @@ class SwitchLiveGuestTests(unittest.TestCase):
             root = Path(temporary)
             build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
             spec = lab(str(kernel), str(root / 'base.ext4'))
-            transcript, pings, vlans = [], {}, None
+            transcript, pings, vlans, tables = [], {}, None, {}
             with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), \
                     patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
                 manager = Manager(spec['name'])
@@ -85,12 +85,13 @@ class SwitchLiveGuestTests(unittest.TestCase):
                     typed(SVI)  # the switch's management address on its bridge, in VLAN 1 (filtering is on)
                     ping('PC1 -> SW1 Vlan1', 'PC1', '10.0.0.250', True)
                     ping('PC2 (VLAN 10) -> SW1 Vlan1', 'PC2', '10.0.0.250', False)
+                    tables = {'SW1 mac': switch.line('sh mac address-table'), 'PC1 arp': hosts['PC1'].line('arp -a')}
                 finally:
                     with manager.locked():
                         if manager.directory.exists():
                             manager.stop()
             text = '\n'.join(transcript)
-            (evidence / 'result.json').write_text(json.dumps({'transcript': text, 'pings': pings, 'bridge_vlans': vlans},
+            (evidence / 'result.json').write_text(json.dumps({'transcript': text, 'pings': pings, 'bridge_vlans': vlans, 'tables': tables},
                                                              indent=2, ensure_ascii=False))
             print('\n' + text, flush=True)
             for label, reply in pings.items():
@@ -106,3 +107,9 @@ class SwitchLiveGuestTests(unittest.TestCase):
             self.assertIn('0 packets received', pings['PC2 (VLAN 10) -> SW1 Vlan1'])
             self.assertIn('!!!!!', transcript[-2])  # SW1 pings PC1 from its SVI
             self.assertRegex(transcript[-1], r'Vlan1\s+10\.0\.0\.250\s+YES manual up\s+up')
+            for label, text in tables.items():
+                print(f'\n{label}:\n{text}', flush=True)
+            # Learned by the real bridge from the pings: PC1 on Fa0/1 in VLAN 1, PC2/PC3 on Fa0/2-3 in VLAN 10.
+            self.assertRegex(tables['SW1 mac'], r'\n\s+1\s+[0-9a-f.]{14}\s+DYNAMIC\s+Fa0/1\n')
+            self.assertRegex(tables['SW1 mac'], r'\n\s+10\s+[0-9a-f.]{14}\s+DYNAMIC\s+Fa0/[23]\n')
+            self.assertRegex(tables['PC1 arp'], r'10\.0\.0\.250\s+([0-9A-F]{2}-){5}[0-9A-F]{2}\s+dynamic')

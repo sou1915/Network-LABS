@@ -549,13 +549,23 @@ class Console:
         traced = self.traceroute('host', command)
         if traced is not None:
             return traced
+        if words[0] == 'ipconfig' and words[1:] in ([], ['/all']):  # Windows-style, as Packet Tracer's PCs
+            from .pc_commands import ipconfig
+            return ipconfig(self.name, self.query('addresses'), self.query('routes'), self.node().get('dhcp_clients') or [],
+                            full=words[1:] == ['/all'])
+        if words in (['arp', '-a'], ['arp']):
+            from .pc_commands import arp
+            return arp(self.query('neighbors'), self.query('addresses'))
+        if words[:2] in (['ip', 'neigh'], ['ip', 'n'], ['ip', 'neighbor']):
+            return self.query('neighbors').rstrip()
         if words[:2] in (['ip', 'a'], ['ip', 'addr'], ['ip', 'address']) or words == ['ifconfig']:
             return self.query('addresses').rstrip()
         if words[:2] in (['ip', 'r'], ['ip', 'route']) or words == ['route']:
             return self.query('routes').rstrip()
         if words == ['hostname']:
             return self.name
-        raise ValueError(f'{words[0]}: commande non disponible (ping, traceroute, tracert, ip addr, ip route, hostname, exit).')
+        raise ValueError(f'{words[0]}: commande non disponible (ping, traceroute, tracert, ipconfig, arp -a, ip addr, ip route, '
+                         'ip neigh, hostname, exit).')
 
     def host_change(self, words):
         """ip addr add|del A.B.C.D/N dev ethX, ip route add|del default|NET/N via A.B.C.D: applied to the running host."""

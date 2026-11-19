@@ -18,7 +18,7 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
               'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
               'trace': 'TRACE', 'dhcp-relay-start': 'DHCP_RELAY_START', 'dhcp-relay-stop': 'DHCP_RELAY_STOP',
-              'dhcp-relay-show': 'DHCP_RELAY_SHOW'}
+              'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB'}
 RIP_SHOW = ('config', 'routes')
 
 

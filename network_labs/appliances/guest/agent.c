@@ -12,6 +12,7 @@
 #include <linux/netlink.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/rtnetlink.h>
+#include <linux/neighbour.h>
 #include <linux/if_vlan.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/time.h>
@@ -166,6 +167,46 @@ static size_t bridge_vlans(char *out, size_t room, int *failure) {
                     used += (size_t)written;
                 }
             }
+        }
+    }
+    close(fd);
+    return used;
+}
+/* The switch bridge's learned MAC addresses as "port mac vlan" lines (IOS show mac address-table), from an AF_BRIDGE
+ * neighbour dump; the bridge's own (permanent) entries are left out, as they are not learned. */
+static size_t bridge_fdb(char *out, size_t room, int *failure) {
+    struct { struct nlmsghdr header; struct ndmsg neighbour; } query;
+    memset(&query, 0, sizeof(query));
+    query.header.nlmsg_len = sizeof(query);
+    query.header.nlmsg_type = RTM_GETNEIGH;
+    query.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    query.neighbour.ndm_family = AF_BRIDGE;
+    size_t used = 0; *failure = 0;
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (fd < 0 || send(fd, &query, sizeof(query), 0) != (ssize_t)sizeof(query)) { *failure = errno ? errno : EIO; if (fd >= 0) close(fd); return 0; }
+    static char buffer[16384];
+    for (int done = 0; !done;) {
+        ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
+        if (n <= 0) { *failure = EIO; break; }
+        for (struct nlmsghdr *header = (struct nlmsghdr *)buffer; NLMSG_OK(header, (unsigned)n); header = NLMSG_NEXT(header, n)) {
+            if (header->nlmsg_type == NLMSG_DONE) { done = 1; break; }
+            if (header->nlmsg_type == NLMSG_ERROR) { *failure = -((struct nlmsgerr *)NLMSG_DATA(header))->error; done = 1; break; }
+            if (header->nlmsg_type != RTM_NEWNEIGH) continue;
+            struct ndmsg *entry = NLMSG_DATA(header);
+            char name[IF_NAMESIZE] = "";
+            if ((entry->ndm_state & NUD_PERMANENT) || !if_indextoname((unsigned)entry->ndm_ifindex, name) || !valid_port(name)) continue;
+            unsigned char *mac = NULL; unsigned vlan = 0;
+            int length = (int)(header->nlmsg_len - NLMSG_LENGTH(sizeof(struct ndmsg)));
+            for (struct rtattr *attribute = (struct rtattr *)((char *)entry + NLMSG_ALIGN(sizeof(struct ndmsg)));
+                 RTA_OK(attribute, length); attribute = RTA_NEXT(attribute, length)) {
+                if (attribute->rta_type == NDA_LLADDR && RTA_PAYLOAD(attribute) == 6) mac = RTA_DATA(attribute);
+                if (attribute->rta_type == NDA_VLAN && RTA_PAYLOAD(attribute) >= sizeof(__u16)) vlan = *(__u16 *)RTA_DATA(attribute);
+            }
+            if (!mac || (mac[0] & 1)) continue;  /* multicast entries are not learned stations */
+            int written = snprintf(out + used, room - used, "%s %02x:%02x:%02x:%02x:%02x:%02x %u\n", name,
+                                   mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], vlan);
+            if (written < 0 || (size_t)written >= room - used) { *failure = ENOSPC; close(fd); return used; }
+            used += (size_t)written;
         }
     }
     close(fd);
@@ -364,6 +405,15 @@ static void serve(int input, int output, int mutations) {
         }
         closedir(directory);
         reply(output, 0, list, size); return;
+    }
+    if (!strcmp(request, "NL1 BRIDGE_FDB")) {
+        static char table[LIMIT]; int failure;
+        size_t size = bridge_fdb(table, sizeof(table), &failure);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bridge fdb listing failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, table, size); return;
     }
     /* VLANs on the switch bridge: filtering on, per-port membership, and a read-only listing. */
     if (!strcmp(request, "NL1 BRIDGE_VLANS")) {
@@ -690,6 +740,8 @@ static void serve(int input, int output, int mutations) {
         args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
+    char *const neighbors[] = {"busybox", "ip", "neigh", "show", NULL};  /* the ARP table (show arp, arp -a) */
+    if (!strcmp(request, "NL1 NEIGHBORS")) args = neighbors;
     char port[10], action[5], cidr[20], extra;
     /* One traceroute hop (one UDP probe at TTL, 1 s wait): the host loops TTLs, as it loops ping's echoes. */
     char trace_ttl[4], trace_destination[16];

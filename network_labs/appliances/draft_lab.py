@@ -87,6 +87,8 @@ class DraftLab:
 
     def query_node(self, name, operation):
         """The host shell's « ip addr » and « ip route », written as BusyBox prints them, from the project."""
+        if operation in ('neighbors', 'bridge-fdb'):
+            return ''  # ARP and MAC tables fill with traffic: a stopped lab has sent none
         observation = self.observe_node(name)
         if operation == 'addresses':
             lines = ['1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536', '    inet 127.0.0.1/8 scope host lo']
