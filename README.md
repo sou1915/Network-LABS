@@ -89,7 +89,7 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 distant, `show ip dhcp binding`), qui agissent pour de vrai.
 EIGRP (`router eigrp`, routes `D`, `show ip eigrp neighbors`) agit aussi pour de vrai, comme le spanning tree des
 switchs : un second câble entre deux switchs ferme une boucle et allume le STP 802.1D du noyau de chaque switch (un port
-passe en `BLK`), `spanning-tree vlan 1 root primary` / `priority N`, `spanning-tree cost` / `port-priority` changent
+passe en `BLK`, orange sur le schéma ; un port `shutdown` y est rouge), `spanning-tree vlan 1 root primary` / `priority N`, `spanning-tree cost` / `port-priority` changent
 l'arbre, `show spanning-tree` le montre (calculé d'après les câbles tant que le lab est arrêté), et couper le port racine
 fait passer le câble de secours en `FWD`. Un seul arbre pour tous les VLAN (celui du VLAN 1), en STP classique (pas de
 Rapid PVST+). Chaque port de micro-VM a une adresse MAC fixe, d'un démarrage à l'autre.

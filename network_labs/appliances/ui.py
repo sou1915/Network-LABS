@@ -468,6 +468,14 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             rounded_box(self.canvas,xx-52,yy-52,xx+52,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
             self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(self.font,7,'bold'))
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
+        blocked=set()
+        try:
+            from .guest_stp import blocked_ports
+            if spec:blocked=blocked_ports(spec)  # amber link lights: the ports spanning tree blocks
+        except (ValueError,KeyError,TypeError):pass
+        shut={(n['name'],port) for n in (spec or {}).get('nodes',[]) for port in n.get('shutdown') or []}
+        parallel={}  # several cables between the same two devices (a redundant link): drawn side by side
+        for a,b in graph['links']:parallel.setdefault(frozenset((a[0],b[0])),[]).append((a,b))
         router_links={}
         for a,b in graph['links']:
             if graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router':
@@ -479,7 +487,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             side=(abs(y-yy)>=45 and abs(x-xx)>=120 and graph_nodes[a[0]]['role']==graph_nodes[b[0]]['role']=='router'
                   and max(router_links.get(a[0],0),router_links.get(b[0],0))<=2)  # a chain, not a hub with its branches
             if abs(y-yy)<45:
-                sign=1 if xx>x else -1;ax=x+sign*55;ay=y;bx=xx-sign*55;by=yy;points=(ax,ay,bx,by)
+                group=parallel[frozenset((a[0],b[0]))];shift=(group.index((a,b))-(len(group)-1)/2)*12
+                sign=1 if xx>x else -1;ax=x+sign*55;ay=y+shift;bx=xx-sign*55;by=yy+shift;points=(ax,ay,bx,by)
             elif side:
                 # An L: down from the upper device's port, then into the lower device's side, clear of its title.
                 if y<yy:
@@ -502,7 +511,12 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             self.link_shapes[index]=self.canvas.create_line(*points,fill='#3886b9',width=1.5,joinstyle='round',capstyle='round',tags=('link','link:'+str(index)))
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
             for endpoint,peer,px,py in ((a,b,ax,ay),(b,a,bx,by)):
-                self.canvas.create_oval(px-2,py-2,px+2,py+2,fill='#4f83b3',outline='')
+                light=tuple(endpoint)
+                if light in blocked or light in shut:  # amber: blocked by spanning tree; red: shutdown
+                    colour='#e8a317' if light in blocked else '#d64541'
+                    self.canvas.create_oval(px-4,py-4,px+4,py+4,fill=colour,outline='#ffffff',tags=('port-light',))
+                else:
+                    self.canvas.create_oval(px-2,py-2,px+2,py+2,fill='#4f83b3',outline='')
                 nx,ny=positions[endpoint[0]];other_y=positions[peer[0]][1]
                 ordinal=list(graph_nodes[endpoint[0]]['interfaces']).index(endpoint[1])
                 tx,ty,anchor=px+5,py-8,'w'
@@ -570,6 +584,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             x,y=positions[node['name']];host=node['role']=='host'
             obstacles.append((x-32 if host else x-50,y-29,x+32 if host else x+50,y+24))
         draw_port_labels(self.canvas,port_labels,obstacles,(self.font,7),MUTED)
+        self.canvas.tag_raise('port-light')  # above the devices' artwork, as a port's link light
         for index,(a,b) in enumerate(graph['links']):
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
         running=sum(n['runtime']=='oci' and self.states.get(n['name'],{}).get('status')=='running' for n in graph['nodes'])

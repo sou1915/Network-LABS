@@ -98,6 +98,17 @@ def from_model(spec, name):
     return view
 
 
+def blocked_ports(spec):
+    """{(switch, port)} the tree blocks once it has converged: each switch micro-VM's Altn ports (the canvas draws them
+    amber, as Packet Tracer's link lights)."""
+    found = set()
+    for node in spec['nodes']:
+        if node.get('role') == 'switch' and node.get('runtime') == 'firecracker' and \
+                (node.get('spanning_tree') or {}).get('mode') == 'stp':
+            found |= {(node['name'], p['port']) for p in from_model(spec, node['name'])['ports'] if p['role'] == 'Altn'}
+    return found
+
+
 def render(node, view):
     names = port_names(node)
     hello, age, delay = view['timers']
