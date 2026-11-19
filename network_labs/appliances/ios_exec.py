@@ -293,21 +293,46 @@ def save(console, copy=False):
 
 
 def nat(console, statistics=False):
-    """« show ip nat translations »: the guest kernel's tracked connections that leave translated (PAT)."""
-    from .ios_nat import entries
+    """« show ip nat translations / statistics »: static entries, then the guest kernel's translated connections."""
+    from . import ios_nat
+    from .vendor_config import port_names
     node = console.node()
-    rules = entries(node)
-    sessions = [s for s in (console.observe().get('sessions') or [])
-                if s.get('reply_destination') and s['reply_destination'] != s['source']]
-    if statistics:
-        from .vendor_config import port_names
-        outside = sorted({ios_name(port_names(node)[r['out']]) for r in rules})
-        return '\n'.join([f'Total active translations: {len(sessions)} (0 static, {len(sessions)} dynamic; {len(sessions)} extended)',
-                          'Outside interfaces:', *(f'  {name}' for name in outside),
-                          f'Dynamic mappings: {len(rules)} (overload)'])
-    lines = [f'{"Pro":<5}{"Inside global":<23}{"Inside local":<23}{"Outside local":<23}Outside global']
-    for s in sessions:
+    active = ios_nat.entries(node)
+    statics = [ios_nat.STATIC.fullmatch(l) for l in ios_nat._global(node) if ios_nat.STATIC.fullmatch(l)] if active else []
+    rows = []
+    for s in console.observe().get('sessions') or []:
         port = f':{s["port"]}' if s.get('port') else ''
-        lines.append(f'{s["protocol"]:<5}{s["reply_destination"] + port:<23}{s["source"] + port:<23}'
-                     f'{s["destination"] + port:<23}{s["destination"] + port}')
+        if s.get('reply_destination') and s['reply_destination'] != s['source']:  # leaving: its source translated
+            rows.append((s['protocol'], s['reply_destination'], s['source'], s['destination'], port))
+        elif s.get('reply_source') and s['reply_source'] != s['destination']:  # arriving: a static entry's destination
+            rows.append((s['protocol'], s['destination'], s['reply_source'], s['source'], port))
+    if statistics:
+        names = port_names(node)
+        lines = [f'Total active translations: {len(statics) + len(rows)} ({len(statics)} static, {len(rows)} dynamic; '
+                 f'{len(rows)} extended)']
+        for side in ('outside', 'inside'):
+            lines += [f'{side.capitalize()} interfaces:'] + [f'  {ios_name(names[p])}' for p in sorted(ios_nat._marked(node, side))]
+        lines += ['Hits: 0  Misses: 0', 'Dynamic mappings:', '-- Inside Source']
+        mappings = [ios_nat.SOURCE.fullmatch(l) for l in ios_nat._global(node) if ios_nat.SOURCE.fullmatch(l)] if active else []
+        ranges = ios_nat.pools(node)
+        for number, match in enumerate(mappings, 1):
+            pool = match[2].lower() == 'pool'
+            target = f'pool {match[3]}' if pool else f'interface {ios_name(names.get(_port_or(node, match[3]), match[3]))}'
+            lines.append(f'[Id: {number}] access-list {match[1]} {target}{" overload" if match[4] else ""} refcount {len(rows)}')
+            if pool and match[3] in ranges:
+                first, last = ranges[match[3]]
+                lines += [f' pool {match[3]}: id {number}', f'\tstart {first} end {last}',
+                          f'\ttype generic, total addresses {int(last) - int(first) + 1}']
+        return '\n'.join(lines)
+    lines = [f'{"Pro":<5}{"Inside global":<23}{"Inside local":<23}{"Outside local":<23}Outside global']
+    lines += [f'{"---":<5}{m[2]:<23}{m[1]:<23}{"---":<23}---' for m in statics]
+    lines += [f'{p:<5}{g + port:<23}{l + port:<23}{o + port:<23}{o + port}' for p, g, l, o, port in rows]
     return '\n'.join(lines)
+
+
+def _port_or(node, name):
+    from .vendor_config import _port
+    try:
+        return _port(node, name)
+    except ValueError:
+        return name

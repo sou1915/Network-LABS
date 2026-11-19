@@ -120,7 +120,7 @@ class CcnaTest(unittest.TestCase):
                                                           'source': '192.168.1.0/24'}])
         ok, why = Model(self.box['spec']).ping('PC1', '10.0.0.1')
         self.assertTrue(ok, why)  # PC1 leaves as 192.168.2.1, R2 answers it
-        self.assertIn('Dynamic mappings: 1 (overload)', r1.line('show ip nat statistics'))
+        self.assertIn('[Id: 1] access-list 1 interface GigabitEthernet0/0/1 overload', r1.line('show ip nat statistics'))
         self.assertTrue(r1.line('show ip nat translations').startswith('Pro  Inside global'))
 
 

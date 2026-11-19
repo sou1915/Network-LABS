@@ -713,7 +713,7 @@ static void serve(int input, int output, int mutations) {
     /* IPv4 forward filtering through the image's iptables; every argument is typed and validated here. */
     const char *program = "/bin/busybox";
     char fw_action[7], fw_in[5], fw_out[5], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
-    char nat_kind[11], nat_to[16], nat_to_port[6], nat_target[24]; struct in_addr nat_address;
+    char nat_kind[11], nat_to[32], nat_to_port[6], nat_target[40]; struct in_addr nat_address, nat_last;
     char *firewall[24]; int count = 0;
     #define FW(word) firewall[count++] = (char *)(word)
     FW("iptables"); FW("-w");
@@ -723,13 +723,18 @@ static void serve(int input, int output, int mutations) {
     /* Address translation in the nat table: destination NAT before routing, source NAT after it. */
     else if (!strcmp(request, "NL1 FW_NAT_LIST")) { FW("-t"); FW("nat"); FW("-S"); fw_ready = 1; }
     else if (mutations && !strcmp(request, "NL1 FW_NAT_FLUSH")) { FW("-t"); FW("nat"); FW("-F"); fw_ready = 1; }
-    else if (mutations && sscanf(request, "NL1 FW_NAT %10s %4s %4s %4s %19s %19s %5s %15s %5s %c", nat_kind, fw_in, fw_out, fw_proto,
+    else if (mutations && sscanf(request, "NL1 FW_NAT %10s %4s %4s %4s %19s %19s %5s %31s %5s %c", nat_kind, fw_in, fw_out, fw_proto,
                                  fw_source, fw_destination, fw_port, nat_to, nat_to_port, &extra) == 9) {
         int dnat = !strcmp(nat_kind, "dnat"), snat = !strcmp(nat_kind, "snat"), masquerade = !strcmp(nat_kind, "masquerade");
         int tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
         int has_port = strcmp(fw_port, "-") != 0, has_to_port = strcmp(nat_to_port, "-") != 0;
         int has_in = strcmp(fw_in, "-") != 0, has_out = strcmp(fw_out, "-") != 0;
-        int to_ok = masquerade ? !strcmp(nat_to, "-") : inet_pton(AF_INET, nat_to, &nat_address) == 1;
+        /* Source NAT may take an ascending address range A-B (an IOS NAT pool without overload). */
+        char *range = snat ? strchr(nat_to, '-') : NULL;
+        if (range) *range = '\0';
+        int to_ok = masquerade ? !strcmp(nat_to, "-") : inet_pton(AF_INET, nat_to, &nat_address) == 1 &&
+                    (!range || (inet_pton(AF_INET, range + 1, &nat_last) == 1 && ntohl(nat_last.s_addr) > ntohl(nat_address.s_addr)));
+        if (range) *range = '-';
         if ((dnat || snat || masquerade) && to_ok &&
             (dnat ? has_in && !has_out : has_out && !has_in) &&
             (!has_in || valid_port(fw_in)) && (!has_out || valid_port(fw_out)) &&

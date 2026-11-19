@@ -258,6 +258,10 @@ class Model:
             for name, address in self.held(node['name']).items():
                 key = (self.seg.get((node['name'], _port_of(name))), address.ip)
                 self.owners.setdefault(key, (node['name'], _port_of(name)))
+            from .ios_nat import public_addresses
+            for port, values in public_addresses(node).items():  # a router answers for its static NAT and pool addresses
+                for value in values:
+                    self.owners.setdefault((self.seg.get((node['name'], port)), ipaddress.IPv4Interface(value).ip), (node['name'], port))
 
     def held(self, name):
         found = addresses(self.nodes[name])
@@ -303,7 +307,7 @@ class Model:
         return owner[0], owner[1], interface
 
     def nat(self, name):
-        """The NAT entries a node runs: a firewall's policy, or a router's IOS NAT (PAT)."""
+        """The NAT entries a node runs: a firewall's policy, or a router's IOS NAT (PAT, static, pools)."""
         node = self.nodes[name]
         if node['role'] == 'firewall':
             return (node.get('firewall') or {}).get('nat', [])
@@ -317,8 +321,8 @@ class Model:
         for entry in self.nat(name):
             if entry['type'] in ('masquerade', 'snat') and entry.get('out') == port and (
                     not entry.get('source') or source in ipaddress.IPv4Network(entry['source'])):
-                if entry['type'] == 'snat':
-                    return ipaddress.IPv4Address(entry['to'])
+                if entry['type'] == 'snat':  # a pool range A-B: its first address (one inside host in a lab)
+                    return ipaddress.IPv4Address(entry['to'].split('-')[0])
                 held = self.held(name).get(port)
                 return held.ip if held else source
         return source

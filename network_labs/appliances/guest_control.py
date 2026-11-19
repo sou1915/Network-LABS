@@ -145,9 +145,19 @@ def _nat_fields(state, rule):
     if 'to_port' in rule and (kind != 'dnat' or 'dport' not in rule):
         raise ValueError('Guest NAT to_port requires dnat with dport.')
     fields.append(str(rule['dport']) if 'dport' in rule else '-')
-    fields.append(str(ipaddress.IPv4Address(rule['to'])) if 'to' in rule else '-')
+    fields.append(nat_to(rule['to'], kind) if 'to' in rule else '-')
     fields.append(str(rule['to_port']) if 'to_port' in rule else '-')
     return ' '.join(fields)
+
+
+def nat_to(value, kind):
+    """A NAT target address; source NAT also takes an ascending range A-B (an IOS pool without overload)."""
+    first, dash, last = str(value).partition('-')
+    if not dash:
+        return str(ipaddress.IPv4Address(first))
+    if kind != 'snat' or ipaddress.IPv4Address(last) <= ipaddress.IPv4Address(first):
+        raise ValueError('Guest NAT range: source NAT only, A-B ascending.')
+    return f'{ipaddress.IPv4Address(first)}-{ipaddress.IPv4Address(last)}'
 
 
 def _dhcp_command(operation, interface, server):

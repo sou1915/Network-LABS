@@ -228,6 +228,12 @@ def observe(socket, node):
         primary = str(ipaddress.IPv4Interface(declared[port])) if declared[port] else None
         return [] if port in dynamic else [a for a in values if a != primary]
     extras = {port: unexpected(port, values) for port, values in by_port.items()}
+    from .ios_nat import public_addresses
+    for port, values in public_addresses(node).items():  # held for IOS static NAT and pools: checked, never saved
+        missing = sorted(set(values) - set(extras[port]))
+        if missing:
+            raise ValueError(f'Guest {port} lacks the NAT address(es) {", ".join(missing)}.')
+        extras[port] = [a for a in extras[port] if a not in values]
     for name in node.get('subinterfaces', {}):
         if extras.pop(name):
             raise ValueError(f'Extra addresses on subinterface {name} cannot be saved; only its declared address is.')
@@ -422,6 +428,12 @@ def change_routing(socket, old, new):
             query(socket, 'address-delete', interface=port, cidr=old['interfaces'][port])
         if new['interfaces'][port]:
             query(socket, 'address-add', interface=port, cidr=new['interfaces'][port])
+    from .ios_nat import public_addresses
+    held = lambda node: {(port, a) for port, values in public_addresses(node).items() for a in values}
+    for port, address in sorted(held(old) - held(new)):  # static NAT and pool addresses follow the IOS lines
+        query(socket, 'address-delete', interface=port, cidr=address)
+    for port, address in sorted(held(new) - held(old)):
+        query(socket, 'address-add', interface=port, cidr=address)
     for port in sorted(set(old.get('shutdown') or []) - set(new.get('shutdown') or [])):
         query(socket, 'link', interface=port, state='up')  # « no shutdown »: the port and its routes come back
     for network, gateway in sorted(after):
@@ -514,6 +526,10 @@ def apply(socket, node, timeout=40, alive=None):
     for address in profile['addresses']:
         query(socket, 'address-add', cidr=address)
     for port, values in profile.get('port_addresses', {}).items():
+        for address in values:
+            query(socket, 'address-add', interface=port, cidr=address)
+    from .ios_nat import public_addresses
+    for port, values in public_addresses(node).items():  # the router answers ARP for its static NAT and pool addresses
         for address in values:
             query(socket, 'address-add', interface=port, cidr=address)
     down = shut_interfaces(node)

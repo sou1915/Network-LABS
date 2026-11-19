@@ -62,6 +62,26 @@ class ChangeRoutingTest(unittest.TestCase):
         self.assertEqual(self.run_change(fresh, old), [('address-add', {'interface': 'eth0', 'cidr': '192.0.2.1/24'})])
 
 
+    def test_static_nat_typed_live_adds_the_public_address_then_removes_it(self):
+        from network_labs.appliances import guest_console
+        from network_labs.appliances.draft_lab import DraftLab
+        from tests.test_ios_nat import MARKS, STATIC, lab
+        box = {'spec': lab()}
+        draft = DraftLab(lambda: box['spec'], lambda spec: box.update(spec=validate(spec)))
+        console = guest_console.Console('ios-static-nat', 'R1', lambda name: draft)
+        router = lambda: copy.deepcopy(next(n for n in box['spec']['nodes'] if n['name'] == 'R1'))
+        for line in ['en', *MARKS]:
+            console.line(line)
+        before = router()
+        for line in STATIC:
+            console.line(line)
+        after = router()
+        with mock.patch('network_labs.appliances.guest_firewall.apply', lambda socket, node: None):
+            calls = self.run_change(before, after)
+            self.assertIn(('address-add', {'interface': 'eth1', 'cidr': '203.0.113.10/32'}), calls)
+            self.assertIn(('address-delete', {'interface': 'eth1', 'cidr': '203.0.113.10/32'}), self.run_change(after, before))
+
+
 class ChangeSwitchTest(unittest.TestCase):
     def run_change(self, old, new):
         calls = []
