@@ -221,6 +221,15 @@ _IOS_MORE = [
      ['show ip dhcp binding'], 'R'),
     ('VLAN', 'exec', 'show interfaces status', 'Chaque port : état (connected, notconnect, disabled), VLAN ou trunk.',
      ['show interfaces status'], 'S'),
+    ('Spanning tree', 'exec', 'show spanning-tree [vlan N]',
+     'L’arbre 802.1D du switch : la racine, le coût jusqu’à elle, le rôle et l’état de chaque port (Root, Desg, Altn BLK).',
+     ['show spanning-tree'], 'S'),
+    ('Spanning tree', 'config', 'spanning-tree vlan N',
+     'Activer le spanning tree du switch (il l’est dès qu’un câble ferme une boucle).', ['spanning-tree vlan 1'], 'S'),
+    ('Spanning tree', 'config', 'no spanning-tree vlan N priority', 'Rendre au pont la priorité par défaut (32768).',
+     ['spanning-tree vlan 1 priority 4096', 'no spanning-tree vlan 1 priority'], 'S'),
+    ('Spanning tree', 'config-if', 'no spanning-tree cost|port-priority', 'Rendre au port son coût (ou sa priorité) par défaut.',
+     ['interface {p0}', 'spanning-tree cost 100', 'no spanning-tree cost'], 'S'),
     ('Système', 'exec', 'copy running-config startup-config', 'Enregistrer la configuration (aussi : wr).',
      ['copy running-config startup-config'], ALL),
     ('Système', 'exec', 'write memory', 'Enregistrer la configuration.', ['write memory'], ALL),
@@ -605,13 +614,15 @@ def _modes_visible(syntax, mode):
     return {mode}
 
 
-def expand(node, line):
+def expand(node, line, mode=None):
     """IOS-style abbreviations: each keyword typed as a unique prefix of the words the catalogue allows at that place
-    (« int g0/0/0 », « ip add », « no shut », « sw mo acc ») becomes the full word; values are left as typed."""
+    (« int g0/0/0 », « ip add », « no shut », « sw mo acc ») becomes the full word; values are left as typed. With MODE,
+    only that mode's commands count (« sh » is show in EXEC, not shutdown)."""
     syntax = syntax_of(node)
     if syntax not in ('ios', 'eos', 'vrp'):
         return line
-    patterns = [e['syntax'].split() for e in entries(node)]  # keywords are lower case, placeholders upper case
+    listed = entries(node) if mode is None else _ios_entries(node, mode, own=True)
+    patterns = [v.split() for e in listed for v in _variants(e['syntax'])]  # keywords are lower case, placeholders upper case
     typed, done = line.split(), []
     for index, word in enumerate(typed):
         low = word.lower()
@@ -812,11 +823,12 @@ def ios_help(node, mode, typed):
     right after a word, the keywords that complete it."""
     words = typed.split()
     if typed and not typed.endswith(' '):
-        partial, words = words[-1].lower(), words[:-1]
+        partial, words = words[-1].lower(), expand(node, ' '.join(words[:-1]), mode).split()  # « sh ip ro? »: abbreviations too
         options = sorted({o for e in _ios_entries(node, mode, own=True) for v in _variants(e['syntax'])
                           for o in _next_keywords(_tokens(v), words)
                           if o.startswith(partial)})
         return '  '.join(options) if options else '% Unrecognized command'
+    words = expand(node, ' '.join(words), mode).split()  # « sh mac address-table ? » as « show mac address-table ? »
     rows, complete = {}, False
     for entry, tokens in [(e, _tokens(v)) for e in _ios_entries(node, mode, own=True) for v in _variants(e['syntax'])]:
         status, _ = _match(tokens, words)

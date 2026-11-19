@@ -795,6 +795,10 @@ class IOS:
                 return
             self.port = _port(node, name)
             return
+        match = re.fullmatch(r'(no )?spanning-tree vlan (\S+)(?: priority(?: (\d+))?| root (primary|secondary))?', low)
+        if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            self.port, self.range = None, None  # a global command leaves the interface, as on IOS
+            return self._stp_priority(match)
         if low.startswith(('ip route ', 'no ip route ')):
             values = words[3:] if low.startswith('no') else words[2:]
             # 'ip route 10.0.0.0 255.0.0.0 GW' (IOS) or 'ip route 10.0.0.0/8 GW' (EOS).
@@ -897,6 +901,15 @@ class IOS:
             return _set_address(node, self.port, '')
         if low.startswith('switchport') and not low.startswith('switchport port-security'):
             return self._switchport(low)
+        match = re.fullmatch(r'(no )?spanning-tree (cost|port-priority)(?: (\d+))?', low)
+        if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            if not match[1] and match[3] is None:
+                raise ValueError('Incomplete command.')
+            from .spanning_tree import ios_port
+            ios_port(node, self.port, 'cost' if match[2] == 'cost' else 'priority', None if match[1] else int(match[3]))
+            ios_store.store(node, 'config-if', f'no spanning-tree {match[2]}' if match[1] else f'spanning-tree {match[2]} {match[3]}',
+                            port=self.port)
+            return
         if low in ('no shutdown', 'shutdown'):
             # shutdown brings the port's link down for real (a micro-VM too, a switch port included), no shutdown up.
             down = [p for p in node.get('shutdown', []) if p != self.port]
@@ -910,6 +923,30 @@ class IOS:
             self.port, self.range = None, None  # a global command leaves the interface, as on IOS
             return
         raise ValueError('Commande d’interface non prise en charge (ip address, ip ospf, switchport, description).')
+
+    def _stp_priority(self, match):
+        """« spanning-tree vlan N priority X » and « … root primary|secondary » (stored as the priority line it writes, as
+        IOS does); « spanning-tree vlan N » turns the switch's tree on; « no spanning-tree vlan N » is refused here."""
+        from .spanning_tree import ROOT, ios_priority, turn_on
+        node, negative, vlans, value, root = self.node, match[1], match[2], match[3], match[4]
+        if len(match[0].split()) == (4 if negative else 3):  # « spanning-tree vlan N » alone
+            if negative:
+                raise ValueError('Network LABS : ce switch garde son spanning tree (une boucle sans lui sature le réseau) ; '
+                                 f'« no spanning-tree vlan {vlans} priority » rend la priorité par défaut.')
+            turn_on(node)
+            return
+        if negative:
+            ios_priority(node, vlans, None)
+            current = ios_store.config(node)
+            current['global'] = [line for line in current['global']
+                                 if not re.fullmatch(rf'spanning-tree vlan {re.escape(vlans)} priority \d+', line.strip().lower())]
+            node['cli_config'] = current
+            return
+        if root is None and value is None:
+            raise ValueError('Incomplete command.')
+        priority = ROOT[root] if root else int(value)
+        ios_priority(node, vlans, priority)
+        ios_store.store(node, 'config', f'spanning-tree vlan {vlans} priority {priority}')
 
     def _bgp(self, low, words):
         """One 'router bgp' sub-command; False for a global command, which leaves the BGP section."""

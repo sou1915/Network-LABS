@@ -6,6 +6,7 @@ Only explicitly requested start/stop commands create host resources.
 from contextlib import contextmanager
 import fcntl
 import copy
+import hashlib
 import ipaddress
 import json
 import os
@@ -121,6 +122,14 @@ def needs_guest_startup(node):
     return not simple
 
 
+def guest_mac(name, port):
+    """The fixed MAC of a micro-VM port (locally administered, from the node's name and the port's number), as a real
+    device keeps its burned-in addresses: ARP caches, MAC tables and spanning tree bridge IDs read the same on every
+    start, and a stopped lab can already show them. The bridge of a switch guest takes its lowest port's: eth0's."""
+    digest = hashlib.sha256(name.encode()).digest()
+    return ':'.join(f'{byte:02x}' for byte in (0x02, *digest[:4], int(port[3:])))
+
+
 def firecracker_config(node, kernel, disk):
     boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
     if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
@@ -130,7 +139,8 @@ def firecracker_config(node, kernel, disk):
         'boot-source': {'kernel_image_path': str(kernel), 'boot_args': boot},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
-        'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:]} for port in sorted(node['interfaces'])],
+        'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:], 'guest_mac': guest_mac(node['name'], port)}
+                               for port in sorted(node['interfaces'])],
         'vsock': {'guest_cid': 3, 'uds_path': str(Path(disk).parent / 'guest.vsock')},
     }
 

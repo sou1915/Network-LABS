@@ -21,7 +21,8 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB',
               'eigrp-render': 'EIGRP_RENDER', 'eigrp-start': 'EIGRP_START', 'eigrp-stop': 'EIGRP_STOP', 'eigrp-show': 'EIGRP_SHOW',
               'proxy-arp': 'PROXY_ARP', 'proxy-arps': 'PROXY_ARPS', 'dev-route-add': 'DEV_ROUTE_ADD',
-              'dev-route-delete': 'DEV_ROUTE_DEL'}
+              'dev-route-delete': 'DEV_ROUTE_DEL', 'bridge-stp': 'BRIDGE_STP', 'bridge-stp-port': 'BRIDGE_STP_PORT',
+              'bridge-stp-off': 'BRIDGE_STP_OFF', 'bridge-stp-show': 'BRIDGE_STP_SHOW'}
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
 RIP_SHOW = ('config', 'routes')
 
@@ -223,9 +224,27 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('bridge-stp'):  # the switch bridge's spanning tree, from typed numbers
+        if any(v is not None for v in (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp)):
+            raise ValueError('Guest spanning tree operations accept only their numbers (and a port).')
+        if operation == 'bridge-stp':
+            numbers = [stp[k] for k in ('priority', 'hello_time', 'max_age', 'forward_delay')] if isinstance(stp, dict) else []
+            if interface is not None or len(numbers) != 4 or any(type(n) is not int for n in numbers):
+                raise ValueError('Guest bridge-stp requires priority, hello_time, max_age and forward_delay.')
+            return _exchange(path, operation, 'BRIDGE_STP ' + ' '.join(map(str, numbers)), timeout)
+        if operation == 'bridge-stp-port':
+            numbers = [stp[k] for k in ('cost', 'priority')] if isinstance(stp, dict) else []
+            if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or len(numbers) != 2 or any(type(n) is not int for n in numbers):
+                raise ValueError('Guest bridge-stp-port requires a port, its cost and its priority.')
+            return _exchange(path, operation, f'BRIDGE_STP_PORT {interface} ' + ' '.join(map(str, numbers)), timeout)
+        if interface is not None or stp is not None:
+            raise ValueError(f'Guest {operation} takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if stp is not None:
+        raise ValueError('Only spanning tree operations accept STP numbers.')
     if operation.startswith('eigrp-'):  # FRR's eigrpd, from the typed process
         if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay)):
             raise ValueError('Guest EIGRP operations accept only the process (render, start) or what to show.')

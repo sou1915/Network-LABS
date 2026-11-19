@@ -166,9 +166,11 @@ class GuestStartupTests(unittest.TestCase):
                'address on bridge': ('eth0\neth1\neth2\n', self.BRIDGED + '    inet 192.0.2.99/24 scope global br0\n', '0\n'),
                'port down': ('eth0\neth1\neth2\n', self.BRIDGED.replace('4: eth2: <BROADCAST,UP,LOWER_UP>', '4: eth2: <BROADCAST>'), '0\n'),
                'routing': ('eth0\neth1\neth2\n', self.BRIDGED, '1\n'),
-               'extra port': ('eth0\neth1\neth2\n', self.BRIDGED + '6: eth3: <BROADCAST,UP>\n', '0\n')}
-        for label, (ports, text, forwarding) in bad.items():
-            replies = {'bridge-ports': ports, 'addresses': text, 'forwarding': forwarding}
+               'extra port': ('eth0\neth1\neth2\n', self.BRIDGED + '6: eth3: <BROADCAST,UP>\n', '0\n'),
+               'spanning tree on, none declared': ('eth0\neth1\neth2\n', self.BRIDGED, '0\n', 'bridge stp_state 1\n')}
+        for label, (ports, text, forwarding, *stp) in bad.items():
+            replies = {'bridge-ports': ports, 'addresses': text, 'forwarding': forwarding,
+                       'bridge-stp-show': ''.join(stp) or 'bridge stp_state 0\n'}
             with self.subTest(label), patch('network_labs.appliances.guest_startup.query', side_effect=lambda s, o, **k: replies[o]), self.assertRaises(ValueError):
                 check_switch('/socket', node)
 

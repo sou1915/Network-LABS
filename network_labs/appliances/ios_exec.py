@@ -15,7 +15,7 @@ from .vendor_config import ios_name
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
-         'show mac address-table', 'show ip route static', 'show ip eigrp neighbors']
+         'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -39,6 +39,9 @@ def answer(console, low):
         return arp(console)
     if full in ('show mac address-table', 'show mac-address-table'):
         return mac_table(console)
+    match = re.fullmatch(r'show spanning-tree(?: vlan (\d+))?', full)
+    if match:
+        return spanning_tree(console, int(match[1]) if match[1] else None)
     match = re.fullmatch(r'show ip route (\S+)', full)
     kinds = [k for k in ROUTE_CODES if match and k.startswith(words[-1])]  # the word as typed (« stat » is not statistics)
     if len(kinds) == 1:  # « sh ip ro stat »: only the static routes
@@ -92,7 +95,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set',
          'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding', 'arp': 'arp', 'mac': 'mac',
          'add': 'address-table', 'address-table': 'address-table', 'mac-address-table': 'mac-address-table', 'ro': 'route',
-         'route': 'route', 'eigrp': 'eigrp'}
+         'route': 'route', 'eigrp': 'eigrp', 'spa': 'spanning-tree', 'span': 'spanning-tree', 'spanning': 'spanning-tree',
+         'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan'}
 
 
 def _expand(words):
@@ -284,6 +288,24 @@ def mac_table(console):
     lines += [f'{vlan:>4}    {mac:<18}{"DYNAMIC":<12}{port}' for vlan, mac, port in sorted(rows)]
     lines.append(f'Total Mac Addresses for this criterion: {len(rows)}')
     return '\n'.join(lines)
+
+
+def spanning_tree(console, vlan=None):
+    """« show spanning-tree [vlan N] »: the 802.1D tree of the switch guest's bridge (one tree for every VLAN, shown
+    as VLAN0001), read from the running bridge, or computed from the cables while the lab is stopped."""
+    from . import guest_stp
+    from .guest_startup import parse_stp
+    node = console.node()
+    if node['role'] != 'switch':
+        return "% Invalid input detected at '^' marker."
+    if (node.get('spanning_tree') or {}).get('mode') != 'stp':
+        return 'No spanning tree instance exists.'
+    if vlan not in (None, 1):
+        return (f'Spanning tree instance(s) for vlan {vlan} does not exist.\n'
+                '% Network LABS : ce switch fait tourner un seul arbre 802.1D pour tous ses VLAN (show spanning-tree vlan 1).')
+    listing = parse_stp(console.query('bridge-stp-show'))
+    view = guest_stp.from_guest(listing, node) if listing.get('bridge') else guest_stp.from_model(console.spec_now(), node['name'])
+    return guest_stp.render(node, view)
 
 
 def routes_of(console, codes):

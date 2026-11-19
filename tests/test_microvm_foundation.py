@@ -51,7 +51,13 @@ class MicroVMFoundationTests(unittest.TestCase):
         from network_labs.appliances.microvm import multinic_example
         spec=multinic_example('/kernel','/disk');node=spec['nodes'][0]
         config=firecracker_config(node,Path('/kernel'),Path('/disk'))
-        self.assertEqual(config['network-interfaces'],[{'iface_id':'eth0','host_dev_name':'tap0'},{'iface_id':'eth1','host_dev_name':'tap1'}])
+        taps=[(i['iface_id'],i['host_dev_name']) for i in config['network-interfaces']]
+        self.assertEqual(taps,[('eth0','tap0'),('eth1','tap1')])
+        macs=[i['guest_mac'] for i in config['network-interfaces']]  # fixed per node and port, as burned-in addresses
+        self.assertEqual(macs,[firecracker_config(node,Path('/k'),Path('/d'))['network-interfaces'][i]['guest_mac'] for i in (0,1)])
+        self.assertRegex(macs[0],r'^02(:[0-9a-f]{2}){4}:00$')
+        self.assertTrue(macs[1].endswith(':01'))
+        self.assertEqual(macs[0][:-3],macs[1][:-3])
         for interfaces in ({'eth0':'192.0.2.10/24','eth2':'198.51.100.10/24'}, {'eth0':'192.0.2.10/24','eth1':'192.0.2.11/24'}):
             bad=copy.deepcopy(spec);bad['nodes'][0]['interfaces']=interfaces
             with self.assertRaises(ValueError):validate(bad)

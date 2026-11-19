@@ -205,6 +205,21 @@ def check_switch(socket, node):
     plan = vlan_plan(node)
     if plan is not None and observed_vlans(socket, node) != plan:
         raise ValueError('Switch guest VLAN membership differs from its declared switchports.')
+    policy = node.get('spanning_tree') or {}
+    stp = policy.get('mode') == 'stp'
+    listing = stp_listing(socket)
+    bridge = listing.get('bridge', {})
+    if bridge.get('stp_state', '0') != ('1' if stp else '0'):
+        raise ValueError('Switch guest spanning tree differs from the declared one.')
+    if stp:
+        held = [bridge.get(key) for key in ('priority', 'hello_time', 'max_age', 'forward_delay')]
+        wanted = [str(policy['priority'])] + [str(policy[key] * 100) for key in ('hello_time', 'max_age', 'forward_delay')]
+        for port in node['interfaces']:
+            settings = (policy.get('ports') or {}).get(port, {})
+            held += [listing.get(port, {}).get('path_cost'), listing.get(port, {}).get('priority')]
+            wanted += [str(settings.get('cost', 100)), str(settings.get('priority', 128) // 16)]
+        if held != wanted:
+            raise ValueError('Switch guest spanning tree priority, timers or port costs differ from the declared ones.')
     check_forwarding(socket, node)
 
 
@@ -430,7 +445,33 @@ def _runs_eigrp(node):
     return process(node) is not None
 
 
-LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config', 'svis')
+LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config', 'svis', 'spanning_tree')
+
+
+def _stp(socket, node):
+    """The switch bridge's spanning tree as declared: classic STP with its timers, priority and port costs, or off."""
+    policy = node.get('spanning_tree') or {}
+    if policy.get('mode') != 'stp':
+        query(socket, 'bridge-stp-off')
+        return
+    query(socket, 'bridge-stp', stp={k: policy[k] for k in ('priority', 'hello_time', 'max_age', 'forward_delay')})
+    for port in node['interfaces']:
+        settings = (policy.get('ports') or {}).get(port, {})
+        query(socket, 'bridge-stp-port', interface=port, stp={'cost': settings.get('cost', 100), 'priority': settings.get('priority', 128)})
+
+
+def stp_listing(socket):
+    """{'bridge': {key: value}, 'eth0': {key: value}, …} read from the guest bridge (BRIDGE_STP_SHOW)."""
+    return parse_stp(query(socket, 'bridge-stp-show'))
+
+
+def parse_stp(text):
+    found = {}
+    for line in text.splitlines():
+        words = line.split(None, 2)
+        if len(words) == 3:
+            found.setdefault(words[0], {})[words[1]] = words[2]
+    return found
 
 
 def _svi(socket, node, plan, add):
@@ -484,6 +525,8 @@ def change_switch(socket, old, new):
             query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
     if svi_changed:
         _svi(socket, new, after, add=True)
+    if (old.get('spanning_tree') or {}) != (new.get('spanning_tree') or {}):
+        _stp(socket, new)  # spanning-tree vlan 1 priority …, or a loop closed by a new cable after a restart
     check_switch(socket, new)
 
 
@@ -645,10 +688,17 @@ def apply(socket, node, timeout=40, alive=None):
             if time.monotonic() >= deadline: raise
             time.sleep(.1)
     if node.get('role') == 'switch':
+        stp = (node.get('spanning_tree') or {}).get('mode') == 'stp'
         for port in node['interfaces']:
             # A shut port is still in the bridge (its VLANs are kept), with its link down, as « shutdown » on a Catalyst.
-            query(socket, 'link', interface=port, state='down' if port in (node.get('shutdown') or []) else 'up')
+            # With STP, every link stays down until the tree runs: a loop never forwards unprotected.
+            query(socket, 'link', interface=port, state='down' if stp or port in (node.get('shutdown') or []) else 'up')
             query(socket, 'bridge-add', interface=port)
+        if stp:
+            _stp(socket, node)
+            for port in node['interfaces']:
+                if port not in (node.get('shutdown') or []):
+                    query(socket, 'link', interface=port, state='up')
         plan = vlan_plan(node)
         if plan is not None:
             try:

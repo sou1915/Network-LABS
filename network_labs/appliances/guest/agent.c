@@ -509,6 +509,71 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, "", 0); return;
     }
+    /* Spanning tree on the switch bridge (the kernel's IEEE 802.1D engine), from typed numbers only:
+     * BRIDGE_STP PRIORITY HELLO MAX_AGE FORWARD_DELAY (seconds), BRIDGE_STP_PORT PORT COST PRIORITY, BRIDGE_STP_OFF,
+     * and BRIDGE_STP_SHOW: "bridge KEY VALUE" and "PORT KEY VALUE" lines read from sysfs. */
+    unsigned stp_priority, stp_hello, stp_age, stp_delay, stp_cost, stp_port_priority; char stp_port[5], stp_extra;
+    if (mutations && sscanf(request, "NL1 BRIDGE_STP %u %u %u %u %c", &stp_priority, &stp_hello, &stp_age, &stp_delay, &stp_extra) == 4 &&
+        stp_priority <= 61440 && stp_priority % 4096 == 0 && stp_hello >= 1 && stp_hello <= 10 && stp_age >= 6 && stp_age <= 40 &&
+        stp_delay >= 4 && stp_delay <= 30) {
+        const char *names[] = {"forward_delay", "hello_time", "max_age", "priority", "stp_state"};
+        unsigned values[] = {stp_delay * 100, stp_hello * 100, stp_age * 100, stp_priority, 1};
+        for (int i = 0; i < 5; i++) {
+            char path[64], text[16]; snprintf(path, sizeof(path), "/sys/class/net/br0/bridge/%s", names[i]);
+            int length = snprintf(text, sizeof(text), "%u\n", values[i]), fd = open(path, O_WRONLY | O_CLOEXEC);
+            ssize_t n = fd < 0 ? -1 : write(fd, text, (size_t)length);
+            if (fd >= 0) close(fd);
+            if (n != length) { reply(output, 1, "spanning tree change failed", 27); return; }
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && sscanf(request, "NL1 BRIDGE_STP_PORT %4s %u %u %c", stp_port, &stp_cost, &stp_port_priority, &stp_extra) == 3 &&
+        valid_port(stp_port) && stp_cost >= 1 && stp_cost <= 65535 && stp_port_priority <= 240 && stp_port_priority % 16 == 0) {
+        const char *names[] = {"path_cost", "priority"};
+        unsigned values[] = {stp_cost, stp_port_priority / 16};  /* the kernel keeps the port priority's upper four bits */
+        for (int i = 0; i < 2; i++) {
+            char path[80], text[16]; snprintf(path, sizeof(path), "/sys/class/net/br0/brif/%s/%s", stp_port, names[i]);
+            int length = snprintf(text, sizeof(text), "%u\n", values[i]), fd = open(path, O_WRONLY | O_CLOEXEC);
+            ssize_t n = fd < 0 ? -1 : write(fd, text, (size_t)length);
+            if (fd >= 0) close(fd);
+            if (n != length) { reply(output, 1, "spanning tree port change failed", 32); return; }
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 BRIDGE_STP_OFF")) {
+        int fd = open("/sys/class/net/br0/bridge/stp_state", O_WRONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : write(fd, "0\n", 2);
+        if (fd >= 0) close(fd);
+        if (n != 2) { reply(output, 1, "spanning tree change failed", 27); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 BRIDGE_STP_SHOW")) {
+        static char listing[4096]; size_t used = 0;
+        const char *bridge_keys[] = {"stp_state", "bridge_id", "root_id", "root_port", "root_path_cost", "priority", "hello_time",
+                                     "max_age", "forward_delay"};
+        const char *port_keys[] = {"port_no", "state", "path_cost", "priority", "designated_bridge", "designated_root"};
+        for (int i = 0; i < 9; i++) {
+            char path[64], value[64] = {0}; snprintf(path, sizeof(path), "/sys/class/net/br0/bridge/%s", bridge_keys[i]);
+            int fd = open(path, O_RDONLY | O_CLOEXEC);
+            ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value) - 1);
+            if (fd >= 0) close(fd);
+            if (n <= 0) { reply(output, 1, "no bridge", 9); return; }
+            value[strcspn(value, "\n")] = 0;
+            used += (size_t)snprintf(listing + used, sizeof(listing) - used, "bridge %s %s\n", bridge_keys[i], value);
+        }
+        for (int p = 0; p < 4; p++) {
+            for (int i = 0; i < 6; i++) {
+                char path[80], value[64] = {0}; snprintf(path, sizeof(path), "/sys/class/net/br0/brif/eth%d/%s", p, port_keys[i]);
+                int fd = open(path, O_RDONLY | O_CLOEXEC);
+                ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value) - 1);
+                if (fd >= 0) close(fd);
+                if (n <= 0) break;
+                value[strcspn(value, "\n")] = 0;
+                used += (size_t)snprintf(listing + used, sizeof(listing) - used, "eth%d %s %s\n", p, port_keys[i], value);
+            }
+        }
+        reply(output, 0, listing, used); return;
+    }
     /* Connection tracking table, read directly: needs a guest kernel with conntrack procfs. */
     if (!strcmp(request, "NL1 FW_SESSIONS")) {
         int fd = open("/proc/net/nf_conntrack", O_RDONLY | O_CLOEXEC);

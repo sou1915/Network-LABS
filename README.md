@@ -87,8 +87,13 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 (routeurs) / `tracert` (PC, comme dans Packet Tracer), `ipconfig` / `arp -a` sur les PC, `show arp` / `show mac address-table`, `telnet` / `ssh -l` vers un routeur ou un switch
 (`line vty`, `login local`, `username`, `crypto key generate rsa`, `access-class`), et le relais DHCP `ip helper-address` (avec un pool pour un LAN
 distant, `show ip dhcp binding`), qui agissent pour de vrai.
-EIGRP (`router eigrp`, routes `D`, `show ip eigrp neighbors`) agit aussi pour de vrai.
-Celles qui n'agissent pas encore sur le trafic du lab (port-security, spanning-tree…) sont
+EIGRP (`router eigrp`, routes `D`, `show ip eigrp neighbors`) agit aussi pour de vrai, comme le spanning tree des
+switchs : un second câble entre deux switchs ferme une boucle et allume le STP 802.1D du noyau de chaque switch (un port
+passe en `BLK`), `spanning-tree vlan 1 root primary` / `priority N`, `spanning-tree cost` / `port-priority` changent
+l'arbre, `show spanning-tree` le montre (calculé d'après les câbles tant que le lab est arrêté), et couper le port racine
+fait passer le câble de secours en `FWD`. Un seul arbre pour tous les VLAN (celui du VLAN 1), en STP classique (pas de
+Rapid PVST+). Chaque port de micro-VM a une adresse MAC fixe, d'un démarrage à l'autre.
+Celles qui n'agissent pas encore sur le trafic du lab (port-security, portfast, bpduguard…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme

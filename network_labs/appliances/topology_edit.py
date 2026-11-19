@@ -61,7 +61,8 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
 def connect(spec, a, b):
     draft=copy.deepcopy(spec)
     draft['links'].append([list(a),list(b)])
-    return validate(draft)
+    from .spanning_tree import close_loops
+    return validate(close_loops(draft))  # a cable that closes a switch loop turns STP on, as on a Catalyst
 
 
 def disconnect(spec, a, b):
