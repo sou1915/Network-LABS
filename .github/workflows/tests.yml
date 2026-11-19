@@ -103,7 +103,7 @@ jobs:
         run: |
           kernel="$(ls /tmp/guest-kernel/vmlinux-*-network-labs)"
           (cd /tmp/guest-kernel && sha256sum -c ./*.sha256)
-          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_GUEST_VLAN=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/own-kernel NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm_switch_vlans tests.test_native_microvm_router_on_a_stick tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_scenarios -v
+          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_GUEST_VLAN=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/own-kernel NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm_switch_vlans tests.test_native_microvm_switch_live tests.test_native_microvm_router_on_a_stick tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_scenarios -v
       - name: Report what the guest kernel supports
         if: always()
         run: |

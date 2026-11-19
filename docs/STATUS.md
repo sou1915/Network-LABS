@@ -50,6 +50,7 @@ the direct launch.
 | Firewall sessions view | — (`sessions LAB NODE`) | Read-only; `clear-sessions` refused on guests |
 | Switch guest, one untagged VLAN | `--switch` | 2–4 unnumbered ports bridged in the guest; runs on any guest kernel |
 | Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
+| Switch changes on a running lab | — (switch terminal: `vlan N` / `name`, `switchport …`, `shutdown`) | Typed IOS lines change the running bridge: VLAN filtering turns on with the first VLAN, ports move untagged, shut ports go link-down; `show vlan brief`, `show interfaces status` as on a Catalyst. Real-KVM test `test_native_microvm_switch_live` (Network LABS kernel). `no vlan N` while ports still use N keeps the VLAN (IOS would make those ports inactive) |
 | Router-on-a-stick: 802.1Q subinterfaces on router/firewall guests | `--router-on-a-stick` | Unnumbered trunk port with `ethN.VID` subinterfaces; needs the Network LABS kernel |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
 | OSPFv2 area 0 on router guests (BIRD 2 in the guest) | `--ospf` | Image built `microvm-rootfs --with-routing`; no static routes on OSPF routers; process-wide hello/dead; learned routes are never saved |

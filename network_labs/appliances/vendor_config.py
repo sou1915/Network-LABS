@@ -75,6 +75,15 @@ def ios_name(label):
     return IOS_NAMES.get(match[1], match[1]) + match[2] if match and match[1] in IOS_NAMES else label
 
 
+SHORT_NAMES = {'GigabitEthernet': 'Gi', 'FastEthernet': 'Fa', 'TenGigabitEthernet': 'Te', 'Ethernet': 'Et'}
+
+
+def ios_short(name):
+    """A port as IOS abbreviates it in tables (show vlan brief, show interfaces status): GigabitEthernet0/1 -> Gi0/1."""
+    match = re.fullmatch(r'([A-Za-z]+)([\d/.:]+)', ios_name(name.lower()) if name[:1].islower() else name)
+    return SHORT_NAMES.get(match[1], match[1]) + match[2] if match and match[1] in SHORT_NAMES else name
+
+
 def _port(node, name):
     """A vendor port name (any case, abbreviated as on the device: g0/0/0, gi0/0/0, GigabitEthernet0/0/0) or an eth name."""
     shown = port_names(node)
@@ -314,7 +323,8 @@ def _render_ios(node, eos=False):
         lines += stored + ['!']
     for vid in node.get('vlans', []):
         if vid != 1:
-            lines += [f'vlan {vid}', '!']
+            name = ios_store.vlan_name(node, vid)
+            lines += [f'vlan {vid}'] + ([f' name {name}'] if name else []) + ['!']
     for port, address in node['interfaces'].items():
         lines.append('interface ' + shown[port])
         described, extra = ios_store.render_interface(node, port)
@@ -670,6 +680,15 @@ class IOS:
             if ios_store.store(node, self.block_mode, command, block=self.block):
                 return
             self.block = self.block_mode = None  # a global command leaves the block, as on IOS
+        match = re.fullmatch(r'(no )?vlan (\d+)', low)
+        if match:  # « vlan N » creates it and enters config-vlan (« name … »); « no vlan N » removes it and its name
+            self.port, self.ospf, self.acl, self.bgp, self.range = None, False, None, False, None
+            self._vlan(int(match[2]), bool(match[1]))
+            header = f'vlan {int(match[2])}'
+            if match[1]:
+                ios_store.drop_block(node, header)
+            self.block, self.block_mode = (None, None) if match[1] else (header, 'config-vlan')
+            return
         mode, header = ios_store.enter_block(node, low)
         if mode is not None:
             self.port, self.ospf, self.acl, self.bgp, self.range = None, False, None, False, None
@@ -740,8 +759,6 @@ class IOS:
                 return
             self.port = _port(node, name)
             return
-        if re.fullmatch(r'(no )?vlan \d+', low):
-            return self._vlan(int(words[-1]), low.startswith('no '))
         if low.startswith(('ip route ', 'no ip route ')):
             values = words[3:] if low.startswith('no') else words[2:]
             # 'ip route 10.0.0.0 255.0.0.0 GW' (IOS) or 'ip route 10.0.0.0/8 GW' (EOS).
@@ -806,8 +823,8 @@ class IOS:
             return _set_address(node, self.port, '')
         if low.startswith('switchport') and not low.startswith('switchport port-security'):
             return self._switchport(low)
-        if low in ('no shutdown', 'shutdown') and (node['runtime'] == 'oci' or node['role'] != 'switch'):
-            # A router's or firewall's port: shutdown brings its link down for real (a micro-VM too), no shutdown up.
+        if low in ('no shutdown', 'shutdown'):
+            # shutdown brings the port's link down for real (a micro-VM too, a switch port included), no shutdown up.
             down = [p for p in node.get('shutdown', []) if p != self.port]
             node['shutdown'] = sorted(down + [self.port]) if low == 'shutdown' else down
             return

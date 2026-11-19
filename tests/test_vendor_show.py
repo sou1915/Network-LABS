@@ -89,8 +89,9 @@ class FormatTest(unittest.TestCase):
         node = validate(lab)['nodes'][0]
         replies = {'addresses': '', 'routes': '', 'bridge-vlans': VLANS}
         text = vendor_show.show(node, observed(node, replies), 'show vlan brief')
-        self.assertRegex(text, r'10\s+VLAN0010\s+active\s+GigabitEthernet1/0/1, GigabitEthernet1/0/2')
-        self.assertIn('Trunks (802.1Q) : GigabitEthernet1/0/4', text)
+        self.assertRegex(text, r'10\s+VLAN0010\s+active\s+Gi1/0/1, Gi1/0/2\n')  # as IOS writes them
+        self.assertNotIn('Gi1/0/4', text)  # the trunk: listed by show interfaces trunk, not here
+        self.assertIn('1002 fddi-default                     act/unsup', text)
 
     def test_unknown_commands_list_the_supported_ones(self):
         _, node = router('cisco-isr4331')

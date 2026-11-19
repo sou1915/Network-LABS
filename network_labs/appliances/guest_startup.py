@@ -188,8 +188,9 @@ def check_switch(socket, node):
             if 'UP' in header[2].split(','): up.add(interface)
         elif line.split()[:1] == ['inet'] and interface != 'lo':
             raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
-    if not {'br0', *node['interfaces']} <= up:
-        raise ValueError('Switch guest bridge and all declared ports must be up.')
+    down = set(node.get('shutdown') or [])
+    if not {'br0', *(set(node['interfaces']) - down)} <= up or down & up:
+        raise ValueError('Switch guest bridge and its ports must be up, its shut ports down.')
     plan = vlan_plan(node)
     if plan is not None and observed_vlans(socket, node) != plan:
         raise ValueError('Switch guest VLAN membership differs from its declared switchports.')
@@ -350,6 +351,31 @@ def start_rip(socket, node, timeout=8):
     check_rip(socket, node)
 
 
+LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config')
+
+
+def change_switch(socket, old, new):
+    """Bring a running switch guest from OLD's VLANs, access/trunk ports and shut ports to NEW's: only what differs."""
+    before, after = vlan_plan(old), vlan_plan(new)
+    if before != after:
+        if before is None:
+            try:
+                query(socket, 'bridge-vlan-filtering')
+            except ValueError as error:
+                raise ValueError(str(error) + ' (VLANs need the Network LABS guest kernel, tools/guest_kernel)') from error
+            before = {(port, 1, 'pvid') for port in old['interfaces']}  # every port's default entry once filtering is on
+        wanted = after if after is not None else {(port, 1, 'pvid') for port in new['interfaces']}
+        for port, vid, _ in sorted(before - wanted):
+            if not any(p == port and v == vid for p, v, _ in wanted):
+                query(socket, 'bridge-vlan-delete', interface=port, vlan=vid)
+        # Untagged (pvid) entries last: each one replaces the port's default VLAN.
+        for port, vid, mode in sorted(wanted - before, key=lambda entry: (entry[2] == 'pvid', entry)):
+            query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
+    for port in sorted(set(new.get('shutdown') or []) ^ set(old.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
+    check_switch(socket, new)
+
+
 LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config')
 
 
@@ -458,7 +484,8 @@ def apply(socket, node, timeout=40, alive=None):
             time.sleep(.1)
     if node.get('role') == 'switch':
         for port in node['interfaces']:
-            query(socket, 'link', interface=port, state='up')
+            # A shut port is still in the bridge (its VLANs are kept), with its link down, as « shutdown » on a Catalyst.
+            query(socket, 'link', interface=port, state='down' if port in (node.get('shutdown') or []) else 'up')
             query(socket, 'bridge-add', interface=port)
         plan = vlan_plan(node)
         if plan is not None:

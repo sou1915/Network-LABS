@@ -265,13 +265,19 @@ def _ios_vlan(node, observation, name):
     for entry in observation['vlans']:
         if entry['untagged'] and entry['port'] not in tagged:
             members.setdefault(entry['vlan'], []).append(name(entry['port']))
-    lines = [f'{"VLAN":<5}{"Name":<33}{"Status":<10}Ports', f'{"-" * 4} {"-" * 32} {"-" * 9} {"-" * 24}']
-    for vid in sorted({*members, *(e['vlan'] for e in observation['vlans'])}):
-        label = 'default' if vid == 1 else f'VLAN{vid:04d}'
-        lines.append(f'{vid:<5}{label:<33}{"active":<10}' + ', '.join(members.get(vid, [])))
-    if tagged:
-        lines += ['', 'Trunks (802.1Q) : ' + ', '.join(sorted(name(p) for p in tagged))]
-    return '\n'.join(lines)
+    # As IOS: short port names, four per line; trunk ports are not listed (show interfaces trunk lists them).
+    from .ios_store import vlan_name
+    from .vendor_config import ios_short
+    lines = [f'{"VLAN":<5}{"Name":<33}{"Status":<10}Ports', f'{"-" * 4} {"-" * 32} {"-" * 9} {"-" * 31}']
+    for vid in sorted({*members, *(e['vlan'] for e in observation['vlans']), *(node.get('vlans') or [])}):
+        label = vlan_name(node, vid) or ('default' if vid == 1 else f'VLAN{vid:04d}')
+        ports = [ios_short(p) for p in members.get(vid, [])]
+        rows = [', '.join(ports[i:i + 4]) for i in range(0, len(ports), 4)] or ['']
+        lines.append(f'{vid:<5}{label:<33}{"active":<10}' + rows[0])
+        lines += [' ' * 48 + row for row in rows[1:]]
+    lines += [f'{vid:<5}{label:<33}act/unsup' for vid, label in
+              ((1002, 'fddi-default'), (1003, 'token-ring-default'), (1004, 'fddinet-default'), (1005, 'trnet-default'))]
+    return '\n'.join(line.rstrip() for line in lines)
 
 
 def _forti_interfaces(node, observation, name):

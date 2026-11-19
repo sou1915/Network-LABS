@@ -980,14 +980,16 @@ class Manager:
     def configure_routing(self, name, declared):
         """Live change of a running micro-VM's port addresses, routes, gateway, OSPF, BGP and ACLs to DECLARED.
         Anything else still needs a restart. The change is journalled, read back, and rolled back if it fails."""
-        from .guest_startup import LIVE_ROUTING, change_routing
+        from .guest_startup import LIVE_ROUTING, LIVE_SWITCH, change_routing, change_switch
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab must be running before configuration.')
         index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
-        if index is None or state['spec']['nodes'][index]['runtime'] != 'firecracker' or \
-                state['spec']['nodes'][index]['role'] not in ('host', 'router', 'firewall'):
-            raise ValueError('Live routing changes apply to a running micro-VM host, router or firewall.')
+        if index is None or state['spec']['nodes'][index]['runtime'] != 'firecracker':
+            raise ValueError('Live changes apply to a running micro-VM.')
+        switch = state['spec']['nodes'][index]['role'] == 'switch'
+        if switch:  # VLANs, access and trunk ports, shut ports: live too
+            LIVE_ROUTING, change_routing = LIVE_SWITCH, change_switch
         previous = state['spec']['nodes'][index]
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index] = copy.deepcopy(declared)
@@ -1001,8 +1003,9 @@ class Manager:
         if (same(wanted) != same(previous) or addresses(wanted) != addresses(previous)
                 or set(wanted['interfaces']) != set(previous['interfaces'])
                 or (server and wanted['interfaces'][server['interface']] != previous['interfaces'][server['interface']])):
-            raise ValueError('Only port addresses, static routes, the gateway, OSPF, BGP and access lists change on a running '
-                             'lab (not the DHCP server\'s port); restart it for the rest.')
+            raise ValueError('Only port addresses, shut ports, static routes, the gateway, OSPF, RIP, BGP, access lists and, '
+                             'on a switch, VLANs and switchports change on a running lab (not the DHCP server\'s port); '
+                             'restart it for the rest.')
         socket = self.directory / name / 'guest.vsock'
         state['phase'] = 'configuring'
         state['pending_spec'] = candidate

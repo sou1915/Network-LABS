@@ -14,7 +14,7 @@ from .vendor_config import ios_name
 
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
-         'show interfaces trunk']
+         'show interfaces trunk', 'show interfaces status']
 
 
 def answer(console, low):
@@ -27,6 +27,8 @@ def answer(console, low):
         return version(console)
     if full in ('show cdp neighbors', 'show cdp neighbors detail'):
         return cdp(console, detail=full.endswith('detail'))
+    if full == 'show interfaces status':
+        return status(console)
     if full == 'show interfaces' or re.fullmatch(r'show interfaces \S+', full) and words[-1] not in ('trunk',):
         return interfaces(console, None if full == 'show interfaces' else low.split()[-1])
     if full == 'show interfaces trunk':
@@ -70,7 +72,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'protocols': 'protocols', 'wr': 'write', 'write': 'write', 'mem': 'memory', 'memory': 'memory', 'copy': 'copy',
          'term': 'terminal', 'terminal': 'terminal', 'len': 'length', 'length': 'length', 'width': 'width',
          'users': 'users', 'cdp': 'cdp', 'nat': 'nat', 'trans': 'translations', 'translations': 'translations',
-         'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set'}
+         'stat': 'statistics', 'statistics': 'statistics', 'ip': 'ip', 'erase': 'erase', 'reload': 'reload', 'trunk': 'trunk', 'set': 'set',
+         'status': 'status'}
 
 
 def _expand(words):
@@ -194,6 +197,29 @@ def trunks(console):
     lines += ['', f'{"Port":<13}Vlans allowed on trunk']
     lines += [f'{_label(node, port):<13}' + ('1-4094' if sp['allowed'] == 'all' else ','.join(map(str, sp['allowed'])))
               for port, sp in rows]
+    return '\n'.join(lines)
+
+
+def status(console):
+    """« show interfaces status » as a Catalyst prints it: connected / notconnect / disabled (shut), VLAN or trunk."""
+    from .vendor_config import ios_short
+    node = console.node()
+    if node['role'] != 'switch':
+        return ''
+    up = {i['port']: i['up'] for i in console.observe()['interfaces']}
+    lines = [f'{"Port":<10}{"Name":<19}{"Status":<13}{"Vlan":<11}{"Duplex":>6} {"Speed":>6} Type']
+    for port in node['interfaces']:
+        label = _label(node, port)
+        shut = port in (node.get('shutdown') or [])
+        state = 'disabled' if shut else 'connected' if up.get(port) else 'notconnect'
+        switchport = (node.get('switchports') or {}).get(port) or {'mode': 'access', 'vlan': 1}
+        vlan = 'trunk' if switchport['mode'] == 'trunk' else str(switchport['vlan'])
+        gigabit = label.startswith(('Gigabit', 'TenGigabit'))
+        duplex, speed = ('a-full', 'a-1000' if gigabit else 'a-100') if state == 'connected' else ('auto', 'auto')
+        kind = '10/100/1000BaseTX' if gigabit else '10/100BaseTX'
+        description = next((l[12:] for l in ios_store.config(node)['interfaces'].get(port, []) if l.lower().startswith('description ')),
+                           '')
+        lines.append(f'{ios_short(label):<10}{description[:18]:<19}{state:<13}{vlan:<11}{duplex:>6} {speed:>6} {kind}')
     return '\n'.join(lines)
 
 

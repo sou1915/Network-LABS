@@ -62,6 +62,39 @@ class ChangeRoutingTest(unittest.TestCase):
         self.assertEqual(self.run_change(fresh, old), [('address-add', {'interface': 'eth0', 'cidr': '192.0.2.1/24'})])
 
 
+class ChangeSwitchTest(unittest.TestCase):
+    def run_change(self, old, new):
+        calls = []
+        def query(socket, operation, **fields):
+            calls.append((operation, fields))
+            return ''
+        with mock.patch.object(guest_startup, 'query', query), mock.patch.object(guest_startup, 'check_switch',
+                                                                                lambda socket, node: calls.append(('check',))):
+            guest_startup.change_switch('/unused', old, new)
+        return calls
+
+    def switch(self, **ports):
+        node = {'name': 'SW1', 'role': 'switch', 'interfaces': {f'eth{i}': '' for i in range(4)}, 'vlans': [1],
+                'switchports': {f'eth{i}': {'mode': 'access', 'vlan': 1} for i in range(4)}, 'shutdown': []}
+        for port, value in ports.items():
+            node['switchports'][port] = value
+            node['vlans'] = sorted(set(node['vlans']) | {value.get('vlan') or value.get('native_vlan')}
+                                   | set(value.get('allowed', []) if value.get('allowed') != 'all' else []))
+        return node
+
+    def test_a_first_vlan_turns_filtering_on_and_moves_the_port_untagged_last(self):
+        plain = self.switch()
+        access = self.switch(eth0={'mode': 'access', 'vlan': 10})
+        self.assertEqual(self.run_change(plain, access), [
+            ('bridge-vlan-filtering', {}), ('bridge-vlan-delete', {'interface': 'eth0', 'vlan': 1}),
+            ('bridge-vlan-add', {'interface': 'eth0', 'vlan': 10, 'state': 'pvid'}), ('check',)])
+        trunk = self.switch(eth0={'mode': 'access', 'vlan': 10}, eth3={'mode': 'trunk', 'native_vlan': 1, 'allowed': [1, 10]})
+        self.assertEqual(self.run_change(access, trunk), [
+            ('bridge-vlan-add', {'interface': 'eth3', 'vlan': 10, 'state': 'tagged'}), ('check',)])
+        shut = dict(trunk, shutdown=['eth2'])
+        self.assertEqual(self.run_change(trunk, shut), [('link', {'interface': 'eth2', 'state': 'down'}), ('check',)])
+
+
 class ConfigureRoutingTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

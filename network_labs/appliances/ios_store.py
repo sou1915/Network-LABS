@@ -132,6 +132,8 @@ GRAMMAR = [
      ['router eigrp 10', 'passive-interface {p0}'], STORED, 'R'),
     ('config-eigrp', 'eigrp router-id A.B.C.D', rf'eigrp router-id {IP}', 2, 'Identifiant EIGRP.',
      ['router eigrp 10', 'eigrp router-id 1.1.1.1'], STORED, 'R'),
+    ('config-vlan', 'name NOM', r'name [!-~]{1,32}', 1, 'Nom du VLAN (show vlan brief, show running-config).',
+     ['vlan 30', 'name SERVEURS'], EFFECT, 'S'),
 ]
 # Block headers: the line enters a sub-mode whose lines are kept under it.
 BLOCKS = [('config', 'line con 0', r'line con(?:sole)? 0', 'config-line', 'Ligne console (mot de passe, login…).', ['line con 0'], 'RSF'),
@@ -172,13 +174,28 @@ def validate(node):
         raise ValueError('cli_config: startup is a configuration text.')
     full['interfaces'] = {port: lines for port, lines in full['interfaces'].items() if lines}
     defaults = ({'header': 'line con 0', 'lines': []}, {'header': 'line vty 0 4', 'lines': ['login']})
-    full['blocks'] = [b for b in full['blocks'] if b not in defaults]  # what IOS shows when nothing was configured
+    vlans = set(node.get('vlans') or [])
+    full['blocks'] = [b for b in full['blocks'] if b not in defaults  # what IOS shows when nothing was configured
+                      and not (b['header'].startswith('vlan ') and (not b['lines'] or int(b['header'][5:]) not in vlans))]
     empty = not (full['hostname'] or full['global'] or full['interfaces'] or full['blocks'] or full['startup'])
     node['cli_config'] = None if empty else full  # nothing beyond the model: no stored configuration
 
 
 def hostname(node):
     return (node.get('cli_config') or {}).get('hostname') or node['name']
+
+
+def vlan_name(node, vid):
+    """The name given under « vlan VID » (« name STAFF »), or None."""
+    block = next((b for b in config(node)['blocks'] if b['header'] == f'vlan {vid}'), None)
+    return next((l.split(None, 1)[1] for l in block['lines'] if l.lower().startswith('name ')), None) if block else None
+
+
+def drop_block(node, header):
+    current = config(node)
+    if any(b['header'] == header for b in current['blocks']):
+        current['blocks'] = [b for b in current['blocks'] if b['header'] != header]
+        node['cli_config'] = current
 
 
 def _identity(line, words):
@@ -243,8 +260,12 @@ def _key_of(line, mode):
 def _target(current, mode, port, block):
     if mode == 'config-if':
         return current['interfaces'].setdefault(port, [])
-    if mode in ('config-line', 'config-rip', 'config-eigrp'):
-        return next(b for b in current['blocks'] if b['header'] == block)['lines']
+    if mode in ('config-line', 'config-rip', 'config-eigrp', 'config-vlan'):
+        found = next((b for b in current['blocks'] if b['header'] == block), None)
+        if found is None:  # « vlan N » keeps no block until a line goes under it
+            found = {'header': block, 'lines': []}
+            current['blocks'].append(found)
+        return found['lines']
     return current['global']
 
 

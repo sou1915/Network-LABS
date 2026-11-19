@@ -46,6 +46,31 @@ class DraftLabTest(unittest.TestCase):
         self.assertIn('!!!!!', self.type('R1', 'en', 'ping 192.168.2.10')[-1])
         self.assertIn('interface GigabitEthernet0/0/0\n ip address 192.168.1.1 255.255.255.0', self.type('R1', 'en', 'sh run')[-1])
 
+    def test_a_switch_takes_vlans_and_shutdown_typed_on_its_ports(self):
+        spec = blank_project()
+        spec = topology_edit.add_microvm_node(spec, name='SW1', role='switch', kernel='/k', disk='/d', ports=2, model='cisco-2960')
+        for index, name in enumerate(('PC1', 'PC2')):
+            spec = topology_edit.add_microvm_node(spec, name=name, role='host', kernel='/k', disk='/d', ports=1,
+                                                  addresses=f'10.0.0.{index + 1}/24')
+            spec = topology_edit.connect(spec, (name, 'eth0'), ('SW1', f'eth{index}'))
+        self.box['spec'] = validate(spec)
+        self.assertIn('4 packets received', self.type('PC1', 'ping 10.0.0.2')[-1])
+        console = guest_console.Console('mon-lab', 'SW1', lambda name: self.lab)
+        for line in ('en', 'conf t', 'vlan 10'):
+            console.line(line)
+        self.assertEqual(console.prompt(), 'SW1(config-vlan)#')
+        replies = [console.line(line) for line in ('name STAFF', 'int fa0/2', 'sw mo acc', 'sw acc vl 10', 'end', 'sh vlan br', 'sh run')]
+        self.assertEqual(self.node('SW1')['switchports']['eth1'], {'mode': 'access', 'vlan': 10})
+        self.assertRegex(replies[-2], r'1    default\s+active    Fa0/1\n10   STAFF\s+active    Fa0/2\n')
+        self.assertIn('vlan 10\n name STAFF\n!', replies[-1])
+        self.assertIn('0 packets received', self.type('PC1', 'ping 10.0.0.2')[-1])
+        self.type('SW1', 'en', 'conf t', 'int fa0/2', 'switchport access vlan 1', 'int fa0/1', 'shut', 'end')
+        self.assertEqual(self.node('SW1')['shutdown'], ['eth0'])
+        self.assertRegex(self.type('SW1', 'en', 'sh int status')[-1], r'Fa0/1\s+disabled\s+1\s+auto\s+auto 10/100BaseTX')
+        self.assertIn('0 packets received', self.type('PC1', 'ping 10.0.0.2')[-1])
+        self.type('SW1', 'en', 'conf t', 'int fa0/1', 'no shutdown', 'end')
+        self.assertIn('4 packets received', self.type('PC1', 'ping 10.0.0.2')[-1])
+
 
 if __name__ == '__main__':
     unittest.main()
