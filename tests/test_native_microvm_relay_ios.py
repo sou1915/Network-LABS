@@ -4,6 +4,7 @@ port, live; then PC1 takes an address from R2 through R1's relay and reaches R2.
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import time
@@ -80,7 +81,8 @@ class IosRelayGuestTests(unittest.TestCase):
             for label, reply in seen.items():
                 print(f'\nPC1 ({label}):\n{reply}', flush=True)
             self.assertNotIn('inet 192.168.10.', seen['before'])
-            self.assertRegex(seen['after'], r'inet 192\.168\.10\.(1\d|[2-9]\d|1\d\d|2[0-4]\d)/24')  # past the excluded .1-.9
+            leased = re.search(r'inet 192\.168\.10\.(\d+)/24', seen['after'])
+            self.assertTrue(leased and 10 <= int(leased[1]) <= 254, seen['after'])  # any pool address past the excluded .1-.9
             self.assertIn('4 packets received', seen['ping'])  # through the lease's default router, R1
             self.assertRegex(transcript[-2], r'\n192\.168\.10\.\d+\s+01[0-9a-f]{2}\.[0-9a-f]{4}\.')  # read in R2's lease file
             self.assertIn('ip helper-address 10.0.12.2', transcript[-1])
