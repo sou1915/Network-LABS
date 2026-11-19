@@ -81,7 +81,8 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 `copy run start`, `show startup-config`, `| include` / `| section`, RIP (`router rip`, `network`,
 `passive-interface`, routes `R` dans `show ip route`) et le PAT (`ip nat inside` / `outside`,
 `ip nat inside source list N interface X overload`, `show ip nat translations`) et, sur un switch en marche,
-`vlan N` / `name`, `switchport access vlan N`, `shutdown` (`show vlan brief`, `show interfaces status`), qui agissent pour de vrai.
+`vlan N` / `name`, `switchport access vlan N`, `shutdown` (`show vlan brief`, `show interfaces status`), et `traceroute`
+(routeurs) / `tracert` (PC, comme dans Packet Tracer), qui agissent pour de vrai.
 Celles qui n'agissent pas encore sur le trafic du lab (EIGRP, NAT statique, port-security, spanning-tree…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).

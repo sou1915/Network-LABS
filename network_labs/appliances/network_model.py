@@ -330,9 +330,10 @@ class Model:
                 return ipaddress.IPv4Address(entry['to'])
         return destination
 
-    def deliver(self, source, packet, tracked=None):
+    def deliver(self, source, packet, tracked=None, hops=None):
         """Walk PACKET {source, destination} from node SOURCE. A request records its translations in a new
-        'tracked' list; a reply passes TRACKED to be translated back. Returns (ok, path, why, tracked, node)."""
+        'tracked' list; a reply passes TRACKED to be translated back. Returns (ok, path, why, tracked, node).
+        HOPS, when given, receives each (node, port it arrives by) on the way."""
         from .missions import evaluate_policy
         path, here, ingress = [source], source, None
         reply = tracked is not None
@@ -379,6 +380,8 @@ class Model:
                 loop = path[path.index(following):]
                 return False, path[:path.index(following) + 2], f'boucle de routage entre {" et ".join(dict.fromkeys(loop))}', tracked, here
             path.append(following)
+            if hops is not None:
+                hops.append((following, port))
             here, ingress = following, port
         return False, path, 'boucle de routage', tracked, here
 
@@ -404,6 +407,30 @@ class Model:
             return False, 'retour : ' + ' → '.join(back_path) + ' · ' + why
         return True, ' → '.join(path) + ' (retour ' + ' → '.join(back_path) + ')'
 
+
+    def trace(self, source, destination):
+        """{'hops': [address or None], 'reached', 'why'}: each router on the way answers from the port the probe
+        arrives by, if it has a way back to SOURCE; the destination last. A router whose ACL or policy drops the
+        probe stays silent."""
+        destination = ipaddress.IPv4Address(destination)
+        if self.local(source, destination):
+            return {'hops': [str(destination)], 'reached': True, 'why': None}
+        address = self.source_address(source, destination)
+        if address is None:
+            return {'hops': [], 'reached': False, 'why': self.route(source, destination)[2]}
+        walked = []
+        ok, _, why, _, _ = self.deliver(source, {'source': address, 'destination': destination}, hops=walked)
+        found = []
+        for index, (node, port) in enumerate(walked):
+            if self.local(node, destination):
+                reached = self.ping(source, str(destination))[0]
+                found.append(str(destination) if reached else None)
+                return {'hops': found, 'reached': reached, 'why': None if reached else 'la réponse ne revient pas'}
+            dropped = not ok and index == len(walked) - 1 and why and ('ACL' in why or 'bloque' in why)
+            here = next((a.ip for i, a in self.held(node).items() if _port_of(i) == port), None)
+            back = here is not None and not dropped and self.deliver(node, {'source': here, 'destination': address})[0]
+            found.append(str(here) if back else None)
+        return {'hops': found, 'reached': False, 'why': why}
 
     def ping_all(self, probes):
         return [self.ping(source, destination) for source, destination in probes]

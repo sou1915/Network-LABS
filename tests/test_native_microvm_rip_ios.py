@@ -1,4 +1,5 @@
-"""RIP typed in three real router guests' terminals (BIRD in each): PC1 reaches PC3 across them with no static route."""
+"""RIP typed in three real router guests' terminals (BIRD in each): PC1 reaches PC3 across them with no static route;
+then tracert on PC1 and traceroute on R1 show the routers hop by hop, from real probes."""
 import json
 import os
 from pathlib import Path
@@ -30,7 +31,7 @@ class RipGuestTests(unittest.TestCase):
             spec = chain()
             for node in spec['nodes']:
                 node['kernel'], node['disk'] = str(kernel), str(root / 'base.ext4')
-            transcript, pings, table = [], {}, ''
+            transcript, pings, table, traces = [], {}, '', {}
             with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), \
                     patch('network_labs.appliances.runtime.CONFIG_ROOT', root / 'config'):
                 manager = Manager(spec['name'])
@@ -56,15 +57,23 @@ class RipGuestTests(unittest.TestCase):
                         time.sleep(2)
                     pings['after'] = pc1.line('ping 192.168.3.10')
                     transcript.append('R1#show ip protocols\n' + r1.line('show ip protocols'))
+                    traces['PC1 tracert'] = pc1.line('tracert 192.168.3.10')
+                    traces['R1 traceroute'] = r1.line('traceroute 192.168.3.10')
                 finally:
                     with manager.locked():
                         if manager.directory.exists():
                             manager.stop()
-            (evidence / 'result.json').write_text(json.dumps({'transcript': transcript, 'table': table, 'pings': pings}, indent=2,
-                                                             ensure_ascii=False))
+            result = {'transcript': transcript, 'table': table, 'pings': pings, 'traces': traces}
+            (evidence / 'result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False))
             print('\n' + '\n'.join(transcript) + '\n\nR1#show ip route\n' + table, flush=True)
             for label, reply in pings.items():
                 print(f'\nPC1 ping 192.168.3.10 ({label}):\n{reply}', flush=True)
             self.assertIn('0 packets received', pings['before'])
             self.assertIn('R        192.168.3.0/24 [120/2] via 10.0.12.2, GigabitEthernet0/0/1', table)
             self.assertIn('4 packets received', pings['after'])
+            for label, reply in traces.items():
+                print(f'\n{label} 192.168.3.10:\n{reply}', flush=True)
+            # Real probes, hop by hop: each router answers from the port the probe came in by, PC3 last.
+            self.assertRegex(traces['PC1 tracert'], r'  1 .* ms  192\.168\.1\.1\n  2 .* ms  10\.0\.12\.2\n  3 .* ms  10\.0\.23\.2\n'
+                                                    r'  4 .* ms  192\.168\.3\.10\n\nTrace complete\.')
+            self.assertRegex(traces['R1 traceroute'], r'  1 10\.0\.12\.2 \d+ msec.*\n  2 10\.0\.23\.2 .*\n  3 192\.168\.3\.10 \d+ msec')

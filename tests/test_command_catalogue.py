@@ -2,7 +2,7 @@
 import unittest
 
 from network_labs.appliances import command_catalogue as catalogue
-from network_labs.appliances import vendor_config, vendor_show
+from network_labs.appliances import trace, vendor_config, vendor_show
 from network_labs.appliances.microvm import firewall_nat_example, router_chain_example, switch_vlan_example
 from network_labs.appliances.spec import validate
 
@@ -50,6 +50,10 @@ class CatalogueTest(unittest.TestCase):
                 if entry['mode'] in EXEC_MODES and 'ping' in entry['syntax']:
                     with self.subTest(syntax=syntax, line=entry['example'][0]):
                         self.assertEqual(vendor_show.ping_destination(node, entry['example'][0]), entry['example'][0].split()[-1])
+                if entry['mode'] in EXEC_MODES and entry['syntax'].startswith(('traceroute', 'tracert')):
+                    with self.subTest(syntax=syntax, line=entry['example'][0]):
+                        dialect = 'host' if node['role'] == 'host' else syntax
+                        self.assertEqual(trace.parse(dialect, entry['example'][0]), (True, entry['example'][0].split()[-1]))
 
     def test_examples_use_the_nodes_own_port_names_and_roles_filter_entries(self):
         spec, name = lab('junos', 'router')

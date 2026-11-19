@@ -49,6 +49,8 @@ _IOS_COMMON = [
      ['show ip interface brief'], ALL),
     ('Vérification', 'exec', 'show ip route', 'La table de routage réelle (C, L, S, O, B).', ['show ip route'], ALL),
     ('Vérification', 'exec', 'ping A.B.C.D', 'Envoyer 5 échos ICMP depuis ce nœud (!!!!! = réponses).', ['ping {gw}'], ALL),
+    ('Vérification', 'exec', 'traceroute A.B.C.D', 'Le chemin jusqu’à la destination, routeur par routeur (sondes réelles '
+     'depuis la micro-VM).', ['traceroute {gw}'], ALL),
     ('Système', 'config', 'hostname NOM', 'Nom de l’équipement (il doit rester celui du lab).', ['hostname {name}'], ALL),
     ('Interfaces', 'config', 'interface PORT', 'Configurer un port (mode config-if).', ['interface {p0}'], ALL),
     ('Interfaces', 'config-if', 'description TEXTE', 'Commentaire sur le port.', ['interface {p0}', 'description vers-LAN'], ALL),
@@ -227,6 +229,7 @@ CATALOGUES = {
          ['display ip interface brief'], ALL),
         ('Vérification', 'user', 'display ip routing-table', 'La table de routage réelle.', ['display ip routing-table'], ALL),
         ('Vérification', 'user', 'ping A.B.C.D', 'Envoyer des échos ICMP depuis ce nœud.', ['ping {gw}'], ALL),
+        ('Vérification', 'user', 'tracert A.B.C.D', 'Le chemin jusqu’à la destination, routeur par routeur.', ['tracert {gw}'], ALL),
         ('Système', 'system', 'sysname NOM', 'Nom de l’équipement (il doit rester celui du lab).', ['sysname {name}'], ALL),
         ('Interfaces', 'system', 'interface PORT', 'Configurer un port.', ['interface {p0}'], ALL),
         ('Interfaces', 'interface', 'ip address A.B.C.D MASQUE', 'Adresse IPv4 du port.',
@@ -422,6 +425,10 @@ CATALOGUES = {
         ('Vérification', 'shell', 'ip addr', 'Les ports et leurs adresses (sortie BusyBox).', ['ip addr'], 'H'),
         ('Vérification', 'shell', 'ip route', 'La table de routage du nœud.', ['ip route'], 'H'),
         ('Vérification', 'shell', 'ping A.B.C.D', 'Envoyer 4 échos ICMP.', ['ping {gw}'], 'H'),
+        ('Vérification', 'shell', 'traceroute A.B.C.D', 'Le chemin jusqu’à la destination, routeur par routeur.', ['traceroute {gw}'],
+         'H'),
+        ('Vérification', 'shell', 'tracert A.B.C.D', 'Le même chemin, affiché comme sur un PC Windows (Packet Tracer).',
+         ['tracert {gw}'], 'H'),
         ('Adressage', 'shell', 'ip addr add A.B.C.D/N dev PORT', 'Donner une adresse IPv4 au port (appliquée aussitôt).',
          ['ip addr add 192.0.2.10/24 dev {p0}'], 'H'),
         ('Adressage', 'shell', 'ip addr del A.B.C.D/N dev PORT', 'Retirer l’adresse du port.', ['ip addr del {ip0}/{len0} dev {p0}'], 'H'),
@@ -650,7 +657,8 @@ KEYWORD_HELP = {'ip': 'Configuration IPv4', 'ospf': 'Paramètres OSPF', 'dhcp': 
                 'access-group': 'Appliquer une liste d’accès', 'bgp': 'Paramètres BGP', 'neighbor': 'Voisin BGP',
                 'network': 'Réseau annoncé', 'trunk': 'Port trunk 802.1Q', 'access': 'Port d’accès', 'mode': 'Mode du port',
                 'vlan': 'VLAN', 'interface-brief': '', 'running-config': 'Configuration courante',
-                'configure': 'Entrer en configuration', 'terminal': 'Depuis ce terminal', 'ping': 'Écho ICMP'}
+                'configure': 'Entrer en configuration', 'terminal': 'Depuis ce terminal', 'ping': 'Écho ICMP',
+                'traceroute': 'Chemin jusqu’à une destination'}
 
 
 def _tokens(syntax):

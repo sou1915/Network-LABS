@@ -864,6 +864,29 @@ class Manager:
             replies.append(dict(echo_reply(code, output), sequence=sequence))
         return {'node': name, 'destination': destination, 'replies': replies}
 
+    def trace_node(self, name, destination):
+        """traceroute from a running micro-VM: one guest probe per request, three per hop (trace.walk)."""
+        from . import trace
+        from .guest_control import request
+        destination = str(ipaddress.IPv4Address(destination))
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before traceroute.')
+        node = next((n for n in state['spec']['nodes'] if n['name'] == name), None)
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        if node['runtime'] != 'firecracker':
+            raise RuntimeFailure('traceroute: micro-VM nodes only.')
+        socket = self.directory / name / 'guest.vsock'
+
+        def send(ttl):
+            try:
+                result = request(socket, 'trace', destination=destination, ttl=ttl)
+            except (OSError, ValueError) as error:
+                raise RuntimeFailure(f'{name}: guest traceroute failed: {error}') from error
+            return trace.probe(result['exit_code'], result['output'])
+        return dict(trace.walk(send, destination), node=name)
+
     def configure_ios(self, name, text):
         from .ios import compile_config
         state = self.read()

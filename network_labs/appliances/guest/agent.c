@@ -637,6 +637,16 @@ static void serve(int input, int output, int mutations) {
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
     char port[10], action[5], cidr[20], extra;
+    /* One traceroute hop (one UDP probe at TTL, 1 s wait): the host loops TTLs, as it loops ping's echoes. */
+    char trace_ttl[4], trace_destination[16];
+    unsigned ttl;
+    char *const trace[] = {"busybox", "traceroute", "-n", "-q", "1", "-w", "1", "-f", trace_ttl, "-m", trace_ttl,
+                           trace_destination, NULL};
+    if (sscanf(request, "NL1 TRACE %u %15s %c", &ttl, trace_destination, &extra) == 2 && ttl >= 1 && ttl <= 30 &&
+        inet_pton(AF_INET, trace_destination, &destination) == 1) {
+        snprintf(trace_ttl, sizeof(trace_ttl), "%u", ttl);
+        args = trace;
+    }
     /* 802.1Q subinterfaces, named ethN.VID, through the kernel's VLAN ioctl as vconfig does. */
     unsigned subinterface_vid;
     int subinterface_add = sscanf(request, "NL1 VLAN_ADD %4s %u %c", port, &subinterface_vid, &extra) == 2;

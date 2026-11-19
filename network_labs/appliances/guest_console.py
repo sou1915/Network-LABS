@@ -61,6 +61,21 @@ class Console:
             manager.state = None
             return manager.ping_node(self.name, destination, count=count)
 
+    def trace(self, destination):
+        with self.manager().locked() as manager:
+            manager.state = None
+            return manager.trace_node(self.name, destination)
+
+    def traceroute(self, syntax, command):
+        """The reply to a traceroute / tracert line, or None when COMMAND is not one."""
+        from . import trace
+        matched, destination = trace.parse(syntax, command)
+        if not matched:
+            return None
+        if destination is None:
+            return trace.unknown(syntax)
+        return trace.text(syntax, self.trace(destination), command)
+
     def query(self, operation):
         from .guest_startup import query
         with self.manager().locked() as manager:
@@ -254,6 +269,9 @@ class Console:
         extra = ios_exec.answer(self, low)
         if extra is not None:
             return extra
+        traced = self.traceroute(self.syntax, low)
+        if traced is not None:
+            return traced
         destination = vendor_show.ping_destination(self.node(), low)
         if destination:
             return vendor_show.ping_text(self.node(), self.ping(destination))
@@ -355,6 +373,9 @@ class Console:
             node = self.node()
             with self.manager().locked() as manager:
                 return vendor_config.render(manager.read()['spec'], node['name'])
+        traced = self.traceroute(self.syntax, command)
+        if traced is not None:
+            return traced
         destination = vendor_show.ping_destination(self.node(), command)
         if destination:
             return vendor_show.ping_text(self.node(), self.ping(destination))
@@ -508,13 +529,16 @@ class Console:
                       f'{len(result["replies"])} packets transmitted, {answered} packets received, '
                       f'{round(100 * (1 - answered / max(1, len(result["replies"]))))}% packet loss']
             return '\n'.join(lines)
+        traced = self.traceroute('host', command)
+        if traced is not None:
+            return traced
         if words[:2] in (['ip', 'a'], ['ip', 'addr'], ['ip', 'address']) or words == ['ifconfig']:
             return self.query('addresses').rstrip()
         if words[:2] in (['ip', 'r'], ['ip', 'route']) or words == ['route']:
             return self.query('routes').rstrip()
         if words == ['hostname']:
             return self.name
-        raise ValueError(f'{words[0]}: commande non disponible (ping, ip addr, ip route, hostname, exit).')
+        raise ValueError(f'{words[0]}: commande non disponible (ping, traceroute, tracert, ip addr, ip route, hostname, exit).')
 
     def host_change(self, words):
         """ip addr add|del A.B.C.D/N dev ethX, ip route add|del default|NET/N via A.B.C.D: applied to the running host."""

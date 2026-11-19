@@ -76,6 +76,11 @@ class DraftLab:
         replies = [{'ok': ok, 'ttl': 64 if ok else None, 'time_ms': 1.0 if ok else None, 'sequence': i} for i in range(count)]
         return {'node': name, 'destination': destination, 'replies': replies, 'why': why}
 
+    def trace_node(self, name, destination):
+        from . import trace
+        result = trace.from_model(network_model.Model(self.get_spec()), name, str(ipaddress.IPv4Address(destination)))
+        return dict(result, node=name)
+
     def query_node(self, name, operation):
         """The host shell's « ip addr » and « ip route », written as BusyBox prints them, from the project."""
         observation = self.observe_node(name)

@@ -16,7 +16,8 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
               'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
               'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
-              'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW'}
+              'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
+              'trace': 'TRACE'}
 RIP_SHOW = ('config', 'routes')
 
 
@@ -196,9 +197,16 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation == 'trace':  # one traceroute hop: a UDP probe at TTL
+        if any(value is not None for value in (interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip)) \
+                or type(ttl) is not int or not 1 <= ttl <= 30:
+            raise ValueError('Guest trace requires a destination and a TTL 1..30.')
+        return _exchange(path, operation, f'TRACE {ttl} {ipaddress.IPv4Address(destination)}', timeout)
+    if ttl is not None:
+        raise ValueError('Only trace accepts a TTL.')
     if operation.startswith('rip-'):
         if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp)):
             raise ValueError('Guest RIP operations accept only the process (render, start) or what to show.')
