@@ -124,7 +124,8 @@ def dhcp_pool(node):
     from .dhcp import pool_network  # the port's network, or the remote LAN of a relayed pool
     server = node['dhcp_server']
     return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
-            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(node).prefixlen}
+            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(node).prefixlen,
+            **({'relayed': True} if 'network' in server else {})}  # a remote LAN's pool: no ARP check (see the agent)
 
 
 def leases(socket, interface):

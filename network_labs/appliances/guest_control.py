@@ -181,8 +181,8 @@ def _dhcp_command(operation, interface, server):
         if server is not None:
             raise ValueError(f'Guest {operation} accepts only an interface.')
         return command
-    if not isinstance(server, dict) or set(server) != {'start', 'end', 'netmask', 'router', 'lease_seconds', 'dns'}:
-        raise ValueError('Guest dhcp-serve requires start, end, netmask, router, lease_seconds and dns.')
+    if not isinstance(server, dict) or set(server) - {'relayed'} != {'start', 'end', 'netmask', 'router', 'lease_seconds', 'dns'}:
+        raise ValueError('Guest dhcp-serve requires start, end, netmask, router, lease_seconds and dns (and may say relayed).')
     start, end = ipaddress.IPv4Address(server['start']), ipaddress.IPv4Address(server['end'])
     if not start <= end or int(end) - int(start) >= 256:
         raise ValueError('Guest DHCP pool: 1..256 addresses.')
@@ -193,7 +193,8 @@ def _dhcp_command(operation, interface, server):
     router = str(ipaddress.IPv4Address(server['router'])) if server['router'] else '-'
     dns = ','.join(str(ipaddress.IPv4Address(a)) for a in server['dns']) or '-'
     netmask = str(ipaddress.IPv4Network('0.0.0.0/' + str(server['netmask'])).netmask)
-    return ' '.join([command, str(start), str(end), netmask, router, str(server['lease_seconds']), dns])
+    return ' '.join([command, str(start), str(end), netmask, router, str(server['lease_seconds']), dns]
+                    + (['relayed'] if server.get('relayed') else []))
 
 
 def guest_interface(name):

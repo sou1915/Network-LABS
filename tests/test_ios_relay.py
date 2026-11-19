@@ -45,6 +45,10 @@ class IosRelayTest(unittest.TestCase):
         self.assertEqual({k: server[k] for k in ('interface', 'network', 'start', 'router')},
                          {'interface': 'eth1', 'network': '192.168.10.0/24', 'start': '192.168.10.10', 'router': '192.168.10.1'})
         self.assertIn('ip dhcp pool LAN10\n network 192.168.10.0 255.255.255.0', self.type('R2', ['en', 'sh run'])[-1])
+        from network_labs.appliances.guest_control import _dhcp_command
+        from network_labs.appliances.guest_startup import dhcp_pool
+        # Relayed: no ARP check of each address (R1 answers ARP for 192.168.10.0/24 by proxy toward R2, as IOS does).
+        self.assertTrue(_dhcp_command('dhcp-serve', 'eth1', dhcp_pool(self.node('R2'))).endswith(' relayed'))
         self.assertEqual(Model(self.box['spec']).leases, {})  # no relay yet: PC1's broadcasts stay on its LAN
         self.type('R1', HELPER)
         relay = ios_relay.process(self.node('R1'))

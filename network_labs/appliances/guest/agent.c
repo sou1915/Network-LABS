@@ -777,8 +777,14 @@ static void serve(int input, int output, int mutations) {
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
     char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
-    if (mutations && sscanf(request, "NL1 DHCP_SERVE %4s %15s %15s %15s %15s %6s %47s %c", dhcp_port, dhcp_start, dhcp_end, dhcp_mask,
-                            dhcp_router, dhcp_lease, dhcp_dns, &dhcp_extra) == 7) {
+    /* An optional 8th field « relayed »: the pool serves a remote LAN through a relay. udhcpd then skips its ARP check of
+     * each address (-a 0): on the port toward the relay, the relay router answers ARP for that LAN by proxy (IOS's
+     * default), so every address would look taken; an IOS server checks with a ping through the routes instead. */
+    char dhcp_flag[8] = "";
+    int dhcp_fields = sscanf(request, "NL1 DHCP_SERVE %4s %15s %15s %15s %15s %6s %47s %7s %c", dhcp_port, dhcp_start, dhcp_end,
+                             dhcp_mask, dhcp_router, dhcp_lease, dhcp_dns, dhcp_flag, &dhcp_extra);
+    int dhcp_relayed = dhcp_fields == 8 && !strcmp(dhcp_flag, "relayed");
+    if (mutations && !strncmp(request, "NL1 DHCP_SERVE ", 15) && (dhcp_fields == 7 || dhcp_relayed)) {
         struct in_addr first, last;
         int ok = valid_port(dhcp_port) && inet_pton(AF_INET, dhcp_start, &first) == 1 && inet_pton(AF_INET, dhcp_end, &last) == 1 &&
                  ntohl(first.s_addr) <= ntohl(last.s_addr) && ntohl(last.s_addr) - ntohl(first.s_addr) < 256 &&
@@ -808,7 +814,10 @@ static void serve(int input, int output, int mutations) {
         int written = fd >= 0 && n > 0 && write(fd, config, (size_t)n) == n;
         if (fd >= 0) close(fd);
         char *const serve[] = {"busybox", "udhcpd", "-f", dhcp_conf, NULL};
-        if (!written || spawn_detached("/bin/busybox", serve)) { reply(output, 3, "dhcp server start failed", 24); return; }
+        char *const serve_relayed[] = {"busybox", "udhcpd", "-f", "-a", "0", dhcp_conf, NULL};
+        if (!written || spawn_detached("/bin/busybox", dhcp_relayed ? serve_relayed : serve)) {
+            reply(output, 3, "dhcp server start failed", 24); return;
+        }
         reply(output, 0, "", 0); return;
     }
     if (mutations && sscanf(request, "NL1 DHCP_CLIENT %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
