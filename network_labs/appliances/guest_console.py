@@ -33,7 +33,7 @@ class Console:
         self.typed, self.clock_offset, self.started = [], 0.0, __import__('time').monotonic()
         self.attempts = 0
         self.remote = self.remote_address = self.login_state = None  # telnet / ssh into another device
-        self.vty = False  # this console is a telnet / ssh session (IOS's vty rules)
+        self.vty = False  # this console is a telnet / ssh session (IOS's vty rules): {'user', 'from'} then
         # A console line with « login » and a password asks for it first, as IOS does.
         self.awaiting = 'login' if self.syntax in ('ios', 'eos') and ios_store.console_login(node) else None
 
@@ -104,7 +104,9 @@ class Console:
         banner = ios_store.banner(target)
         opened += ([banner] if banner else []) + (['', 'User Access Verification', ''] if kind == 'telnet' else [''])
         login = remote_login.login(target)
+        source = model.source_address(self.name, ipaddress.IPv4Address(address))
         state = {'kind': kind, 'target': target['name'], 'address': address, 'user': user, 'attempts': 0, 'login': login,
+                 'from': str(source) if source else '',
                  'stage': 'username' if kind == 'telnet' and login == 'local' else 'password'}
         if login is None:  # no « login » on the vty lines: straight in
             self.remote_start(state)
@@ -134,7 +136,7 @@ class Console:
 
     def remote_start(self, state):
         remote = Console(self.lab, state['target'], self.factory)
-        remote.awaiting, remote.vty = None, True
+        remote.awaiting, remote.vty = None, {'user': state['user'] or '', 'from': state['from']}
         self.remote, self.remote_address = remote, state['address']
 
     def trace(self, destination):

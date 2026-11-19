@@ -56,9 +56,12 @@ def answer(console, low):
         return clock(console)
     if full.startswith('clock set '):
         return set_clock(console, low)
-    if full == 'show users':
-        return ('    Line       User       Host(s)              Idle       Location\n'
-                '*  0 con 0                idle                 00:00:00')
+    if full == 'show users':  # this session marked *: the console, or the vty line a telnet / ssh session came in on
+        lines = ['    Line       User       Host(s)              Idle       Location',
+                 f'{"   " if console.vty else "*  "}0 con 0                idle                 00:00:00']
+        if console.vty:
+            lines.append(f'*  2 vty 0     {console.vty["user"]:<11}idle                 00:00:00 {console.vty["from"]}')
+        return '\n'.join(lines)
     if full == 'show privilege':
         return f'Current privilege level is {15 if console.mode == "enable" else 1}'
     if full == 'show ip protocols':

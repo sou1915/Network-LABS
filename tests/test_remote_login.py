@@ -60,6 +60,7 @@ class RemoteLoginTest(unittest.TestCase):
         self.type('R1', 'conf t', 'access-list 10 permit host 192.168.2.10', 'line vty 0 4', 'access-class 10 in', 'end')
         self.assertEqual(self.type('PC2', 'ssh -l admin 192.168.2.1', 's3cret'), ['', ''])
         self.assertEqual(self.prompt('PC2'), 'R1>')
+        self.assertIn('*  2 vty 0     admin      idle                 00:00:00 192.168.2.10', self.type('PC2', 'show users')[0])
         self.consoles.pop('PC1')
         self.assertEqual(self.type('PC1', 'ssh -l admin 192.168.1.1'), ['% Connection refused by remote host'])
 
