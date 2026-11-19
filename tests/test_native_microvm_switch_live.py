@@ -114,6 +114,8 @@ class SwitchLiveGuestTests(unittest.TestCase):
             self.assertRegex(tables['SW1 mac'], r'\n\s+1\s+[0-9a-f.]{14}\s+DYNAMIC\s+Fa0/1\n')
             self.assertRegex(tables['SW1 mac'], r'\n\s+10\s+[0-9a-f.]{14}\s+DYNAMIC\s+Fa0/[23]\n')
             rows = [line for line in tables['SW1 mac'].splitlines() if 'DYNAMIC' in line]
+            # Only PC1 sits on Fa0/1: the cables' host-side plumbing sends nothing the switch could learn.
+            self.assertEqual(len([row for row in rows if row.endswith('Fa0/1')]), 1, tables['SW1 mac'])
             self.assertEqual(len(rows), len(set(rows)), tables['SW1 mac'])  # each learned MAC once, in its port's VLAN only
             self.assertFalse(any(re.search(r'^\s+1\s.*Fa0/[23]$', row) for row in rows), tables['SW1 mac'])
             self.assertRegex(tables['PC1 arp'], r'10\.0\.0\.250\s+([0-9A-F]{2}-){5}[0-9A-F]{2}\s+dynamic')

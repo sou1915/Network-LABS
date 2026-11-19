@@ -542,6 +542,11 @@ class Manager:
                     self.state.setdefault('firewall_ipv6_fingerprints', {})[node['name']] = apply_ipv6_firewall(self, i, node)
                     self.save()
                 if node['runtime'] == 'firecracker':
+                    # The VM's namespace is only its cables' plumbing (taps, bridges, veths): no IPv6 there, or each
+                    # device would send its own router solicitations and MLD reports down the cable, and a switch
+                    # guest would learn MACs no lab device has. The guests' own IPv6 is theirs, inside the VM.
+                    self.ns(i, 'sysctl', '-qw', 'net.ipv6.conf.all.disable_ipv6=1', 'net.ipv6.conf.default.disable_ipv6=1',
+                            check=False)
                     for port in node['interfaces']:
                         tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
                         # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
