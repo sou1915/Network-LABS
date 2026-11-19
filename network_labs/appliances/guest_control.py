@@ -19,7 +19,9 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
               'trace': 'TRACE', 'dhcp-relay-start': 'DHCP_RELAY_START', 'dhcp-relay-stop': 'DHCP_RELAY_STOP',
               'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB',
-              'eigrp-render': 'EIGRP_RENDER', 'eigrp-start': 'EIGRP_START', 'eigrp-stop': 'EIGRP_STOP', 'eigrp-show': 'EIGRP_SHOW'}
+              'eigrp-render': 'EIGRP_RENDER', 'eigrp-start': 'EIGRP_START', 'eigrp-stop': 'EIGRP_STOP', 'eigrp-show': 'EIGRP_SHOW',
+              'proxy-arp': 'PROXY_ARP', 'proxy-arps': 'PROXY_ARPS', 'dev-route-add': 'DEV_ROUTE_ADD',
+              'dev-route-delete': 'DEV_ROUTE_DEL'}
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
 RIP_SHOW = ('config', 'routes')
 
@@ -236,6 +238,16 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
     if eigrp is not None:
         raise ValueError('Only eigrp-render and eigrp-start accept an EIGRP process.')
+    if operation in ('proxy-arp', 'dev-route-add', 'dev-route-delete'):  # a port's proxy ARP, a route through a port
+        if not guest_interface(interface) or interface == 'br0' or any(v is not None for v in (destination, cidr, gateway, rule, dhcp, vlan)):
+            raise ValueError(f'Guest {operation} requires a port eth0..eth3 (or a subinterface).')
+        if operation == 'proxy-arp':
+            if state not in ('on', 'off') or network is not None:
+                raise ValueError('Guest proxy-arp requires state on or off.')
+            return _exchange(path, operation, f'PROXY_ARP {interface} {state}', timeout)
+        if state is not None:
+            raise ValueError(f'Guest {operation} accepts a port and a network.')
+        return _exchange(path, operation, f'{OPERATIONS[operation]} {interface} {ipaddress.IPv4Network(network)}', timeout)
     if operation.startswith('dhcp-relay-'):  # IOS « ip helper-address »: the agent's own relay
         if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl)) \
                 or (relay is None) != (operation != 'dhcp-relay-start'):

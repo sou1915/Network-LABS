@@ -355,6 +355,11 @@ class Model:
                 port = next((_port_of(i) for i, a in held.items() if gateway in a.network), None)
                 if port is not None:
                     best = (network.prefixlen, port, gateway, kind)
+        from .ios_routes import port_routes
+        down = set(node.get('shutdown') or [])
+        for network, port in port_routes(node):  # « ip route NET MASK PORT »: the destination is asked for on the port
+            if port not in down and destination in network and (best is None or network.prefixlen > best[0]):
+                best = (network.prefixlen, port, destination, 'route statique par le port')
         if best is None:
             return None, None, f'{name} n’a aucune route vers {destination}'
         return best[1], best[2], best[3]
@@ -365,10 +370,27 @@ class Model:
         if interface is None:
             return None, kind, None
         owner = self.owners.get((self.seg.get((name, interface)), hop))
+        if owner is None and hop == destination:
+            owner = self.proxy_arp(name, interface, destination)
         if owner is None:
             what = 'la passerelle' if hop != destination else 'la destination'
             return None, f'{name} : {what} {hop} ne répond pas sur ce segment ({kind})', None
         return owner[0], owner[1], interface
+
+    def proxy_arp(self, name, interface, destination):
+        """The router (and port) answering ARP for DESTINATION on NAME's segment by proxy ARP: one with proxy ARP on that
+        port (IOS's default) that reaches DESTINATION through another port, as IOS and Linux answer. None otherwise."""
+        from .ios_routes import proxy_arp
+        segment = self.seg.get((name, interface))
+        for router in self.spec['nodes']:
+            if router['name'] == name:
+                continue
+            for port, on in proxy_arp(router).items():
+                if on and segment is not None and self.seg.get((router['name'], port)) == segment:
+                    out, _, _ = self.route(router['name'], destination)
+                    if out is not None and _port_of(out) != port:
+                        return router['name'], port
+        return None
 
     def nat(self, name):
         """The NAT entries a node runs: a firewall's policy, or a router's IOS NAT (PAT, static, pools)."""

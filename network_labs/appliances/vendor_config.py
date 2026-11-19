@@ -158,6 +158,14 @@ def _delete_route(node, network):
     _set_routes(node, [(n, g) for n, g in current if n != network])
 
 
+def _is_ipv4(word):
+    try:
+        ipaddress.IPv4Address(word)
+        return True
+    except ValueError:
+        return False
+
+
 def _set_address(node, port, address):
     if node['role'] == 'switch':
         raise ValueError('Un switch n’a pas d’adresse IP sur ses ports.')
@@ -425,6 +433,8 @@ def _render_ios(node, eos=False):
     for network, gateway in routes(node):
         net = ipaddress.IPv4Network(network)
         lines.append(f'ip route {network} {gateway}' if eos else f'ip route {net.network_address} {net.netmask} {gateway}')
+    if node.get('cli_config'):  # « ip route NET MASK PORT » lines, kept as typed
+        lines += [l for l in ios_store.config(node)['global'] if l.lower().startswith('ip route ')]
     return '\n'.join(lines + ['!'] + ios_store.render_tail(node) + ['end']) + '\n'
 
 
@@ -792,7 +802,21 @@ class IOS:
                 network, rest = _network(values[0]), values[1:]
             else:
                 network, rest = _network(values[0], values[1]), values[2:]
-            return _delete_route(node, network) if low.startswith('no') else _upsert_route(node, network, rest[0])
+            from . import ios_routes
+            target = ipaddress.IPv4Network(network)
+            if low.startswith('no'):
+                held = any(n == target for n, _ in ios_routes.port_routes(node))
+                ios_routes.store(node, target, None, remove=True)
+                return None if held and network not in [n for n, _ in routes(node)] else _delete_route(node, network)
+            if rest and not _is_ipv4(rest[0]):  # « ip route NET MASK PORT [NEXT-HOP] »
+                if len(rest) > 1 and _is_ipv4(rest[1]):
+                    _port(node, rest[0])
+                    return _upsert_route(node, network, rest[1])
+                if network in [n for n, _ in routes(node)]:
+                    _delete_route(node, network)
+                return ios_routes.store(node, target, rest[0])
+            ios_routes.store(node, target, None, remove=True)
+            return _upsert_route(node, network, rest[0])
         if self.port is None:
             if ios_store.store(node, 'config', command):
                 return

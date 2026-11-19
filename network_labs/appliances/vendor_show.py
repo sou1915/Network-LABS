@@ -261,12 +261,17 @@ def _ios_brief(node, observation, name):
 def _ios_route(node, observation, name):
     lines = ['Codes: L - local, C - connected, S - static, R - RIP, D - EIGRP, O - OSPF, B - BGP, * - candidate default', '']
     default = next((r for r in observation['routes'] if r['network'] == '0.0.0.0/0'), None)
-    lines.append(f'Gateway of last resort is {default["gateway"]} to network 0.0.0.0' if default
+    lines.append(f'Gateway of last resort is {default["gateway"] or "0.0.0.0"} to network 0.0.0.0' if default
                  else 'Gateway of last resort is not set')
     lines.append('')
     for route in _static(observation):
         code = 'S*' if route['network'] == '0.0.0.0/0' else 'S '
         lines.append(f'{code}       {route["network"]} [1/0] via {route["gateway"]}, {name(route["port"])}')
+    connected = {network for network, _, _ in _connected(observation)}
+    for route in observation['routes']:  # « ip route NET MASK PORT »: no next hop, IOS calls it directly connected
+        if not route['gateway'] and not route.get('protocol') and route['network'] not in connected:
+            code = 'S*' if route['network'] == '0.0.0.0/0' else 'S '
+            lines.append(f'{code}       {route["network"]} is directly connected, {name(route["port"])}')
     for route in _rip(observation):
         lines.append(f'R        {route["network"]} [120/{_metric(route)}] via {route["gateway"]}, {name(route["port"])}')
     for route in _eigrp(observation):

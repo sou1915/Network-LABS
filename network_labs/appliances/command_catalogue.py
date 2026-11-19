@@ -76,6 +76,10 @@ _IOS_L3 = [
      ['interface {p2}.20', 'encapsulation dot1Q 20', 'ip address 10.20.0.1 255.255.255.0'], 'RF'),
     ('Routage statique', 'config', 'ip route RÉSEAU MASQUE PASSERELLE', 'Route statique (0.0.0.0 0.0.0.0 pour la route par défaut).',
      ['ip route 10.99.0.0 255.255.0.0 {gw}'], 'RF'),
+    ('Routage statique', 'config', 'ip route RÉSEAU MASQUE PORT', 'Route par un port, sans passerelle : le routeur voisin répond '
+     'par proxy ARP.', ['ip route 10.98.0.0 255.255.0.0 {p1}'], 'R'),
+    ('Routage statique', 'config-if', 'ip proxy-arp', 'Répondre aux ARP pour les adresses joignables par un autre port (défaut).',
+     ['interface {p0}', 'no ip proxy-arp', 'ip proxy-arp'], 'R'),
     ('DHCP', 'config', 'ip dhcp excluded-address A.B.C.D [A.B.C.D]', 'Adresses que le serveur DHCP ne distribue pas.',
      ['ip dhcp excluded-address {ip0}', 'ip dhcp pool LAN', 'network {net0} {mask0}'], 'RF'),
     ('DHCP', 'config', 'ip dhcp pool NOM', 'Serveur DHCP sur le réseau d’un port (mode dhcp-config).',

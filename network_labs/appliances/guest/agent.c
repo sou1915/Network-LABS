@@ -414,6 +414,29 @@ static void serve(int input, int output, int mutations) {
         if (n != 2) { reply(output, 1, "forwarding change failed", 24); return; }
         reply(output, 0, "", 0); return;
     }
+    /* Proxy ARP on one port (IOS « ip proxy-arp », on by default): the port answers ARP for an address the router
+     * reaches through another port. Read back as "port value" lines. */
+    char proxy_port[8], proxy_state[4], proxy_extra;
+    if (mutations && sscanf(request, "NL1 PROXY_ARP %7s %3s %c", proxy_port, proxy_state, &proxy_extra) == 2 &&
+        valid_interface(proxy_port) && strcmp(proxy_port, "br0") && (!strcmp(proxy_state, "on") || !strcmp(proxy_state, "off"))) {
+        char path[64]; snprintf(path, sizeof(path), "/proc/sys/net/ipv4/conf/%s/proxy_arp", proxy_port);
+        int fd = open(path, O_WRONLY | O_CLOEXEC);
+        ssize_t n = fd < 0 ? -1 : write(fd, strcmp(proxy_state, "on") ? "0\n" : "1\n", 2);
+        if (fd >= 0) close(fd);
+        if (n != 2) { reply(output, 1, "proxy arp change failed", 23); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 PROXY_ARPS")) {
+        char listing[256]; size_t used = 0;
+        for (int i = 0; i < 4; i++) {
+            char path[64], value[4] = {0}; snprintf(path, sizeof(path), "/proc/sys/net/ipv4/conf/eth%d/proxy_arp", i);
+            int fd = open(path, O_RDONLY | O_CLOEXEC);
+            ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value) - 1);
+            if (fd >= 0) close(fd);
+            if (n > 0) used += (size_t)snprintf(listing + used, sizeof(listing) - used, "eth%d %c\n", i, value[0]);
+        }
+        reply(output, 0, listing, used); return;
+    }
     /* One untagged learning bridge (the guest kernel has no 802.1Q): typed ioctls, no brctl applet. */
     if (!strcmp(request, "NL1 BRIDGE_PORTS")) {
         DIR *directory = opendir("/sys/class/net/br0/brif");
@@ -881,6 +904,13 @@ static void serve(int input, int output, int mutations) {
     char *const iface_route_delete[] = {"busybox", "ip", "route", "del", via_network, "via", via_gateway, "dev", port, NULL};
     if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
         valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_add;
+    /* A route through a port with no next hop (IOS « ip route NET MASK PORT »): the port's neighbours answer ARP. */
+    char *const dev_route_add[] = {"busybox", "ip", "route", "add", via_network, "dev", port, NULL};
+    char *const dev_route_delete[] = {"busybox", "ip", "route", "del", via_network, "dev", port, NULL};
+    if (mutations && sscanf(request, "NL1 DEV_ROUTE_ADD %9s %19s %c", port, via_network, &extra) == 2 &&
+        valid_interface(port) && valid_cidr(via_network)) args = dev_route_add;
+    if (mutations && sscanf(request, "NL1 DEV_ROUTE_DEL %9s %19s %c", port, via_network, &extra) == 2 &&
+        valid_interface(port) && valid_cidr(via_network)) args = dev_route_delete;
     if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
         valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_delete;
     char *route_network = request + 14;

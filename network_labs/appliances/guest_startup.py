@@ -247,6 +247,8 @@ def observe(socket, node):
     for name in node.get('subinterfaces', {}):
         if extras.pop(name):
             raise ValueError(f'Extra addresses on subinterface {name} cannot be saved; only its declared address is.')
+    from .ios_routes import port_routes
+    through_ports = {(str(n), p) for n, p in port_routes(node)}
     routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
@@ -257,6 +259,8 @@ def observe(socket, node):
             continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
+            if (network, fields[2]) in through_ports:
+                continue  # « ip route NET MASK PORT »: kept as IOS lines, checked by check_port_routing
             if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
                 raise ValueError('Unmanaged guest route cannot be saved: ' + line)
             continue
@@ -280,6 +284,8 @@ def observe(socket, node):
         if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
             raise ValueError('Unsupported guest static route device for ' + route['network'])
     check_forwarding(socket, node)
+    if node.get('role') == 'router':
+        check_port_routing(socket, node)
     if node.get('role') == 'firewall':
         from .guest_firewall import check
         check(socket, node)
@@ -498,6 +504,38 @@ def _port(node, gateway):
         return None
 
 
+def _port_routing(socket, old, new):
+    """Proxy ARP on a router's ports and its routes through a port (ios_routes), from OLD's to NEW's."""
+    from .ios_routes import port_routes, proxy_arp
+    before, after = proxy_arp(old), proxy_arp(new)
+    for port, on in sorted(after.items()):
+        if before.get(port) != on:
+            query(socket, 'proxy-arp', interface=port, state='on' if on else 'off')
+    down = shut_interfaces(new)
+    held = lambda node: {(str(n), p) for n, p in port_routes(node) if p not in shut_interfaces(node)}
+    for network, port in sorted(held(old) - held(new)):
+        query(socket, 'dev-route-delete', interface=port, network=network)
+    for network, port in sorted(held(new) - held(old)):
+        if port not in down:
+            query(socket, 'dev-route-add', interface=port, network=network)
+
+
+def check_port_routing(socket, node):
+    """The guest's proxy ARP and routes through a port are the router's."""
+    from .ios_routes import port_routes, proxy_arp
+    observed = dict(line.split() for line in query(socket, 'proxy-arps').splitlines() if len(line.split()) == 2)
+    for port, on in proxy_arp(node).items():
+        if observed.get(port) != ('1' if on else '0'):
+            raise ValueError(f'{node["name"]}: proxy ARP on {port} differs from the router\'s ip proxy-arp.')
+    listed = query(socket, 'routes').splitlines()
+    for network, port in port_routes(node):
+        if port in shut_interfaces(node):
+            continue
+        shown = 'default' if network.prefixlen == 0 else str(network)
+        if not any(l.split()[:3] == [shown, 'dev', port] for l in listed):
+            raise ValueError(f'{node["name"]}: the route {network} through {port} is missing in the guest.')
+
+
 def change_routing(socket, old, new):
     """Bring a running guest from OLD's port addresses, static routes, gateway, OSPF, BGP and access lists to NEW's:
     only what differs changes."""
@@ -538,6 +576,7 @@ def change_routing(socket, old, new):
         query(socket, 'address-add', interface=port, cidr=address)
     for port in sorted(set(old.get('shutdown') or []) - set(new.get('shutdown') or [])):
         query(socket, 'link', interface=port, state='up')  # « no shutdown »: the port and its routes come back
+    _port_routing(socket, old, new)
     for network, gateway in sorted(after):
         port = _port(new, gateway)
         if port not in new_down and ((network, gateway) not in before or port in old_down):
@@ -652,6 +691,7 @@ def apply(socket, node, timeout=40, alive=None):
             continue
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
+    _port_routing(socket, {'role': node.get('role'), 'interfaces': {}}, node)  # proxy ARP and « ip route NET MASK PORT »
     if node.get('role') == 'firewall':
         # Filter first: forwarding is never switched on before the declared policy is in place.
         from .guest_firewall import apply as apply_firewall

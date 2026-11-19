@@ -68,6 +68,10 @@ class DraftLab:
             for network, gateway, hops in model.rip.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
                 routes.append({'network': str(network), 'gateway': str(gateway), 'port': port, 'protocol': 'rip', 'metric': hops})
+            from .ios_routes import port_routes
+            for network, port in port_routes(node):  # « ip route NET MASK PORT »
+                if port not in down:
+                    routes.append({'network': str(network), 'gateway': None, 'port': port})
             from .eigrp import ios_metric
             for network, gateway, hops in model.eigrp.get(name, []):
                 port = next((network_model._port_of(i) for i, a in held.items() if gateway in a.network), None)
@@ -108,7 +112,8 @@ class DraftLab:
         lines = []
         for route in observation['routes']:
             network = 'default' if route['network'] == '0.0.0.0/0' else route['network']
-            lines.append(f'{network} via {route["gateway"]} dev {route["port"]}')
+            lines.append(f'{network} via {route["gateway"]} dev {route["port"]}' if route['gateway']
+                         else f'{network} dev {route["port"]} scope link')
         for interface in observation['interfaces']:
             for address in interface['addresses'] if interface['up'] else []:
                 value = ipaddress.IPv4Interface(address)

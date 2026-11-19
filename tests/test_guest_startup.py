@@ -447,7 +447,8 @@ class RouterOnAStickTests(unittest.TestCase):
     def test_readback_accepts_declared_subinterfaces_and_nothing_extra(self):
         from network_labs.appliances import guest_startup
         router = self.router()
-        with patch.object(guest_startup, 'query', side_effect=[self.ADDRESSES, self.ROUTES, '1\n']):
+        proxy = ''.join(f'{port} 1\n' for port, address in router['interfaces'].items() if address)  # IOS's default proxy ARP
+        with patch.object(guest_startup, 'query', side_effect=[self.ADDRESSES, self.ROUTES, '1\n', proxy, self.ROUTES]):
             self.assertEqual(guest_startup.observe('/socket', router), {'addresses': [], 'routes': []})
         extra = self.ADDRESSES + '    inet 192.0.2.2/24 scope global secondary eth0.20\n'
         with patch.object(guest_startup, 'query', side_effect=[extra, self.ROUTES, '1\n']), self.assertRaises(ValueError):

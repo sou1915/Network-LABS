@@ -31,6 +31,9 @@ GRAMMAR = [
      ['enable password cisco'], EFFECT, 'RSF'),
     ('config', 'service password-encryption', r'service password-encryption', 2, 'Chiffrer les mots de passe en clair (type 7).',
      ['service password-encryption'], EFFECT, 'RSF'),
+    ('config-if', 'no ip proxy-arp', r'no ip proxy-arp', 3,
+     'Ne plus répondre aux ARP pour les adresses joignables par un autre port (proxy ARP, actif par défaut).',
+     ['interface {p0}', 'no ip proxy-arp'], EFFECT, 'R'),
     ('config', 'no ip domain-lookup', r'no ip domain-lookup', 3, 'Ne pas chercher un mot inconnu comme nom d’hôte.',
      ['no ip domain-lookup'], EFFECT, 'RSF'),
     ('config', 'ip domain-name NOM', r'ip domain-name \S+', 2, 'Domaine (nécessaire aux clés SSH).', ['ip domain-name lab.local'],
@@ -385,7 +388,7 @@ def render_global(node):
     """Stored global lines in IOS's order, without the ones IOS prints near the end."""
     current = config(node)
     encrypt = any(l.lower() == 'service password-encryption' for l in current['global'])
-    tail = ('banner ', 'ntp ', 'logging ', 'snmp-server ', 'ip nat ', 'crypto key ')
+    tail = ('banner ', 'ntp ', 'logging ', 'snmp-server ', 'ip nat ', 'crypto key ', 'ip route ')  # ip route: with the others
     order = ('service ', 'enable ', 'username ', 'no ip domain-lookup', 'ip domain-name', 'ip ssh', 'clock ', 'spanning-tree ',
              'vtp ', 'no cdp', 'lldp', 'ip default-gateway', 'ipv6 ')
     rank = lambda line: next((i for i, p in enumerate(order) if line.lower().startswith(p)), len(order))

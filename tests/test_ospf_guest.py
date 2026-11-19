@@ -125,7 +125,8 @@ class SpecTest(unittest.TestCase):
         from unittest.mock import patch
         from network_labs.appliances import guest_startup
         node = lab()['nodes'][0]
-        replies = {'addresses': ADDRESSES, 'routes': ROUTES, 'forwarding': '1\n', 'ospf-show': ospf.config(node)}
+        replies = {'addresses': ADDRESSES, 'routes': ROUTES, 'forwarding': '1\n', 'ospf-show': ospf.config(node),
+                   'proxy-arps': ''.join(f'{port} 1\n' for port, address in node['interfaces'].items() if address)}
         with patch.object(guest_startup, 'query', lambda socket, operation, **fields: replies[operation]):
             self.assertEqual(guest_startup.observe('/unused', node), {'addresses': [], 'routes': []})
         replies['ospf-show'] = ospf.config(node).replace('cost 10', 'cost 11', 1)
