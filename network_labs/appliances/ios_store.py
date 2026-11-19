@@ -53,8 +53,8 @@ GRAMMAR = [
     ('config', 'logging buffered N', r'logging buffered \d+', 2, 'Journal en mémoire.', ['logging buffered 8192'], STORED, 'RSF'),
     ('config', 'snmp-server community NOM ro|rw', r'snmp-server community \S+ (?:ro|rw)', 3, 'Communauté SNMP.',
      ['snmp-server community public ro'], STORED, 'RSF'),
-    ('config', 'ip default-gateway A.B.C.D', rf'ip default-gateway {IP}', 2, 'Passerelle de gestion d’un switch.',
-     ['ip default-gateway 192.0.2.1'], STORED, 'S'),
+    ('config', 'ip default-gateway A.B.C.D', rf'ip default-gateway {IP}', 2,
+     'Passerelle de gestion du switch (dans le réseau de son interface vlan).', ['ip default-gateway 192.0.2.1'], EFFECT, 'S'),
     ('config', 'ip nat inside source list NOM interface PORT overload',
      r'ip nat inside source list \S+ interface \S+(?: overload)?', 6,
      'PAT : les sources de la liste sortent avec l’adresse du port (ports marqués ip nat inside / outside).',
@@ -175,7 +175,7 @@ def validate(node):
         raise ValueError(f'cli_config: at most {LIMIT_LINES} printable lines of {LIMIT_TEXT} characters.')
     if full['hostname'] is not None and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,62}', full['hostname']):
         raise ValueError('hostname: a letter, then letters, digits, - or _.')
-    if set(full['interfaces']) - set(node['interfaces']) - set(node.get('subinterfaces') or {}):
+    if set(full['interfaces']) - set(node['interfaces']) - set(node.get('subinterfaces') or {}) - set(node.get('svis') or {}):
         raise ValueError('cli_config: lines for declared interfaces only.')
     if full['startup'] is not None and (not isinstance(full['startup'], str) or len(full['startup']) > 65536):
         raise ValueError('cli_config: startup is a configuration text.')

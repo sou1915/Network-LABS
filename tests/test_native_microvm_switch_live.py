@@ -1,5 +1,6 @@
 """A running Cisco switch guest changed only from its terminal: « switchport access vlan 10 » separates PC1 from PC2 and
-PC3 on the real bridge, and « shutdown » on a port takes its link down, then « no shutdown » brings it back, live."""
+PC3 on the real bridge, and « shutdown » on a port takes its link down, then « no shutdown » brings it back, live;
+« interface vlan 1 » then gives the switch its management address, which PC1 (VLAN 1) reaches and PC2 (VLAN 10) does not."""
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from tests.test_native_microvm_missions import wait_ready
 VLAN = ['en', 'conf t', 'vlan 10', 'name STAFF', 'int range fa0/2 - 3', 'sw mo acc', 'sw acc vl 10', 'end', 'sh vlan br']
 SHUT = ['conf t', 'int fa0/3', 'shut', 'end', 'sh int status']
 NO_SHUT = ['conf t', 'int fa0/3', 'no shut', 'end']
+SVI = ['conf t', 'int vlan 1', 'ip address 10.0.0.250 255.255.255.0', 'no shut', 'end', 'ping 10.0.0.1', 'sh ip int br']
 
 
 def lab(kernel, disk):
@@ -80,6 +82,9 @@ class SwitchLiveGuestTests(unittest.TestCase):
                     ping('PC2 -> PC3, Fa0/3 shut', 'PC2', '10.0.0.3', False)
                     typed(NO_SHUT)
                     ping('PC2 -> PC3, Fa0/3 no shut', 'PC2', '10.0.0.3', True)
+                    typed(SVI)  # the switch's management address on its bridge, in VLAN 1 (filtering is on)
+                    ping('PC1 -> SW1 Vlan1', 'PC1', '10.0.0.250', True)
+                    ping('PC2 (VLAN 10) -> SW1 Vlan1', 'PC2', '10.0.0.250', False)
                 finally:
                     with manager.locked():
                         if manager.directory.exists():
@@ -96,4 +101,8 @@ class SwitchLiveGuestTests(unittest.TestCase):
             self.assertIn('0 packets received', pings['PC2 -> PC3, Fa0/3 shut'])
             self.assertIn('4 packets received', pings['PC2 -> PC3, Fa0/3 no shut'])
             self.assertRegex(transcript[len(VLAN) - 1], r'10\s+STAFF\s+active\s+Fa0/2, Fa0/3')
-            self.assertRegex(transcript[-len(NO_SHUT) - 1], r'Fa0/3\s+disabled')
+            self.assertRegex(transcript[-len(NO_SHUT) - len(SVI) - 1], r'Fa0/3\s+disabled')
+            self.assertIn('4 packets received', pings['PC1 -> SW1 Vlan1'])
+            self.assertIn('0 packets received', pings['PC2 (VLAN 10) -> SW1 Vlan1'])
+            self.assertIn('!!!!!', transcript[-2])  # SW1 pings PC1 from its SVI
+            self.assertRegex(transcript[-1], r'Vlan1\s+10\.0\.0\.250\s+YES manual up\s+up')

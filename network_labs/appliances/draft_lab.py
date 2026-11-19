@@ -52,6 +52,10 @@ class DraftLab:
             parent = port.split('.')[0]
             addresses = [str(a) for i, a in held.items() if network_model._port_of(i) == port]
             interfaces.append({'port': port, 'up': parent not in down, 'addresses': addresses})
+        from .svi import management
+        svi = management(node)
+        for name, policy in (node.get('svis') or {}).items():  # a switch's management SVI: up once it runs
+            interfaces.append({'port': name, 'up': bool(svi), 'addresses': [policy['address']] if policy.get('address') else []})
         routes = []
         if node['role'] != 'switch':
             for network, gateway in network_model.static_routes(node):

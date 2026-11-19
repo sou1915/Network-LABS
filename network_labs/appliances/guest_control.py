@@ -193,7 +193,9 @@ def _dhcp_command(operation, interface, server):
 
 
 def guest_interface(name):
-    """A guest port eth0..eth3, or one of its 802.1Q subinterfaces eth0.1 .. eth3.4094."""
+    """A guest port eth0..eth3, one of its 802.1Q subinterfaces eth0.1 .. eth3.4094, or a switch's bridge br0."""
+    if name == 'br0':
+        return True
     match = re.fullmatch(r'eth[0-3](?:\.([1-9][0-9]{0,3}))?', name) if isinstance(name, str) else None
     return bool(match) and (match[1] is None or int(match[1]) <= 4094)
 
@@ -204,8 +206,8 @@ def _bridge_vlan_command(operation, interface, vlan, state):
         if interface is not None or vlan is not None or state is not None:
             raise ValueError(f'Guest {operation} accepts no arguments.')
         return command
-    if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or type(vlan) is not int or not 1 <= vlan <= 4094:
-        raise ValueError('Guest bridge VLAN change requires interface eth0..eth3 and a VLAN 1..4094.')
+    if interface not in ('eth0', 'eth1', 'eth2', 'eth3', 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+        raise ValueError('Guest bridge VLAN change requires interface eth0..eth3 (or br0, the bridge itself) and a VLAN 1..4094.')
     if operation == 'bridge-vlan-add':
         if state not in ('pvid', 'tagged'):
             raise ValueError('Guest bridge-vlan-add requires state pvid (untagged, ingress default) or tagged.')

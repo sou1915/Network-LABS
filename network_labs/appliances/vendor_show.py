@@ -146,7 +146,12 @@ def observe_container(observed, node):
 def _declared(node, interfaces):
     """Declared ports and their subinterfaces, in port order; loopback and bridge devices are not ports."""
     wanted = [*node['interfaces'], *node.get('subinterfaces', {})]
-    return [interfaces.get(port, {'port': port, 'up': False, 'addresses': []}) for port in wanted]
+    found = [interfaces.get(port, {'port': port, 'up': False, 'addresses': []}) for port in wanted]
+    bridge = interfaces.get('br0', {'addresses': []})
+    for name, policy in (node.get('svis') or {}).items() if node.get('runtime') == 'firecracker' else ():
+        # A switch's management SVI: up when its address is on the guest bridge; IOS shows the address even when shut.
+        found.append({'port': name, 'up': bool(bridge['addresses']), 'addresses': [policy['address']] if policy.get('address') else []})
+    return found
 
 
 def _vlans(node, listing):
@@ -165,6 +170,7 @@ def _names(node):
     if dialect(node) == 'ios':
         from .vendor_config import ios_name
         names = {port: ios_name(label) for port, label in names.items()}  # IOS writes its ports in full
+        names.update({svi: ios_name(svi) for svi in node.get('svis') or {}})  # vlan1 -> Vlan1
 
     def name(port):
         parent, dot, vid = (port or '').partition('.')

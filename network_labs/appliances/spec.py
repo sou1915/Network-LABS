@@ -130,9 +130,9 @@ def validate(data):
                 # Access and trunk ports on the guest bridge; VLANs other than one untagged VLAN 1 need a
                 # guest kernel with 802.1Q and bridge VLAN filtering (tools/guest_kernel). No addressing.
                 if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node
-                        or node['svis'] or len(node['vlans']) > 32):
-                    raise ValueError('Firecracker switch: 2..4 unnumbered ports, at most 32 VLANs; '
-                                     'no addresses, gateway, SVIs or guest_network.')
+                        or len(node['vlans']) > 32):
+                    raise ValueError('Firecracker switch: 2..4 unnumbered ports, at most 32 VLANs; no port addresses, '
+                                     'gateway or guest_network (management: one SVI, ip default-gateway).')
                 for port in node['switchports'].values():
                     if port['mode'] == 'trunk':
                         allowed = node['vlans'] if port['allowed'] == 'all' else port['allowed']

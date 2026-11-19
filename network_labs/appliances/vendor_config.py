@@ -67,7 +67,7 @@ LONG_NAMES = {'gi': 'gigabitethernet', 'fa': 'fastethernet', 'te': 'tengigabitet
               'xge': 'xgigabitethernet', 'ethernet': 'ethernet', 'et': 'ethernet'}
 
 
-IOS_NAMES = {'gi': 'GigabitEthernet', 'fa': 'FastEthernet', 'te': 'TenGigabitEthernet', 'eth': 'Ethernet'}
+IOS_NAMES = {'gi': 'GigabitEthernet', 'fa': 'FastEthernet', 'te': 'TenGigabitEthernet', 'eth': 'Ethernet', 'vlan': 'Vlan'}
 
 
 def ios_name(label):
@@ -363,10 +363,23 @@ def _render_ios(node, eos=False):
             interface = ipaddress.IPv4Interface(sub['address'])
             lines.append(f' ip address {sub["address"]}' if eos else f' ip address {interface.ip} {interface.netmask}')
         lines.append('!')
+    for name, svi in sorted((node.get('svis') or {}).items()):  # a switch's management SVI
+        described, extra = ios_store.render_interface(node, name)
+        lines += [f'interface Vlan{svi["vlan"]}'] + [' ' + line for line in described]
+        if svi.get('address'):
+            interface = ipaddress.IPv4Interface(svi['address'])
+            lines.append(f' ip address {svi["address"]}' if eos else f' ip address {interface.ip} {interface.netmask}')
+        else:
+            lines.append(' no ip address')
+        lines += [' ' + line for line in extra]
+        if name in (node.get('shutdown') or []):
+            lines.append(' shutdown')
+        lines.append('!')
     server = node.get('dhcp_server')
     if server and not eos and node['interfaces'].get(server['interface']):
-        network = ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network
-        own = ipaddress.IPv4Interface(node['interfaces'][server['interface']]).ip
+        relayed = 'network' in server  # a remote LAN's pool: its own network, no router address inside it
+        network = ipaddress.IPv4Network(server['network']) if relayed else ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network
+        own = None if relayed else ipaddress.IPv4Interface(node['interfaces'][server['interface']]).ip
         start, end = ipaddress.IPv4Address(server['start']), ipaddress.IPv4Address(server['end'])
         first, last = network.network_address + 1, network.broadcast_address - 1
         for low, high in ((first, start - 1), (end + 1, last)):
@@ -738,6 +751,14 @@ class IOS:
         if self.ospf and not low.startswith('interface ') and self._ospf(low, words):
             return
         self.ospf = False
+        match = re.fullmatch(r'no interface vlan\s*(\d+)', low)
+        if match and node['role'] == 'switch':
+            name = f'vlan{int(match[1])}'
+            (node.get('svis') or {}).pop(name, None)
+            node['shutdown'] = [p for p in node.get('shutdown') or [] if p != name]
+            if node.get('cli_config'):
+                ios_store.config(node)['interfaces'].pop(name, None)
+            return
         if low.startswith('no interface ') and '.' in words[2]:
             parent, _, vid = words[2].partition('.')
             node.get('subinterfaces', {}).pop(f'{_port(node, parent)}.{vid}', None)
@@ -757,6 +778,10 @@ class IOS:
                 port = _port(node, parent)
                 self.port = f'{port}.{vid}'
                 node.setdefault('subinterfaces', {}).setdefault(self.port, {'parent': port, 'vlan': None, 'address': ''})
+                return
+            match = re.fullmatch(r'vlan\s*(\d+)', name.lower())
+            if match and node['role'] == 'switch':
+                self.port = self._svi(int(match[1]))
                 return
             self.port = _port(node, name)
             return
@@ -779,8 +804,32 @@ class IOS:
             return
         return self._interface(command, low, words)
 
+    def _svi(self, vid):
+        """« interface vlan N » on a switch: its management SVI, created shut as on a Catalyst (no shutdown brings it up)."""
+        node, name = self.node, f'vlan{vid}'
+        svis = node.setdefault('svis', {})
+        if name not in svis:
+            if svis and node.get('runtime') == 'firecracker':
+                raise ValueError('Une seule interface vlan de gestion par switch dans le lab (switch de niveau 2).')
+            self._vlan(vid, False)
+            svis[name] = {'vlan': vid, 'address': ''}
+            node['shutdown'] = sorted(set(node.get('shutdown') or []) | {name})
+        return name
+
     def _interface(self, command, low, words):
         node = self.node
+        if self.port in (node.get('svis') or {}):
+            svi = node['svis'][self.port]
+            if low.startswith('ip address '):
+                svi['address'] = _prefix(words[2]) if '/' in words[2] else _prefix(words[2], words[3])
+            elif low == 'no ip address':
+                svi['address'] = ''
+            elif low in ('shutdown', 'no shutdown'):
+                down = [p for p in node.get('shutdown', []) if p != self.port]
+                node['shutdown'] = sorted(down + [self.port]) if low == 'shutdown' else down
+            elif not ios_store.store(node, 'config-if', command, port=self.port):
+                raise ValueError('interface vlan : ip address, shutdown / no shutdown, description.')
+            return
         sub = (node.get('subinterfaces') or {}).get(self.port)
         if sub is not None:
             match = re.fullmatch(r'encapsulation dot1q (\d{1,4})', low)
@@ -1026,7 +1075,9 @@ class IOS:
             port = toward(node, network) or next((p for p, a in node['interfaces'].items() if a), None)
             if port is None:
                 raise ValueError('ip dhcp pool : donnez d’abord une adresse à un port du routeur.')
-        own = None if relayed else ipaddress.IPv4Interface(node['interfaces'][port]).ip
+        router = pool.get('router', current.get('router'))
+        # Never offered: the router's own address, or for a relayed pool its LAN's default router (IOS pings it first).
+        own = (ipaddress.IPv4Address(router) if router else None) if relayed else ipaddress.IPv4Interface(node['interfaces'][port]).ip
         excluded = self.excluded if self.excluded is not None else []
         free = (h for h in network.hosts() if h != own and not any(a <= h <= b for a, b in excluded))  # lazy: a /8 is 16M hosts
         start = end = next(free, None)

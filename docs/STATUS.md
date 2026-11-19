@@ -52,6 +52,7 @@ the direct launch.
 | Switch guest VLANs: access and trunk ports | `--switch-vlans` | Bridge VLAN filtering in the guest; needs the Network LABS kernel (`tools/guest_kernel`) |
 | IOS DHCP relay (`ip helper-address`) | — (R1 LAN port `ip helper-address 10.0.12.2`; R2 `ip dhcp pool` with the remote LAN's `network`) | The guest agent's own relay (`--dhcp-relay`; busybox-static has no dhcprelay): giaddr set to the helper port's address, sent to the server through the kernel's routes, replies broadcast back on the port; started at boot and live. A pool whose network is on none of the server's ports is a relayed pool (`dhcp_server.network`), served on the port toward that LAN (static route, else the only OSPF/RIP port). `show ip dhcp binding` from the guest's lease file. One server per relay router. The relayed pool itself is set before ▶ (the DHCP server does not change live). Real-KVM test `test_native_microvm_relay_ios` |
 | traceroute / tracert | — (router terminal `traceroute A.B.C.D`, Huawei `tracert`, PC `traceroute` or `tracert`) | Real probes from the micro-VM, one hop per guest request (BusyBox traceroute, 1 s wait), three per hop; IOS, VRP, BusyBox and Windows (Packet Tracer PC) output. Stops after 3 silent hops in a row (IOS would go on to 30). A stopped lab answers from the network model. Real-KVM proof in `test_native_microvm_rip_ios` (four hops) |
+| Switch management SVI | — (switch terminal: `interface vlan 1`, `ip address`, `no shutdown`, `ip default-gateway`) | One SVI per switch micro-VM, its address on the guest bridge (with VLAN filtering, the bridge itself joins the SVI's VLAN untagged); shut when created, as on a Catalyst; the default gateway comes from the stored `ip default-gateway` line when it lies in the SVI's subnet (so it may be typed first); live; the network model puts the SVI on its VLAN's segment; `sh ip int br` lists Vlan1. Real-KVM proof in `test_native_microvm_switch_live` |
 | Switch changes on a running lab | — (switch terminal: `vlan N` / `name`, `switchport …`, `shutdown`) | Typed IOS lines change the running bridge: VLAN filtering turns on with the first VLAN, ports move untagged, shut ports go link-down; `show vlan brief`, `show interfaces status` as on a Catalyst. Real-KVM test `test_native_microvm_switch_live` (Network LABS kernel). `no vlan N` while ports still use N keeps the VLAN (IOS would make those ports inactive) |
 | Router-on-a-stick: 802.1Q subinterfaces on router/firewall guests | `--router-on-a-stick` | Unnumbered trunk port with `ethN.VID` subinterfaces; needs the Network LABS kernel |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
@@ -61,7 +62,7 @@ the direct launch.
 
 ## Micro-VM guests — not yet
 
-- SVIs (an address on a switch VLAN) on switch guests, and firewall rules on subinterfaces (guest firewall
+- Routed SVIs on switch guests (a management SVI works), and firewall rules on subinterfaces (guest firewall
   rules name physical ports only). Static routes through a subinterface are unit-tested only.
 - STP, LACP and switch security features on guests.
 - OSPF areas other than 0, OSPF on subinterfaces or switch guests, iBGP and route policies beyond announced networks, OSPF and BGP on one router (OSPF moves to FRR next), other routing protocols; DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests

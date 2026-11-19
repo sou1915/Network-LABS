@@ -32,6 +32,7 @@ static int valid_port(const char *value) {
 }
 /* A guest port eth0..eth3, or one of its 802.1Q subinterfaces eth0.1 .. eth3.4094. */
 static int valid_interface(const char *value) {
+    if (!strcmp(value, "br0")) return 1;  /* a switch guest's bridge: its management address (IOS interface vlan N) */
     if (strlen(value) == 4) return valid_port(value);
     if (strlen(value) < 6 || strlen(value) > 9 || value[4] != '.') return 0;
     char base[5]; memcpy(base, value, 4); base[4] = 0;
@@ -91,6 +92,7 @@ static int spawn_detached_pid(const char *program, char *const argv[], const cha
 static int spawn_detached(const char *program, char *const argv[]) { return spawn_detached_pid(program, argv, NULL); }
 /* One VLAN on one bridge port, through rtnetlink as `bridge vlan add|del` does (BusyBox has no bridge tool). */
 static int bridge_vlan(int command, const char *port, unsigned vid, unsigned short flags) {
+    int self = !strcmp(port, "br0");  /* the bridge's own VLAN membership (where its management address listens) */
     struct { struct nlmsghdr header; struct ifinfomsg link; char attributes[64]; } message;
     memset(&message, 0, sizeof(message));
     message.header.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
@@ -102,11 +104,16 @@ static int bridge_vlan(int command, const char *port, unsigned vid, unsigned sho
     struct rtattr *spec = (struct rtattr *)((char *)&message + NLMSG_ALIGN(message.header.nlmsg_len));
     spec->rta_type = IFLA_AF_SPEC;
     struct rtattr *entry = (struct rtattr *)RTA_DATA(spec);
+    if (self) {
+        entry->rta_type = IFLA_BRIDGE_FLAGS; entry->rta_len = RTA_LENGTH(sizeof(__u16));
+        __u16 bridge_flags = BRIDGE_FLAGS_SELF; memcpy(RTA_DATA(entry), &bridge_flags, sizeof(bridge_flags));
+        entry = (struct rtattr *)((char *)entry + RTA_ALIGN(entry->rta_len));
+    }
     entry->rta_type = IFLA_BRIDGE_VLAN_INFO;
     entry->rta_len = RTA_LENGTH(sizeof(struct bridge_vlan_info));
     struct bridge_vlan_info info = {.flags = flags, .vid = (unsigned short)vid};
     memcpy(RTA_DATA(entry), &info, sizeof(info));
-    spec->rta_len = RTA_LENGTH(RTA_ALIGN(entry->rta_len));
+    spec->rta_len = (unsigned short)((char *)entry + RTA_ALIGN(entry->rta_len) - (char *)spec);
     message.header.nlmsg_len = NLMSG_ALIGN(message.header.nlmsg_len) + RTA_ALIGN(spec->rta_len);
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
     if (fd < 0) return errno;
@@ -379,7 +386,7 @@ static void serve(int input, int output, int mutations) {
     int vlan_fields = sscanf(request, "NL1 BRIDGE_VLAN_ADD %4s %u %7s %c", vlan_port, &vlan_id, vlan_mode, &vlan_extra);
     int vlan_add = vlan_fields == 3 && (!strcmp(vlan_mode, "pvid") || !strcmp(vlan_mode, "tagged"));
     int vlan_delete = !vlan_add && sscanf(request, "NL1 BRIDGE_VLAN_DEL %4s %u %c", vlan_port, &vlan_id, &vlan_extra) == 2;
-    if (mutations && (vlan_add || vlan_delete) && valid_port(vlan_port) && vlan_id >= 1 && vlan_id <= 4094) {
+    if (mutations && (vlan_add || vlan_delete) && (valid_port(vlan_port) || !strcmp(vlan_port, "br0")) && vlan_id >= 1 && vlan_id <= 4094) {
         unsigned short flags = vlan_add && !strcmp(vlan_mode, "pvid") ? BRIDGE_VLAN_INFO_PVID | BRIDGE_VLAN_INFO_UNTAGGED : 0;
         int failure = bridge_vlan(vlan_add ? RTM_SETLINK : RTM_DELLINK, vlan_port, vlan_id, flags);
         if (failure) {

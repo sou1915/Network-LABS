@@ -348,15 +348,18 @@ class Console:
         shown = port_names(after)
         cabled = {end[1] for link in spec['links'] for end in link if end[0] == self.name}
         lines = []
-        for port in after['interfaces']:
-            name = ios_name(shown[port]) if self.syntax == 'ios' else shown[port]
+        for port in [*after['interfaces'], *(after.get('svis') or {})]:  # ports, then a switch's interface vlan
+            name = ios_name(shown.get(port, port)) if self.syntax == 'ios' else shown.get(port, port)
+            if port in (after.get('svis') or {}):
+                cabled = cabled | ({port} if cabled else set())  # an SVI comes up with a connected port in its VLAN
             was, now = port in (before.get('shutdown') or []), port in (after.get('shutdown') or [])
             if was and not now:
                 state = 'up' if port in cabled else 'down'
                 lines.append(f'%LINK-5-CHANGED: Interface {name}, changed state to {state}')
                 if port in cabled:
                     lines.append(f'%LINEPROTO-5-UPDOWN: Line protocol on Interface {name}, changed state to up')
-            elif now and not was:
+            elif now and not was and not (port in (after.get('svis') or {}) and port not in (before.get('svis') or {})):
+                # (a new interface vlan exists already shut on a Catalyst: nothing to report)
                 lines += [f'%LINK-5-CHANGED: Interface {name}, changed state to administratively down',
                           f'%LINEPROTO-5-UPDOWN: Line protocol on Interface {name}, changed state to down']
         return '\n'.join(lines)

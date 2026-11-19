@@ -72,6 +72,11 @@ def segments(spec):
     found = {}
     for node in spec['nodes']:
         if node['role'] == 'switch':
+            from .guest_startup import vlan_plan
+            from .svi import management
+            svi = management(node)  # a switch's management SVI sits on its VLAN's segment
+            if svi:
+                found[(node['name'], svi['name'])] = union.find(('switch', node['name'], None if vlan_plan(node) is None else svi['vlan']))
             continue
         for name in [*node['interfaces'], *(node.get('subinterfaces') or {})]:
             found[(node['name'], name)] = union.find(('port', node['name'], name))
@@ -82,6 +87,10 @@ def segments(spec):
 
 def addresses(node):
     """{interface: IPv4Interface} the node holds on its working interfaces (a shut port has no connected network)."""
+    if node.get('role') == 'switch':
+        from .svi import management
+        svi = management(node)  # a switch holds only its management SVI's address
+        return {svi['name']: ipaddress.IPv4Interface(svi['address'])} if svi else {}
     down = set(node.get('shutdown') or [])
     found = {port: ipaddress.IPv4Interface(a) for port, a in node['interfaces'].items() if a and port not in down}
     found.update({name: ipaddress.IPv4Interface(sub['address']) for name, sub in (node.get('subinterfaces') or {}).items()
@@ -101,6 +110,10 @@ def _port_of(name):
 
 def static_routes(node):
     """[(network, gateway)] including the default route."""
+    if node.get('role') == 'switch':  # « ip default-gateway », when it lies in the management SVI's subnet
+        from .svi import management
+        svi = management(node)
+        return [(ipaddress.IPv4Network('0.0.0.0/0'), ipaddress.IPv4Address(svi['gateway']))] if svi and svi['gateway'] else []
     from .vendor_config import routes
     return [(ipaddress.IPv4Network(network), ipaddress.IPv4Address(gateway)) for network, gateway in routes(node)]
 
@@ -255,9 +268,7 @@ class Model:
                         break
         self._relayed_leases(servers)
         self.owners = {}  # (segment, address) -> (node, interface)
-        for node in spec['nodes']:
-            if node['role'] == 'switch':
-                continue
+        for node in spec['nodes']:  # a switch holds only its management SVI (addresses())
             for name, address in self.held(node['name']).items():
                 key = (self.seg.get((node['name'], _port_of(name))), address.ip)
                 self.owners.setdefault(key, (node['name'], _port_of(name)))

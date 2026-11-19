@@ -179,7 +179,7 @@ def check_switch(socket, node):
     ports = sorted(query(socket, 'bridge-ports').split())
     if ports != sorted(node['interfaces']):
         raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
-    up = set(); interface = None
+    up = set(); interface = None; held = []
     for line in query(socket, 'addresses').splitlines():
         header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
         if header:
@@ -187,8 +187,17 @@ def check_switch(socket, node):
             if interface not in ('lo', 'br0') and interface not in node['interfaces']:
                 raise ValueError('Guest has an undeclared interface.')
             if 'UP' in header[2].split(','): up.add(interface)
+        elif line.split()[:1] == ['inet'] and interface == 'br0':
+            held.append(str(ipaddress.IPv4Interface(line.split()[1])))
         elif line.split()[:1] == ['inet'] and interface != 'lo':
             raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
+    from .svi import management
+    svi = management(node)
+    if held != ([svi['address']] if svi else []):
+        raise ValueError('Switch guest bridge holds ' + (', '.join(held) or 'no address') + ' instead of its management SVI.')
+    if svi and svi['gateway'] and not any(line.split()[:5] == ['default', 'via', svi['gateway'], 'dev', 'br0']
+                                          for line in query(socket, 'routes').splitlines()):
+        raise ValueError('Switch guest lacks its ip default-gateway route.')
     down = set(node.get('shutdown') or [])
     if not {'br0', *(set(node['interfaces']) - down)} <= up or down & up:
         raise ValueError('Switch guest bridge and its ports must be up, its shut ports down.')
@@ -381,12 +390,41 @@ def start_rip(socket, node, timeout=8):
     check_rip(socket, node)
 
 
-LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config')
+LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config', 'svis')
+
+
+def _svi(socket, node, plan, add):
+    """Put a switch's management SVI on its guest bridge (address, ip default-gateway route, and with VLAN filtering
+    the bridge's own membership of the SVI's VLAN), or take it off."""
+    from .svi import management
+    svi = management(node)
+    if svi is None:
+        return
+    moved = plan is not None and svi['vlan'] != 1  # the bridge's own untagged VLAN: 1 by default
+    if add:
+        if moved:
+            query(socket, 'bridge-vlan-add', interface='br0', vlan=svi['vlan'], state='pvid')
+            query(socket, 'bridge-vlan-delete', interface='br0', vlan=1)
+        query(socket, 'address-add', interface='br0', cidr=svi['address'])
+        if svi['gateway']:
+            query(socket, 'route-add', network='0.0.0.0/0', gateway=svi['gateway'], interface='br0')
+        return
+    if svi['gateway']:
+        query(socket, 'route-delete', network='0.0.0.0/0', gateway=svi['gateway'], interface='br0')
+    query(socket, 'address-delete', interface='br0', cidr=svi['address'])
+    if moved:
+        query(socket, 'bridge-vlan-add', interface='br0', vlan=1, state='pvid')
+        query(socket, 'bridge-vlan-delete', interface='br0', vlan=svi['vlan'])
 
 
 def change_switch(socket, old, new):
-    """Bring a running switch guest from OLD's VLANs, access/trunk ports and shut ports to NEW's: only what differs."""
+    """Bring a running switch guest from OLD's VLANs, access/trunk ports, shut ports and management SVI to NEW's:
+    only what differs."""
+    from .svi import management
     before, after = vlan_plan(old), vlan_plan(new)
+    svi_changed = management(old) != management(new) or before != after
+    if svi_changed:
+        _svi(socket, old, before, add=False)
     if before != after:
         if before is None:
             try:
@@ -402,7 +440,10 @@ def change_switch(socket, old, new):
         for port, vid, mode in sorted(wanted - before, key=lambda entry: (entry[2] == 'pvid', entry)):
             query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
     for port in sorted(set(new.get('shutdown') or []) ^ set(old.get('shutdown') or [])):
-        query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
+        if port in new['interfaces']:  # a shut interface vlan only takes the SVI off the bridge (below)
+            query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
+    if svi_changed:
+        _svi(socket, new, after, add=True)
     check_switch(socket, new)
 
 
@@ -540,6 +581,7 @@ def apply(socket, node, timeout=40, alive=None):
             # Untagged (pvid) entries last: each one replaces the port's default VLAN.
             for port, vid, mode in sorted(plan, key=lambda entry: (entry[2] == 'pvid', entry)):
                 query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
+        _svi(socket, node, plan, add=True)  # interface vlan N: the management address on the bridge
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():

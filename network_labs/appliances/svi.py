@@ -13,7 +13,11 @@ def validate_svis(node):
     svis = node.setdefault('svis', {})
     if not isinstance(svis, dict) or len(svis) > 32:
         raise ValueError('svis must be an object with at most 32 entries.')
-    if svis and (node['runtime'] != 'oci' or node['role'] != 'switch' or node.get('switch_backend', 'linux') != 'linux' or node.get('startup') or node.get('dhcp_clients')):
+    guest = node['runtime'] == 'firecracker' and node['role'] == 'switch'
+    if svis and guest and len(svis) > 1:
+        raise ValueError('Switch micro-VM: one management SVI (interface vlan N), as a Layer 2 Catalyst.')
+    if svis and not guest and (node['runtime'] != 'oci' or node['role'] != 'switch' or node.get('switch_backend', 'linux') != 'linux'
+                               or node.get('startup') or node.get('dhcp_clients')):
         raise ValueError('SVIs require an OCI Linux-bridge switch without untracked startup or DHCP clients.')
     networks = []
     for name, policy in svis.items():
@@ -37,6 +41,28 @@ def validate_svis(node):
                 raise ValueError('Overlapping SVI subnets require VRF support, which is not implemented.')
             policy['address'] = str(interface)
             networks.append(interface.network)
+
+
+def management(node):
+    """A switch micro-VM's management SVI as it runs: {'name', 'vlan', 'address', 'gateway'}, or None when it has none,
+    it is shut, it has no address, or (on a bridge without VLANs) it is not VLAN 1. The gateway is the stored
+    « ip default-gateway » when it lies in the SVI's subnet (IOS keeps the line either way)."""
+    if node.get('role') != 'switch' or node.get('runtime') != 'firecracker' or not node.get('svis'):
+        return None
+    name, policy = next(iter(node['svis'].items()))
+    if not policy.get('address') or name in (node.get('shutdown') or []):
+        return None
+    from .guest_startup import vlan_plan
+    if vlan_plan(node) is None and policy['vlan'] != 1:
+        return None  # an unfiltered bridge carries VLAN 1 only: no port in the SVI's VLAN, line protocol down
+    address = ipaddress.IPv4Interface(policy['address'])
+    gateway = None
+    from . import ios_store
+    for line in ios_store.config(node)['global'] if node.get('cli_config') else []:
+        match = re.fullmatch(r'ip default-gateway (\S+)', line.strip(), re.IGNORECASE)
+        if match and ipaddress.IPv4Address(match[1]) in address.network:
+            gateway = match[1]
+    return {'name': name, 'vlan': policy['vlan'], 'address': str(address), 'gateway': gateway}
 
 
 def _self_has(records, vid):
