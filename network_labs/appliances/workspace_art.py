@@ -312,6 +312,56 @@ def tree_layout(graph,groups=None,spacing=125):
     return {n:(x+shift,y+25) for n,(x,y) in positions.items()}  # +25: titles clear the zoom bar when zoomed out
 
 
+def auto_layout(graph,members,width):
+    """Positions for devices the project does not place: each cabled group laid out as a tree (routers and firewalls
+    on top, switches under them, hosts under their switch or router), the groups side by side; devices without a cable
+    wait in a row below, never on top of another one."""
+    names=[n['name'] for n in graph['nodes']]
+    near={n:set() for n in names}
+    for a,b in graph['links']:
+        near[a[0]].add(b[0]);near[b[0]].add(a[0])
+    seen,components=set(),[]
+    for name in names:
+        if name in seen or not near[name]:continue
+        group,stack=[],[name];seen.add(name)
+        while stack:
+            here=stack.pop();group.append(here)
+            for other in sorted(near[here]-seen):
+                seen.add(other);stack.append(other)
+        components.append(group)
+    positions,cursor,bottom={},70,0
+    for group in components:
+        members_here=set(group)
+        sub=dict(graph,nodes=[n for n in graph['nodes'] if n['name'] in members_here],
+                 links=[l for l in graph['links'] if l[0][0] in members_here])
+        laid=tree_layout(sub,{k:v for k,v in members.items() if k in members_here},spacing=140) if len(group)>1 else {}
+        missing=[n for n in group if n not in laid]  # what the tree does not reach (two hosts cabled together…)
+        low=max((y for x,y in laid.values()),default=-15)
+        for i,name in enumerate(missing):
+            laid[name]=(70+i*150,low+140)
+        left=min(x for x,y in laid.values())
+        for name,(x,y) in laid.items():
+            positions[name]=(x-left+cursor,y)
+        cursor=max(x for x,y in positions.values())+190
+        bottom=max(bottom,max(y for x,y in laid.values()))
+    loose=[n for n in names if not near[n]]
+    if loose:
+        top=bottom+180 if components else 125
+        per_row=max(4,int((max(width,cursor)-60)//150))
+        for i,name in enumerate(loose):
+            positions[name]=(90+(i%per_row)*150,top+(i//per_row)*160)
+    return positions
+
+
+def layout_bounds(graph,positions):
+    """The drawing's extent around the devices' anchors: chassis titles above, host captions below."""
+    roles={n['name']:n['role'] for n in graph['nodes']}
+    boxes=[(x-80,y-(40 if roles.get(name)=='host' else 75),x+80,y+(95 if roles.get(name)=='host' else 60))
+           for name,(x,y) in positions.items()]
+    if not boxes:return None
+    return min(b[0] for b in boxes),min(b[1] for b in boxes),max(b[2] for b in boxes),max(b[3] for b in boxes)
+
+
 def place_nodes(graph,members,width):
     positions={};dmz=firewall_hosts(graph)
     routers=[n for n in graph['nodes'] if n['role']=='router'];firewalls=[n for n in graph['nodes'] if n['role']=='firewall']

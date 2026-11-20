@@ -50,7 +50,7 @@ def asset(value):
 
 def validate(data):
     data = copy.deepcopy(data)
-    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links'), 'Lab')
+    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links', 'layout'), 'Lab')
     if type(data.get('version')) is not int or data['version'] not in (1, 2):
         raise ValueError('Native manifest version 1 or 2 required.')
     identifier(data.get('name'))
@@ -236,6 +236,19 @@ def validate(data):
     vcpu_budget = integer(data.get('budget_vcpus', DEFAULT_VCPU_BUDGET), 1, 1024, 'budget_vcpus')
     if sum(n['vcpus'] for n in data['nodes'] if n['runtime'] == 'firecracker') > vcpu_budget:
         raise ValueError(f'Micro-VM vCPU allocations exceed the lab budget of {vcpu_budget}; lower vcpus or set budget_vcpus.')
+    if 'layout' in data:  # where the workbench draws each device; names no longer in the lab are dropped
+        layout = data['layout']
+        if not isinstance(layout, dict):
+            raise ValueError('layout: {device: [x, y]}.')
+        kept = {}
+        for name, point in layout.items():
+            if name not in names:
+                continue
+            if not isinstance(point, (list, tuple)) or len(point) != 2 or \
+                    not all(type(v) in (int, float) and -10000 <= v <= 100000 for v in point):
+                raise ValueError(f'layout: {name} needs [x, y] coordinates.')
+            kept[name] = [round(float(point[0]), 1), round(float(point[1]), 1)]
+        data['layout'] = kept
     return data
 
 

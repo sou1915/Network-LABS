@@ -21,10 +21,11 @@ from . import reference_theme
 from .soft_widgets import SoftCard,SoftPanel,rounded_box
 from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
 from .native_models import port_label,port_names
-from .workspace_art import port_offset,draw_device,access_vlans,place_nodes,networks,firewall_hosts,link_caption,draw_port_labels
+from .workspace_art import port_offset,draw_device,access_vlans,auto_layout,layout_bounds,networks,firewall_hosts,link_caption,draw_port_labels
 from .workspace_art import vlan_groups
 from .missions_ui import MissionsPanel
 from .ui_quick import QuickEditing,blank_project
+from .ui_overview import DeviceOverview
 from .ui_bridge import SOURCE,client_args,private_json,public_topology,read_result,validate_request,validate_topology
 
 
@@ -40,7 +41,7 @@ def launch_terminal(command):
     return subprocess.Popen([terminal,*options,'-e',*command],cwd=SOURCE,env=environment)
 
 
-class ApplianceWindow(MissionsPanel,QuickEditing):
+class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
     def __init__(self,app,*,embedded=False):
         self.app=app;self.path=None;self.pending=None;self.poll_id=None;self.closed=False;self.last_response=None;self.web_portal=None
         # Use the established desktop's theme and device artwork. Native state
@@ -105,7 +106,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2);line.pack(fill='x')
             self.nav_items[label]=(button,line)
         body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
-        library_card=SoftPanel(body,BG,SIDEBAR);library_card.configure(width=196);body.add(library_card,weight=0);library=library_card.inner
+        library_card=SoftPanel(body,BG,SIDEBAR);library_card.configure(width=218);body.add(library_card,weight=0);library=library_card.inner
         content=self.content=ttk.Panedwindow(body,orient='vertical');body.add(content,weight=1)
         workspace=self.workspace=ttk.Panedwindow(content,orient='horizontal')
         content.add(workspace,weight=3)
@@ -117,6 +118,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         for key,title,width in [('time','Heure',75),('action','Opération',85),('result','Résultat observé',280)]:
             self.activity.heading(key,text=title);self.activity.column(key,width=width,minwidth=60)
         self.activity.tag_configure('failed',foreground=RED);self.activity.tag_configure('passed',foreground=TEAL)
+        self.activity.tag_configure('empty',foreground=MUTED)
+        self.activity.insert('','end',iid='empty',values=('—','—','Démarrage, terminaux, tests : l’historique du lab.'),
+                             tags=('empty',))
         self.activity.pack(fill='both',expand=True)
         self.label(library,'Bibliothèque',TEXT,9,True).pack(anchor='w',padx=9,pady=8)
         self.search=tk.StringVar();search=ttk.Entry(library,textvariable=self.search,style='Native.TEntry',font=(self.font,9));search.pack(fill='x',padx=8,pady=(0,8))
@@ -176,7 +180,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         device.pack_propagate(False)
         workspace.add(device,weight=0)
         self.device_tabs=ttk.Notebook(device,style='Native.TNotebook');self.device_tabs.pack(fill='both',expand=True)
-        details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='État / test');details=details_card.inner
+        details_card=SoftPanel(self.device_tabs,BG);self.device_tabs.add(details_card,text='Aperçu');details=details_card.inner
         self.config_panel=SoftPanel(self.device_tabs,BG);self.device_tabs.add(self.config_panel,text='GUI')
         self.build_config_form(self.config_panel.inner)
         self.console_panel=SoftPanel(self.device_tabs,BG)
@@ -210,23 +214,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.build_trace_form(capture_form)
         tk.Label(capture_form,text='Choisir un nouveau fichier. La capture se déroule dans le namespace du nœud, sans interface hôte.\n\nAuthentification, progression et résultat dans le terminal. Vous pouvez générer du trafic depuis le logiciel pendant la capture.\n\nSnapshot : 2048 octets par paquet. Un fichier vide ne prouve pas une absence de trafic.',bg=BG,fg=MUTED,font=(self.font,9),justify='left',wraplength=275).pack(fill='x',padx=14,pady=6)
 
-        self.label(details,'État de l’équipement',TEXT,9,True).pack(anchor='w',padx=14,pady=8)
-        self.selected_title=tk.StringVar();self.selected_details=tk.StringVar()
-        tk.Label(details,textvariable=self.selected_title,bg=PANEL,fg=TEXT,font=(self.font,10,'bold'),anchor='w').pack(fill='x',padx=14)
-        tk.Label(details,textvariable=self.selected_details,bg=PANEL,fg=MUTED,justify='left',anchor='w',wraplength=265).pack(fill='x',padx=14,pady=4)
-        self.nodes=ttk.Treeview(details,columns=('runtime','state','memory'),displaycolumns=('state','memory'),show='tree headings',height=3,selectmode='browse',style='Native.Treeview')
-        for key,label,width in (('#0','Nœud',65),('runtime','Runtime',65),('state','État runtime',115),('memory','RAM',70)):
-            self.nodes.heading(key,text=label);self.nodes.column(key,width=width,minwidth=45,stretch=True)
-        self.nodes.pack(fill='x',padx=8);self.nodes.bind('<<TreeviewSelect>>',self.select_node)
-        controls=tk.Frame(details,bg=PANEL,padx=12,pady=6);controls.pack(fill='x')
-        self.inspect_button=ttk.Button(controls,text='Inspecter le réseau',command=lambda:self.launch('inspect'),style='Native.TButton');self.inspect_button.pack(fill='x')
-        self.label(controls,'TEST DE CONNECTIVITÉ',MUTED,9,True).pack(anchor='w',pady=(8,4))
-        self.destination=tk.StringVar();self.targets=ttk.Combobox(controls,textvariable=self.destination,state='readonly',style='Native.TCombobox',font=(self.font,9));self.targets.pack(fill='x',pady=4)
-        self.verify_button=ttk.Button(controls,text='Tester la liaison',command=lambda:self.launch('verify'),style='Native.Primary.TButton');self.verify_button.pack(fill='x',pady=4)
-        self.note=tk.StringVar(value='Ouvrir un projet natif ou créer un LAN pour commencer.')
-        tk.Label(details,textvariable=self.note,bg=PANEL,fg=BLUE,font=(self.font,8),justify='left',anchor='nw',wraplength=265).pack(fill='x',padx=14,pady=4)
-        self.label(details,'Vert : processus actif. Tester le réseau.',MUTED,7).pack(side='bottom',padx=12,pady=6)
+        self.build_overview(details)  # the selected device at a glance (ui_overview)
         self.editor=self.text_area(self.editor_tab);self.output=self.text_area(self.output_tab);self.output.configure(state='disabled',background='#0b0f15',foreground='#edf1f7',insertbackground='white');self.output.master.configure(bg='#0b0f15');self.output.master.master.face='#0b0f15'
+        self.output.tag_configure('empty',foreground='#7f93aa',font=(self.font,9))
         self.raw_output=self.text_area(self.raw_tab);self.raw_output.configure(state='disabled')
         validate_button=ttk.Button(self.editor_tab,text='Valider / plan',command=self.preview,style='Native.TButton');validate_button.grid(row=2,column=0,sticky='e',pady=4);self.buttons.append(validate_button)
         self.table=ttk.Treeview(diagnostics,columns=('runtime','implementation','detected','scope'),show='headings',style='Native.Treeview')
@@ -253,7 +243,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
     def fit_reference_layout(self):
         self.layout_id=None
         if not self.closed and self.content.winfo_height()>350:
-            self.content.sashpos(0,max(250,self.content.winfo_height()-184))
+            self.content.sashpos(0,max(250,self.content.winfo_height()-160))
             self.lower.sashpos(0,int(self.content.winfo_width()*.55))
             # The device panel holds a section rail and a form: give it about 30% of the width (420-560 px)
             # so port names, addresses and action buttons are not cut off.
@@ -315,9 +305,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             self.label(group,category,TEXT,8,True).pack(anchor='w',padx=9,pady=(7,2))
             for kind,model,title,subtitle,variant in entries:
                 tile=SoftCard(group,SIDEBAR);tile.pack(fill='x',padx=7,pady=3)
-                icon=tk.Canvas(tile.inner,width=68,height=38,bg=PANEL,highlightthickness=0)
+                icon=tk.Canvas(tile.inner,width=62,height=38,bg=PANEL,highlightthickness=0)
                 icon.pack(side='left',padx=(0,4))
-                draw_device(icon,kind,34,19,scale=.5,variant=variant)
+                draw_device(icon,kind,31,19,scale=.5,variant=variant)
                 caption=tk.Frame(tile.inner,bg=PANEL)
                 caption.pack(side='left',fill='x',expand=True)
                 # Left-anchored and trimmed: an overflowing label would otherwise lose its first letters.
@@ -359,6 +349,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
 
     def record_event(self,action,result):
         tag='failed' if 'failed' in result or 'blocked' in result else 'passed' if 'passed' in result else ''
+        if self.activity.exists('empty'):self.activity.delete('empty')
         self.activity.insert('','end',values=(time.strftime('%H:%M:%S'),action,result),tags=(tag,))
         children=self.activity.get_children()
         if len(children)>200:self.activity.delete(*children[:-200])
@@ -430,11 +421,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.write_output('',{},'Diagnostic réseau · lecture seule')
         self.editor.delete('1.0','end');self.editor.insert('1.0',json.dumps(spec,indent=2))
         self.config_key=None
-        self.positions={}
+        self.positions={name:tuple(point) for name,point in (spec.get('layout') or {}).items()}  # as last saved
         self.zoom=1.
         self.view_moved=False
         self.draw(public_topology(spec))
-        self.view_origin(0,0)
+        self.fit_view()
         self.observation.set('Topologie déclarée · état runtime à actualiser.')
 
     def draw(self,graph,states=None):
@@ -449,7 +440,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             if public_topology(candidate)==graph:spec=candidate;members=access_vlans(graph,spec)
         except (ValueError,TypeError,KeyError):pass
         config={n['name']:n for n in spec['nodes']} if spec else {}
-        positions=place_nodes(graph,members,width)
+        positions=auto_layout(graph,members,width)
         positions.update({name:point for name,point in self.positions.items() if name in positions})
         self.drawn_positions=positions
         for xx in range(-142,int(width/max(.65,self.zoom))+160,22):
@@ -467,7 +458,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             points=[positions[n] for n in names]
             spread=max(x for x,y in points)-min(x for x,y in points)+104
             # Laid-out sites (tree layout or moved by hand): a box hugs its hosts and never covers a neighbour's.
-            span=spread if self.positions else max(spread,width/max(1,len(groups))-18)
+            span=spread
             middle=(min(x for x,y in points)+max(x for x,y in points))/2
             x1=middle-span/2;x2=middle+span/2
             # Keep the group inside the canvas, clear of the vertical scrollbar.
@@ -483,8 +474,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         dmz=firewall_hosts(graph)
         for name in dmz:
             xx,yy=positions[name]
-            rounded_box(self.canvas,xx-52,yy-52,xx+52,yy+76,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
-            self.canvas.create_text(xx,yy-40,text='Segment pare-feu',fill='#705493',font=(self.font,7,'bold'))
+            rounded_box(self.canvas,xx-58,yy-56,xx+58,yy+62,r=14,fill='#f2ecff',outline='#cbb9ec',dash=(3,2),tags=('firewall-zone',))
+            zone=self.canvas.create_text(xx-50,yy-46,text='Zone pare-feu',anchor='w',fill='#705493',font=(self.font,7,'bold'),
+                                         tags=('zone-label',))
+            bx1,by1,bx2,by2=self.canvas.bbox(zone)  # on a card of its own: the firewall's cable passes behind it
+            self.canvas.tag_lower(rounded_box(self.canvas,bx1-3,by1-1,bx2+3,by2+1,r=5,fill='#f2ecff',outline='',tags=('zone-label',)),zone)
         graph_nodes={n['name']:n for n in graph['nodes']};port_labels=[]
         blocked=set()
         try:
@@ -571,7 +565,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
                     # A cable going almost straight down: label its vertical run, clear of both devices.
                     self.canvas.create_text(bx+6,(mid+by)/2,text=caption,anchor='w',fill='#315b7d',font=(self.font,7))
                 else:
-                    self.canvas.create_text((ax+bx)/2,mid-8,text=caption,fill='#315b7d',font=(self.font,7))
+                    # On the lower device's own vertical run: the upper device's port labels keep their room.
+                    lower_x,lower_y=(bx,by) if by>ay else (ax,ay)
+                    self.canvas.create_text(lower_x+6,(mid+lower_y)/2,text=caption,anchor='w',fill='#315b7d',font=(self.font,7))
         for x1,y1,x2,bg,ink,vid,subnets in captions:
             rounded_box(self.canvas,x1+3,y1+3,x2-3,y1+41,r=9,fill=bg,outline='')
             self.canvas.create_text((x1+x2)/2,y1+14,text=f'VLAN {vid}',fill=ink,font=(self.font,8,'bold'),tags=('vlan-label',))
@@ -590,12 +586,14 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
             draw_device(self.canvas,kind,x,y,scale=1,tags=tags,variant='red' if host_index%2 else 'blue',zoom=self.zoom)
             if node['role']=='host':
-                self.canvas.create_text(x,y+36,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
+                self.canvas.create_text(x,y+40,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
-                caption=', '.join(ips) or ('Linux · micro-VM' if node.get('runtime')=='firecracker' else 'Linux · OCI')
-                if node.get('model') in MODELS:
-                    caption=MODELS[node['model']]['brand']+' · '+(caption if ips else MODELS[node['model']]['model'][:22])
-                self.canvas.create_text(x,y+49,text=caption,fill=MUTED,font=(self.font,8),tags=tags)
+                # Under a host: its address (what a lab is about); the model only while it has none.
+                caption=', '.join(ips) if ips else (MODELS[node['model']]['model'][:20] if node.get('model') in MODELS
+                                                    else 'Linux · micro-VM' if node.get('runtime')=='firecracker' else 'Linux · OCI')
+                if node.get('dhcp_clients') and not ips:
+                    caption='DHCP'
+                self.canvas.create_text(x,y+54,text=caption,fill='#315b7d' if ips else MUTED,font=(self.font,8),tags=tags)
             else:
                 self.canvas.create_text(x,y-48,text=name,fill=TEXT,font=(self.font,9,'bold'),tags=tags)
                 subtitle=model_label(node,short=True)
@@ -613,6 +611,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             x,y=positions[node['name']];host=node['role']=='host'
             obstacles.append((x-32 if host else x-50,y-29,x+32 if host else x+50,y+24))
         draw_port_labels(self.canvas,port_labels,obstacles,(self.font,7),MUTED)
+        self.canvas.tag_raise('zone-label')
         self.canvas.tag_raise('port-light')  # above the devices' artwork, as a port's link light
         for index,(a,b) in enumerate(graph['links']):
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
@@ -636,14 +635,16 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.zoom_label.set(f'{round(self.zoom*100)} %')
         hosts=[n['name'] for n in graph['nodes'] if n['runtime']=='oci' and n['role']=='host']
         self.targets.configure(values=hosts);self.destination.set(destination if destination in hosts else hosts[-1] if hosts else '')
+        self.show_oci_controls(bool(hosts))
         if graph['nodes']:self.choose_node(previous if previous in positions else graph['nodes'][0]['name'])
+        else:self.refresh_overview(None)
 
     def choose_node(self,name):self.nodes.selection_set(name);self.nodes.see(name);self.select_node()
     def select_node(self,event=None):
         selected=self.nodes.selection();node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
         if node:
-            name=node['name'];state=self.states.get(name,{}).get('status','non observé')
-            self.selected_title.set(name);self.selected_details.set(node['role']+' · '+node['runtime']+'\nÉtat : '+state+'\nInterfaces : '+', '.join(node['interfaces']))
+            name=node['name']
+            self.selected_title.set(name)
             if self.library.selection()!=(name,):self.library.selection_set(name)
             for key,shape in self.node_shapes.items():self.canvas.itemconfigure(shape,outline=BLUE if key==name else '',width=2 if key==name else 1)
         self.inspect_button.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending else ['disabled'])
@@ -665,6 +666,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         if self.capture_interface.get() not in capture_ports:self.capture_interface.set(capture_ports[0] if capture_ports else '')
 
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
+        self.refresh_overview(node)
         if node:self.load_config()
         self.config_apply.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending and self.config_baseline is not None else ['disabled'])
 
@@ -687,7 +689,22 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.zoom=1.
         self.view_moved=False
         self.draw(self.graph,self.states)
-        self.view_origin(0,0)
+        self.fit_view()
+
+    def fit_view(self):
+        """Zoom out (never below 65 %) until every device shows, then centre the drawing in the canvas."""
+        bounds=layout_bounds(self.graph,getattr(self,'drawn_positions',{})) if getattr(self,'graph',None) else None
+        self.canvas.update_idletasks()
+        width,height=max(300,self.canvas.winfo_width()-16),max(200,self.canvas.winfo_height()-16)
+        if bounds is None:
+            return self.view_origin(0,0)
+        x1,y1,x2,y2=bounds
+        wanted=max(.65,min(1.,width/max(1,x2-x1),height/max(1,y2-y1)))
+        if abs(wanted-self.zoom)>.001:
+            self.zoom=wanted;self.draw(self.graph,self.states)
+        z=self.zoom
+        self.view_origin(((x1+x2)/2)*z-width/2,max(y1*z-8,((y1+y2)/2)*z-height/2))
+        self.zoom_label.set(f'{round(self.zoom*100)} %')
 
     def view_origin(self,x,y):
         region=tuple(float(v) for v in self.canvas.cget('scrollregion').split())
@@ -853,11 +870,13 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
 
     def draw_device_header(self):
         """Paint the GUI tab's device band: gradient, drawing, name, brand · model and chips."""
-        canvas=self.device_header
+        self.device_header.delete('all')
+        if self.device_header_node:
+            self.paint_device_header(self.device_header,*self.device_header_node)
+
+    def paint_device_header(self,canvas,spec,node):
+        """A device band on CANVAS (the Aperçu and GUI tabs): gradient, drawing, name, brand · model and chips."""
         canvas.delete('all')
-        if not self.device_header_node:
-            return
-        spec,node=self.device_header_node
         from .device_view import summary
         from .workspace_art import _mix,device_image
         info=summary(spec,node)
@@ -1151,6 +1170,10 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         self.dock.select(self.output_tab)
         return True
 
+    EMPTY_OUTPUT=('  Aucun relevé pour l’instant.\n\n'
+                  '  Les sorties des commandes lancées depuis l’application (état, inspection, show d’un équipement)\n'
+                  '  s’affichent ici. Pour taper des commandes : double-clic sur un équipement.')
+
     def write_output(self,display,raw,title):
         self.dock.tab(self.output_tab,text=title)
         raw=json.dumps(raw,ensure_ascii=False,indent=2)
@@ -1158,6 +1181,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             target.configure(state='normal')
             target.delete('1.0','end')
             target.insert('1.0',text)
+            if target is self.output and not display:
+                target.insert('1.0',self.EMPTY_OUTPUT,('empty',))  # an empty terminal says what will come in it
             target.configure(state='disabled')
 
     def config_port_selected(self,event=None):
@@ -1381,6 +1406,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
                 path=self.path or self.project_file(spec)
             if not path:return False
             self.path=Path(path).resolve()
+            drawn=getattr(self,'drawn_positions',{})  # the workbench drawing comes back as it was left
+            spec['layout']={name:[round(x,1),round(y,1)] for name,(x,y) in drawn.items() if name in {n['name'] for n in spec['nodes']}}
             private_json(self.path,spec)
             self.project_title.set(spec['name']+' · '+self.path.name)
             return True

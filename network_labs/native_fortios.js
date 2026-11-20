@@ -64,6 +64,30 @@
     box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:6}
   .fg-toast.bad{background:#8c1d1d}
   .fg-note{font-size:12px;color:#647587;margin-top:10px}
+  .fg-face{display:flex;align-items:center;gap:20px;background:linear-gradient(180deg,#34404b,#1d252d);border-radius:6px;
+    padding:14px 20px;margin-bottom:14px;color:#cfd8e1;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 3px 10px rgba(16,24,32,.18)}
+  .fg-plate{min-width:120px}.fg-plate b{display:block;font-size:16px;color:#fff;letter-spacing:.3px}.fg-plate span{font-size:11px;color:#9fb0c0}
+  .fg-leds{display:flex;gap:12px;margin-top:10px;font-size:9.5px;color:#9fb0c0}.fg-leds span{display:flex;align-items:center;gap:5px}
+  .fg-leds i{width:7px;height:7px;border-radius:50%;background:#56636f}.fg-leds i.on{background:#3ddc84;box-shadow:0 0 6px #3ddc84}
+  .fg-faceports{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+  .fg-fp{width:66px;text-align:center;cursor:pointer}.fg-fp.spare{opacity:.4;cursor:default}
+  .fg-fp .num{display:block;font-size:10.5px;font-weight:600;color:#dfe7ee;margin-bottom:4px}
+  .fg-fp .jack{position:relative;height:30px;margin:0 9px;border-radius:3px;background:#0b1015;border:1px solid #56636f}
+  .fg-fp .jack:after{content:'';position:absolute;left:30%;right:30%;bottom:-1px;height:7px;background:#1d252d;border:1px solid #56636f;border-bottom:0}
+  .fg-fp .led{position:absolute;top:3px;width:7px;height:4px;border-radius:1px;background:#3a4652}.fg-fp .l{left:4px}.fg-fp .r{right:4px}
+  .fg-fp.up .l{background:#3ddc84;box-shadow:0 0 5px #3ddc84}.fg-fp.up .r{background:#f5b041}.fg-fp.down .l{background:#e04f4f}
+  .fg-fp:not(.spare):hover .jack{border-color:#3aa0b8}
+  .fg-fp .addr{display:block;margin-top:4px;font-size:10px;color:#9fb0c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fg-w.wide{grid-column:span 2}.fg-w.full{grid-column:1/-1}.fg-w .body.flush{padding:0}
+  .fg-w table{width:100%;border-collapse:collapse;font-size:12px}.fg-w th{background:#fafbfc;font-weight:600;color:#4a5b6c}
+  .fg-w th,.fg-w td{text-align:left;padding:7px 12px;border-bottom:1px solid #edf1f4;white-space:nowrap}
+  .fg-w tr:last-child td{border-bottom:0}.fg-empty{margin:0;padding:14px 12px;color:#7d8c9a;font-size:12px}
+  .fg-big small{font-size:15px;color:#7d8c9a;font-weight:500}
+  .fg-meter{display:flex;height:8px;border-radius:4px;background:#e6ecf1;overflow:hidden;margin:12px 0 8px}.fg-meter i{display:block;height:100%}
+  .fg-legend2{display:flex;gap:12px;font-size:11px;color:#647587}.fg-legend2 span{display:flex;align-items:center;gap:5px}
+  .fg-legend2 i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .fg-tag{display:inline-block;border-radius:3px;padding:1px 7px;font-size:11px}.fg-tag.c{background:#e3f1f4;color:#1f6f80}
+  .fg-tag.s{background:#eef0fb;color:#3c4ca0}
   `;
   document.head.appendChild(css);
 
@@ -90,7 +114,9 @@
   ];
   const ITEMS = Object.fromEntries(PAGES.flatMap(([group, items]) => items.map(([id, label, why]) => [id, {group, label, why}])));
   const SERVICES = ['ALL', 'ALL_ICMP', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'TELNET'];
-  let fgPage = 'policy', selected = null, filter = '', standard = false, toastTimer = null;
+  // The page asked for in the link (the main script keeps it in « page » after it clears the URL): Status by default.
+  const ASKED = {dashboard: 'status', overview: 'status', firewall: 'policy', nat: 'vip', routing: 'routes', interfaces: 'interfaces'};
+  let fgPage = ASKED[typeof page === 'string' ? page : ''] || 'status', selected = null, filter = '', standard = false, toastTimer = null;
   const app = document.createElement('div');
   app.className = 'fg-app';
   const q = value => JSON.stringify(String(value));
@@ -174,18 +200,62 @@
 
   // ---- pages ----
   function statusPage(main) {
-    const d = state.device, rules = fw().rules, live = state.live;
-    main.insertAdjacentHTML('beforeend', `<h1>Status</h1><p class="lead">Vue d’ensemble du boîtier simulé.</p><div class="fg-widgets">
-      <div class="fg-w"><h3>System Information</h3><div class="body fg-kv"><span>Hostname</span><b>${esc(state.node.name)}</b>
-        <span>Model</span><b>${esc(d.brand)} ${esc(d.model)}</b><span>Firmware</span><b>Linux · Network LABS</b>
-        <span>Mode</span><b>NAT</b><span>Runtime</span><b>${esc(d.runtime)}</b></div></div>
-      <div class="fg-w"><h3>Security Policies</h3><div class="body"><div class="fg-big">${rules.length}</div>
-        <div class="muted">${rules.filter(r => r.action === 'accept').length} ACCEPT · ${rules.filter(r => r.action !== 'accept').length} DENY ·
-        défaut ${fw().default === 'accept' ? 'ACCEPT' : 'DENY'}</div></div></div>
-      <div class="fg-w"><h3>Sessions</h3><div class="body"><div class="fg-big">${live && live.sessions ? live.sessions.length : '—'}</div>
-        <div class="muted">${live ? 'relevé à ' + esc(live.time) : 'Relever l’état réel depuis la vue Network LABS (lab en marche).'}</div></div></div>
-      <div class="fg-w" style="grid-column:1/-1"><h3>Network Interfaces</h3><div class="body fg-ports">${d.ports.map(p =>
-        `<div class="fg-port${p.peer ? ' up' : ''}"><div class="j"></div><b>${esc(p.name)}</b></div>`).join('')}</div></div></div>`);
+    const d = state.device, n = state.node, rules = fw().rules, live = state.live, running = state.observed === 'running';
+    const accept = rules.filter(r => r.action === 'accept').length, deny = rules.length - accept;
+    const faceports = [...d.ports, ...d.spare.map(name => ({name, spare: true}))];
+    const up = d.ports.filter(p => p.peer && !p.down).length;
+    const addressed = d.ports.filter(p => p.address).length;
+    const percent = (part, whole) => whole ? Math.round(100 * part / whole) : 0;
+    const port = p => {
+      const kind = p.spare ? 'spare' : p.down ? 'down' : p.peer ? 'up' : 'free';
+      const tip = p.spare ? `${p.name} · port du modèle non déclaré dans le laboratoire`
+        : `${p.name}${p.address ? ' · ' + p.address : ''}${p.peer ? ' · câblé vers ' + p.peer : ' · libre'}${p.down ? ' · arrêté' : ''}`;
+      return `<div class="fg-fp ${kind}" title="${esc(tip)}"><span class="num">${esc(p.name)}</span>
+        <div class="jack"><i class="led l"></i><i class="led r"></i></div>
+        <span class="addr">${p.spare ? '&nbsp;' : esc(p.address ? p.address.split('/')[0] : p.peer ? 'sans IP' : '—')}</span></div>`;
+    };
+    const routeRows = [...d.connected.map(r => [esc(r.network), '<span class="muted">—</span>', esc(r.port), '<span class="fg-tag c">Connected</span>']),
+      ...d.static.map(r => [esc(r.network), esc(r.gateway), esc(r.port), '<span class="fg-tag s">Static</span>'])];
+    const interfaceRows = d.ports.map(p => [`<b>${esc(p.name)}</b>`, esc(p.address ? ipMask(p.address) : '0.0.0.0 0.0.0.0'),
+      esc(p.peer || '—'), p.down ? '<span class="fg-den">● Down</span>' : p.peer ? '<span class="fg-acc">● Up</span>' : '<span class="fg-off">● Libre</span>']);
+    const mini = (head, rows, empty) => rows.length ? `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
+      rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : `<p class="fg-empty">${esc(empty)}</p>`;
+    const policyRows = rules.slice(0, 6).map((r, i) => [String(i + 1), `<b>${esc(r.name)}</b>`,
+      esc(`${r.in ? portName(r.in) : 'any'} → ${r.out ? portName(r.out) : 'any'}`), esc(serviceOf(r)),
+      r.action === 'accept' ? '<span class="fg-acc">✔ ACCEPT</span>' : '<span class="fg-den">✖ DENY</span>']);
+    main.insertAdjacentHTML('beforeend', `<h1>Status</h1><p class="lead">Vue d’ensemble de ${esc(n.name)} : la configuration du
+      laboratoire${live ? ', et le relevé de ' + esc(live.time) : ''}.</p>
+      <div class="fg-face"><div class="fg-plate"><b>${esc(d.model)}</b><span>${esc(d.brand)}</span>
+        <div class="fg-leds"><span><i class="on"></i>PWR</span><span><i class="${running ? 'on' : ''}"></i>STATUS</span></div></div>
+        <div class="fg-faceports">${faceports.map(port).join('')}</div></div>
+      <div class="fg-widgets">
+        <div class="fg-w"><h3>System Information</h3><div class="body fg-kv"><span>Hostname</span><b>${esc(n.name)}</b>
+          <span>Model</span><b>${esc(d.brand)} ${esc(d.model)}</b><span>Firmware</span><b>Linux · Network LABS</b>
+          <span>Mode</span><b>NAT</b><span>CLI</span><b>FortiOS (sous-ensemble)</b><span>Runtime</span><b>${esc(d.runtime)}</b>
+          <span>État</span><b>${running ? '<span class="fg-acc">● En marche</span>' : '<span class="fg-off">○ Non observé</span>'}</b></div></div>
+        <div class="fg-w"><h3>Interfaces</h3><div class="body"><div class="fg-big">${up}<small> / ${d.ports.length}</small></div>
+          <div class="muted">ports câblés et actifs · ${addressed} avec une adresse</div>
+          <div class="fg-meter"><i style="width:${percent(up, d.ports.length)}%;background:#3ddc84"></i></div>
+          <div class="fg-legend2"><span><i style="background:#3ddc84"></i>Up ${up}</span><span><i style="background:#c9d3dc"></i>Libres ${
+            d.ports.filter(p => !p.peer).length}</span><span><i style="background:#e04f4f"></i>Arrêtés ${d.ports.filter(p => p.down).length}</span></div></div></div>
+        <div class="fg-w"><h3>Security Policies</h3><div class="body"><div class="fg-big">${rules.length}</div>
+          <div class="muted">politiques · action par défaut ${fw().default === 'accept' ? 'ACCEPT' : 'DENY'}</div>
+          <div class="fg-meter">${rules.length ? `<i style="width:${percent(accept, rules.length)}%;background:#2e9d5b"></i><i style="width:${
+            percent(deny, rules.length)}%;background:#c0392b"></i>` : ''}</div>
+          <div class="fg-legend2"><span><i style="background:#2e9d5b"></i>ACCEPT ${accept}</span><span><i style="background:#c0392b"></i>DENY ${deny}</span>
+          <span><i style="background:#1f7a8c"></i>NAT ${fw().nat.length}</span></div></div></div>
+        <div class="fg-w wide"><h3>Network Interfaces</h3><div class="body flush">${mini(['Name', 'IP/Netmask', 'Câble vers', 'Status'], interfaceRows,
+          'Aucun port déclaré.')}</div></div>
+        <div class="fg-w"><h3>Sessions</h3><div class="body"><div class="fg-big">${live && live.sessions ? live.sessions.length : '—'}</div>
+          <div class="muted">${live ? 'relevé à ' + esc(live.time) : 'Lab en marche : « Vue Network LABS » → Relever l’état réel.'}</div></div></div>
+        <div class="fg-w full"><h3>Routing Monitor</h3><div class="body flush">${mini(['Destination', 'Gateway', 'Interface', 'Type'], routeRows,
+          'Aucune route : donner une adresse à un port (Network › Interfaces).')}</div></div>
+        <div class="fg-w full"><h3>Firewall Policy</h3><div class="body flush">${mini(['ID', 'Name', 'From → To', 'Service', 'Action'], policyRows,
+          'Aucune politique : Policy & Objects › Firewall Policy › Create New.')}</div></div>
+      </div>`);
+    main.querySelectorAll('.fg-fp:not(.spare)').forEach((element, index) => {
+      element.onclick = () => { fgPage = 'interfaces'; selected = index; draw(); };
+    });
   }
 
   function interfacesPage(main) {
