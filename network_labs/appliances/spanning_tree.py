@@ -13,7 +13,7 @@ import re
 from .spec import integer, keys
 
 TIMERS = ('hello_time', 'max_age', 'forward_delay')
-TICKS = os.sysconf('SC_CLK_TCK')
+TICKS = os.sysconf('SC_CLK_TCK') if hasattr(os, 'sysconf') else 100  # Linux USER_HZ; none on Windows
 
 
 def validate_tree(node):

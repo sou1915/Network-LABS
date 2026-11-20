@@ -1,14 +1,23 @@
 """Bounded SSH shell transport using the existing RADIUS session supervisor."""
 import base64
 import errno
-import fcntl
+try:
+    import fcntl  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    fcntl = None
 import os
-import pty
+try:
+    import pty  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    pty = None
 import select
 import socket
 import struct
 import subprocess
-import termios
+try:
+    import termios  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    termios = None
 import time
 
 from .radius_login import login

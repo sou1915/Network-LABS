@@ -5,7 +5,10 @@ No secret/password or live session is saved.
 """
 from contextlib import contextmanager
 from functools import wraps
-import fcntl
+try:
+    import fcntl  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    fcntl = None
 import threading
 import hashlib
 import ipaddress

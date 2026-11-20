@@ -8,7 +8,10 @@ import os
 from pathlib import Path
 import platform
 import re
-import resource
+try:
+    import resource  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    resource = None
 import signal
 import subprocess
 import time

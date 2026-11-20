@@ -36,6 +36,21 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+### Windows et macOS : le mode modèle
+
+L'atelier s'ouvre aussi sous Windows et macOS (Python 3.12 de python.org, qui inclut Tkinter), sans KVM :
+
+```bash
+git clone https://github.com/sou1915/Network-LABS.git
+cd Network-LABS
+python -m network_labs
+```
+
+(`py -m network_labs` sous Windows.) Le lab s'y construit et se configure comme dans Packet Tracer : double-clic sur
+un équipement pour sa CLI (configuration IOS, `show`, `ping`, `traceroute`) et **✉ Simulation**, tout étant calculé
+par le modèle du réseau. ▶ Démarrer, qui lance les vraies micro-VM, demande Linux avec KVM ; ailleurs, il explique le
+mode modèle. Même chose sous Linux sans KVM pour un lab de micro-VM.
+
 ### Premier lancement des micro-VM (missions, pannes, scénarios)
 
 Une seule commande vérifie la machine, télécharge Firecracker et le noyau

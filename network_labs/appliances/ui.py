@@ -342,6 +342,21 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         else:self.project_list.pack_forget()
         self.project_toggle.configure(text=('▾' if self.project_list_open else '▸')+' Équipements du projet')
 
+    def model_mode_refusal(self,action):
+        """On Windows, macOS, or a Linux without KVM for a micro-VM lab: say once why the lab cannot start and what still
+        works (the CLIs, ping and simulation on the model), instead of failing in a terminal. True when refused."""
+        from .platform_support import MODEL_MODE,blocker
+        try:
+            spec=self.manifest() if action=='start' else None
+        except (ValueError,TypeError,KeyError):
+            spec=None
+        why=blocker(spec)
+        if why is None:
+            return False
+        self.note.set('Mode modèle : CLI, ping et ✉ Simulation fonctionnent ; démarrer les micro-VM demande Linux avec KVM.')
+        messagebox.showinfo('Mode modèle',MODEL_MODE.format(why=why),parent=self.window)
+        return True
+
     def record_event(self,action,result):
         tag='failed' if 'failed' in result or 'blocked' in result else 'passed' if 'passed' in result else ''
         self.activity.insert('','end',values=(time.strftime('%H:%M:%S'),action,result),tags=(tag,))
@@ -598,7 +613,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
         running=sum(n['runtime']=='oci' and self.states.get(n['name'],{}).get('status')=='running' for n in graph['nodes'])
         stopped=bool(self.states) and all(self.states.get(n['name'],{}).get('status')=='stopped' for n in graph['nodes'])
-        self.runtime_hint.set(f'● Relevé : {running} processus OCI en marche' if running else '● Arrêt confirmé' if stopped else '○ État non observé')
+        from .platform_support import model_mode
+        self.runtime_hint.set(f'● Relevé : {running} processus OCI en marche' if running else '● Arrêt confirmé' if stopped
+                              else '◇ Mode modèle : CLI, ping et simulation' if model_mode() else '○ État non observé')
         self.runtime_label.configure(fg='#159746' if running else MUTED)
         self.filter_library();self.project_title.set(graph['name'])
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
@@ -1431,6 +1448,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
 
     def launch(self,action):
         if self.pending:return False
+        if self.model_mode_refusal(action):
+            return False
         directory=None
         try:
             if action in ('start','firewall','routing'):

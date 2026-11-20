@@ -4,7 +4,6 @@ No host default route, physical interface, firewall or sysctl is changed.
 Only explicitly requested start/stop commands create host resources.
 """
 from contextlib import contextmanager
-import fcntl
 import copy
 import hashlib
 import ipaddress
@@ -380,6 +379,7 @@ class Manager:
         stat = STATE_ROOT.stat()
         if stat.st_uid != 0 or stat.st_mode & 0o022:
             raise RuntimeFailure('State directory must be owned by root and not writable by other users.')
+        import fcntl  # Linux: running labs only (the workbench opens on Windows and macOS in model mode)
         with (STATE_ROOT / (self.name + '.lock')).open('a') as handle:
             fcntl.flock(handle, fcntl.LOCK_EX)
             yield self
@@ -533,6 +533,7 @@ class Manager:
         jailed = jailer_path() is not None and any(n['runtime'] == 'firecracker' for n in spec['nodes'])
         if jailed:
             # Labs start concurrently under per-lab locks; the block must be on disk before this lock is released.
+            import fcntl
             with (STATE_ROOT / 'vm-uids.lock').open('a') as handle:
                 fcntl.flock(handle, fcntl.LOCK_EX)
                 self.state['vm_uid_base'] = allocate_vm_uid_base(STATE_ROOT, self.name)
