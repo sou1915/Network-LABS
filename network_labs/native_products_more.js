@@ -10,7 +10,7 @@
   if (!K) return;
   const {SKINS, D, N, h, maskOf, prefixOf, ipOf, lenOf, networkOf, validIp, fw, portByName, portName, peerName, running, svc, toast, cli, section, setAddress,
     rename, attempt, openTerminal, stage, pending, candidateFw, editFw, addressOf, staticRoutes, commit, discard, dialog, val, field, input, select, table, tr, NA,
-    naBox, ruleFrom, checkNet, dhcpServer, skinCss, natBuild, natPieces, natRead, putEntry, dropEntry, moveEntry, zoneNames} = K;
+    naBox, ruleFrom, checkNet, dhcpServer, skinCss, natBuild, natPieces, natRead, putEntry, dropEntry, moveEntry, zoneNames, route} = K;
   const V = () => K.view;
   const go = (page, extra = {}) => { Object.assign(V(), {page, edit: null}, extra); render(); };
   const MATCH = (test, id) => K.MATCH.push([test, id]);
@@ -39,6 +39,14 @@
     if (index === null) { if (top) f.rules.unshift(rule); else f.rules.push(rule); } else f.rules[index] = rule;
     await section('firewall', {firewall: f});
   }
+  // A static route from a product's own form: network as a.b.c.d + mask (or /nn), gateway; sent at once.
+  async function addRoute(net, mask, gateway) {
+    const prefix = String(mask).includes('.') ? prefixOf(mask) : Number(String(mask).replace('/', ''));
+    if (!validIp(net) || prefix === null || !(prefix >= 0 && prefix <= 32)) throw new Error('Destination : a.b.c.d et masque (255.255.255.0 ou /24).');
+    if (!validIp(gateway)) throw new Error('Passerelle : a.b.c.d');
+    await route(networkOf(`${net}/${prefix}`), gateway);
+  }
+  const dropRoute = network => route(network, '');
   // NAT read from an « original / translated » window: a translated destination makes a port forward (dnat), else the
   // translated source (MASQ or the interface's address) makes source NAT.
   const natColumns = root => natBuild({name: val(root, '#nxName'), in: val(root, '#nxIn'), out: val(root, '#nxOut'), source: val(root, '#nxSrc'),
@@ -285,9 +293,13 @@
   }
   function soRouting(main) {
     main.innerHTML = `<div class="so-tabs"><a class="on">Static routes</a><a class="na">SD-WAN routes</a><a class="na">Gateways</a><a class="na">BGP</a><a class="na">OSPF</a></div>
-      <div class="so-card"><h3>IPv4 unicast route</h3>${table('so-t', ['Destination IP', 'Netmask', 'Gateway', 'Interface', 'Distance'], [...D().connected.map(r => tr([h(ipOf(r.network)),
-        h(maskOf(lenOf(r.network))), '—', h(r.port), '0'])), ...D().static.map(r => tr([h(ipOf(r.network)), h(maskOf(lenOf(r.network))), h(r.gateway), h(r.port), '1']))])}
-      <div class="b" style="color:#8796a5">Network LABS : les routes statiques de ce pare-feu se règlent dans ◉ Network LABS › Vue Network LABS › Routage.</div></div>`;
+      <div class="so-card"><h3>IPv4 unicast route</h3><div class="so-bar" style="padding:8px 14px 0"><span class="grow"></span><button class="so-btn pri add">Add</button></div>
+      ${table('so-t', ['Destination IP', 'Netmask', 'Gateway', 'Interface', 'Distance', ''], [...D().connected.map(r => tr([h(ipOf(r.network)), h(maskOf(lenOf(r.network))), '—',
+        h(r.port), '0', ''])), ...D().static.map((r, i) => tr([h(ipOf(r.network)), h(maskOf(lenOf(r.network))), h(r.gateway), h(r.port), '1', `<a data-x="${i}">✕</a>`]))])}</div>`;
+    main.querySelector('.add').onclick = () => dialog('sophos', 'Add IPv4 unicast route', `${field('Destination IP', input('soNet', '', 'placeholder="192.168.50.0"'))}
+      ${field('Netmask', input('soMask', '255.255.255.0'))}${field('Gateway IP', input('soGw'))}${field('Interface', select('i', ['Automatic'], 'Automatic'))}${field('Distance', input('d', '1'))}`,
+    [['Save', 'pri', async b => { await addRoute(val(b, '#soNet'), val(b, '#soMask'), val(b, '#soGw')); render(); toast('Route saved.'); }], ['Cancel']]);
+    main.querySelectorAll('[data-x]').forEach(a => { a.onclick = () => now(() => dropRoute(D().static[Number(a.dataset.x)].network), 'Route deleted.'); });
   }
   function soServices(main) {
     main.innerHTML = `<div class="so-tabs"><a class="na">IP host</a><a class="na">MAC host</a><a class="na">FQDN host</a><a class="on">Services</a></div>${table('so-t', ['Name', 'Type', 'Details'],
@@ -380,9 +392,16 @@
     }], ['Cancel']]);
   }
   function cpRoutes(main) {
-    main.insertAdjacentHTML('beforeend', `<div class="cp-box"><div class="cp-bar"><button disabled>Add</button><button disabled>Edit</button><button disabled>Delete</button></div>${table('cp-t',
+    const list = D().static;
+    main.insertAdjacentHTML('beforeend', `<div class="cp-box"><div class="cp-bar"><button class="add">Add</button><button disabled>Edit</button><button class="del">Delete</button></div>${table('cp-t',
       ['Destination', 'Next Hop Type', 'Gateway', 'Rank', 'Comment'], [...D().connected.map(r => tr([h(r.network), 'Directly connected', h(r.port), '0', ''])),
-        ...D().static.map(r => tr([h(r.network), 'Normal', h(r.gateway), '60', '']))])}<div class="b" style="color:#666">Network LABS : routes de ce pare-feu dans ◉ Network LABS › Vue Network LABS › Routage.</div></div>`);
+        ...list.map((r, i) => tr([h(r.network), 'Normal', h(r.gateway), '60', ''], `data-r="${i}"`))])}</div>`);
+    let chosen = null;
+    main.querySelectorAll('tr[data-r]').forEach(row => { row.onclick = () => { main.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel')); row.classList.add('sel'); chosen = Number(row.dataset.r); }; });
+    main.querySelector('.add').onclick = () => dialog('gaia', 'Add Destination Route', `${field('Destination', input('cpNet', '', 'placeholder="192.168.50.0"'))}${field('Subnet mask', input('cpMask', '255.255.255.0'))}
+      ${field('Next Hop Type', select('t', ['Normal'], 'Normal'))}${field('Gateway', input('cpGw', '', 'placeholder="Add Gateway: IP Address"'))}${field('Rank', input('r', '60'))}`,
+    [['Save', 'pri', async b => { await addRoute(val(b, '#cpNet'), val(b, '#cpMask'), val(b, '#cpGw')); render(); toast('Route saved.'); }], ['Cancel']]);
+    main.querySelector('.del').onclick = () => (chosen === null ? toast('Select a route.', true) : now(() => dropRoute(list[chosen].network), 'Route deleted.'));
   }
   function cpDhcp(main) {
     const s = dhcpServer();
@@ -606,9 +625,13 @@
     if (del) del.onclick = () => now(() => section('dhcpserver', {dhcp_server: null}), 'Lease scope deleted.');
   }
   function swRoutes(main) {
-    main.insertAdjacentHTML('beforeend', `${table('sw-t', ['#', 'Source', 'Destination', 'Service', 'Gateway', 'Interface', 'Metric', 'Type'], [...D().connected.map((r, i) => tr([String(i + 1), 'Any',
-      h(r.network), 'Any', '0.0.0.0', h(r.port), '1', 'Interface'])), ...D().static.map((r, i) => tr([String(D().connected.length + i + 1), 'Any', h(r.network), 'Any', h(r.gateway), h(r.port), '1', 'Static']))])}
-      <p style="color:#7d8a96">Network LABS : routes de ce pare-feu dans ◉ Network LABS › Vue Network LABS › Routage.</p>`);
+    main.insertAdjacentHTML('beforeend', `<div class="sw-bar"><span class="grow"></span><button class="sw-btn pri add">＋ Add</button></div>${table('sw-t', ['#', 'Source', 'Destination', 'Service',
+      'Gateway', 'Interface', 'Metric', 'Type', ''], [...D().connected.map((r, i) => tr([String(i + 1), 'Any', h(r.network), 'Any', '0.0.0.0', h(r.port), '1', 'Interface', ''])),
+      ...D().static.map((r, i) => tr([String(D().connected.length + i + 1), 'Any', h(r.network), 'Any', h(r.gateway), h(r.port), '1', 'Static', `<a data-x="${i}">🗑</a>`]))])}`);
+    main.querySelector('.add').onclick = () => dialog('sonicos', 'Adding Route Policy', `${field('Source', select('s', ['Any'], 'Any'))}${field('Destination (network)', input('swNet', '', 'placeholder="192.168.50.0"'))}
+      ${field('Netmask', input('swMask', '255.255.255.0'))}${field('Service', select('v', ['Any'], 'Any'))}${field('Gateway', input('swGw'))}${field('Interface', select('i', ['Auto'], 'Auto'))}
+      ${field('Metric', input('m', '1'))}`, [['Add', 'pri', async b => { await addRoute(val(b, '#swNet'), val(b, '#swMask'), val(b, '#swGw')); render(); toast('Route policy added.'); }], ['Cancel']]);
+    main.querySelectorAll('[data-x]').forEach(a => { a.onclick = () => now(() => dropRoute(D().static[Number(a.dataset.x)].network), 'Route policy deleted.'); });
   }
   function swAdmin(main) {
     main.insertAdjacentHTML('beforeend', `<div class="sw-card">${field('Firewall Name', input('swHost', N().name))}${field('Firewall Domain Name', input('dn', '', 'disabled'))}
@@ -683,8 +706,12 @@
     main.querySelectorAll('[data-e]').forEach(a => { a.onclick = () => go('interfaces', {edit: Number(a.dataset.e)}); });
   }
   function wgRoutes(main) {
-    main.insertAdjacentHTML('beforeend', `${table('wg-t', ['Route To', 'Gateway', 'Metric', 'Interface'], [...D().connected.map(r => tr([h(r.network), 'direct', '0', h(r.port)])),
-      ...D().static.map(r => tr([h(r.network), h(r.gateway), '1', h(r.port)]))])}<p style="color:#777">Network LABS : routes de ce pare-feu dans ◉ Network LABS › Vue Network LABS › Routage.</p>`);
+    main.insertAdjacentHTML('beforeend', `${table('wg-t', ['Route To', 'Gateway', 'Metric', 'Interface', ''], [...D().connected.map(r => tr([h(r.network), 'direct', '0', h(r.port), ''])),
+      ...D().static.map((r, i) => tr([h(r.network), h(r.gateway), '1', h(r.port), `<a data-x="${i}">REMOVE</a>`]))])}<div class="wg-bar"><button class="wg-btn add">ADD</button></div>`);
+    main.querySelector('.add').onclick = () => dialog('fireware', 'Add Route', `${field('Choose Type', select('t', ['Network IPv4'], 'Network IPv4'))}${field('Route To', input('wgNet', '', 'placeholder="192.168.50.0/24"'))}
+      ${field('Gateway', input('wgGw'))}${field('Metric', input('m', '1'))}`, [['OK', '', async b => {
+        const [net, len] = val(b, '#wgNet').split('/'); await addRoute(net, len || '32', val(b, '#wgGw')); render(); toast('Configuration saved.'); }], ['Cancel']]);
+    main.querySelectorAll('[data-x]').forEach(a => { a.onclick = () => now(() => dropRoute(D().static[Number(a.dataset.x)].network), 'Route removed.'); });
   }
   function wgAliases(main) {
     main.insertAdjacentHTML('beforeend', table('wg-t', ['Alias', 'Description', 'Members'], [['Any', 'Any source or destination', 'Any'], ...[...new Set(ports().map(wgAny))].map(a => [a,
@@ -937,7 +964,9 @@
       <table class="eo-t"><thead><tr><th>Type</th><th>Destination</th><th>Next Hop</th><th>Interface</th><th>Distance</th><th>Selected</th></tr></thead><tbody>${[...D().connected.map(r => `<tr><td>connected</td>
       <td>${h(r.network)}</td><td>—</td><td>${h(r.port)}</td><td>0</td><td>✔</td></tr>`), ...D().static.map(r => `<tr><td>static</td><td>${h(r.network)}</td><td>${h(r.gateway)}</td><td>${h(r.port)}</td>
       <td>1</td><td>✔</td></tr>`)].join('')}</tbody></table>`;
-    main.querySelector('.add').onclick = () => toast('EdgeOS : les routes statiques se configurent dans le terminal (configure · set protocols static route …).', true);
+    main.querySelector('.add').onclick = () => dialog('edgeos', 'Add Static Route', `${field('Route Type', select('t', ['Gateway'], 'Gateway'))}${field('Destination network', input('eoNet', '', 'placeholder="192.168.50.0/24"'))}
+      ${field('Distance', input('d', '1'))}${field('Next hop', input('eoGw'))}${field('Description', input('ds'))}${field('Enable', '<span>☑</span>')}`, [['Save', 'pri', async b => {
+        const [net, len] = val(b, '#eoNet').split('/'); await addRoute(net, len || '32', val(b, '#eoGw')); render(); toast('Static route saved.'); }], ['Cancel']]);
   }
   function eoFirewall(main) {
     main.innerHTML = `<div class="eo-sub"><a class="on">Port Forwarding</a><a class="na">Firewall Policies</a><a class="na">NAT</a><a class="na">Firewall/NAT Groups</a></div>

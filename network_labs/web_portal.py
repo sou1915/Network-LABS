@@ -41,7 +41,8 @@ class WebPortal:
                         return self.respond(404,{'error':'Image absente.'})
                     return self.respond(200,(folder/name).read_bytes(),'image/png')
                 scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_vendor.js',
-                         '/native_products.js','/native_products_more.js','/native_desktop.js','/native_studio.js','/native_simple.js')
+                         '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_desktop.js','/native_studio.js',
+                         '/native_simple.js')
                 if native and parsed.path in scripts:
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':
@@ -56,7 +57,8 @@ class WebPortal:
                     return self.respond(403,{'error':'Origine refusée.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})
                 parsed=urlsplit(self.path)
-                if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli','/api/observe','/api/host_ip','/api/open_cli'):
+                if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli','/api/observe','/api/host_ip','/api/open_cli',
+                                   '/api/route'):
                     return self.respond(404,{'error':'Action absente.'})
                 try:
                     length=int(self.headers.get('Content-Length','0'))

@@ -1,7 +1,9 @@
 """The device pages as copies of the real products (native_products.js): which product gets which interface, the device's
 configuration in its own syntax for the pages, and, in a real browser when one is available, edits made through the
 products' own forms (Cisco WebUI « Update & Apply to Device », ASDM « Apply », pfSense « Apply Changes », PAN-OS
-« Commit ») landing in the project."""
+« Commit ») landing in the project; the static routes of the products without a command set (/api/route); and the
+host devices' own products: Synology DSM, QNAP QTS, HP and Brother printer pages, AXIS camera, Yealink phone, and the
+server management controllers (iDRAC, iLO, XClarity)."""
 import json
 import os
 import subprocess
@@ -90,6 +92,40 @@ const { chromium } = require('playwright');
 """
 
 
+HOST_FLOWS = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const urls = JSON.parse(process.argv[1]);
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { console.log('NOBROWSER'); return; }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  const ok = async () => { await page.click('.px-dfoot button >> nth=0'); await page.waitForTimeout(400); };
+  const seen = {};
+  for (const name of ['QN', 'BRO', 'TEL', 'IDR', 'ILO', 'XCC']) { await open(name); seen[name] = await page.evaluate(() => document.querySelector('.px-app').className); }
+  await open('NAS'); seen.NAS = await page.evaluate(() => document.querySelector('.px-app').className);
+  await page.click('.ds-ico[data-w="control"]'); await page.click('.ds-main .edit'); await page.fill('#dsIp', '192.168.10.120'); await page.fill('#dsGw', '192.168.10.1'); await ok();
+  await open('QN'); await page.click('.qt-ico[data-w="network"]'); await page.click('.qt-main .conf'); await page.check('input[name="qtm"][value="dhcp"]');
+  const greyed = await page.evaluate(() => document.querySelector('#qtIp').disabled); await ok();
+  await open('PRN'); seen.PRN = await page.evaluate(() => document.querySelector('.px-app').className);
+  await page.click('.hp-nav [data-go="network"]'); await page.fill('#hpIp', '192.168.10.122'); await page.click('.hp-main .apply'); await page.waitForTimeout(400);
+  await open('CAM'); seen.CAM = await page.evaluate(() => document.querySelector('.px-app').className);
+  await page.click('.ax-nav [data-go="network"]'); await page.fill('#axIp', '192.168.10.124'); await page.fill('#axName', 'CAM-HALL'); await page.click('.ax-main .save');
+  await page.waitForTimeout(600); const stayed = await page.evaluate(() => Boolean(document.querySelector('#axName')));
+  await open('PFS'); await page.click('.pf-nav .m a:has-text("System")'); await page.click('.pf-drop a[data-go="routing"]'); await page.click('.pf-tabs [data-t="Static Routes"]');
+  await page.click('.pf-btns .add'); await page.fill('#pfNet', '172.16.0.0'); await page.selectOption('#pfNetLen', '16'); await page.fill('#pfGw', '10.74.0.254');
+  await page.click('.pf-page .save'); await page.click('.pf-alert .apply'); await page.waitForTimeout(500);
+  await open('SOPH'); await page.click('[data-go="routing"]'); await page.click('.so-bar .add'); await page.fill('#soNet', '172.17.0.0'); await page.fill('#soMask', '255.255.0.0');
+  await page.fill('#soGw', '192.168.99.1'); await ok(); const refused = await page.textContent('.px-shade .px-err');
+  await page.fill('#soGw', '10.71.0.254'); await ok();
+  console.log('RESULT ' + JSON.stringify({seen, errors, greyed, stayed, refused}));
+  await browser.close();
+})();
+"""
+
+
 def more_lab():
     spec = blank_project('produits')
     add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
@@ -99,6 +135,44 @@ def more_lab():
     spec = add(spec, name='HW', role='router', ports=2, model='huawei-ar6120', addresses='10.70.0.1/24,10.70.1.1/24')
     spec = add(spec, name='TPL', role='switch', ports=8, model='tplink-sg108e')
     return validate(spec)
+
+
+def hosts_lab():
+    spec = blank_project('hotes')
+    add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
+    spec = add(spec, name='SW1', role='switch', ports=10, model='cisco-2960')
+    hosts = (('NAS', 'synology-ds224'), ('QN', 'qnap-ts264'), ('PRN', 'hp-4002dn'), ('BRO', 'brother-hl5200'), ('CAM', 'axis-p3265'),
+             ('TEL', 'yealink-t54w'), ('IDR', 'dell-poweredge'), ('ILO', 'hpe-proliant'), ('XCC', 'lenovo-thinksystem'))
+    for i, (name, model) in enumerate(hosts):
+        spec = add(spec, name=name, role='host', ports=1, model=model, addresses=f'192.168.10.{20 + i}/24')
+        spec = topology_edit.connect(spec, (name, 'eth0'), ('SW1', f'eth{i + 1}'))
+    spec = add(spec, name='PFS', role='firewall', ports=3, model='pfsense', addresses='10.74.0.1/24,10.74.1.1/24,10.74.2.1/24')
+    spec = add(spec, name='SOPH', role='firewall', ports=3, model='sophos-fw', addresses='10.71.0.1/24,10.71.1.1/24,10.71.2.1/24')
+    return validate(spec)
+
+
+def drive(app, script, names):
+    """Runs a flows script against the workbench's portal, pumping the portal like the Tk loop does; returns its RESULT."""
+    portal = WebPortal(app, api=NativeDeviceAPI(app), native=True)
+    try:
+        urls = {name: portal.url(name, 'dashboard') for name in names}
+        with tempfile.TemporaryDirectory() as folder:
+            job = subprocess.Popen(['node', '-e', script, json.dumps(urls)], cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            deadline = time.time() + 150
+            while job.poll() is None and time.time() < deadline:
+                portal.poll()
+                time.sleep(.02)
+            if job.poll() is None:
+                job.kill()
+            out, err = job.communicate()
+    finally:
+        portal.close()
+    if 'NOBROWSER' in out:
+        raise unittest.SkipTest('Chromium absent')
+    line = next((l for l in out.splitlines() if l.startswith('RESULT ')), None)
+    if line is None:
+        raise AssertionError(out[-2000:] + err[-2000:])
+    return json.loads(line[7:])
 
 
 def browser_available():
@@ -130,7 +204,37 @@ class RunningConfigTest(unittest.TestCase):
             self.assertIn(f"'{skin}');", more)  # registered with the engine
         for wording in ('Install Policy', 'Add firewall rule', 'ADD POLICY', '802.1Q VLAN', 'VLAN Membership', 'Device Manager', 'ip route-static'):
             self.assertIn(wording, more)
-        self.assertNotIn('<img', script + more)  # drawn by Network LABS: no vendor picture or logo
+        hosts = SCRIPT.with_name('native_products_hosts.js').read_text(encoding='utf-8')
+        for skin in ('dsm', 'qts', 'hpews', 'brother', 'axis', 'yealink', 'idrac', 'ilo', 'xcc'):
+            self.assertIn(f"SKINS.{skin} =", hosts)
+        for wording in ('Control Panel', 'Network & Virtual Switch', 'IP Preferred Address Method', 'TCP/IP (Wired)', 'Assign IPv4 automatically',
+                        'Internet Port', 'Virtual Console', 'Integrated Remote Console', 'XClarity Controller'):
+            self.assertIn(wording, hosts)
+        self.assertIn("role === 'host'", script)  # PCs keep their desktop: only these products take a host's page
+        self.assertNotIn('<img', script + more + hosts)  # drawn by Network LABS: no vendor picture or logo
+
+
+class RouteActionTest(unittest.TestCase):
+    """/api/route: the static routes of the products whose brand has no command set in the laboratory."""
+    def test_a_route_is_added_checked_and_removed(self):
+        from network_labs.appliances.vendor_config import routes
+        from network_labs.appliances.web_management import Conflict
+        app = Workbench()
+        app.spec = more_lab()
+        app.view_lab = app.spec['name']
+        api = NativeDeviceAPI(app)
+        revision = lambda: api.dispatch('state', {'node': 'SOPH'})['revision']
+        node = lambda: next(n for n in app.spec['nodes'] if n['name'] == 'SOPH')
+        api.dispatch('route', {'node': 'SOPH', 'revision': revision(), 'network': '172.17.5.0/16', 'gateway': '10.71.0.254'})
+        self.assertEqual(routes(node()), [('172.17.0.0/16', '10.71.0.254')])
+        with self.assertRaisesRegex(ValueError, 'subnet'):
+            api.dispatch('route', {'node': 'SOPH', 'revision': revision(), 'network': '172.18.0.0/16', 'gateway': '192.168.99.1'})
+        with self.assertRaises(Conflict):
+            api.dispatch('route', {'node': 'SOPH', 'revision': 'old', 'network': '172.18.0.0/16', 'gateway': '10.71.0.254'})
+        with self.assertRaises(ValueError):
+            api.dispatch('route', {'node': 'TPL', 'revision': api.dispatch('state', {'node': 'TPL'})['revision'], 'network': '0.0.0.0/0', 'gateway': '10.0.0.1'})
+        api.dispatch('route', {'node': 'SOPH', 'revision': revision(), 'network': '172.17.0.0/16', 'gateway': ''})
+        self.assertEqual(routes(node()), [])
 
 
 class PortalTest(unittest.TestCase):
@@ -144,7 +248,13 @@ class PortalTest(unittest.TestCase):
             page = connection.getresponse().read()
             self.assertLess(page.index(b'/native_vendor.js'), page.index(b'/native_products.js'))
             self.assertLess(page.index(b'/native_products.js'), page.index(b'/native_products_more.js'))
-            self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_simple.js'))
+            self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_products_hosts.js'))
+            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_desktop.js'))
+            self.assertLess(page.index(b'/native_desktop.js'), page.index(b'/native_simple.js'))
+            connection.request('GET', '/native_products_hosts.js', headers={'Host': portal.host})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'SKINS.dsm', response.read())
             connection.request('GET', '/native_products.js', headers={'Host': portal.host})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
@@ -229,6 +339,26 @@ class ProductFormsTest(unittest.TestCase):
         forward = nodes['OPN']['firewall']['nat'][0]
         self.assertEqual({k: forward[k] for k in ('type', 'in', 'destination', 'to', 'protocol', 'dport')},
                          {'type': 'dnat', 'in': 'eth0', 'destination': '10.73.0.1/32', 'to': '10.73.1.10', 'protocol': 'tcp', 'dport': 443})
+
+    def test_host_products_and_static_routes_reach_the_project(self):
+        app = Workbench()
+        app.spec = hosts_lab()
+        app.view_lab = app.spec['name']
+        result = drive(app, HOST_FLOWS, ('NAS', 'QN', 'PRN', 'BRO', 'CAM', 'TEL', 'IDR', 'ILO', 'XCC', 'PFS', 'SOPH'))
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['seen'], {'NAS': 'px-app dsm', 'QN': 'px-app qts', 'PRN': 'px-app hpews', 'BRO': 'px-app brother', 'CAM': 'px-app axis',
+                                          'TEL': 'px-app yealink', 'IDR': 'px-app idrac', 'ILO': 'px-app ilo', 'XCC': 'px-app xcc'})
+        self.assertTrue(result['greyed'])  # DHCP chosen: the address fields are greyed out, as on the product
+        self.assertTrue(result['stayed'])  # renamed from its Network page: the same page stays open
+        self.assertIn('subnet', result['refused'])  # the lab's check, in the product's dialog
+        nodes = {n['name']: n for n in app.spec['nodes']}
+        self.assertEqual((nodes['NAS']['interfaces']['eth0'], nodes['NAS']['gateway']), ('192.168.10.120/24', '192.168.10.1'))
+        self.assertEqual((nodes['QN']['interfaces']['eth0'], nodes['QN']['dhcp_clients']), ('', ['eth0']))
+        self.assertEqual(nodes['PRN']['interfaces']['eth0'], '192.168.10.122/24')
+        self.assertEqual(nodes['CAM-HALL']['interfaces']['eth0'], '192.168.10.124/24')
+        from network_labs.appliances.vendor_config import routes
+        self.assertEqual(routes(nodes['PFS']), [('172.16.0.0/16', '10.74.0.254')])  # staged, then « Apply Changes »
+        self.assertEqual(routes(nodes['SOPH']), [('172.17.0.0/16', '10.71.0.254')])
 
 
 if __name__ == '__main__':

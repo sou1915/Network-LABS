@@ -5,6 +5,7 @@ from .web_observations import revision as draft_revision,snapshot
 from .management_switching import component,peers
 from .management_options import PUBLIC_FIELDS,sections,configure_section
 from .device_view import summary as device_summary
+from .spec import validate
 
 
 class NativeDeviceAPI:
@@ -64,6 +65,7 @@ class NativeDeviceAPI:
             window.record_event('web','Bloc CLI constructeur appliqué : '+name)
             return self.dispatch('state',{'node':name})
         if action=='host_ip':return self.host_ip(spec,node,payload,revision)
+        if action=='route':return self.route(node,payload,revision)
         if action=='open_cli':
             # The desktop's « Invite de commandes »: the device's terminal window in the application.
             if set(payload)!={'node'}:raise ValueError('Champs invalides.')
@@ -91,6 +93,31 @@ class NativeDeviceAPI:
         window.config_key=None;window.commit_edit(result);window.choose_node(payload['name']);window.load_config(force=True)
         window.record_event('web','Brouillon modifié : '+payload['name'])
         return self.dispatch('state',{'node':payload['name']})
+
+    def route(self,node,payload,revision):
+        """One static route added, changed or removed (empty gateway) from a product page whose brand has no command set in
+        the laboratory (Sophos, SonicWall, WatchGuard, Check Point, pfSense, EdgeOS…); checked like every other change."""
+        import ipaddress
+        from .vendor_config import _delete_route,_network,_upsert_route
+        window=self.window
+        if set(payload)!={'node','revision','network','gateway'}:raise ValueError('Champs de route invalides.')
+        if payload['revision']!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
+        if window.pending:raise ValueError('Une opération est déjà en cours : attendre sa fin.')
+        if not all(isinstance(payload[k],str) for k in ('network','gateway')):raise ValueError('Réseau et passerelle textuels.')
+        network=_network(payload['network'].strip())
+        draft=window.editing_spec()
+        target=next(n for n in draft['nodes'] if n['name']==node['name'])
+        if target['role']=='switch':raise ValueError('Un switch du laboratoire ne route pas.')
+        if payload['gateway'].strip():
+            _upsert_route(target,network,str(ipaddress.IPv4Address(payload['gateway'].strip())))
+        else:
+            _delete_route(target,network)
+        window.config_key=None
+        window.commit_edit(validate(draft))
+        window.choose_node(node['name'])
+        window.load_config(force=True)
+        window.record_event('web',f"Route {network} {'via '+payload['gateway'] if payload['gateway'] else 'supprimée'} : {node['name']}")
+        return self.dispatch('state',{'node':node['name']})
 
     def host_ip(self,spec,node,payload,revision):
         """A PC's or server's « Configuration IP » (its desktop page): DHCP, or a static address with its default gateway,

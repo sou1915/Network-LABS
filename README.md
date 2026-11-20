@@ -201,22 +201,28 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 | Cisco ASA | ASDM (Access Rules, NAT Rules, interfaces nommées) | Apply |
 | Cisco ISR 4331, Catalyst 9200L | WebUI IOS-XE | « Update & Apply to Device » (commandes IOS) |
 | Cisco Catalyst 2960 | Device Manager (Port Settings, VLANs, Port Membership) | Submit (commandes IOS) |
-| pfSense, OPNsense | menus, Rules par interface, NAT Port Forward / Outbound | « Apply Changes » |
+| pfSense, OPNsense | menus, Rules par interface, NAT Port Forward / Outbound, Static Routes | « Apply Changes » |
 | Palo Alto | PAN-OS (Security, NAT Policy Rule, interfaces, zones) | Commit |
 | Juniper SRX, EX, MX | J-Web (politiques, Source / Destination NAT, VLAN) | Commit |
-| Sophos | Control center, Rules and policies, NAT rules, Network | Save |
-| Check Point | Gaia Portal et SmartConsole (Policy, NAT) | Publish puis Install Policy |
-| SonicWall | SonicOS (Access Rules, NAT Rules, Interfaces) | OK / Add |
-| WatchGuard | Fireware Web UI (Firewall Policies, NAT) | SAVE |
+| Sophos | Control center, Rules and policies, NAT rules, Network, Routing | Save |
+| Check Point | Gaia Portal (IPv4 Static Routes) et SmartConsole (Policy, NAT) | Publish puis Install Policy |
+| SonicWall | SonicOS (Access Rules, NAT Rules, Interfaces, Route Policies) | OK / Add |
+| WatchGuard | Fireware Web UI (Firewall Policies, NAT, Routes) | SAVE |
 | MikroTik | WebFig (`/ip address`, `/ip route`, Bridge) | OK (commandes RouterOS) |
 | Huawei | web (interfaces, routes statiques, VLAN) | commandes VRP |
-| Ubiquiti | EdgeOS (EdgeRouter), UniFi Network (switch) | Save / Apply Changes |
+| Ubiquiti | EdgeOS (EdgeRouter, routes statiques), UniFi Network (switch) | Save / Apply Changes |
 | TP-Link, NETGEAR, D-Link | Easy Smart, ProSAFE / Smart Pro, Web Smart (802.1Q VLAN, PVID) | Apply |
 | Aruba | AOS-CX, Instant On | Apply |
 | FortiGate | FortiOS | OK |
+| Synology, QNAP | DSM (Control Panel › Network), QTS (Network & Virtual Switch) | OK / Apply |
+| HP, Brother | Embedded Web Server (Networking), Web Based Management (TCP/IP Wired) | Apply / Submit |
+| Axis, Yealink | AXIS OS (System › Network), page du téléphone (Network › Basic) | Save / Confirm |
+| Dell, HPE, Lenovo | iDRAC, iLO, XClarity Controller (tableau de bord, inventaire, journal) | Virtual / Remote Console |
 
 Les produits sans interface web (VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS, Extreme EXOS) montrent leur
-console et leur configuration. Dessinées par
+console et leur configuration. Les NAS, imprimantes, caméras et téléphones enregistrent leur adresse (DHCP ou fixe,
+masque, passerelle) comme la « Configuration IP » d'un PC ; les cartes de gestion des serveurs ouvrent la console du
+serveur. Les PC et Windows Server gardent leur bureau. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
 du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
 comme l'atelier) et **Simple** (clair).

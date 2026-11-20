@@ -10,7 +10,8 @@
 (() => {
   const SKINS = {};
   function pick(d, role) {
-    if (role === 'host') return null;
+    // Printers, NAS, cameras, phones and server management cards: their products' pages (native_products_hosts.js).
+    if (role === 'host') { const own = (window.nlProductsKit ? window.nlProductsKit.MATCH : []).find(([test]) => test(d, role)); return own ? own[1] : null; }
     if (d.brand === 'MikroTik') return 'webfig';
     if (d.brand === 'Cisco' && d.model === 'ASA') return 'asdm';
     if (d.brand === 'Cisco' && /^(ISR|Catalyst 9200|Routeur IOS)/.test(d.model)) return 'iosxe';
@@ -81,8 +82,13 @@
   const section = (name, config) => send('/api/apply', {section: name, config});
   const setAddress = (port, address, enabled) => send('/api/apply', {name: N().name, port, address, gateway: N().gateway || '',
     enabled: enabled === undefined ? !(N().shutdown || []).includes(port) : enabled});
-  const rename = name => send('/api/apply', {name, port: Object.keys(N().interfaces)[0], address: Object.values(N().interfaces)[0] || '',
-    gateway: N().gateway || '', enabled: !(N().shutdown || []).includes(Object.keys(N().interfaces)[0])});
+  const route = (network, gateway) => send('/api/route', {network, gateway});
+  async function rename(name) {
+    await send('/api/apply', {name, port: Object.keys(N().interfaces)[0], address: Object.values(N().interfaces)[0] || '',
+      gateway: N().gateway || '', enabled: !(N().shutdown || []).includes(Object.keys(N().interfaces)[0])});
+    view.node = N().name;  // the same page stays open under the new name
+    return state;
+  }
   async function attempt(work, done) {
     try { await work(); render(); if (done) toast(done); return true; } catch (error) { toast(error.message, true); render(); return false; }
   }
@@ -106,6 +112,10 @@
     for (const [port, address] of Object.entries(s.ifaces)) await setAddress(port, address);
     const lines = routeCli ? [...s.routes.del.map(n => routeCli(n, null)), ...s.routes.add.map(r => routeCli(r.network, r.gateway))] : [];
     if (lines.length) await cli(lines.join('\n'));
+    if (!routeCli) {  // brands without a command set: the laboratory's route action
+      for (const network of s.routes.del) await route(network, '');
+      for (const r of s.routes.add) await route(r.network, r.gateway);
+    }
     if (s.dhcp !== undefined) await section('dhcpserver', {dhcp_server: s.dhcp});
     if (s.vlans) await section('switching', s.vlans);
     if (s.name) await rename(s.name);
@@ -1235,9 +1245,28 @@
     pfTitle(main, 'System / Routing / ' + tab, `<div class="pf-tabs">${['Gateways', 'Static Routes', 'Gateway Groups'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${t}</a>`).join('')}</div>
       ${tab === 'Gateways' ? `<div class="pf-panel"><h2>Gateways</h2>${table('pf-t', ['Name', 'Default', 'Interface', 'Gateway', 'Monitor IP', 'Description'], n.gateway
         ? [tr(['WAN_GW', '<span class="pf-ok">✔</span> Default (IPv4)', 'WAN', h(n.gateway), h(n.gateway), 'Interface WAN Gateway'])] : [])}</div>`
-      : `<div class="pf-panel"><h2>Static Routes</h2>${table('pf-t', ['Network', 'Gateway', 'Interface', 'Description'], D().static.map(r => tr([h(r.network), h(r.gateway), h(r.port), ''])))}</div>`}
-      <p style="color:#757575">Network LABS : les routes de ce pare-feu se règlent dans ◉ Network LABS › Vue Network LABS › Routage.</p>`);
+      : `<div class="pf-panel"><h2>Static Routes</h2>${table('pf-t', ['Network', 'Gateway', 'Interface', 'Description', 'Actions'], staticRoutes().map((r, i) => tr([h(r.network),
+        h(r.gateway), h(r.port || ''), '', `<span class="pf-ic" data-x="${i}" title="Delete">🗑</span>`])), 'No routes')}</div>
+        <div class="pf-btns"><button class="pf-btn ok add">＋ Add</button></div>`}`);
     main.querySelectorAll('[data-t]').forEach(a => { a.onclick = () => { view.tab = a.dataset.t; render(); }; });
+    main.querySelectorAll('[data-x]').forEach(b => { b.onclick = () => { const r = staticRoutes()[Number(b.dataset.x)], st = stage();
+      if (st.routes.add.includes(r)) st.routes.add.splice(st.routes.add.indexOf(r), 1); else st.routes.del.push(r.network); render(); }; });
+    const add = main.querySelector('.add');
+    if (add) add.onclick = () => {
+      const page = document.querySelector('.pf-page');
+      page.innerHTML = '';
+      pfTitle(page, 'System / Routing / Static Routes / Edit', `<div class="pf-panel pf-form"><h2>Edit Route Entry</h2><div class="row"><span>Destination network</span>
+        <div>${input('pfNet', '', 'placeholder="192.168.50.0"')} / ${select('pfNetLen', Array.from({length: 33}, (_, k) => 32 - k), 24)}<small>Destination network for this static route</small></div></div>
+        <div class="row"><span>Gateway</span><div>${input('pfGw', '', 'placeholder="a.b.c.d"')}<small>The gateway, on the network of one of the interfaces</small></div></div>
+        <div class="row"><span>Disabled</span><div>☐ Disable this static route</div></div><div class="row"><span>Description</span><div>${input('d')}</div></div></div>
+        <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
+      page.querySelector('.save').onclick = () => {
+        const net = val(page, '#pfNet'), gw = val(page, '#pfGw');
+        if (!validIp(net) || !validIp(gw)) { page.querySelector('.px-err').textContent = 'Destination network et Gateway : a.b.c.d'; return; }
+        stage().routes.add.push({network: networkOf(`${net}/${val(page, '#pfNetLen')}`), gateway: gw, port: ''});
+        view.page = 'routing'; view.tab = 'Static Routes'; render();
+      };
+    };
   }
   function pfDhcp(main) {
     const ports = D().ports.filter(p => p.address && p !== D().ports[0]);
@@ -1852,7 +1881,7 @@ ${h(cliText())}
   window.nlProductsKit = {SKINS, MATCH: [], get view() { return view; }, D, N, h, maskOf, prefixOf, ipOf, lenOf, networkOf, validIp, fw, portByName, portName, peerName,
     running, svc, parseService, toast, send, cli, section, setAddress, rename, attempt, openTerminal, stage, pending, candidateFw, editFw, addressOf, staticRoutes, commit,
     discard, dialog, val, field, input, select, table, tr, NA, naBox, ruleFrom, ruleName, checkNet, dhcpServer, skinCss, natBuild, natPieces, natRead, putEntry, dropEntry,
-    moveEntry, wanPort, zoneNames, cleanRule, openStandard: target => { standard = true; page = target; render(); }};
+    moveEntry, wanPort, zoneNames, cleanRule, route, openStandard: target => { standard = true; page = target; render(); }};
 
   // ---- drawing ----
   function draw(id) {

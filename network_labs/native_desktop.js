@@ -197,6 +197,7 @@
   render = function () {
     previous();
     if (window.nlDesignNow && window.nlDesignNow() !== 'vendor') { document.querySelector('.pc-app')?.remove(); document.body.classList.remove('pc'); return; }
+    if (window.nlProduct && state && state.device && window.nlProduct(state.device)) { document.querySelector('.pc-app')?.remove(); document.body.classList.remove('pc'); return; }  // its own product page
     if (!state || !state.node || state.node.role !== 'host' || standard) return;
     document.body.classList.add('pc');
     draw();

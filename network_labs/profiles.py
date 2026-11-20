@@ -47,7 +47,7 @@ for identity,brand,model,role,limits in [
     ('generic-printer','Générique','Imprimante réseau','Imprimante','Pas de travaux d’impression.'),
     ('hp-4002dn','HP','LaserJet Pro 4002dn','Imprimante','Pas de travaux d’impression.'),
     ('generic-nas','Générique','Stockage NAS','NAS','Pas de SMB/NFS, disques ou agrégation réseau.'),
-    ('synology-ds224','Synology','DiskStation DS224+','NAS','Un seul port simulé ; pas de DSM/SMB/NFS.'),
+    ('synology-ds224','Synology','DiskStation DS224+','NAS','Un seul port simulé ; DSM limité au réseau, pas de SMB/NFS.'),
     ('generic-camera','Générique','Caméra IP','Caméra','Pas de vidéo/RTSP ni alimentation PoE.'),
     ('axis-p3265','Axis','P3265-LVE','Caméra','Pas de vidéo/RTSP ni alimentation PoE.'),
     ('generic-phone','Générique','Téléphone IP','Téléphone IP','VLAN data uniquement ; pas de SIP, voix ou port PC passthrough.'),
