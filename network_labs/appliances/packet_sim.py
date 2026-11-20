@@ -63,7 +63,8 @@ class _Fabric:
             return None
         if vlan_plan(record) is None:
             return tag or 1  # a plain bridge: one untagged VLAN 1, tagged frames pass as they are
-        settings = record['switchports'][port]
+        from .etherchannel import bundle_of
+        settings = record['switchports'][bundle_of(record, port)]  # an EtherChannel member: its bundle's settings
         if settings['mode'] == 'access':
             return settings['vlan'] if tag is None else None
         allowed = record['vlans'] if settings['allowed'] == 'all' else settings['allowed']
@@ -71,16 +72,20 @@ class _Fabric:
         return vid if vid in allowed or vid == settings['native_vlan'] else None
 
     def egress(self, switch, vid, came_in):
-        """[(port, tag)] a switch sends a VLAN VID frame out of: every other port carrying the VLAN (not shut, not blocked)."""
+        """[(port, tag)] a switch sends a VLAN VID frame out of: every other bridge port carrying the VLAN (not shut, not
+        blocked); an EtherChannel through one of its cabled members, never back into the bundle it came from."""
+        from .etherchannel import bridged_ports, bundle_of, bundles
         record = self.nodes[switch]
         found = []
-        for port in record['interfaces']:
-            if port == came_in or (switch, port) not in self.peer or (switch, port) in self.blocked:
+        for bridged in bridged_ports(record):
+            members = bundles(record)[bridged]['members'] if bridged in bundles(record) else [bridged]
+            port = next((m for m in members if (switch, m) in self.peer), None)
+            if port is None or bridged == bundle_of(record, came_in or '') or (switch, port) in self.blocked:
                 continue
             if vlan_plan(record) is None:
                 found.append((port, None if vid == 1 else vid))
                 continue
-            settings = record['switchports'][port]
+            settings = record['switchports'][bridged]
             if settings['mode'] == 'access':
                 if settings['vlan'] == vid:
                     found.append((port, None))

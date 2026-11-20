@@ -14,6 +14,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/neighbour.h>
 #include <linux/if_vlan.h>
+#include <linux/ethtool.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/time.h>
 #include <net/if.h>
@@ -37,9 +38,15 @@ static int valid_port(const char *value) {
     if (n == 5 && (value[3] == '0' || value[4] < '0' || value[4] > '9')) return 0;
     return atoi(value + 3) < MAX_PORTS;
 }
+/* An EtherChannel (IOS Port-channel N): the 802.3ad bond bond1 .. bond8. */
+static int valid_bond(const char *value) {
+    return strlen(value) == 5 && !strncmp(value, "bond", 4) && value[4] >= '1' && value[4] <= '8';
+}
+/* A port of a switch guest's bridge: a physical port or a bond. */
+static int valid_member(const char *value) { return valid_port(value) || valid_bond(value); }
 /* A guest port eth0..eth15, one of its 802.1Q subinterfaces eth0.1 .. eth15.4094, or the bridge br0 and its VLANs. */
 static int valid_interface(const char *value) {
-    if (!strcmp(value, "br0")) return 1;  /* a switch guest's bridge: its management address (IOS interface vlan N) */
+    if (!strcmp(value, "br0") || valid_bond(value)) return 1;  /* the bridge (interface vlan N), or a bond (link up/down) */
     const char *dot = strchr(value, '.');
     if (!dot) return valid_port(value);
     if ((size_t)(dot - value) >= PORT_SIZE) return 0;
@@ -48,6 +55,34 @@ static int valid_interface(const char *value) {
     if (strcmp(base, "br0") && !valid_port(base)) return 0;
     if (!vid[0] || vid[0] == '0' || strlen(vid) > 4 || strspn(vid, "0123456789") != strlen(vid)) return 0;
     long number = atol(vid); return number >= 1 && number <= 4094;
+}
+/* A port at 1 Gb/s full duplex: a virtio port reports neither, and 802.3ad bonding runs LACP on full-duplex ports only
+ * (an unknown duplex leaves each member individual). Through the ethtool ioctl, as « ethtool -s PORT speed 1000 duplex
+ * full autoneg off » does. */
+static int full_duplex(const char *port) {
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return errno;
+    struct ethtool_cmd settings; memset(&settings, 0, sizeof(settings)); settings.cmd = ETHTOOL_GSET;
+    struct ifreq change; memset(&change, 0, sizeof(change)); strncpy(change.ifr_name, port, IFNAMSIZ - 1);
+    change.ifr_data = (char *)&settings;
+    int failure = ioctl(fd, SIOCETHTOOL, &change) < 0 ? errno : 0;
+    if (!failure) {
+        settings.cmd = ETHTOOL_SSET; ethtool_cmd_speed_set(&settings, SPEED_1000);
+        settings.duplex = DUPLEX_FULL; settings.autoneg = AUTONEG_DISABLE;
+        if (ioctl(fd, SIOCETHTOOL, &change) < 0) failure = errno;
+    }
+    close(fd);
+    return failure;
+}
+/* Write one value to a sysfs file: 0, or the errno. */
+static int sysfs_write(const char *path, const char *value) {
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return errno;
+    char text[64]; int length = snprintf(text, sizeof(text), "%s\n", value);
+    ssize_t n = write(fd, text, (size_t)length);
+    int failure = n == length ? 0 : (n < 0 ? errno : EIO);
+    close(fd);
+    return failure;
 }
 static int valid_cidr(const char *value) {
     char ip[16]; const char *slash = strchr(value, '/');
@@ -202,7 +237,7 @@ static size_t bridge_fdb(char *out, size_t room, int *failure) {
             if (header->nlmsg_type != RTM_NEWNEIGH) continue;
             struct ndmsg *entry = NLMSG_DATA(header);
             char name[IF_NAMESIZE] = "";
-            if ((entry->ndm_state & NUD_PERMANENT) || !if_indextoname((unsigned)entry->ndm_ifindex, name) || !valid_port(name)) continue;
+            if ((entry->ndm_state & NUD_PERMANENT) || !if_indextoname((unsigned)entry->ndm_ifindex, name) || !valid_member(name)) continue;
             unsigned char *mac = NULL; unsigned vlan = 0;
             int length = (int)(header->nlmsg_len - NLMSG_LENGTH(sizeof(struct ndmsg)));
             for (struct rtattr *attribute = (struct rtattr *)((char *)entry + NLMSG_ALIGN(sizeof(struct ndmsg)));
@@ -445,6 +480,59 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, listing, used); return;
     }
+    /* EtherChannel: an 802.3ad bond (fast LACP, link monitoring, layer 2+3 hashing) and its member ports, through the
+     * bonding sysfs files (no ifenslave applet). BOND_SHOW: each bond's /proc/net/bonding file after a "== bondN" line. */
+    char bond_name[PORT_SIZE], bond_port[PORT_SIZE], bond_extra;
+    if (mutations && sscanf(request, "NL1 BOND_ADD %5s %c", bond_name, &bond_extra) == 1 && valid_bond(bond_name)) {
+        char line[16]; snprintf(line, sizeof(line), "+%s", bond_name);
+        int failure = sysfs_write("/sys/class/net/bonding_masters", line);
+        const char *settings[][2] = {{"mode", "802.3ad"}, {"lacp_rate", "fast"}, {"miimon", "100"}, {"xmit_hash_policy", "layer2+3"}};
+        for (int i = 0; i < 4 && !failure; i++) {
+            char path[80]; snprintf(path, sizeof(path), "/sys/class/net/%s/bonding/%s", bond_name, settings[i][0]);
+            failure = sysfs_write(path, settings[i][1]);
+        }
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bond change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, "", 0); return;
+    }
+    int bond_slave = sscanf(request, "NL1 BOND_SLAVE %5s %5s %c", bond_name, bond_port, &bond_extra) == 2;
+    int bond_release = !bond_slave && sscanf(request, "NL1 BOND_RELEASE %5s %5s %c", bond_name, bond_port, &bond_extra) == 2;
+    if (mutations && (bond_slave || bond_release) && valid_bond(bond_name) && valid_port(bond_port)) {
+        char path[80], line[16];
+        snprintf(path, sizeof(path), "/sys/class/net/%s/bonding/slaves", bond_name);
+        snprintf(line, sizeof(line), "%c%s", bond_slave ? '+' : '-', bond_port);
+        if (bond_slave) full_duplex(bond_port);  /* best effort: without it the member stays individual (show etherchannel) */
+        int failure = sysfs_write(path, line);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bond member change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && sscanf(request, "NL1 BOND_DEL %5s %c", bond_name, &bond_extra) == 1 && valid_bond(bond_name)) {
+        char line[16]; snprintf(line, sizeof(line), "-%s", bond_name);
+        int failure = sysfs_write("/sys/class/net/bonding_masters", line);
+        if (failure) {
+            char text[96]; int n = snprintf(text, sizeof(text), "bond change failed: %s", strerror(failure));
+            reply(output, 1, text, (size_t)n); return;
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 BOND_SHOW")) {
+        static char listing[LIMIT]; size_t used = 0;
+        for (int b = 1; b <= 8; b++) {
+            char path[40]; snprintf(path, sizeof(path), "/proc/net/bonding/bond%d", b);
+            int fd = open(path, O_RDONLY | O_CLOEXEC);
+            if (fd < 0) continue;
+            used += (size_t)snprintf(listing + used, sizeof(listing) - used, "== bond%d\n", b);
+            ssize_t n = read(fd, listing + used, sizeof(listing) - used - 1);
+            close(fd);
+            if (n > 0) used += (size_t)n;
+        }
+        reply(output, 0, listing, used); return;
+    }
     /* One untagged learning bridge (the guest kernel has no 802.1Q): typed ioctls, no brctl applet. */
     if (!strcmp(request, "NL1 BRIDGE_PORTS")) {
         DIR *directory = opendir("/sys/class/net/br0/brif");
@@ -489,7 +577,7 @@ static void serve(int input, int output, int mutations) {
     int vlan_fields = sscanf(request, "NL1 BRIDGE_VLAN_ADD %5s %u %7s %c", vlan_port, &vlan_id, vlan_mode, &vlan_extra);
     int vlan_add = vlan_fields == 3 && (!strcmp(vlan_mode, "pvid") || !strcmp(vlan_mode, "tagged"));
     int vlan_delete = !vlan_add && sscanf(request, "NL1 BRIDGE_VLAN_DEL %5s %u %c", vlan_port, &vlan_id, &vlan_extra) == 2;
-    if (mutations && (vlan_add || vlan_delete) && (valid_port(vlan_port) || !strcmp(vlan_port, "br0")) && vlan_id >= 1 && vlan_id <= 4094) {
+    if (mutations && (vlan_add || vlan_delete) && (valid_member(vlan_port) || !strcmp(vlan_port, "br0")) && vlan_id >= 1 && vlan_id <= 4094) {
         unsigned short flags = vlan_add && !strcmp(vlan_mode, "pvid") ? BRIDGE_VLAN_INFO_PVID | BRIDGE_VLAN_INFO_UNTAGGED : 0;
         int failure = bridge_vlan(vlan_add ? RTM_SETLINK : RTM_DELLINK, vlan_port, vlan_id, flags);
         if (failure) {
@@ -499,7 +587,7 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, "", 0); return;
     }
     char bridge_port[PORT_SIZE], bridge_extra;
-    if (mutations && sscanf(request, "NL1 BRIDGE_ADD %5s %c", bridge_port, &bridge_extra) == 1 && valid_port(bridge_port)) {
+    if (mutations && sscanf(request, "NL1 BRIDGE_ADD %5s %c", bridge_port, &bridge_extra) == 1 && valid_member(bridge_port)) {
         int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
         if (!failure && ioctl(fd, SIOCBRADDBR, "br0") < 0 && errno != EEXIST) failure = errno;
         struct ifreq change;
@@ -536,7 +624,7 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, "", 0); return;
     }
     if (mutations && sscanf(request, "NL1 BRIDGE_STP_PORT %5s %u %u %c", stp_port, &stp_cost, &stp_port_priority, &stp_extra) == 3 &&
-        valid_port(stp_port) && stp_cost >= 1 && stp_cost <= 65535 && stp_port_priority <= 240 && stp_port_priority % 16 == 0) {
+        valid_member(stp_port) && stp_cost >= 1 && stp_cost <= 65535 && stp_port_priority <= 240 && stp_port_priority % 16 == 0) {
         const char *names[] = {"path_cost", "priority"};
         unsigned values[] = {stp_cost, stp_port_priority / 16};  /* the kernel keeps the port priority's upper four bits */
         for (int i = 0; i < 2; i++) {
@@ -569,15 +657,16 @@ static void serve(int input, int output, int mutations) {
             value[strcspn(value, "\n")] = 0;
             used += (size_t)snprintf(listing + used, sizeof(listing) - used, "bridge %s %s\n", bridge_keys[i], value);
         }
-        for (int p = 0; p < MAX_PORTS; p++) {
+        for (int p = 0; p < MAX_PORTS + 8; p++) {  /* eth0..eth15, then bond1..bond8 */
+            char member[PORT_SIZE]; snprintf(member, sizeof(member), p < MAX_PORTS ? "eth%d" : "bond%d", p < MAX_PORTS ? p : p - MAX_PORTS + 1);
             for (int i = 0; i < 6; i++) {
-                char path[80], value[64] = {0}; snprintf(path, sizeof(path), "/sys/class/net/br0/brif/eth%d/%s", p, port_keys[i]);
+                char path[80], value[64] = {0}; snprintf(path, sizeof(path), "/sys/class/net/br0/brif/%s/%s", member, port_keys[i]);
                 int fd = open(path, O_RDONLY | O_CLOEXEC);
                 ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value) - 1);
                 if (fd >= 0) close(fd);
                 if (n <= 0) break;
                 value[strcspn(value, "\n")] = 0;
-                used += (size_t)snprintf(listing + used, sizeof(listing) - used, "eth%d %s %s\n", p, port_keys[i], value);
+                used += (size_t)snprintf(listing + used, sizeof(listing) - used, "%s %s %s\n", member, port_keys[i], value);
             }
         }
         reply(output, 0, listing, used); return;

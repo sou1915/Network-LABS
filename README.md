@@ -115,6 +115,10 @@ destination, puis « Capture / Avancer » (ou « Lecture ») : chaque trame du p
 (ARP en orange, puis ICMP en magenta ; une croix rouge là où le paquet est abandonné), avec la liste des événements,
 les en-têtes de chaque trame (MAC, 802.1Q, IP, TTL, ICMP) et ce que fait l'équipement qui la reçoit. Le chemin est
 celui que calcule `ping` (routes, VLAN, trunks, spanning tree, NAT, ACL), lab arrêté ou en marche.
+L'EtherChannel aussi : `channel-group 1 mode active` (ou `passive`) sur deux ports, `interface port-channel 1` pour
+ses réglages, `show etherchannel summary` (Po1(SU), ports (P)) ; les deux câbles forment un seul port pour le
+spanning tree, et le LACP tourne pour de vrai entre les micro-VM (noyau Network LABS). Le groupe se met en place au
+▶ Démarrer (pas encore à chaud) ; seulement en LACP (pas de mode on ni PAgP).
 Un Catalyst 9200L est un switch de niveau 3 : `ip routing` et une `interface vlan N` par VLAN routent entre les VLAN
 sans routeur (routage inter-VLAN, `show ip route` avec ses réseaux `C`, `ip route` vers un routeur) ; un 2960 reste
 de niveau 2 et refuse `ip routing`, comme dans Packet Tracer.

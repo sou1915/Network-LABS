@@ -26,9 +26,11 @@ def from_guest(listing, node, cabled=None):
             'root_cost': int(bridge['root_path_cost']),
             'timers': [int(bridge[k]) // 100 for k in ('hello_time', 'max_age', 'forward_delay')],  # centiseconds
             'ports': []}
-    for port in node['interfaces']:
+    from .etherchannel import bridged_ports, bundles
+    for port in bridged_ports(node):
         values = listing.get(port)
-        if not values or values.get('state') == '0' or (cabled is not None and port not in cabled):
+        wired = port in cabled or any(m in cabled for m in bundles(node).get(port, {}).get('members', [])) if cabled is not None else True
+        if not values or values.get('state') == '0' or not wired:
             continue  # a shut or unconnected port is not in the tree
         number = int(values['port_no'], 0)
         role = 'Root' if number == root_port else 'Altn' if values['state'] == '4' else 'Desg'
@@ -48,14 +50,17 @@ def bridge_mac(node):
 
 def from_model(spec, name):
     """The view a stopped lab will converge to (802.1D on the switch cables)."""
+    from .etherchannel import bridged_ports, bundle_of
     nodes = {n['name']: n for n in spec['nodes']}
     stp = {n: v for n, v in nodes.items() if v.get('role') == 'switch' and (v.get('spanning_tree') or {}).get('mode') == 'stp'}
     down = {n: set(v.get('shutdown') or []) for n, v in nodes.items()}
-    cables = [(tuple(a), tuple(b)) for a, b in spec['links'] if a[1] not in down[a[0]] and b[1] not in down[b[0]]]
+    # Bridge ports at both ends: an EtherChannel's member cables are one cable between the two bundles.
+    cables = list(dict.fromkeys(((a[0], bundle_of(nodes[a[0]], a[1])), (b[0], bundle_of(nodes[b[0]], b[1])))
+                                for a, b in spec['links'] if a[1] not in down[a[0]] and b[1] not in down[b[0]]))
     ident = lambda n: (stp[n]['spanning_tree']['priority'], bridge_mac(stp[n]))
     cost = lambda n, p: ((stp[n]['spanning_tree'].get('ports') or {}).get(p) or {}).get('cost', 100)
     pid = lambda n, p: (((stp[n]['spanning_tree'].get('ports') or {}).get(p) or {}).get('priority', 128),
-                        list(nodes[n]['interfaces']).index(p) + 1)  # the kernel numbers ports in the order they join
+                        bridged_ports(nodes[n]).index(p) + 1)  # the kernel numbers ports in the order they join
     trunk = [(a, b) for a, b in cables if a[0] in stp and b[0] in stp]
     # Component of NAME, its root, then root path costs (Dijkstra over the switch cables, cost of the receiving port).
     component, pending = set(), [name]
@@ -81,7 +86,7 @@ def from_model(spec, name):
             'root_address': bridge_mac(stp[root]), 'root_cost': best[name][0],
             'timers': [me['hello_time'], me['max_age'], me['forward_delay']],
             'ports': []}
-    for port in nodes[name]['interfaces']:
+    for port in bridged_ports(nodes[name]):
         cable = next(((a, b) for a, b in cables if a == (name, port) or b == (name, port)), None)
         if cable is None:
             continue
@@ -106,7 +111,9 @@ def blocked_ports(spec):
     for node in spec['nodes']:
         if node.get('role') == 'switch' and node.get('runtime') == 'firecracker' and \
                 (node.get('spanning_tree') or {}).get('mode') == 'stp':
-            found |= {(node['name'], p['port']) for p in from_model(spec, node['name'])['ports'] if p['role'] == 'Altn'}
+            for p in from_model(spec, node['name'])['ports']:
+                if p['role'] == 'Altn':  # a blocked EtherChannel: each of its member ports
+                    found |= {(node['name'], m) for m in (node.get('port_channels') or {}).get(p['port'], {}).get('members', [p['port']])}
     return found
 
 

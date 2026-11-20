@@ -94,8 +94,22 @@ def turn_on(node):
     policy = node.setdefault('spanning_tree', {})
     if policy.get('mode', 'off') == 'off':
         policy.update(mode='stp', **LAB_TIMERS)
-        policy['ports'] = {port: {'cost': ios_cost(node, port)} for port in node['interfaces']}
+        policy['ports'] = {}
+    sync_ports(node)
     return policy
+
+
+def sync_ports(node):
+    """Key a switch's STP port settings by its bridge ports: a port that joins an EtherChannel gives way to the bundle
+    (one STP port, IOS's bundle cost), one that leaves gets its own default cost back."""
+    from .etherchannel import bridged_ports, bundles, ios_cost as bundle_cost
+    policy = node.get('spanning_tree') or {}
+    if policy.get('mode', 'off') == 'off':
+        return
+    current = policy.get('ports') or {}
+    policy['ports'] = {port: current.get(port) or {'cost': ios_cost(node, port)} for port in bridged_ports(node)}
+    for bond in bundles(node):  # a bundle's cost follows its members, as IOS recomputes it
+        policy['ports'][bond] = dict(policy['ports'][bond], cost=bundle_cost(node, bond))
 
 
 def vlan_list(text):

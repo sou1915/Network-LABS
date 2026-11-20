@@ -9,30 +9,56 @@ def validate_channels(node):
     channels = node.setdefault('port_channels', {})
     if not isinstance(channels, dict) or len(channels) > 16:
         raise ValueError('port_channels: object with at most 16 bonds.')
-    if channels and (node['runtime'] != 'oci' or node['role'] != 'switch'):
-        raise ValueError('Port-channels currently require OCI switches.')
+    guest = node['runtime'] == 'firecracker' and node['role'] == 'switch'  # a switch micro-VM: bonds in its own kernel
+    if channels and node['role'] != 'switch':
+        raise ValueError('Port-channels require switches.')
+    if guest and len(channels) > 8:
+        raise ValueError('Switch micro-VM: at most 8 port-channels (bond1..bond8).')
     members = set()
     for name, channel in channels.items():
-        if not isinstance(name, str) or not re.fullmatch(r'bond(?:[1-9]|[12][0-9]|3[0-2])', name):
-            raise ValueError('Port-channel names: bond1..bond32.')
+        pattern = r'bond[1-8]' if guest else r'bond(?:[1-9]|[12][0-9]|3[0-2])'
+        if not isinstance(name, str) or not re.fullmatch(pattern, name):
+            raise ValueError('Port-channel names: bond1..bond8 on a switch micro-VM, bond1..bond32 on a container switch.')
+        if guest and ('lacp_strict' in channel or channel.get('min_links', 1) != 1):
+            raise ValueError('Switch micro-VM port-channel: LACP active or passive, no min-links or strict policy.')
         keys(channel, ('members', 'mode', 'min_links', 'lacp_strict'), 'Port-channel')
         if 'lacp_strict' in channel and not isinstance(channel['lacp_strict'], bool):
             raise ValueError('lacp_strict: boolean required; unsupported hosts refuse this explicit policy.')
         ports = channel.get('members')
-        if not isinstance(ports, list) or not 2 <= len(ports) <= 8 or any(not isinstance(p, str) or p not in node['interfaces'] for p in ports):
-            raise ValueError('Port-channel needs 2..8 known physical members.')
+        # A switch micro-VM's bundle grows one « channel-group » line at a time, as on IOS: none to eight members.
+        smallest = 0 if guest else 2
+        if not isinstance(ports, list) or not smallest <= len(ports) <= 8 \
+                or any(not isinstance(p, str) or p not in node['interfaces'] for p in ports):
+            raise ValueError(f'Port-channel needs {smallest}..8 known physical members.')
         if len(set(ports)) != len(ports) or members.intersection(ports):
             raise ValueError('Each physical member belongs to one port-channel only.')
         members.update(ports)
         if channel.setdefault('mode', 'active') not in ('active', 'passive'):
             raise ValueError('Port-channel mode: LACP active or passive; no static/PAgP fallback.')
-        integer(channel.setdefault('min_links', 1), 1, len(ports), 'min_links')
+        integer(channel.setdefault('min_links', 1), 1, max(1, len(ports)), 'min_links')
     return members
 
 
 def validate_links(spec):
-    """Collapse complete, paired bundles into one edge before cycle detection."""
+    """Collapse complete, paired bundles into one edge before cycle detection. A switch micro-VM's bundle may be typed
+    before its peer's (it forms once both match, as on IOS): its unpaired cables count one by one."""
     byname = {n['name']: n for n in spec['nodes']}
+    if any(n['runtime'] == 'firecracker' and n.get('port_channels') for n in spec['nodes']):
+        from .etherchannel import partners
+        formed = partners(spec)
+        member = {(n['name'], p): (n['name'], bond) for n in spec['nodes'] for bond, c in (n.get('port_channels') or {}).items()
+                  for p in c['members']}
+        logical, seen = [], set()
+        for link in spec['links']:
+            a, b = map(tuple, link)
+            ga, gb = member.get(a), member.get(b)
+            if ga in formed and formed[ga] == gb:
+                edge = tuple(sorted((ga, gb)))
+                if edge in seen:
+                    continue
+                seen.add(edge)
+            logical.append((a[0], b[0]))
+        return logical
     membership = {(n['name'], p): (n['name'], name) for n in spec['nodes']
                   for name, c in n['port_channels'].items() for p in c['members']}
     peers, connected, logical, seen = {}, set(), [], set()

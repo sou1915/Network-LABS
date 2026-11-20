@@ -76,12 +76,12 @@ def ios_name(label):
     return IOS_NAMES.get(match[1], match[1]) + match[2] if match and match[1] in IOS_NAMES else label
 
 
-SHORT_NAMES = {'GigabitEthernet': 'Gi', 'FastEthernet': 'Fa', 'TenGigabitEthernet': 'Te', 'Ethernet': 'Et'}
+SHORT_NAMES = {'GigabitEthernet': 'Gi', 'FastEthernet': 'Fa', 'TenGigabitEthernet': 'Te', 'Ethernet': 'Et', 'Port-channel': 'Po'}
 
 
 def ios_short(name):
     """A port as IOS abbreviates it in tables (show vlan brief, show interfaces status): GigabitEthernet0/1 -> Gi0/1."""
-    match = re.fullmatch(r'([A-Za-z]+)([\d/.:]+)', ios_name(name.lower()) if name[:1].islower() else name)
+    match = re.fullmatch(r'([A-Za-z-]+)([\d/.:]+)', ios_name(name.lower()) if name[:1].islower() else name)
     return SHORT_NAMES.get(match[1], match[1]) + match[2] if match and match[1] in SHORT_NAMES else name
 
 
@@ -334,11 +334,22 @@ def _render_ios(node, eos=False):
         if vid != 1:
             name = ios_store.vlan_name(node, vid)
             lines += [f'vlan {vid}'] + ([f' name {name}'] if name else []) + ['!']
+    from .etherchannel import bundle_of, bundles, number
+    for bond in sorted(bundles(node), key=number) if node.get('runtime') == 'firecracker' else ():
+        switchport = node.get('switchports', {}).get(bond) or {'mode': 'access', 'vlan': 1}
+        lines.append('interface ' + shown.get(bond, bond))
+        if switchport['mode'] == 'trunk':
+            allowed = switchport['allowed']
+            lines += [' switchport mode trunk', f' switchport trunk native vlan {switchport["native_vlan"]}',
+                      ' switchport trunk allowed vlan ' + ('all' if allowed == 'all' else ','.join(map(str, allowed)))]
+        else:
+            lines += [' switchport mode access', f' switchport access vlan {switchport["vlan"]}']
+        lines.append('!')
     for port, address in node['interfaces'].items():
         lines.append('interface ' + shown[port])
         described, extra = ios_store.render_interface(node, port)
         lines += [' ' + line for line in described]
-        switchport = node.get('switchports', {}).get(port)
+        switchport = node.get('switchports', {}).get(bundle_of(node, port))
         if node['role'] == 'switch':
             if switchport and switchport['mode'] == 'trunk':
                 allowed = switchport['allowed']
@@ -361,6 +372,8 @@ def _render_ios(node, eos=False):
                 lines.append(f' ip ospf priority {ospf_port["priority"]}')
             lines.append(f' ip ospf cost {ospf_port["cost"]}')
         lines += [' ' + line for line in extra]
+        if bundle_of(node, port) != port:
+            lines.append(f' channel-group {number(bundle_of(node, port))} mode {bundles(node)[bundle_of(node, port)]["mode"]}')
         if port in (node.get('shutdown') or []):
             lines.append(' shutdown')
         lines.append('!')
@@ -761,6 +774,9 @@ class IOS:
         if self.ospf and not low.startswith('interface ') and self._ospf(low, words):
             return
         self.ospf = False
+        match = re.fullmatch(r'no interface (?:port-channel|po)\s*(\d+)', low)
+        if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            return self._drop_port_channel(f'bond{int(match[1])}')
         match = re.fullmatch(r'no interface vlan\s*(\d+)', low)
         if match and node['role'] == 'switch':
             name = f'vlan{int(match[1])}'
@@ -792,6 +808,10 @@ class IOS:
             match = re.fullmatch(r'vlan\s*(\d+)', name.lower())
             if match and node['role'] == 'switch':
                 self.port = self._svi(int(match[1]))
+                return
+            match = re.fullmatch(r'(?:port-channel|po)\s*(\d+)', name.lower())
+            if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+                self.port = self._port_channel(int(match[1]))
                 return
             self.port = _port(node, name)
             return
@@ -917,6 +937,14 @@ class IOS:
             return _set_address(node, self.port, '')
         if low.startswith('switchport') and not low.startswith('switchport port-security'):
             return self._switchport(low)
+        match = re.fullmatch(r'(no )?channel-group(?: (\d+) mode (\S+))?', low)
+        if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            return self._channel_group(bool(match[1]), match[2], match[3])
+        if low in ('shutdown', 'no shutdown') and self.port in (node.get('port_channels') or {}):
+            members = node['port_channels'][self.port]['members']  # a Port-channel's shutdown is its members'
+            rest = [p for p in node.get('shutdown') or [] if p not in members]
+            node['shutdown'] = sorted(rest + (members if low == 'shutdown' else []))
+            return
         match = re.fullmatch(r'(no )?spanning-tree (cost|port-priority)(?: (\d+))?', low)
         if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
             if not match[1] and match[3] is None:
@@ -956,6 +984,60 @@ class IOS:
         if not _is_ipv4(values[2]):
             raise ValueError('Network LABS : sur un switch de niveau 3, ip route NET MASK ADRESSE-DU-SAUT-SUIVANT.')
         store_route(self.node, network, ipaddress.IPv4Address(values[2]))
+
+    def _port_channel(self, number):
+        """« interface port-channel N »: the switch's Port-channel N (its bond), created empty as on IOS."""
+        if not 1 <= number <= 8:
+            raise ValueError('Network LABS : Port-channel 1 à 8 sur un switch micro-VM.')
+        bond = f'bond{number}'
+        self.node.setdefault('port_channels', {}).setdefault(bond, {'members': [], 'mode': 'active', 'min_links': 1})
+        from .spanning_tree import sync_ports
+        sync_ports(self.node)
+        return bond
+
+    def _channel_group(self, negative, number, mode):
+        """« channel-group N mode active|passive » on a port: it joins Port-channel N (LACP), its switchport settings
+        becoming the bundle's when the bundle has none; « no channel-group » takes it out with the bundle's settings."""
+        from .etherchannel import bundle_of
+        from .spanning_tree import sync_ports
+        node, port = self.node, self.port
+        channels = node.setdefault('port_channels', {})
+        if port in channels or port not in node['interfaces']:
+            raise ValueError('channel-group : sur un port physique (interface fa0/1, interface range fa0/1 - 2).')
+        ports = node.setdefault('switchports', {})
+        current = bundle_of(node, port)
+        if current != port:  # leaving its bundle (to another, or none): it keeps the bundle's settings
+            channels[current]['members'].remove(port)
+            ports[port] = dict(ports.get(current) or {'mode': 'access', 'vlan': 1})
+        if not negative:
+            if number is None:
+                raise ValueError('Incomplete command.')
+            if mode not in ('active', 'passive'):
+                raise ValueError('Network LABS : EtherChannel en LACP sur les switchs micro-VM : mode active ou passive '
+                                 '(pas de mode on, desirable ou auto).')
+            bond = self._port_channel(int(number))
+            channel = channels[bond]
+            if channel['members'] and channel['mode'] != mode:
+                raise ValueError(f'Le groupe {number} est en mode {channel["mode"]} : tous ses ports ont le même mode.')
+            if not channel['members'] and port in ports:
+                ports[bond] = ports[port]  # the first member's settings become the bundle's, as IOS copies them
+            ports.pop(port, None)
+            channel['mode'] = mode
+            channel['members'].append(port)
+        sync_ports(node)
+
+    def _drop_port_channel(self, bond):
+        """« no interface port-channel N »: its members leave it, each with the bundle's settings."""
+        node = self.node
+        channel = (node.get('port_channels') or {}).pop(bond, None)
+        if channel is None:
+            return
+        ports = node.setdefault('switchports', {})
+        settings = ports.pop(bond, None) or {'mode': 'access', 'vlan': 1}
+        for member in channel['members']:
+            ports[member] = dict(settings)
+        from .spanning_tree import sync_ports
+        sync_ports(node)
 
     def _stp_priority(self, match):
         """« spanning-tree vlan N priority X » and « … root primary|secondary » (stored as the priority line it writes, as
@@ -1204,7 +1286,9 @@ class IOS:
         if self.node['role'] != 'switch':
             raise ValueError('switchport : uniquement sur un switch.')
         ports = self.node.setdefault('switchports', {})
-        current = ports.get(self.port, {'mode': 'access', 'vlan': 1})
+        from .etherchannel import bundle_of
+        port = bundle_of(self.node, self.port)  # on an EtherChannel member, IOS configures the whole bundle
+        current = ports.get(port, {'mode': 'access', 'vlan': 1})
         match = re.fullmatch(r'switchport (mode (access|trunk)|access vlan (\d+)|trunk native vlan (\d+)|'
                              r'trunk allowed vlan (all|[\d,\-]+))', low)
         if not match:
@@ -1221,7 +1305,7 @@ class IOS:
             current['native_vlan'] = int(match[4])
         else:
             current['allowed'] = 'all' if match[5] == 'all' else _vlan_list(match[5])
-        ports[self.port] = current
+        ports[port] = current
         self._vlan(current.get('vlan') or current.get('native_vlan'), False)
 
 

@@ -267,6 +267,11 @@ class Console:
     def node_now(self):
         return self.node()
 
+    def running(self):
+        """True when this console reaches a running micro-VM (False: the project, the lab stopped)."""
+        with self.manager().locked() as manager:
+            return not hasattr(manager, 'query_node')
+
     def spec_now(self):
         with self.manager().locked() as manager:
             return manager.read()['spec']

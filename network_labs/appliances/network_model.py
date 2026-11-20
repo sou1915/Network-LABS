@@ -42,7 +42,8 @@ def _frames(node, port):
         if vlan_plan(node) is None:
             # A plain bridge (only VLAN 1, no filtering): untagged frames and tagged ones pass unchanged.
             return {None: ('switch', node['name'], None), **{tag: ('switch', node['name'], tag) for tag in range(1, 4095)}}
-        switchport = (node.get('switchports') or {}).get(port, {'mode': 'access', 'vlan': 1})
+        from .etherchannel import bundle_of
+        switchport = (node.get('switchports') or {}).get(bundle_of(node, port), {'mode': 'access', 'vlan': 1})  # a member: its bundle's
         if switchport['mode'] == 'access':
             return {None: ('switch', node['name'], switchport['vlan'])}
         allowed = node.get('vlans', []) if switchport['allowed'] == 'all' else switchport['allowed']

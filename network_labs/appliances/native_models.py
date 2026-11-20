@@ -156,6 +156,9 @@ def port_names(node):
             shown[port] = names[index]
         else:
             shown[port] = port
+    if node.get('runtime') == 'firecracker':  # a switch micro-VM's EtherChannels: Port-channel N
+        for bond in sorted(node.get('port_channels') or {}, key=lambda name: int(name[4:])):
+            shown[bond] = 'Port-channel' + bond[4:]
     return shown
 
 

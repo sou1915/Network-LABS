@@ -15,7 +15,8 @@ from .vendor_config import ios_name
 SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', 'show cdp neighbors', 'show cdp neighbors detail',
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
-         'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree']
+         'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree',
+         'show etherchannel summary']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -39,6 +40,8 @@ def answer(console, low):
         return arp(console)
     if full in ('show mac address-table', 'show mac-address-table'):
         return mac_table(console)
+    if full in ('show etherchannel summary', 'show etherchannel'):
+        return etherchannel(console)
     match = re.fullmatch(r'show spanning-tree(?: vlan (\d+))?', full)
     if match:
         return spanning_tree(console, int(match[1]) if match[1] else None)
@@ -96,7 +99,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'status': 'status', 'dhcp': 'dhcp', 'bind': 'binding', 'binding': 'binding', 'arp': 'arp', 'mac': 'mac',
          'add': 'address-table', 'address-table': 'address-table', 'mac-address-table': 'mac-address-table', 'ro': 'route',
          'route': 'route', 'eigrp': 'eigrp', 'spa': 'spanning-tree', 'span': 'spanning-tree', 'spanning': 'spanning-tree',
-         'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan'}
+         'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan', 'eth': 'etherchannel', 'ether': 'etherchannel',
+         'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary'}
 
 
 def _expand(words):
@@ -235,7 +239,8 @@ def status(console):
         label = _label(node, port)
         shut = port in (node.get('shutdown') or [])
         state = 'disabled' if shut else 'connected' if up.get(port) else 'notconnect'
-        switchport = (node.get('switchports') or {}).get(port) or {'mode': 'access', 'vlan': 1}
+        from .etherchannel import bundle_of
+        switchport = (node.get('switchports') or {}).get(bundle_of(node, port)) or {'mode': 'access', 'vlan': 1}  # a member: its bundle's
         vlan = 'trunk' if switchport['mode'] == 'trunk' else str(switchport['vlan'])
         gigabit = label.startswith(('Gigabit', 'TenGigabit'))
         duplex, speed = ('a-full', 'a-1000' if gigabit else 'a-100') if state == 'connected' else ('auto', 'auto')
@@ -277,17 +282,29 @@ def mac_table(console):
     from .guest_startup import vlan_plan
     plan = vlan_plan(node)  # None: a plain bridge, every port in VLAN 1
     members = None if plan is None else {(port, vid) for port, vid, _ in plan}
+    from .etherchannel import bridged_ports
+    bridged = bridged_ports(node)  # an EtherChannel learns on its bond: Po1
     rows = set()  # once each; entries learned before VLAN filtering (vid 0) or before a port changed VLAN are stale
     for line in console.query('bridge-fdb').splitlines():
         port, mac, vlan = line.split()
         vid = 1 if members is None else int(vlan)
-        if port in node['interfaces'] and (members is None or (port, vid) in members):
+        if port in bridged and (members is None or (port, vid) in members):
             rows.add((vid, _cisco_mac(mac), ios_short(_label(node, port))))
     lines = ['          Mac Address Table', '-' * 43, '', f'{"Vlan":<8}{"Mac Address":<18}{"Type":<12}Ports',
              f'{"----":<8}{"-----------":<18}{"--------":<12}-----', '']
     lines += [f'{vlan:>4}    {mac:<18}{"DYNAMIC":<12}{port}' for vlan, mac, port in sorted(rows)]
     lines.append(f'Total Mac Addresses for this criterion: {len(rows)}')
     return '\n'.join(lines)
+
+
+def etherchannel(console):
+    """« show etherchannel summary »: read in the switch guest's bonds while it runs, the lab's outcome otherwise."""
+    from .etherchannel import parse_bonds, summary
+    node = console.node()
+    if node['role'] != 'switch':
+        return "% Invalid input detected at '^' marker."
+    guest = parse_bonds(console.query('bond-show')) if console.running() else None
+    return summary(console.spec_now(), node, guest)
 
 
 def spanning_tree(console, vlan=None):

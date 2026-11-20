@@ -6,6 +6,7 @@ import time
 
 MAX_GUEST_PORTS = 16  # eth0..eth15: the agent's limit, within Firecracker's interrupts for network devices
 GUEST_PORTS = tuple(f'eth{i}' for i in range(MAX_GUEST_PORTS))
+GUEST_BONDS = tuple(f'bond{i}' for i in range(1, 9))  # EtherChannels: IOS Port-channel 1 .. 8
 OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
               'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
               'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE',
@@ -25,6 +26,8 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'proxy-arp': 'PROXY_ARP', 'proxy-arps': 'PROXY_ARPS', 'dev-route-add': 'DEV_ROUTE_ADD',
               'dev-route-delete': 'DEV_ROUTE_DEL', 'bridge-stp': 'BRIDGE_STP', 'bridge-stp-port': 'BRIDGE_STP_PORT',
               'bridge-stp-off': 'BRIDGE_STP_OFF', 'bridge-stp-show': 'BRIDGE_STP_SHOW'}
+OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
+                   'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
 RIP_SHOW = ('config', 'routes')
 
@@ -205,6 +208,8 @@ def guest_interface(name):
     the bridge's VLAN interfaces br0.1 .. br0.4094 (a routing switch's SVIs)."""
     if name == 'br0':
         return True
+    if name in GUEST_BONDS:
+        return True  # an EtherChannel's bond: its link goes up or down
     match = re.fullmatch(r'(?:eth(?:1[0-5]|[0-9])|br0)(?:\.([1-9][0-9]{0,3}))?', name) if isinstance(name, str) else None
     return bool(match) and (match[1] is None or int(match[1]) <= 4094)
 
@@ -215,7 +220,7 @@ def _bridge_vlan_command(operation, interface, vlan, state):
         if interface is not None or vlan is not None or state is not None:
             raise ValueError(f'Guest {operation} accepts no arguments.')
         return command
-    if interface not in (*GUEST_PORTS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+    if interface not in (*GUEST_PORTS, *GUEST_BONDS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
         raise ValueError('Guest bridge VLAN change requires interface eth0..eth15 (or br0, the bridge itself) and a VLAN 1..4094.')
     if operation == 'bridge-vlan-add':
         if state not in ('pvid', 'tagged'):
@@ -230,6 +235,22 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('bond-'):  # an EtherChannel: a bond and its member ports
+        if any(v is not None for v in (destination, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)):
+            raise ValueError('Guest bond operations accept only a bond and, for its members, a port.')
+        if operation == 'bond-show':
+            if interface is not None or state is not None:
+                raise ValueError('Guest bond-show accepts no arguments.')
+            return _exchange(path, operation, OPERATIONS[operation], timeout)
+        if interface not in GUEST_BONDS:
+            raise ValueError('Guest bond operations require a bond bond1..bond8.')
+        if operation in ('bond-slave', 'bond-release'):
+            if state not in GUEST_PORTS:
+                raise ValueError(f'Guest {operation} requires a member port eth0..eth15.')
+            return _exchange(path, operation, f'{OPERATIONS[operation]} {interface} {state}', timeout)
+        if state is not None:
+            raise ValueError(f'Guest {operation} takes the bond only.')
+        return _exchange(path, operation, f'{OPERATIONS[operation]} {interface}', timeout)
     if operation.startswith('bridge-stp'):  # the switch bridge's spanning tree, from typed numbers
         if any(v is not None for v in (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp)):
             raise ValueError('Guest spanning tree operations accept only their numbers (and a port).')
@@ -240,7 +261,7 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             return _exchange(path, operation, 'BRIDGE_STP ' + ' '.join(map(str, numbers)), timeout)
         if operation == 'bridge-stp-port':
             numbers = [stp[k] for k in ('cost', 'priority')] if isinstance(stp, dict) else []
-            if interface not in GUEST_PORTS or len(numbers) != 2 or any(type(n) is not int for n in numbers):
+            if interface not in (*GUEST_PORTS, *GUEST_BONDS) or len(numbers) != 2 or any(type(n) is not int for n in numbers):
                 raise ValueError('Guest bridge-stp-port requires a port, its cost and its priority.')
             return _exchange(path, operation, f'BRIDGE_STP_PORT {interface} ' + ' '.join(map(str, numbers)), timeout)
         if interface is not None or stp is not None:
@@ -359,8 +380,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             raise ValueError('Guest link requires interface eth0..eth15 (or a subinterface) and state up or down.')
         command += ' ' + interface + ' ' + state
     elif operation == 'bridge-add':
-        if interface not in GUEST_PORTS or state is not None:
-            raise ValueError('Guest bridge-add requires interface eth0..eth15 and no state.')
+        if interface not in (*GUEST_PORTS, *GUEST_BONDS) or state is not None:
+            raise ValueError('Guest bridge-add requires interface eth0..eth15 or a bond, and no state.')
         command += ' ' + interface
     elif operation == 'forward':
         if interface is not None or state not in ('on', 'off'):

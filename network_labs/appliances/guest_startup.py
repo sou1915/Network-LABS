@@ -164,11 +164,12 @@ def vlan_plan(node):
 
 def observed_vlans(socket, node):
     """The guest bridge's VLAN entries on the declared ports, in vlan_plan() form."""
+    from .etherchannel import bridged_ports
     found = set()
     for line in query(socket, 'bridge-vlans').splitlines():
         fields = line.split()
-        if len(fields) < 2 or fields[0] not in node['interfaces']:
-            continue  # br0's own entries and other devices are not ports.
+        if len(fields) < 2 or fields[0] not in bridged_ports(node):
+            continue  # br0's own entries, bond members and other devices are not bridge ports.
         pvid, untagged = 'pvid' in fields[2:], 'untagged' in fields[2:]
         if pvid != untagged:
             raise ValueError('Unmanaged bridge VLAN entry: ' + line)
@@ -178,8 +179,9 @@ def observed_vlans(socket, node):
 
 def check_switch(socket, node):
     """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
+    from .etherchannel import bridged_ports, bundles
     ports = sorted(query(socket, 'bridge-ports').split())
-    if ports != sorted(node['interfaces']):
+    if ports != sorted(bridged_ports(node)):
         raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
     from .svi import management, routed
     devices = {svi['device'] for svi in routed(node)} - {'br0'}  # a routing switch's SVIs: br0.N
@@ -188,7 +190,8 @@ def check_switch(socket, node):
         header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
         if header:
             interface = header[1]
-            if interface not in ('lo', 'br0') and interface not in node['interfaces'] and interface not in devices:
+            if interface not in ('lo', 'br0') and interface not in node['interfaces'] and interface not in devices \
+                    and interface not in bundles(node):
                 raise ValueError('Guest has an undeclared interface.')
             if 'UP' in header[2].split(','): up.add(interface)
         elif line.split()[:1] == ['inet'] and (interface == 'br0' or interface in devices):
@@ -214,7 +217,7 @@ def check_switch(socket, node):
                                           for line in query(socket, 'routes').splitlines()):
         raise ValueError('Switch guest lacks its ip default-gateway route.')
     down = set(node.get('shutdown') or [])
-    if not {'br0', *(set(node['interfaces']) - down)} <= up or down & up:
+    if not {'br0', *(set(node['interfaces']) - down), *bundles(node)} <= up or down & up:
         raise ValueError('Switch guest bridge and its ports must be up, its shut ports down.')
     plan = vlan_plan(node)
     if plan is not None and observed_vlans(socket, node) != plan:
@@ -228,7 +231,7 @@ def check_switch(socket, node):
     if stp:
         held = [bridge.get(key) for key in ('priority', 'hello_time', 'max_age', 'forward_delay')]
         wanted = [str(policy['priority'])] + [str(policy[key] * 100) for key in ('hello_time', 'max_age', 'forward_delay')]
-        for port in node['interfaces']:
+        for port in bridged_ports(node):
             settings = (policy.get('ports') or {}).get(port, {})
             held += [listing.get(port, {}).get('path_cost'), listing.get(port, {}).get('priority')]
             wanted += [str(settings.get('cost', 100)), str(settings.get('priority', 128) // 16)]
@@ -469,7 +472,8 @@ def _stp(socket, node):
         query(socket, 'bridge-stp-off')
         return
     query(socket, 'bridge-stp', stp={k: policy[k] for k in ('priority', 'hello_time', 'max_age', 'forward_delay')})
-    for port in node['interfaces']:
+    from .etherchannel import bridged_ports
+    for port in bridged_ports(node):
         settings = (policy.get('ports') or {}).get(port, {})
         query(socket, 'bridge-stp-port', interface=port, stp={'cost': settings.get('cost', 100), 'priority': settings.get('priority', 128)})
 
@@ -742,24 +746,39 @@ def apply(socket, node, timeout=40, alive=None):
             if time.monotonic() >= deadline: raise
             time.sleep(.1)
     if node.get('role') == 'switch':
+        from .etherchannel import bridged_ports, bundles
         stp = (node.get('spanning_tree') or {}).get('mode') == 'stp'
-        for port in node['interfaces']:
+        shut = set(node.get('shutdown') or [])
+        for bond, channel in sorted(bundles(node).items()):  # EtherChannels first: their bonds take the members' place
+            try:
+                query(socket, 'bond-add', interface=bond)
+            except ValueError as error:
+                raise ValueError(str(error) + ' (EtherChannel needs the Network LABS guest kernel, tools/guest_kernel)') from error
+            for member in channel['members']:
+                query(socket, 'link', interface=member, state='down')
+                query(socket, 'bond-slave', interface=bond, state=member)
+        bridged = bridged_ports(node)
+        for port in bridged:
             # A shut port is still in the bridge (its VLANs are kept), with its link down, as « shutdown » on a Catalyst.
             # With STP, every link stays down until the tree runs: a loop never forwards unprotected.
-            query(socket, 'link', interface=port, state='down' if stp or port in (node.get('shutdown') or []) else 'up')
+            query(socket, 'link', interface=port, state='down' if stp or port in shut else 'up')
             query(socket, 'bridge-add', interface=port)
         if stp:
             _stp(socket, node)
-            for port in node['interfaces']:
-                if port not in (node.get('shutdown') or []):
+            for port in bridged:
+                if port not in shut:
                     query(socket, 'link', interface=port, state='up')
+        for channel in bundles(node).values():
+            for member in channel['members']:
+                if member not in shut:
+                    query(socket, 'link', interface=member, state='up')
         plan = vlan_plan(node)
         if plan is not None:
             try:
                 query(socket, 'bridge-vlan-filtering')
             except ValueError as error:
                 raise ValueError(str(error) + ' (VLANs need the Network LABS guest kernel, tools/guest_kernel)') from error
-            for port in node['interfaces']:
+            for port in bridged:
                 query(socket, 'bridge-vlan-delete', interface=port, vlan=1)  # Ports join VLAN 1 untagged by default.
             # Untagged (pvid) entries last: each one replaces the port's default VLAN.
             for port, vid, mode in sorted(plan, key=lambda entry: (entry[2] == 'pvid', entry)):
