@@ -16,10 +16,12 @@
     if (d.brand === 'Cisco' && /^(ISR|Catalyst 9200|Routeur IOS)/.test(d.model)) return 'iosxe';
     if (d.brand === 'Cisco' && /Nexus/.test(d.model)) return 'cli';
     if (d.model === 'pfSense') return 'pfsense';
+    if (d.model === 'OPNsense') return 'opnsense';
     if (d.brand === 'Palo Alto') return 'panos';
     if (d.brand === 'Juniper') return 'jweb';
-    if (['VyOS', 'Nokia', 'Arista', 'Dell'].includes(d.brand)) return 'cli';
-    return null;
+    if (['VyOS', 'Nokia', 'Arista', 'Dell', 'Extreme'].includes(d.brand)) return 'cli';
+    const more = (window.nlProductsKit ? window.nlProductsKit.MATCH : []).find(([test]) => test(d, role));
+    return more ? more[1] : null;
   }
   window.nlProduct = device => (device && state && state.node ? pick(device, state.node.role) : null);
 
@@ -161,6 +163,77 @@
     if (!validIp(ip) || (p !== undefined && !(Number(p) >= 0 && Number(p) <= 32))) throw new Error(`${what} : any ou a.b.c.d/nn.`);
     return p === undefined ? ip + '/32' : text;
   };
+
+  // ---- NAT: one model behind every product's own window ----
+  // masquerade (interface PAT / « hide ») and snat (the interface's address) need the outgoing interface; dnat (a port
+  // forward, a VIP) needs the incoming interface, the public destination and the inside address.
+  function natBuild(v) {
+    const service = parseService(v.service || 'any');
+    const e = {name: ruleName(v.name || `nat-${(candidateFw().nat || []).length + 1}`), type: v.type, source: checkNet(v.source, 'Source'),
+      destination: checkNet(v.destination, 'Destination'), ...service};
+    if (v.type === 'dnat') {
+      if (!v.in) throw new Error('Traduction de destination : choisir l’interface d’entrée.');
+      if (!e.destination) throw new Error('Traduction de destination : l’adresse publique d’origine (a.b.c.d) est requise.');
+      if (!validIp(v.to || '')) throw new Error('Adresse traduite (serveur interne) : a.b.c.d.');
+      e.in = v.in;
+      e.to = v.to;
+      if (v.to_port) {
+        if (!service.dport) throw new Error('Port traduit : indiquer aussi le service d’origine (tcp/80, udp/53…).');
+        e.to_port = Number(v.to_port);
+      }
+    } else if (v.type === 'masquerade' || v.type === 'snat') {
+      if (!v.out) throw new Error('Traduction de source : choisir l’interface de sortie.');
+      e.out = v.out;
+      if (v.in) e.in = v.in;
+      if (v.type === 'snat') {
+        if (!addressOf(v.out)) throw new Error('L’interface de sortie n’a pas d’adresse.');
+        e.to = ipOf(addressOf(v.out));
+      }
+    } else throw new Error('Choisir une traduction (source ou destination).');
+    return cleanRule(e);
+  }
+  // The pieces of a NAT window (ids nx*), each product placing them under its own labels.
+  function natPieces(entry, L, iface = portName) {
+    const ports = Object.keys(N().interfaces).map(port => [port, iface(port)]);
+    const any = [['', L.any || 'any'], ...ports];
+    return {name: field(L.name || 'Name', input('nxName', entry.name || '')), in: field(L.in || 'Inbound Interface', select('nxIn', any, entry.in || '')),
+      out: field(L.out || 'Outbound Interface', select('nxOut', any, entry.out || '')), source: field(L.source || 'Source', input('nxSrc', entry.source || 'any')),
+      destination: field(L.destination || 'Destination', input('nxDst', entry.destination || 'any')),
+      service: field(L.service || 'Service', input('nxSvc', entry.protocol && entry.protocol !== 'any' ? svc(entry) : 'any'), L.serviceHint || 'any, tcp/80, udp/53'),
+      type: field(L.type || 'Translation', select('nxType', L.types, entry.type || L.types[0][0])), to: field(L.to || 'Translated Address', input('nxTo', entry.type === 'dnat' ? entry.to || '' : '')),
+      to_port: field(L.to_port || 'Translated Port', input('nxToPort', entry.to_port || ''))};
+  }
+  const natRead = root => natBuild({name: val(root, '#nxName'), in: val(root, '#nxIn'), out: val(root, '#nxOut'), source: val(root, '#nxSrc'),
+    destination: val(root, '#nxDst'), service: val(root, '#nxSvc'), type: val(root, '#nxType'), to: val(root, '#nxTo'), to_port: val(root, '#nxToPort')});
+  // Rules and NAT entries: staged (Apply / Commit products) or sent at once (products that save on OK).
+  async function putEntry(list, index, entry, staged) {
+    const f = staged ? editFw() : JSON.parse(JSON.stringify(fw()));
+    f[list] = f[list] || [];
+    if (index === null) f[list].push(entry); else f[list][index] = entry;
+    if (!staged) await section('firewall', {firewall: f});
+  }
+  async function dropEntry(list, index, staged) {
+    const f = staged ? editFw() : JSON.parse(JSON.stringify(fw()));
+    f[list].splice(index, 1);
+    if (!staged) await section('firewall', {firewall: f});
+  }
+  async function moveEntry(list, index, step, staged) {
+    const f = staged ? editFw() : JSON.parse(JSON.stringify(fw())), to = index + step;
+    if (to < 0 || to >= f[list].length) return;
+    [f[list][index], f[list][to]] = [f[list][to], f[list][index]];
+    if (!staged) await section('firewall', {firewall: f});
+  }
+  // The outside port: the one toward the default gateway, else the first (WAN / outside / untrust / External).
+  function wanPort() {
+    const ports = Object.keys(N().interfaces), hop = (D().static.find(r => r.network === '0.0.0.0/0') || {}).gateway || N().gateway;
+    const inside = hop && ports.find(port => N().interfaces[port] && networkOf(N().interfaces[port]) === networkOf(hop + '/' + lenOf(N().interfaces[port])));
+    return inside || ports[0];
+  }
+  function zoneNames(names) {
+    const ports = Object.keys(N().interfaces), wan = wanPort(), rest = ports.filter(p => p !== wan), zones = {[wan]: names[0]};
+    rest.forEach((port, i) => { zones[port] = names[i + 1] || `${names[names.length - 1]}${i + 2 - names.length + 1}`; });
+    return zones;
+  }
 
   // ---- the Network LABS pill: the laboratory's controls, kept out of the product's screens ----
   pill.className = 'px-pill';
@@ -892,13 +965,31 @@
   }
   function asNat(main) {
     const nat = candidateFw().nat || [];
-    main.innerHTML = `<div class="as-rt"><button class="std">✚ Add ▾</button><button class="std">✎ Edit</button><button class="std">✖ Delete</button></div>
-      ${table('as-t', ['#', 'Source Intf', 'Dest Intf', 'Source', 'Destination', 'Service', 'Translated Source', 'Translated Destination', 'Options'], [
-        `<tr class="grp"><td colspan="9">⊟ "Network Object" NAT (Rule ${nat.length ? 1 : 0}-${nat.length})</td></tr>`,
+    main.innerHTML = `<div class="as-rt"><button class="add">✚ Add ▾</button><button class="edit">✎ Edit</button><button class="del">✖ Delete</button><button class="up">↑</button>
+      <button class="down">↓</button><button disabled>🔍 Find</button><button disabled>Diagram</button><button class="trace">Packet Trace</button></div>
+      ${table('as-t', ['#', 'Source Intf', 'Dest Intf', 'Source', 'Destination', 'Service', 'Translated Source', 'Translated Destination', 'Translated Service', 'Options'], [
+        `<tr class="grp"><td colspan="10">⊟ "Network Object" NAT (Rule ${nat.length ? 1 : 0}-${nat.length})</td></tr>`,
         ...nat.map((r, i) => tr([String(i + 1), h(r.in ? asIface(r.in) : 'Any'), h(r.out ? asIface(r.out) : 'Any'), h(r.source || 'any'), h(r.destination || 'any'),
-          h(r.protocol ? svc(r) : 'any'), h(r.type === 'masquerade' ? `${r.out ? asIface(r.out) : 'interface'} (PAT)` : r.type === 'snat' ? r.to : 'Original'),
-          h(r.type === 'dnat' ? r.to + (r.to_port ? ':' + r.to_port : '') : 'Original'), r.type === 'masquerade' ? 'Dynamic' : 'Static']))])}`;
-    main.querySelectorAll('.std').forEach(b => { b.onclick = () => { standard = true; page = 'nat'; render(); }; });
+          h(r.protocol && r.protocol !== 'any' ? svc(r) : 'any'), h(r.type === 'masquerade' ? `${r.out ? asIface(r.out) : 'interface'} (PAT)` : r.type === 'snat' ? r.to : 'Original'),
+          h(r.type === 'dnat' ? r.to : 'Original'), h(r.to_port ? `tcp/${r.to_port}` : 'Original'), r.type === 'masquerade' ? 'Dynamic' : 'Static'], `data-r="${i}"`))])}`;
+    let chosen = null;
+    main.querySelectorAll('tr[data-r]').forEach(row => { row.onclick = () => { main.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel')); row.classList.add('sel'); chosen = Number(row.dataset.r); };
+      row.ondblclick = () => asEditNat(chosen); });
+    main.querySelector('.add').onclick = () => asEditNat(null);
+    main.querySelector('.edit').onclick = () => (chosen === null ? toast('Sélectionner une règle NAT.', true) : asEditNat(chosen));
+    main.querySelector('.del').onclick = () => (chosen === null ? toast('Sélectionner une règle NAT.', true) : dropEntry('nat', chosen, true).then(render));
+    main.querySelector('.up').onclick = () => chosen !== null && moveEntry('nat', chosen, -1, true).then(render);
+    main.querySelector('.down').onclick = () => chosen !== null && moveEntry('nat', chosen, 1, true).then(render);
+    main.querySelector('.trace').onclick = () => toast('Packet Trace : ✉ Simulation de Network LABS suit un paquet à travers le lab.');
+  }
+  function asEditNat(index) {
+    const r = index === null ? {type: 'masquerade'} : candidateFw().nat[index];
+    const x = natPieces(r, {name: 'Description:', in: 'Source Interface:', out: 'Destination Interface:', source: 'Source Address:', destination: 'Destination Address:',
+      service: 'Service:', type: 'Translation Type:', types: [['masquerade', 'Dynamic PAT (Hide)'], ['snat', 'Static (interface IP)'], ['dnat', 'Static (destination)']],
+      to: 'Translated Destination:', to_port: 'Translated Service (port):', any: 'any'}, asIface);
+    dialog('asdm', index === null ? 'Add NAT Rule' : 'Edit NAT Rule', `<fieldset><legend>Match Criteria: Original Packet</legend>${x.in}${x.out}${x.source}${x.destination}${x.service}</fieldset>
+      <fieldset><legend>Action: Translated Packet</legend>${x.type}${x.to}${x.to_port}</fieldset><fieldset><legend>Options</legend>${field('', '<span>☑ Enable rule</span>')}${x.name}</fieldset>`,
+    [['OK', '', async box => { await putEntry('nat', index, natRead(box), true); render(); }], ['Cancel'], ['Help', '', async () => true]]);
   }
   function asRoutes(main) {
     const list = staticRoutes();
@@ -967,7 +1058,8 @@
   .pf-alert .grow{flex:1}
   .pf-form .row{display:grid;grid-template-columns:220px 1fr;gap:12px;align-items:center;padding:9px 12px;border-top:1px solid #eee}
   .pf-form .row>span{text-align:right;font-weight:bold;font-size:13px}.pf-form input,.pf-form select{font:inherit;font-size:13px;padding:6px 8px;border:1px solid #ccc;border-radius:3px}
-  .pf-form small{display:block;color:#757575;font-size:12px;margin-top:3px}.pf-bar{height:14px;background:#eee;border-radius:2px;overflow:hidden;width:220px;display:inline-block;vertical-align:middle}
+  .pf-form small{display:block;color:#757575;font-size:12px;margin-top:3px}
+  .px-nat .px-f{grid-template-columns:220px 1fr;padding:6px 12px;border-top:1px solid #eee;margin:0}.px-nat .px-f>span{text-align:right;font-weight:bold;font-size:13px}.pf-bar{height:14px;background:#eee;border-radius:2px;overflow:hidden;width:220px;display:inline-block;vertical-align:middle}
   .pf-bar i{display:block;height:100%;background:#43a047}
   `);
   const pfName = (port, i) => (i === 0 ? 'WAN' : i === 1 ? 'LAN' : `OPT${i - 1}`);
@@ -991,20 +1083,30 @@
         root.querySelectorAll('.m.open').forEach(x => x.classList.remove('open')); if (!open) holder.classList.add('open'); }; });
       root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => { view.page = a.dataset.go; view.title = a.dataset.title; view.edit = null; render(); }; });
       const main = root.querySelector('.pf-page');
-      if (pending()) {
-        main.innerHTML = `<div class="pf-alert"><span class="grow">The firewall configuration has been changed. The changes must be applied for them to take effect.</span>
-          <button class="pf-btn ok apply">✔ Apply Changes</button><button class="pf-btn def undo">Discard</button></div>`;
-        main.querySelector('.apply').onclick = () => attempt(() => commit(null), 'The changes have been applied successfully.');
-        main.querySelector('.undo').onclick = discard;
-      }
-      const go = view.page || 'dashboard';
-      const pages = {dashboard: pfDashboard, rules: pfRules, nat: pfNat, assign: pfAssign, routing: pfRouting, dhcp: pfDhcp, general: pfGeneral, 'status-if': pfStatusIf,
-        'diag-routes': pfDiagRoutes, terminal: m => { openTerminal(); pfDashboard(m); }, vpn: m => pfTitle(m, view.title, naBox(view.title, NA.vpn))};
-      if (go.startsWith('if:')) return pfInterface(main, go.slice(3));
-      (pages[go] || (m => pfTitle(m, view.title, naBox(view.title || '', NA.later))))(main);
+      pfDispatch(main);
     },
   };
-  const pfTitle = (main, title, html) => main.insertAdjacentHTML('beforeend', `<div class="pf-h1">${h(title).replace(' / ', ' / <b>')}${title.includes(' / ') ? '</b>' : ''}</div>${html}`);
+  function pfDispatch(main) {
+    pfApplyBar(main);
+    const go = view.page || 'dashboard';
+    const pages = {dashboard: pfDashboard, rules: pfRules, nat: pfNat, assign: pfAssign, routing: pfRouting, dhcp: pfDhcp, general: pfGeneral, 'status-if': pfStatusIf,
+      'diag-routes': pfDiagRoutes, terminal: m => { openTerminal(); pfDashboard(m); }, vpn: m => pfTitle(m, view.title, naBox(view.title, NA.vpn))};
+    if (go.startsWith('if:')) return pfInterface(main, go.slice(3));
+    (pages[go] || (m => pfTitle(m, view.title || '', naBox(view.title || '', NA.later))))(main);
+  }
+  function pfApplyBar(main) {
+    if (!pending()) return;
+    const opn = view.skin === 'opnsense';
+    main.innerHTML = `<div class="pf-alert"><span class="grow">${opn ? 'The firewall rule configuration has been changed.<br>You must apply the changes in order for them to take effect.'
+      : 'The firewall configuration has been changed. The changes must be applied for them to take effect.'}</span>
+      <button class="pf-btn ok apply">${opn ? 'Apply changes' : '✔ Apply Changes'}</button><button class="pf-btn def undo">Discard</button></div>`;
+    main.querySelector('.apply').onclick = () => attempt(() => commit(null), opn ? 'The changes have been applied successfully.' : 'The changes have been applied successfully.');
+    main.querySelector('.undo').onclick = discard;
+  }
+  const pfTitle = (main, title, html) => {
+    const shown = view.skin === 'opnsense' ? title.replace(/ \/ /g, ': ') : title, sep = view.skin === 'opnsense' ? ': ' : ' / ';
+    main.insertAdjacentHTML('beforeend', `<div class="pf-h1">${h(shown).replace(sep, sep + '<b>')}${shown.includes(sep) ? '</b>' : ''}</div>${html}`);
+  };
   function pfDashboard(main) {
     const n = N(), d = D();
     const bar = v => `<span class="pf-bar"><i style="width:${v}%"></i></span> ${v}%`;
@@ -1072,18 +1174,36 @@
   }
   function pfNat(main) {
     const nat = candidateFw().nat || [], tab = view.tab === 'Outbound' || view.tab === 'Port Forward' ? view.tab : 'Port Forward';
-    const forwards = nat.filter(r => r.type === 'dnat'), outbound = nat.filter(r => r.type !== 'dnat');
+    const forwards = nat.map((r, i) => [r, i]).filter(([r]) => r.type === 'dnat'), outbound = nat.map((r, i) => [r, i]).filter(([r]) => r.type !== 'dnat');
+    const acts = i => `<span class="pf-ic" data-e="${i}" title="Edit">✎</span><span class="pf-ic" data-x="${i}" title="Delete">🗑</span>`;
     pfTitle(main, 'Firewall / NAT / ' + tab, `<div class="pf-tabs">${['Port Forward', '1:1', 'Outbound', 'NPt'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${t}</a>`).join('')}</div>
       ${tab === 'Outbound' ? `<div class="pf-panel"><h2>Outbound NAT Mode</h2><div class="b">( ) Automatic outbound NAT rule generation &nbsp; (•) Hybrid Outbound NAT rule generation
         &nbsp; ( ) Manual Outbound NAT rule generation &nbsp; ( ) Disable Outbound NAT</div></div><div class="pf-panel"><h2>Mappings</h2>${table('pf-t', ['Interface', 'Source', 'Source Port',
-        'Destination', 'Destination Port', 'NAT Address', 'NAT Port', 'Static Port', 'Description'], outbound.map(r => tr([h(r.out ? pfIface(r.out) : 'WAN'), h(r.source || 'any'), '*',
-        h(r.destination || '*'), '*', h(r.type === 'masquerade' ? (r.out ? pfIface(r.out) : 'WAN') + ' address' : r.to), '*', '✖', h(r.name)])), 'No outbound mappings.')}</div>`
-      : `<div class="pf-panel"><h2>Rules</h2>${table('pf-t', ['Interface', 'Protocol', 'Source Address', 'Source Ports', 'Dest. Address', 'Dest. Ports', 'NAT IP', 'NAT Ports', 'Description'],
-        forwards.map(r => tr([h(r.in ? pfIface(r.in) : 'WAN'), h((r.protocol || 'any').toUpperCase()), h(r.source || '*'), '*', h(r.destination || 'WAN address'), h(r.dport || '*'),
-        h(r.to || ''), h(r.to_port || r.dport || '*'), h(r.name)])), 'No port forward rules.')}</div>`}
-      <div class="pf-btns"><button class="pf-btn ok std">↑ Add</button><button class="pf-btn pri std">💾 Save</button></div>`);
+        'Destination', 'Destination Port', 'NAT Address', 'NAT Port', 'Static Port', 'Description', 'Actions'], outbound.map(([r, i]) => tr([h(r.out ? pfIface(r.out) : 'WAN'), h(r.source || 'any'), '*',
+        h(r.destination || '*'), h(r.dport || '*'), h(r.type === 'masquerade' ? (r.out ? pfIface(r.out) : 'WAN') + ' address' : r.to), '*', '✖', h(r.name), acts(i)])), 'No outbound mappings.')}</div>`
+      : `<div class="pf-panel"><h2>Rules</h2>${table('pf-t', ['Interface', 'Protocol', 'Source Address', 'Source Ports', 'Dest. Address', 'Dest. Ports', 'NAT IP', 'NAT Ports', 'Description', 'Actions'],
+        forwards.map(([r, i]) => tr([h(r.in ? pfIface(r.in) : 'WAN'), h((r.protocol || 'any').toUpperCase()), h(r.source || '*'), '*', h(r.destination || 'WAN address'), h(r.dport || '*'),
+        h(r.to || ''), h(r.to_port || r.dport || '*'), h(r.name), acts(i)])), 'No port forward rules.')}</div>`}
+      <div class="pf-btns"><button class="pf-btn ok add">↑ Add</button><button class="pf-btn ok add">↓ Add</button><button class="pf-btn pri save">💾 Save</button></div>`);
     main.querySelectorAll('[data-t]').forEach(a => { a.onclick = () => { view.tab = a.dataset.t; render(); }; });
-    main.querySelectorAll('.std').forEach(b => { b.onclick = () => { standard = true; page = 'nat'; render(); }; });
+    main.querySelectorAll('.add').forEach(b => { b.onclick = () => pfEditNat(null, tab === 'Outbound' ? 'masquerade' : 'dnat'); });
+    main.querySelectorAll('[data-e]').forEach(b => { b.onclick = () => pfEditNat(Number(b.dataset.e)); });
+    main.querySelectorAll('[data-x]').forEach(b => { b.onclick = () => dropEntry('nat', Number(b.dataset.x), true).then(render); });
+    main.querySelector('.save').onclick = () => toast(pending() ? 'Saved. Apply Changes to load them.' : 'Nothing to save.');
+  }
+  function pfEditNat(index, kind) {
+    const r = index === null ? {type: kind, in: wanPort(), out: wanPort()} : candidateFw().nat[index], forward = r.type === 'dnat';
+    const x = natPieces(r, {name: 'Description', in: 'Interface', out: 'Interface', source: 'Source', destination: forward ? 'Destination' : 'Destination',
+      service: forward ? 'Protocol / Destination port' : 'Protocol / port', type: 'Translation', to: 'Redirect target IP', to_port: 'Redirect target port',
+      types: forward ? [['dnat', 'Port forward (redirect)']] : [['masquerade', 'Interface Address'], ['snat', 'Interface Address (static)']]}, pfIface);
+    const page = document.querySelector('.pf-page'), title = forward ? 'Port Forward' : 'Outbound';
+    page.innerHTML = '';
+    pfTitle(page, `Firewall / NAT / ${title} / Edit`, `<div class="pf-panel pf-form px-nat"><h2>${forward ? 'Edit Redirect Entry' : 'Edit Advanced Outbound NAT Entry'}</h2>
+      ${forward ? x.in + x.service + x.source + x.destination + x.to + x.to_port + '<input type="hidden" id="nxType" value="dnat">' : x.out + x.service + x.source + x.destination + x.type}${x.name}</div>
+      <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
+    page.querySelector('.save').onclick = async () => {
+      try { await putEntry('nat', index, natRead(page), true); view.page = 'nat'; view.tab = title; render(); } catch (error) { page.querySelector('.px-err').textContent = error.message; }
+    };
   }
   function pfAssign(main) {
     pfTitle(main, 'Interfaces / Interface Assignments', `<div class="pf-tabs">${['Interface Assignments', 'Interface Groups', 'Wireless', 'VLANs', 'QinQs', 'PPPs', 'GREs', 'GIFs', 'Bridges', 'LAGGs']
@@ -1154,6 +1274,52 @@
     pfTitle(main, 'Diagnostics / Routes', `<div class="pf-panel"><h2>IPv4 Routes</h2>${table('pf-t', ['Destination', 'Gateway', 'Flags', 'Uses', 'Mtu', 'Netif'],
       [...D().connected.map(r => tr([h(r.network), 'link#', 'U', '0', '1500', h(r.port)])), ...D().static.map(r => tr([h(r.network), h(r.gateway), 'UGS', '0', '1500', h(r.port)]))])}</div>`);
   }
+
+  /* =============================== OPNsense (pfSense's pages in OPNsense's frame) =============================== */
+  skinCss(`
+  .px-app.opnsense{background:#f7f7f7;color:#333;font:14px 'SourceSansPro','Helvetica Neue',Arial,sans-serif;display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+  .op-side{background:#3a3a3a;color:#ddd;align-self:stretch;border-radius:0;padding:0;margin:0}.op-brand{height:56px;display:flex;align-items:center;padding:0 18px;font-size:21px;color:#fff;background:#2c2c2c;letter-spacing:.3px}
+  .op-brand b{color:#e76f24;font-weight:600}.op-group>a{display:flex;align-items:center;gap:10px;padding:10px 18px;color:#e2e2e2;cursor:pointer}
+  .op-group>a:hover{background:#474747}.op-group.open>a{background:#2f2f2f;color:#fff}.op-group>a i{font-style:normal;width:16px;text-align:center;color:#bbb}
+  .op-group>a .c{margin-left:auto;color:#999}.op-items{background:#2f2f2f}.op-items a{display:block;padding:7px 18px 7px 44px;color:#c8c8c8;cursor:pointer;font-size:13px}
+  .op-items a:hover{color:#fff}.op-items a.on{color:#fff;border-left:3px solid #e76f24;padding-left:41px;background:#292929}.op-items a.na{color:#8a8a8a}
+  .op-top{height:56px;background:#fff;border-bottom:1px solid #e3e3e3;display:flex;align-items:center;gap:14px;padding:0 20px}
+  .op-top input{border:1px solid #ddd;border-radius:3px;padding:6px 10px;width:240px}.op-top .grow{flex:1}.op-top span{color:#666}
+  .px-app.opnsense .pf-page{padding:18px 22px}.px-app.opnsense .pf-h1{font-size:20px;font-weight:600}.px-app.opnsense .pf-h1 b{font-weight:600;color:#333}
+  .px-app.opnsense .pf-panel{background:#fff;border:1px solid #e3e3e3}.px-app.opnsense .pf-panel>h2{background:#fff;color:#333;border-bottom:1px solid #e3e3e3;font-weight:600}
+  .px-app.opnsense .pf-btn.ok,.px-app.opnsense .pf-btn.pri{background:#e76f24}.px-app.opnsense .pf-tabs a{color:#e76f24}.px-app.opnsense .pf-ic{color:#e76f24}
+  .px-app.opnsense .pf-alert{background:#dff0d8;border-color:#c6e1b8;color:#2f5f22}
+  `);
+  const OPN_MENU = () => {
+    const ports = Object.keys(N().interfaces);
+    return [['Lobby', '⌂', [['Dashboard', 'dashboard'], ['License', 'na'], ['Password', 'na']]], ['Reporting', '▤', [['Health', 'na'], ['Insight', 'na'], ['Traffic', 'na']]],
+      ['System', '⚙', [['Access', 'na'], ['Configuration', 'na'], ['Firmware', 'na'], ['Gateways', 'routing:Gateways'], ['High Availability', 'na'], ['Routes', 'routing:Static Routes'],
+        ['Settings', 'general'], ['Trust', 'na'], ['Diagnostics', 'na']]],
+      ['Interfaces', '⇆', [...ports.map((p, i) => [`[${pfName(p, i)}]`, 'if:' + p]), ['Assignments', 'assign'], ['Overview', 'status-if'], ['Diagnostics', 'diag-routes']]],
+      ['Firewall', '⛨', [['Aliases', 'na'], ['Rules: Floating', 'rules:floating'], ...ports.map((p, i) => [`Rules: ${pfName(p, i)}`, 'rules:' + p]),
+        ['NAT: Port Forward', 'nat:Port Forward'], ['NAT: Outbound', 'nat:Outbound'], ['Shaper', 'na'], ['Settings', 'na'], ['Log Files', 'na']]],
+      ['VPN', '⚿', [['IPsec', 'vpn'], ['OpenVPN', 'vpn'], ['WireGuard', 'vpn']]], ['Services', '☰', [['DHCPv4', 'dhcp'], ['Unbound DNS', 'na'], ['Network Time', 'na']]],
+      ['Power', '⏻', [['Reboot', 'na'], ['Power Off', 'na']]], ['Help', '?', [['Documentation', 'na']]]];
+  };
+  SKINS.opnsense = {
+    start: {page: 'dashboard', group: 'Lobby', item: 'Dashboard'},
+    draw(root) {
+      const menu = OPN_MENU();
+      root.innerHTML = `<aside class="op-side"><div class="op-brand"><b>OPN</b>sense</div>${menu.map(([group, icon, items]) => `<div class="op-group${group === view.group ? ' open' : ''}">
+        <a data-g="${h(group)}"><i>${icon}</i>${h(group)}<span class="c">${group === view.group ? '▾' : '▸'}</span></a>${group === view.group ? `<div class="op-items">${items.map(([label, go]) =>
+          `<a data-go="${go}" data-l="${h(label)}" class="${['na', 'vpn'].includes(go) ? 'na' : ''}${label === view.item ? ' on' : ''}">${h(label)}</a>`).join('')}</div>` : ''}</div>`).join('')}</aside>
+        <div><div class="op-top"><input placeholder="Search…"><span class="grow"></span><span>root@${h(N().name)}.localdomain · Network LABS</span><span>⏻</span></div>
+        <div class="pf-page"></div></div>`;
+      root.querySelectorAll('[data-g]').forEach(a => { a.onclick = () => { view.group = view.group === a.dataset.g ? '' : a.dataset.g; render(); }; });
+      root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => {
+        const [go, tab] = a.dataset.go.split(':');
+        view.item = a.dataset.l; view.title = `${view.group} / ${a.dataset.l}`; view.edit = null;
+        if (go === 'if') { view.page = a.dataset.go; view.tab = null; } else { view.page = go; view.tab = tab || null; }
+        render();
+      }; });
+      pfDispatch(root.querySelector('.pf-page'));
+    },
+  };
 
   /* =============================== Palo Alto PAN-OS =============================== */
   skinCss(`
@@ -1260,9 +1426,9 @@
     main.innerHTML = `<table class="pa-t"><thead><tr><th rowspan="2"></th><th rowspan="2">Name</th><th rowspan="2">Tags</th><th rowspan="2">Type</th><th colspan="4">Source</th>
       <th colspan="3">Destination</th><th rowspan="2">Application</th><th rowspan="2">Service</th><th rowspan="2">Action</th><th rowspan="2">Profile</th><th rowspan="2">Options</th></tr>
       <tr><th>Zone</th><th>Address</th><th>User</th><th>Device</th><th>Zone</th><th>Address</th><th>Device</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-    paToolbar(main, f.rules, i => paEditRule(i), () => paEditRule(null));
+    paToolbar(main, 'rules', i => paEditRule(i), () => paEditRule(null));
   }
-  function paToolbar(main, list, edit, add) {
+  function paToolbar(main, kind, edit, add) {
     let chosen = null;
     main.parentElement.querySelector('.pa-bar')?.remove();
     main.querySelectorAll('tr[data-r]').forEach(row => { row.onclick = () => { main.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel')); row.classList.add('sel'); chosen = Number(row.dataset.r); }; });
@@ -1274,11 +1440,11 @@
       <button disabled>Highlight Unused Rules</button>`;
     main.parentElement.append(bar);
     bar.querySelector('.add').onclick = add;
-    if (!list) { bar.querySelectorAll('.del,.clone,.up,.down').forEach(b => { b.disabled = true; }); return; }
+    if (!kind) { bar.querySelectorAll('.del,.clone,.up,.down').forEach(b => { b.disabled = true; }); return; }
     const need = fn => () => (chosen === null ? toast('Sélectionner une ligne.', true) : fn());
-    bar.querySelector('.del').onclick = need(() => { editFw().rules.splice(chosen, 1); render(); });
-    bar.querySelector('.clone').onclick = need(() => { const copy = {...editFw().rules[chosen]}; copy.name += '-1'; editFw().rules.splice(chosen + 1, 0, copy); render(); });
-    const move = step => need(() => { const l = editFw().rules, to = chosen + step; if (to < 0 || to >= l.length) return; [l[chosen], l[to]] = [l[to], l[chosen]]; render(); });
+    bar.querySelector('.del').onclick = need(() => { editFw()[kind].splice(chosen, 1); render(); });
+    bar.querySelector('.clone').onclick = need(() => { const copy = {...editFw()[kind][chosen]}; copy.name += '-1'; editFw()[kind].splice(chosen + 1, 0, copy); render(); });
+    const move = step => need(() => { const l = editFw()[kind], to = chosen + step; if (to < 0 || to >= l.length) return; [l[chosen], l[to]] = [l[to], l[chosen]]; render(); });
     bar.querySelector('.up').onclick = move(-1);
     bar.querySelector('.down').onclick = move(1);
   }
@@ -1308,11 +1474,25 @@
     const nat = candidateFw().nat || [];
     main.innerHTML = `<table class="pa-t"><thead><tr><th rowspan="2"></th><th rowspan="2">Name</th><th rowspan="2">Tags</th><th colspan="6">Original Packet</th><th colspan="2">Translated Packet</th></tr>
       <tr><th>Source Zone</th><th>Destination Zone</th><th>Destination Interface</th><th>Source Address</th><th>Destination Address</th><th>Service</th><th>Source Translation</th>
-      <th>Destination Translation</th></tr></thead><tbody>${nat.length ? nat.map((r, i) => tr([String(i + 1), h(r.name), 'none', r.in ? `<span class="pa-zone">${h(zoneOf(r.in))}</span>` : 'any',
-        r.out ? `<span class="pa-zone">${h(zoneOf(r.out))}</span>` : 'any', h(r.out ? portName(r.out) : 'any'), h(r.source || 'any'), h(r.destination || 'any'), h(r.protocol ? svc(r) : 'any'),
+      <th>Destination Translation</th></tr></thead><tbody>${nat.length ? nat.map((r, i) => tr([String(i + 1), `<a data-e="${i}">${h(r.name)}</a>`, 'none',
+        r.in ? `<span class="pa-zone">${h(zoneOf(r.in))}</span>` : 'any', r.out ? `<span class="pa-zone">${h(zoneOf(r.out))}</span>` : 'any', h(r.out ? portName(r.out) : 'any'),
+        h(r.source || 'any'), h(r.destination || 'any'), h(r.protocol && r.protocol !== 'any' ? svc(r) : 'any'),
         h(r.type === 'masquerade' ? `dynamic-ip-and-port ${r.out ? portName(r.out) : ''}` : r.type === 'snat' ? `static-ip ${r.to}` : 'none'),
-        h(r.type === 'dnat' ? `address: ${r.to}${r.to_port ? ' port: ' + r.to_port : ''}` : 'none')])).join('') : '<tr class="px-none"><td colspan="11">No NAT policy rules.</td></tr>'}</tbody></table>`;
-    paToolbar(main, null, () => {}, () => { standard = true; page = 'nat'; render(); });
+        h(r.type === 'dnat' ? `address: ${r.to}${r.to_port ? ' port: ' + r.to_port : ''}` : 'none')], `data-r="${i}"`)).join('') : '<tr class="px-none"><td colspan="11">No NAT policy rules.</td></tr>'}</tbody></table>`;
+    paToolbar(main, 'nat', i => paEditNat(i), () => paEditNat(null));
+  }
+  function paEditNat(index) {
+    const r = index === null ? {type: 'masquerade'} : candidateFw().nat[index], zones = Object.keys(N().interfaces).map(p => [p, zoneOf(p)]);
+    const x = natPieces(r, {name: 'Name', in: 'Source Zone', out: 'Destination Interface', source: 'Source Address', destination: 'Destination Address', service: 'Service',
+      type: 'Translation Type', types: [['masquerade', 'Dynamic IP And Port (interface address)'], ['snat', 'Static IP (interface address)'], ['dnat', 'Destination: Static IP']],
+      to: 'Translated Address', to_port: 'Translated Port', any: 'any'}, port => zoneOf(port));
+    const box = dialog('panos', 'NAT Policy Rule', `<div class="pa-dtabs">${['General', 'Original Packet', 'Translated Packet'].map((t, i) => `<a data-p="${i}" class="${i ? '' : 'on'}">${t}</a>`).join('')}</div>
+      <div class="pa-dpane on" data-q="0">${x.name}${field('Description', input('d'))}${field('NAT Type', select('t', ['ipv4'], 'ipv4'))}</div>
+      <div class="pa-dpane" data-q="1">${x.in}${field('Destination Zone', select('dz', [['', 'any'], ...zones], ''))}${x.out}${x.service}${x.source}${x.destination}</div>
+      <div class="pa-dpane" data-q="2">${x.type}<p style="color:#666">Source translation : Address Type « Interface Address » sur la Destination Interface.</p>${x.to}${x.to_port}</div>`,
+    [['OK', 'pri', async b => { await putEntry('nat', index, natRead(b), true); render(); }], ['Cancel']]);
+    box.querySelectorAll('[data-p]').forEach(a => { a.onclick = () => { box.querySelectorAll('[data-p]').forEach(y => y.classList.toggle('on', y === a));
+      box.querySelectorAll('[data-q]').forEach(y => y.classList.toggle('on', y.dataset.q === a.dataset.p)); }; });
   }
   function paInterfaces(main) {
     const d = D(), vr = 'default';
@@ -1430,7 +1610,7 @@
     ['Basic Settings', 'basic', '', 1], ['CLI Tools', 'cli', '', 1], ['Network', null], ['Interfaces', 'interfaces', '', 1], ...(role === 'switch' ? [['VLAN', 'vlans', '', 1]] : []),
     ['DHCP Server', role === 'switch' ? 'na' : 'dhcp', '', 1], ['Static Routing', 'static', '', 1], ['OSPF', 'features', '', 1], ['BGP', 'features', '', 1],
     ...(role === 'firewall' ? [['Security Policies & Objects', null], ['Security Policies', 'policies', '', 1], ['Zones/Screens', 'zones', '', 1], ['Global Addresses', 'na', '', 1],
-      ['Services', 'na', '', 1], ['NAT', null], ['Source NAT', 'snat', '', 1], ['Destination NAT', 'snat', '', 1], ['Security Services', null], ['IPS', 'engine', '', 1],
+      ['Services', 'na', '', 1], ['NAT', null], ['Source NAT', 'nat', '', 1], ['Destination NAT', 'nat', '', 1], ['Security Services', null], ['IPS', 'engine', '', 1],
       ['Content Security', 'engine', '', 1], ['VPN', null], ['IPsec VPN', 'vpn', '', 1]] : [])];
   SKINS.jweb = {
     start: {page: 'dashboard', title: 'Dashboard'},
@@ -1453,7 +1633,7 @@
       root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => { view.page = a.dataset.go; view.title = a.dataset.title; render(); }; });
       const main = root.querySelector('main');
       const pages = {dashboard: jwDashboard, interfaces: jwInterfaces, 'mon-if': jwInterfaces, static: jwStatic, 'mon-route': jwRouteTable, policies: jwPolicies, zones: jwZones,
-        snat: jwNat, basic: jwBasic, cli: jwCli, dhcp: jwDhcp, vlans: jwVlans, features: m => { m.innerHTML = `<h1 class="jw-h">${h(view.title)}</h1><div class="jw-card"><div class="b">${table('jw-t',
+        nat: jwNat, basic: jwBasic, cli: jwCli, dhcp: jwDhcp, vlans: jwVlans, features: m => { m.innerHTML = `<h1 class="jw-h">${h(view.title)}</h1><div class="jw-card"><div class="b">${table('jw-t',
           ['Protocol', 'Configuration'], (D().features || []).filter(f => f.name.toUpperCase().includes(view.title)).map(f => tr([h(f.name), h(f.detail)])), 'Not configured')}<p style="color:#78838e">
           Configurer en CLI : set protocols ${h(view.title.toLowerCase())} … (CLI Tools ou terminal).</p></div></div>`; },
         vpn: m => { m.innerHTML = `<h1 class="jw-h">${h(view.title)}</h1>${naBox(view.title, NA.vpn)}`; }, engine: m => { m.innerHTML = `<h1 class="jw-h">${h(view.title)}</h1>${naBox(view.title, NA.engine)}`; }};
@@ -1561,10 +1741,28 @@
       D().ports.map(p => tr([h(jwZoneOf(p.port)), 'security', h(p.name + '.0'), 'ping', ''])))}</div>`;
   }
   function jwNat(main) {
-    const nat = candidateFw().nat || [];
-    main.innerHTML = `<h1 class="jw-h">Source NAT</h1><div class="jw-card">${table('jw-t', ['Rule Set', 'Rule Name', 'From', 'To', 'Source Address', 'Destination Address', 'Action'],
-      nat.map(r => tr(['rs1', h(r.name), h(r.in ? jwZoneOf(r.in) : 'any'), h(r.out ? jwZoneOf(r.out) : 'any'), h(r.source || 'any'), h(r.destination || 'any'),
-        h(r.type === 'masquerade' ? 'interface' : r.type === 'dnat' ? `destination ${r.to}` : `pool ${r.to}`)])), 'No NAT rules')}</div>`;
+    const nat = candidateFw().nat || [], destination = view.title === 'Destination NAT';
+    const list = nat.map((r, i) => [r, i]).filter(([r]) => (r.type === 'dnat') === destination);
+    main.innerHTML = `<h1 class="jw-h">${destination ? 'Destination NAT' : 'Source NAT'}</h1><div class="jw-card"><h3>Rule Set rs1 · Rules<span class="acts"><a class="add" title="Create">＋</a>
+      <a class="edit" title="Edit">✎</a><a class="del" title="Delete">🗑</a></span></h3>${table('jw-t', destination ? ['Rule Name', 'From', 'Destination Address', 'Destination Port', 'Action', 'Pool Address', 'Pool Port']
+        : ['Rule Name', 'From', 'To', 'Source Address', 'Destination Address', 'Action'], list.map(([r, i]) => tr(destination
+        ? [h(r.name), h(r.in ? jwZoneOf(r.in) : 'any'), h(r.destination || 'any'), h(r.dport || 'any'), 'pool', h(r.to), h(r.to_port || r.dport || '')]
+        : [h(r.name), h(r.in ? jwZoneOf(r.in) : 'any'), h(r.out ? jwZoneOf(r.out) : 'any'), h(r.source || 'any'), h(r.destination || 'any'), r.type === 'masquerade' ? 'interface' : `pool ${h(r.to)}`],
+        `data-r="${i}"`)), 'No NAT rules')}</div>`;
+    let chosen = null;
+    main.querySelectorAll('tr[data-r]').forEach(row => { row.onclick = () => { main.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel')); row.classList.add('sel'); chosen = Number(row.dataset.r); };
+      row.ondblclick = () => jwEditNat(chosen, destination); });
+    main.querySelector('.add').onclick = () => jwEditNat(null, destination);
+    main.querySelector('.edit').onclick = () => (chosen === null ? toast('Select a rule.', true) : jwEditNat(chosen, destination));
+    main.querySelector('.del').onclick = () => (chosen === null ? toast('Select a rule.', true) : dropEntry('nat', chosen, true).then(render));
+  }
+  function jwEditNat(index, destination) {
+    const r = index === null ? {type: destination ? 'dnat' : 'masquerade'} : candidateFw().nat[index];
+    const x = natPieces(r, {name: 'Rule Name', in: 'From (zone)', out: 'To (zone)', source: 'Source Address', destination: destination ? 'Destination Address (public)' : 'Destination Address',
+      service: 'Destination Port (protocol/port)', type: 'Action', types: destination ? [['dnat', 'pool (translate)']] : [['masquerade', 'interface'], ['snat', 'pool (interface address)']],
+      to: 'Pool Address', to_port: 'Pool Port'}, jwZoneOf);
+    jwSlide(destination ? 'Create Destination NAT Rule' : 'Create Source NAT Rule', destination ? x.name + x.in + x.destination + x.service + x.type + x.to + x.to_port
+      : x.name + x.in + x.out + x.source + x.destination + x.type, async slide => { await putEntry('nat', index, natRead(slide), true); });
   }
   function jwBasic(main) {
     main.innerHTML = `<h1 class="jw-h">Basic Settings</h1><div class="jw-card"><h3>System Identity</h3><div class="b">${field('Hostname', input('jwHost', (view.stage && view.stage.name) || N().name))}
@@ -1625,6 +1823,7 @@
     Arista: ['{n}#', 'show running-config', 'Arista EOS se configure en ligne de commande (et par son API JSON eAPI) : pas d’interface web de configuration.'],
     Dell: ['{n}#', 'show running-configuration', 'Dell SmartFabric OS10 se configure en ligne de commande (console ou SSH) : pas d’interface web.'],
     Cisco: ['{n}#', 'show running-config', 'Cisco NX-OS se configure en ligne de commande (et par NX-API) : pas d’interface web de configuration.'],
+    Extreme: ['{n}.1 #', 'show configuration', 'Extreme EXOS se configure en ligne de commande (console ou SSH) ; son interface web Chalet n’est pas reproduite ici.'],
   };
   function cliText() {
     if (state.config_text) return state.config_text;
@@ -1648,6 +1847,12 @@ ${h(cliText())}
       root.querySelector('.open').onclick = openTerminal;
     },
   };
+
+  // ---- the toolkit, for the products drawn by native_products_more.js ----
+  window.nlProductsKit = {SKINS, MATCH: [], get view() { return view; }, D, N, h, maskOf, prefixOf, ipOf, lenOf, networkOf, validIp, fw, portByName, portName, peerName,
+    running, svc, parseService, toast, send, cli, section, setAddress, rename, attempt, openTerminal, stage, pending, candidateFw, editFw, addressOf, staticRoutes, commit,
+    discard, dialog, val, field, input, select, table, tr, NA, naBox, ruleFrom, ruleName, checkNet, dhcpServer, skinCss, natBuild, natPieces, natRead, putEntry, dropEntry,
+    moveEntry, wanPort, zoneNames, cleanRule, openStandard: target => { standard = true; page = target; render(); }};
 
   // ---- drawing ----
   function draw(id) {

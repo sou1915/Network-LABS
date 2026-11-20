@@ -194,11 +194,29 @@ VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC,
 sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
 Enregistrer puis arrêter / démarrer pour activer les changements.
 Par défaut, la page est une copie de l'interface du produit réel (design **Constructeur**) : ses menus, ses mots,
-ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer. MikroTik : WebFig (OK applique les commandes
-`/ip address`, `/ip route`) ; Cisco ISR et Catalyst 9200 : WebUI IOS-XE (« Update & Apply to Device » envoie les
-commandes IOS) ; Cisco ASA : ASDM (Access Rules, « Apply ») ; pfSense : « Apply Changes » ; Palo Alto : PAN-OS
-(Security Policy Rule, « Commit ») ; Juniper : J-Web (Commit) ; FortiGate : FortiOS. Les produits sans interface web
-(VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS) montrent leur console et leur configuration. Dessinées par
+ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
+
+| Produits | Interface reproduite | Enregistrement |
+|---|---|---|
+| Cisco ASA | ASDM (Access Rules, NAT Rules, interfaces nommées) | Apply |
+| Cisco ISR 4331, Catalyst 9200L | WebUI IOS-XE | « Update & Apply to Device » (commandes IOS) |
+| Cisco Catalyst 2960 | Device Manager (Port Settings, VLANs, Port Membership) | Submit (commandes IOS) |
+| pfSense, OPNsense | menus, Rules par interface, NAT Port Forward / Outbound | « Apply Changes » |
+| Palo Alto | PAN-OS (Security, NAT Policy Rule, interfaces, zones) | Commit |
+| Juniper SRX, EX, MX | J-Web (politiques, Source / Destination NAT, VLAN) | Commit |
+| Sophos | Control center, Rules and policies, NAT rules, Network | Save |
+| Check Point | Gaia Portal et SmartConsole (Policy, NAT) | Publish puis Install Policy |
+| SonicWall | SonicOS (Access Rules, NAT Rules, Interfaces) | OK / Add |
+| WatchGuard | Fireware Web UI (Firewall Policies, NAT) | SAVE |
+| MikroTik | WebFig (`/ip address`, `/ip route`, Bridge) | OK (commandes RouterOS) |
+| Huawei | web (interfaces, routes statiques, VLAN) | commandes VRP |
+| Ubiquiti | EdgeOS (EdgeRouter), UniFi Network (switch) | Save / Apply Changes |
+| TP-Link, NETGEAR, D-Link | Easy Smart, ProSAFE / Smart Pro, Web Smart (802.1Q VLAN, PVID) | Apply |
+| Aruba | AOS-CX, Instant On | Apply |
+| FortiGate | FortiOS | OK |
+
+Les produits sans interface web (VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS, Extreme EXOS) montrent leur
+console et leur configuration. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
 du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
 comme l'atelier) et **Simple** (clair).
