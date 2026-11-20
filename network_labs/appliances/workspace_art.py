@@ -434,7 +434,7 @@ def link_caption(a,b,config):
     return ''
 
 
-def draw_port_labels(canvas,labels,obstacles,font,color):
+def draw_port_labels(canvas,labels,obstacles,font,color,background='#ffffff',border='#e0e9f2'):
     """Prefer nearby free positions; reserve badges separately from wire geometry."""
     occupied=[box for box in obstacles if box]
     offsets=[(0,0),(18,0),(-18,0),(0,12),(18,12),(-18,12),(0,-12),(32,0),(-32,0),(0,24),(32,12),(-32,12),(0,-24),(0,36)]
@@ -451,5 +451,6 @@ def draw_port_labels(canvas,labels,obstacles,font,color):
             if best is None or score<best[0]:best=(score,dx,dy,box)
             if score==0:break
         _,dx,dy,box=best;canvas.coords(item,x+dx,y+dy)
-        bg=rounded_box(canvas,box[0]-3,box[1]-2,box[2]+3,box[3]+2,r=4,fill='#ffffff',outline='#e0e9f2',tags=('port-label-bg',label['tag']))
+        bg=rounded_box(canvas,box[0]-3,box[1]-2,box[2]+3,box[3]+2,r=4,fill=background,outline=border,
+                       tags=('port-label-bg',label['tag']))
         canvas.tag_raise(item,bg);occupied.append((box[0]-2,box[1]-1,box[2]+2,box[3]+1))

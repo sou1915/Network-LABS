@@ -5,6 +5,7 @@ devices follow with their runtime state, and the connectivity test of container 
 import tkinter as tk
 from tkinter import ttk
 
+from .design import STUDIO
 from .reference_theme import BG, BLUE, MUTED, PANEL, TEXT
 
 
@@ -74,7 +75,9 @@ class DeviceOverview:
         self.note_label.bind('<Configure>', lambda event: self.note_label.configure(wraplength=max(160, event.width - 4)))
         self.overview_hint = self.label(details, 'Double-clic sur un équipement : son terminal · clic droit sur un câble : le retirer',
                                         MUTED, 7)
-        self.overview_hint.pack(side='bottom', padx=12, pady=6)
+        self.overview_hint.configure(justify='center')
+        self.overview_hint.pack(side='bottom', fill='x', padx=12, pady=6)
+        self.overview_hint.bind('<Configure>', lambda event: self.overview_hint.configure(wraplength=max(160, event.width - 4)))
 
     def overview_selected(self):
         selected = self.nodes.selection()
@@ -93,7 +96,8 @@ class DeviceOverview:
                     else widget.pack(fill='x', padx=10, before=self.nodes_title)
         if node is None:
             self.overview_node = None
-            self.selected_details.set('Ajouter un équipement depuis la bibliothèque (clic ou glisser), puis le sélectionner.')
+            where = 'le dock sous le schéma' if STUDIO else 'la bibliothèque'
+            self.selected_details.set(f'Ajouter un équipement depuis {where} (clic ou glisser), puis le sélectionner.')
             self.draw_overview_header()
             return
         try:
@@ -144,7 +148,8 @@ class DeviceOverview:
             canvas.delete('all')
             width = max(200, canvas.winfo_width())
             from .soft_widgets import rounded_box
-            rounded_box(canvas, 2, 4, width - 2, 82, r=14, fill='#eef3f9', outline='#dde6f0')
+            fill, border = ('#132131', '#1d2b38') if STUDIO else ('#eef3f9', '#dde6f0')
+            rounded_box(canvas, 2, 4, width - 2, 82, r=14, fill=fill, outline=border)
             canvas.create_text(width / 2, 34, text='Aucun équipement sélectionné', fill=TEXT, font=(self.font, 11, 'bold'))
             canvas.create_text(width / 2, 56, text='Cliquer sur un équipement du schéma', fill=MUTED, font=(self.font, 8))
             return
