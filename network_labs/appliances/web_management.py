@@ -127,6 +127,35 @@ class NativeDeviceAPI:
             _set_routes(target,others+([('0.0.0.0/0',gateway)] if gateway else []))
         if clients:target['dhcp_clients']=clients
         else:target.pop('dhcp_clients',None)
+        running=window.view_lab==spec['name'] and window.states.get(node['name'],{}).get('status')=='running'
+        live=self.host_ip_live(spec['name'],node,target,port,mode) if running else None
         window.config_key=None;window.commit_edit(draft);window.choose_node(node['name']);window.load_config(force=True)
-        window.record_event('web','Configuration IP : '+node['name'])
-        return self.dispatch('state',{'node':node['name']})
+        window.record_event('web','Configuration IP : '+node['name']+('' if live is None else ' · en direct : '+live))
+        return dict(self.dispatch('state',{'node':node['name']}),ip_live=live)  # None: the lab is not running
+
+    def host_ip_live(self,lab,before,after,port,mode):
+        """The same change on the running PC, typed in its console as a user would (ip addr / ip route): 'appliqué', or why
+        not. DHCP waits for the next start (the lease comes at boot)."""
+        import secrets
+        from . import console_server
+        if mode=='dhcp':
+            return 'DHCP au prochain démarrage du lab'
+        old,new=before['interfaces'].get(port,''),after['interfaces'][port]
+        old_gateway,new_gateway=before.get('gateway',''),after.get('gateway','')
+        lines=[]
+        if old_gateway and old_gateway!=new_gateway:lines.append(f'ip route del default via {old_gateway}')
+        if old and old!=new:lines.append(f'ip addr del {old} dev {port}')
+        if new and new!=old:lines.append(f'ip addr add {new} dev {port}')
+        if new_gateway and new_gateway!=old_gateway:lines.append(f'ip route add default via {new_gateway}')
+        if not lines:return 'rien à changer'
+        session=secrets.token_hex(8)
+        try:
+            console_server.request(lab,{'op':'open','session':session,'node':before['name']},timeout=6)
+            for line in lines:
+                reply=console_server.request(lab,{'op':'line','session':session,'node':before['name'],'text':line},timeout=6)
+                if not reply.get('ok') or str(reply.get('reply','')).startswith('%'):
+                    return f'« {line} » refusé : '+str(reply.get('reply') or reply.get('error','')).lstrip('% ')
+            console_server.request(lab,{'op':'close','session':session,'node':before['name']},timeout=6)
+        except (OSError,ValueError) as error:
+            return f'consoles du lab injoignables ({error})'
+        return 'appliqué'

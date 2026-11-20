@@ -122,6 +122,22 @@ class DesktopTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.api.dispatch('host_ip', {'node': 'SW1', 'revision': 'x', 'port': 'eth0', 'mode': 'dhcp', 'address': '', 'gateway': ''})
 
+    def test_a_running_pc_gets_the_change_typed_in_its_console(self):
+        from unittest.mock import patch
+        self.ip(mode='static', address='192.168.10.50/24', gateway='192.168.10.1')
+        self.app.states = {'PC1': {'status': 'running'}}
+        typed = []
+        reply = lambda lab, payload, timeout=6: typed.append(payload.get('text')) or {'ok': True, 'reply': '', 'prompt': '$ '}
+        with patch('network_labs.appliances.console_server.request', side_effect=reply):
+            state = self.ip(mode='static', address='192.168.10.60/24', gateway='192.168.10.254')
+        self.assertEqual(state['ip_live'], 'appliqué')
+        self.assertEqual([t for t in typed if t], ['ip route del default via 192.168.10.1', 'ip addr del 192.168.10.50/24 dev eth0',
+                                                   'ip addr add 192.168.10.60/24 dev eth0', 'ip route add default via 192.168.10.254'])
+        refused = lambda lab, payload, timeout=6: {'ok': True, 'reply': '% eth0 a déjà 1.2.3.4/24', 'prompt': '$ '}
+        with patch('network_labs.appliances.console_server.request', side_effect=refused):
+            self.assertIn('refusé', self.ip(mode='static', address='192.168.10.61/24', gateway='')['ip_live'])
+        self.assertIsNone(Workbench().states.get('PC1'))
+
     def test_the_command_prompt_opens_the_device_terminal(self):
         self.assertEqual(self.api.dispatch('open_cli', {'node': 'PC1'}), {'opened': 'PC1'})
         self.assertEqual(self.app.opened, ['PC1'])

@@ -107,8 +107,8 @@
         <div class="pc-row"><label>Passerelle par défaut</label><input id="pcGw" value="${esc(dhcp ? '' : n.gateway || '')}" placeholder="192.168.1.1"></div>
         <div class="pc-row"><label>Serveur DNS</label><input disabled placeholder="non géré par le laboratoire"></div>
       </fieldset>
-      <div class="pc-note">Appliqué au projet, comme une commande tapée sur le lab arrêté : la micro-VM prend cette configuration au ▶ Démarrer.
-        Lab en marche : l’invite de commandes (ip addr, ip route) change le poste en direct.</div>
+      <div class="pc-note">Appliqué au projet ; lab en marche, aussi au poste réel (ip addr / ip route dans sa console). DHCP : au prochain
+        ▶ Démarrer, le bail arrive au démarrage du poste.</div>
       <div class="pc-acts"><button type="button" class="cancel">Annuler</button><button type="button" class="ok">Appliquer</button></div>
       <div class="pc-msg"></div>`);
     const fields = () => ['pcIp', 'pcMask', 'pcGw'].map(id => box.querySelector('#' + id));
@@ -131,7 +131,8 @@
         state = await request('/api/host_ip', {node, revision: state.revision, port, mode, address: addressText,
           gateway: mode === 'static' ? box.querySelector('#pcGw').value.trim() : ''});
         render();
-        toast(mode === 'dhcp' ? `${label(port)} : DHCP — appliqué au projet.` : `${label(port)} : ${addressText} — appliqué au projet.`);
+        const done = mode === 'dhcp' ? `${label(port)} : DHCP` : `${label(port)} : ${addressText}`;
+        toast(typeof state.ip_live === 'string' ? `${done} — projet ; poste en marche : ${state.ip_live}.` : `${done} — appliqué au projet.`);
       } catch (error) { msg.textContent = error.message; msg.classList.add('bad'); ok.disabled = false; }
     };
   }
