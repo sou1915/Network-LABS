@@ -142,7 +142,8 @@ class DesktopTest(unittest.TestCase):
             connection.request('GET', '/native_vendor.js', headers={'Host': portal.host})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
-            self.assertTrue(all(word in response.read() for word in (b'Access Rules', b'Firewall Rules', b'Security Policy Rules')))
+            script = response.read()
+            self.assertTrue(all(word in script for word in (b'Access Rules', b'Firewall Rules', b'Security Policy Rules')))
         finally:
             portal.close()
 
