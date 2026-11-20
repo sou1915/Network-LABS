@@ -41,6 +41,11 @@ def choose_font(root):
 
 def apply(root):
     font=choose_font(root);s=ttk.Style(root)
+    # Every menu of the application (Fichier, Édition, « + Ajouter »…): white, the theme's font, a soft blue highlight.
+    for key,value in (('background','#ffffff'),('foreground',TEXT),('activeBackground','#e4f0ff'),('activeForeground',TEXT),
+                      ('disabledForeground','#8a98aa'),('relief','solid'),('borderWidth',1),('activeBorderWidth',0),
+                      ('font',(font,9)),('selectColor',BLUE)):
+        root.option_add('*Menu.'+key,value)
     s.configure('Native.TButton',background=BG,foreground=TEXT,font=(font,9),padding=(9,5),borderwidth=0)
     s.map('Native.TButton',foreground=[('disabled','#8a98aa')])
     s.configure('Native.Toolbutton',background=BG,foreground=TEXT,font=(font,9),padding=(9,5),borderwidth=0)

@@ -15,58 +15,107 @@ FRAME_MS = 28
 
 
 class SimulationWindow:
-    def __init__(self, workbench, font='DejaVu Sans'):
+    def __init__(self, workbench, font=None):
+        from .reference_theme import BG, MUTED, PANEL, TEXT
+        font = font or getattr(workbench, 'font', 'DejaVu Sans')
         self.workbench, self.font = workbench, font
         self.events, self.steps, self.position, self.playing = [], [], 0, False
         self.window = tk.Toplevel(workbench.window)
         self.window.title('Simulation')
-        self.window.geometry('760x560')
-        self.window.minsize(560, 380)
+        self.window.geometry('800x580')
+        self.window.minsize(600, 400)
+        self.window.configure(bg=BG)
         self.window.protocol('WM_DELETE_WINDOW', self.close)
-        tk.Label(self.window, text='SIMULATION   ·   chaque trame du ping, câble par câble (calculée par le modèle du projet)',
-                 bg='#e9e9e9', fg='#222', font=(font, 9, 'bold'), anchor='w', padx=8).pack(fill='x')
-        form = tk.Frame(self.window, padx=8, pady=6)
-        form.pack(fill='x')
-        names = [n['name'] for n in workbench.graph['nodes'] if n['role'] in ('host', 'router', 'firewall', 'switch')]
-        tk.Label(form, text='Source', font=(font, 9)).pack(side='left')
-        self.source = ttk.Combobox(form, values=names, width=10, state='readonly')
-        self.source.pack(side='left', padx=(4, 10))
+        band = tk.Frame(self.window, bg='#223344', padx=12, pady=7)
+        band.pack(fill='x')
+        tk.Label(band, text='✉  Simulation', bg='#223344', fg='white', font=(font, 11, 'bold')).pack(side='left')
+        tk.Label(band, text='chaque trame du ping, câble par câble · calculée par le modèle du projet', bg='#223344', fg='#a9bccf',
+                 font=(font, 8)).pack(side='left', padx=12)
+        legend = tk.Frame(band, bg='#223344')
+        legend.pack(side='right')
+        for kind, label in (('ARP', 'ARP'), ('ICMP', 'ICMP'), ('DROP', 'abandon')):
+            tk.Label(legend, text='■', bg='#223344', fg=COLOURS[kind], font=(font, 10)).pack(side='left')
+            tk.Label(legend, text=label, bg='#223344', fg='#d6e2ee', font=(font, 8)).pack(side='left', padx=(1, 8))
+        card = tk.Frame(self.window, bg=PANEL, padx=12, pady=8, highlightthickness=1, highlightbackground='#dfe7f0')
+        card.pack(fill='x', padx=10, pady=(10, 6))
+        nodes = [n for n in workbench.graph['nodes'] if n['role'] in ('host', 'router', 'firewall', 'switch')]
+        names = [n['name'] for n in nodes]
+        tk.Label(card, text='Source', bg=PANEL, fg=MUTED, font=(font, 8, 'bold')).grid(row=0, column=0, sticky='w')
+        self.source = ttk.Combobox(card, values=names, width=12, state='readonly', style='Native.TCombobox', font=(font, 9))
+        self.source.grid(row=1, column=0, sticky='w', padx=(0, 12))
         if names:
             self.source.set(next((n for n in names if n.upper().startswith('PC')), names[0]))
-        tk.Label(form, text='Destination (adresse IP)', font=(font, 9)).pack(side='left')
-        self.destination = ttk.Entry(form, width=16)
-        self.destination.pack(side='left', padx=(4, 10))
-        ttk.Button(form, text='✉ Ajouter le ping', command=self.load).pack(side='left')
-        controls = tk.Frame(self.window, padx=8)
+        tk.Label(card, text='Destination · adresse IP ou équipement', bg=PANEL, fg=MUTED, font=(font, 8, 'bold')).grid(
+            row=0, column=1, sticky='w')
+        self.destination = ttk.Combobox(card, values=self.targets(), width=30, style='Native.TCombobox', font=(font, 9))
+        self.destination.grid(row=1, column=1, sticky='w', padx=(0, 12))
+        ttk.Button(card, text='✉  Ajouter le ping', command=self.load, style='Native.Primary.TButton').grid(row=1, column=2, sticky='w')
+        controls = tk.Frame(self.window, bg=BG, padx=10)
         controls.pack(fill='x')
-        self.back = ttk.Button(controls, text='◀ Retour', command=self.step_back)
-        self.forward = ttk.Button(controls, text='Capture / Avancer ▶', command=self.step_forward)
-        self.play = ttk.Button(controls, text='▶▶ Lecture', command=self.toggle_play)
-        self.reset = ttk.Button(controls, text='⟲ Réinitialiser', command=self.restart)
+        self.back = ttk.Button(controls, text='◀  Retour', command=self.step_back, style='Native.TButton')
+        self.forward = ttk.Button(controls, text='Capture / Avancer  ▶', command=self.step_forward, style='Native.Primary.TButton')
+        self.play = ttk.Button(controls, text='▶▶  Lecture', command=self.toggle_play, style='Native.TButton')
+        self.reset = ttk.Button(controls, text='⟲  Réinitialiser', command=self.restart, style='Native.TButton')
         for button in (self.back, self.forward, self.play, self.reset):
             button.pack(side='left', padx=(0, 6), pady=4)
-        self.status = tk.StringVar(value='Choisir la source et l’adresse de destination, puis « Ajouter le ping ».')
-        tk.Label(controls, textvariable=self.status, font=(font, 9), fg='#444', anchor='w').pack(side='left', fill='x', padx=6)
+        self.status = tk.StringVar(value='Choisir la source et la destination, puis « Ajouter le ping ».')
+        tk.Label(controls, textvariable=self.status, bg=BG, fg=MUTED, font=(font, 9), anchor='w').pack(side='left', fill='x', padx=6)
         body = ttk.PanedWindow(self.window, orient='vertical')
-        body.pack(fill='both', expand=True, padx=8, pady=(2, 8))
-        table = tk.Frame(body)
-        self.list = ttk.Treeview(table, columns=('step', 'last', 'at', 'type'), show='headings', height=9, selectmode='browse')
-        for column, title, width in (('step', 'Pas', 50), ('last', 'Depuis', 150), ('at', 'Vers', 150), ('type', 'Type', 180)):
-            self.list.heading(column, text=title)
+        body.pack(fill='both', expand=True, padx=10, pady=(4, 10))
+        table = tk.Frame(body, bg=PANEL, highlightthickness=1, highlightbackground='#dfe7f0')
+        self.list = ttk.Treeview(table, columns=('step', 'last', 'at', 'type'), show='headings', height=9, selectmode='browse',
+                                 style='Native.Treeview')
+        for column, title, width in (('step', 'Pas', 50), ('last', 'Depuis', 150), ('at', 'Vers', 150), ('type', 'Type', 220)):
+            self.list.heading(column, text=title, anchor='w')
             self.list.column(column, width=width, anchor='w')
         for kind, colour in COLOURS.items():
             self.list.tag_configure(kind, foreground=colour)
-        self.list.tag_configure('future', foreground='#9a9a9a')
-        scroll = ttk.Scrollbar(table, command=self.list.yview)
+        self.list.tag_configure('future', foreground='#9aa8b8')
+        scroll = ttk.Scrollbar(table, command=self.list.yview, style='Native.Vertical.TScrollbar')
         self.list.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right', fill='y')
         self.list.pack(fill='both', expand=True)
         self.list.bind('<<TreeviewSelect>>', lambda _: self.show_details())
         body.add(table, weight=3)
-        self.details = tk.Text(body, height=8, font=('DejaVu Sans Mono', 9), wrap='word', relief='flat', bg='#fafafa', padx=6, pady=4)
-        self.details.tag_configure('title', font=('DejaVu Sans', 9, 'bold'))
+        self.details = tk.Text(body, height=8, font=('DejaVu Sans Mono', 9), wrap='word', relief='flat', bg=PANEL, fg=TEXT,
+                               padx=10, pady=8, highlightthickness=1, highlightbackground='#dfe7f0')
+        self.details.tag_configure('title', font=(font, 10, 'bold'))
+        self.details.insert('1.0', 'Les en-têtes de la trame choisie (Ethernet, ARP ou IP et ICMP) et ce que fait l’équipement '
+                                   's’affichent ici.')
         body.add(self.details, weight=2)
         self.update_buttons()
+
+    def targets(self):
+        """The destination list: each device with its IPv4 addresses (« WEB · 198.51.100.10 »)."""
+        found = []
+        try:
+            spec = self.workbench.editing_spec()
+        except ValueError:
+            return found
+        for node in spec['nodes']:
+            values = [*node['interfaces'].values(), *(s.get('address') for s in (node.get('subinterfaces') or {}).values()),
+                      *(s.get('address') for s in (node.get('svis') or {}).values())]
+            found += [f"{node['name']} · {v.split('/')[0]}" for v in values if v]
+        return found
+
+    def destination_address(self, spec):
+        """The typed destination as an IPv4 address: an address, « NAME · ADDRESS » from the list, or a device's name."""
+        import ipaddress
+        text = self.destination.get().strip()
+        if ' · ' in text:
+            text = text.rsplit(' · ', 1)[1]
+        try:
+            return str(ipaddress.IPv4Address(text))
+        except ValueError:
+            pass
+        node = next((n for n in spec['nodes'] if n['name'].lower() == text.lower()), None)
+        if node is None:
+            raise ValueError(f'« {text} » : une adresse IPv4 (ex. 192.168.1.10) ou le nom d’un équipement.' if text
+                             else 'choisir une destination.')
+        address = next((v for v in node['interfaces'].values() if v), None)
+        if address is None:
+            raise ValueError(f'{node["name"]} n’a pas d’adresse IPv4.')
+        return address.split('/')[0]
 
     # ---- the ping ----
 
@@ -78,7 +127,7 @@ class SimulationWindow:
             self.destination.insert(0, destination)
         try:
             spec = self.workbench.editing_spec()
-            result = packet_sim.simulate(spec, self.source.get(), self.destination.get().strip())
+            result = packet_sim.simulate(spec, self.source.get(), self.destination_address(spec))
         except ValueError as error:
             self.status.set('Impossible : ' + str(error))
             return

@@ -17,8 +17,10 @@ class DeviceOverview:
         self.overview_header.bind('<Configure>', lambda event: self.draw_overview_header())
         self.overview_node = None
         self.selected_title, self.selected_details = tk.StringVar(), tk.StringVar()
-        tk.Label(details, textvariable=self.selected_details, bg=PANEL, fg=MUTED, font=(self.font, 8), justify='left',
-                 anchor='w').pack(fill='x', padx=14, pady=(0, 4))
+        summary = tk.Label(details, textvariable=self.selected_details, bg=PANEL, fg=MUTED, font=(self.font, 8), justify='left',
+                           anchor='w', wraplength=360)
+        summary.pack(fill='x', padx=14, pady=(0, 4))
+        summary.bind('<Configure>', lambda event: summary.configure(wraplength=max(160, event.width - 4)))
         actions = tk.Frame(details, bg=PANEL)
         actions.pack(fill='x', padx=10, pady=(2, 6))
         actions.columnconfigure((0, 1), weight=1, uniform='actions')
@@ -32,7 +34,8 @@ class DeviceOverview:
                                 style='Native.Primary.TButton' if key == 'cli' else 'Native.TButton')
             button.grid(row=index // 2, column=index % 2, sticky='ew', padx=3, pady=3)
             self.overview_actions[key] = button
-        self.label(details, 'Interfaces', TEXT, 9, True).pack(anchor='w', padx=14, pady=(6, 2))
+        self.overview_ports_title = self.label(details, 'Interfaces', TEXT, 9, True)
+        self.overview_ports_title.pack(anchor='w', padx=14, pady=(6, 2))
         self.overview_ports = ttk.Treeview(details, columns=('address', 'peer', 'state'), show='tree headings', height=4,
                                            selectmode='none', style='Native.Treeview')
         for key, title, width in (('#0', 'Port', 92), ('address', 'Adresse', 110), ('peer', 'Câble vers', 118), ('state', 'État', 62)):
@@ -42,7 +45,8 @@ class DeviceOverview:
         self.overview_ports.tag_configure('free', foreground=MUTED)
         self.overview_ports.tag_configure('down', foreground='#bb3646')
         self.overview_ports.pack(fill='x', padx=10)
-        self.label(details, 'Équipements du lab', TEXT, 9, True).pack(anchor='w', padx=14, pady=(10, 2))
+        self.nodes_title = self.label(details, 'Équipements du lab', TEXT, 9, True)
+        self.nodes_title.pack(anchor='w', padx=14, pady=(10, 2))
         self.nodes = ttk.Treeview(details, columns=('runtime', 'state', 'memory'), displaycolumns=('state', 'memory'),
                                   show='tree headings', height=3, selectmode='browse', style='Native.Treeview')
         for key, label, width in (('#0', 'Équipement', 90), ('runtime', 'Runtime', 65), ('state', 'État', 115), ('memory', 'RAM', 70)):
@@ -81,6 +85,12 @@ class DeviceOverview:
         self.overview_ports.delete(*self.overview_ports.get_children())
         for button in self.overview_actions.values():
             button.state(['disabled'] if node is None else ['!disabled'])
+        for widget in (self.overview_ports_title, self.overview_ports):  # no device: no port table to show
+            if node is None:
+                widget.pack_forget()
+            elif not widget.winfo_ismapped():
+                widget.pack(anchor='w', padx=14, pady=(6, 2), before=self.nodes_title) if widget is self.overview_ports_title \
+                    else widget.pack(fill='x', padx=10, before=self.nodes_title)
         if node is None:
             self.overview_node = None
             self.selected_details.set('Ajouter un équipement depuis la bibliothèque (clic ou glisser), puis le sélectionner.')

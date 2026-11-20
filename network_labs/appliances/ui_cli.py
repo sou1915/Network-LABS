@@ -40,8 +40,15 @@ class ConsoleWindow:
         self.window.protocol('WM_DELETE_WINDOW', self.close)
         frame = tk.Frame(self.window, bg=BACKGROUND)
         frame.pack(fill='both', expand=True)
-        tk.Label(frame, text='CLI' + (f'   ·   {status}' if status else ''), bg='#e9e9e9', fg='#222', font=('DejaVu Sans', 9, 'bold'),
-                 anchor='w', padx=8).pack(fill='x')
+        # A header band: the device and its terminal, then whether lines go to the running device or to the project.
+        band = tk.Frame(frame, bg='#223344', padx=10, pady=5)
+        band.pack(fill='x')
+        live = status.startswith('micro-VM en marche')
+        tk.Label(band, text=f'⌨  {node}', bg='#223344', fg='white', font=('DejaVu Sans', 10, 'bold')).pack(side='left')
+        tk.Label(band, text='● équipement en marche' if live else '○ lab arrêté · projet', bg='#2e9d5b' if live else '#3a4d61',
+                 fg='white', font=('DejaVu Sans', 8, 'bold'), padx=8, pady=1).pack(side='left', padx=10)
+        detail = status.split(' : ', 1)[1] if ' : ' in status else status
+        tk.Label(band, text=detail, bg='#223344', fg='#a9bccf', font=('DejaVu Sans', 8), anchor='w').pack(side='left', fill='x')
         self.text = tk.Text(frame, bg=BACKGROUND, fg=FOREGROUND, insertbackground=FOREGROUND, font=(font, 10), relief='flat',
                             wrap='char', padx=6, pady=4, undo=False)
         scroll = tk.Scrollbar(frame, command=self.text.yview)

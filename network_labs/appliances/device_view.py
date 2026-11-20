@@ -32,6 +32,103 @@ def neighbours(spec, name):
     return found
 
 
+def features(node):
+    """What the device runs beyond addresses and routes, as [{'name', 'detail'}] (routing protocols, HSRP, NAT, DHCP,
+    spanning tree, EtherChannel, port security…), each from the project; one that cannot be read is left out."""
+    shown = port_names(node)
+    name = lambda port: shown.get(port.partition('.')[0], port.partition('.')[0]) + ('.' + port.partition('.')[2] if '.' in port else '')
+    found = []
+
+    def add(title, detail):
+        found.append({'name': title, 'detail': detail})
+
+    def attempt(work):
+        try:
+            work()
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+            pass
+
+    def ospf():
+        if node.get('ospf'):
+            from .ospf import enabled_interfaces
+            ports = enabled_interfaces(node)
+            add('OSPF', f"router-id {node['ospf'].get('router_id', '—')} · zone 0 · {len(ports)} interface{'s' if len(ports) > 1 else ''}")
+
+    def rip():
+        from .rip import process
+        found_rip = process(node)
+        if found_rip:
+            add('RIP', f"version {found_rip['version']} · " + ', '.join(name(i['port']) for i in found_rip['interfaces']))
+
+    def eigrp():
+        from .eigrp import process
+        found_eigrp = process(node)
+        if found_eigrp:
+            add('EIGRP', f"AS {found_eigrp['asn']} · " + ', '.join(name(i['port']) for i in found_eigrp['interfaces']))
+
+    def bgp():
+        if node.get('bgp'):
+            neighbours = node['bgp'].get('neighbors') or []
+            add('BGP', f"AS {node['bgp'].get('asn', '—')} · {len(neighbours)} voisin{'s' if len(neighbours) > 1 else ''}")
+
+    def hsrp():
+        from .hsrp import groups
+        for port, entry in sorted(groups(node).items()):
+            for group, settings in sorted(entry['groups'].items()):
+                add('HSRP', f"{name(port)} · groupe {group} · {settings['ip'] or 'sans adresse'} · priorité {settings['priority']}"
+                            + (' · preempt' if settings['preempt'] else ''))
+
+    def nat():
+        from .ios_nat import entries
+        rules = entries(node) if node.get('role') == 'router' and node.get('cli_config') else []
+        if rules:
+            add('NAT', f"{len(rules)} traduction{'s' if len(rules) > 1 else ''} (IOS)")
+
+    def relay():
+        from .ios_relay import process
+        found_relay = process(node)
+        if found_relay:
+            add('Relais DHCP', f"vers {found_relay['server']} · " + ', '.join(name(p) for p in found_relay['clients']))
+
+    def dhcp():
+        server = node.get('dhcp_server')
+        if server:
+            add('Serveur DHCP', f"{server.get('start', '?')} – {server.get('end', '?')} · {name(server.get('interface', ''))}")
+
+    def acl():
+        if node.get('acl_ports'):
+            add('ACL', ', '.join(f'{acl} sur {name(port)}' for port, acl in sorted(node['acl_ports'].items())))
+
+    def stp():
+        tree = node.get('spanning_tree') or {}
+        if node.get('role') == 'switch' and tree.get('mode') == 'stp':
+            add('Spanning tree', f"802.1D · priorité {tree.get('priority', 32768)}")
+
+    def channels():
+        from .etherchannel import bundles
+        for bond, channel in sorted(bundles(node).items()):
+            add('EtherChannel', f"Port-channel{bond[4:]} · LACP · " + ', '.join(name(m) for m in channel['members']))
+
+    def security():
+        from .port_guard import policy
+        guarded = policy(node)
+        secure = [name(p) for p, v in guarded.items() if v['secure']]
+        guard = [name(p) for p, v in guarded.items() if v['bpduguard']]
+        if secure:
+            add('Sécurité des ports', ', '.join(secure))
+        if guard:
+            add('BPDU guard', ', '.join(guard))
+
+    def layer3():
+        from .svi import routing
+        if node.get('role') == 'switch' and routing(node):
+            add('Routage inter-VLAN', 'ip routing · ' + ', '.join(f'Vlan{s[4:]}' for s in sorted(node.get('svis') or {})))
+
+    for work in (ospf, rip, eigrp, bgp, hsrp, nat, relay, dhcp, acl, stp, channels, security, layer3):
+        attempt(work)
+    return found
+
+
 def summary(spec, node):
     model = MODELS.get(node.get('model'))
     shown = port_names(node)
@@ -85,6 +182,7 @@ def summary(spec, node):
         'runtime': 'Micro-VM Firecracker' if node['runtime'] == 'firecracker' else 'Conteneur OCI',
         'vlans': sorted(set(node.get('vlans') or [])) if node['role'] == 'switch' else [],
         'ospf': bool(node.get('ospf')),
+        'features': features(node),
     }
 
 

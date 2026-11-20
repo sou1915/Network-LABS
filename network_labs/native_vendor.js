@@ -42,6 +42,39 @@
         ['Policies', [['rules', 'Security Policies'], ['nat', 'NAT']]],
         ['VPN', [['x-vpn', 'IPsec VPN', VPN]]], ['System', [['settings', 'Settings']]]]},
   ];
+  const CLI_ONLY = 'Se configure dans le terminal de l’équipement (double-clic dans Network LABS) ; listé ici.';
+  const ROLE_PROFILES = {
+    router: [
+      {test: d => d.brand === 'Cisco', family: 'tabs', product: 'WebUI', os: 'IOS', accent: '#2f6fa8',
+        terms: {home: 'Dashboard', ifaces: 'Interfaces'},
+        menu: [['Dashboard', [['status', 'Dashboard']]],
+          ['Monitoring', [['routes', 'Routing Table'], ['features', 'Routing Protocols & Services'], ['live', 'Interfaces (état réel)']]],
+          ['Configuration', [['g', 'Interface'], ['interfaces', 'Ethernet'], ['subif', 'Subinterfaces 802.1Q'], ['g', 'Services'],
+            ['dhcp', 'DHCP Pool'], ['x-nat', 'NAT', CLI_ONLY], ['x-acl', 'Access Lists', CLI_ONLY], ['x-vpn', 'VPN', VPN]]],
+          ['Administration', [['settings', 'Device']]]]},
+      {test: () => true, family: 'side', accent: '#2f6f9f', terms: {home: 'Dashboard', ifaces: 'Interfaces'},
+        menu: [['Dashboard', [['status', 'Dashboard'], ['live', 'Monitor (état réel)']]],
+          ['Interfaces', [['interfaces', 'Interfaces'], ['subif', 'VLAN (802.1Q)']]],
+          ['Routing', [['routes', 'Routes'], ['features', 'Protocols & services']]],
+          ['Services', [['dhcp', 'DHCP Server']]], ['System', [['settings', 'Identity']]]]},
+    ],
+    switch: [
+      {test: d => d.brand === 'Cisco' && /Catalyst/.test(d.model + d.title), family: 'tabs', product: 'Device Manager', os: 'IOS',
+        accent: '#2f6fa8', terms: {home: 'Dashboard', ifaces: 'Ports'},
+        menu: [['Dashboard', [['status', 'Dashboard']]],
+          ['Configuration', [['ports', 'Port Settings'], ['vlans', 'VLAN'], ['features', 'Spanning Tree · Security · EtherChannel'],
+            ['x-qos', 'QoS', LATER]]],
+          ['Monitoring', [['live', 'Ports et VLAN (état réel)']]], ['Administration', [['settings', 'Device']]]]},
+      {test: () => true, family: 'side', accent: '#2f6f9f', terms: {home: 'Dashboard', ifaces: 'Ports'},
+        menu: [['Dashboard', [['status', 'Dashboard'], ['live', 'Monitor (état réel)']]],
+          ['Switching', [['ports', 'Ports'], ['vlans', 'VLAN'], ['features', 'Spanning tree & sécurité']]],
+          ['System', [['settings', 'System']]]]},
+    ],
+  };
+  // A side-menu product's name, from its brand (the menus stay the shared ones).
+  const PRODUCTS = {MikroTik: 'WebFig', Juniper: 'J-Web', Huawei: 'Web NMS', Arista: 'EOS', Nokia: 'SR OS', VyOS: 'VyOS',
+    Ubiquiti: 'EdgeOS', 'HPE Aruba': 'ArubaOS', Aruba: 'ArubaOS', 'TP-Link': 'Easy Smart', NETGEAR: 'NETGEAR', Netgear: 'NETGEAR',
+    'D-Link': 'Smart Console', Dell: 'OS10', Extreme: 'EXOS', Cisco: 'IOS'};
   // Product names and section names of the side-menu vendors (the rest of the side profile is shared).
   const SIDE = {
     OPNsense: ['OPNsense', {Dashboard: 'Lobby', Network: 'Interfaces', Policies: 'Firewall', rules: 'Rules', home: 'Lobby / Dashboard'}],
@@ -135,6 +168,8 @@
   .vx-form .acts{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}
   .vx-form .acts button{border-radius:4px;padding:7px 14px;border:1px solid #c9d3dc;background:#fff}
   .vx-form .acts .ok{background:var(--vx);color:#fff;border-color:var(--vx)}.vx-form .err{grid-column:1/-1;color:#b42323;min-height:16px}
+  .vx-fp .vbar{display:block;height:4px;margin:4px 12px 0;border-radius:2px}
+  .vchip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px}
   .vx-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:#1f2b37;color:#fff;padding:10px 14px;border-radius:6px;
     box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:6}
   `;
@@ -149,10 +184,15 @@
   const fw = () => state.node.firewall || {rules: [], nat: [], default: 'drop'};
   const service = r => !r.protocol || r.protocol === 'any' ? 'any' : r.dport ? `${r.protocol}/${r.dport}` : r.protocol;
   const percent = (part, whole) => whole ? Math.round(100 * part / whole) : 0;
-  const tableHtml = (head, rows, empty) => rows.length ? `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
+  const tableHtml = (head, rows, empty) => rows.length ? `<table>${head.some(Boolean) ? `<thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>` : ''}<tbody>${
     rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : `<p class="vx-empty">${esc(empty)}</p>`;
 
-  function choose(d) {
+  function choose(d, role) {
+    if (role !== 'firewall') {
+      const found = ROLE_PROFILES[role].find(p => p.test(d));
+      const product = /Nexus/.test(d.model) ? 'NX-OS' : PRODUCTS[d.brand] || d.model;
+      return found.family === 'side' ? {...found, product, os: product} : found;
+    }
     const found = PROFILES.find(p => p.test(d));
     if (found.family !== 'side') return found;
     const [product, names] = SIDE[d.model] || [d.brand, {}];
@@ -222,6 +262,118 @@
     main.querySelectorAll('.vx-fp:not(.spare)').forEach((element, index) => {
       element.onclick = () => { vxPage = 'interfaces'; editing = state.device.ports[index].port; draw(); };
     });
+  }
+
+  const VLAN_COLOURS = ['#3aa0e8', '#35c47c', '#f2a93b', '#b06ee8', '#e85d75', '#2ec4c4', '#8f9c2b', '#e07b39'];
+  const vlanColour = vid => vid === 1 ? '#8a9bb0' : VLAN_COLOURS[vid % VLAN_COLOURS.length];
+  const featureList = () => (state.device.features || []);
+  const featureRows = () => featureList().map(f => [`<span class="vx-tag">${esc(f.name)}</span>`, esc(f.detail)]);
+
+  function devicePage(main) {
+    const d = state.device, n = state.node, running = state.observed === 'running', t = profile.terms, live = state.live;
+    const switching = n.role === 'switch';
+    const up = d.ports.filter(p => p.peer && !p.down).length;
+    const face = [...d.ports, ...d.spare.map(name => ({name, spare: true}))].map(p => {
+      const kind = p.spare ? 'spare' : p.down ? 'down' : p.peer ? 'up' : 'free';
+      const bar = switching && !p.spare ? `<i class="vbar" style="background:${p.trunk ? 'repeating-linear-gradient(90deg,#3aa0e8 0 6px,#35c47c 6px 12px,#f2a93b 12px 18px)'
+        : vlanColour(p.vlan)}"></i>` : '';
+      const tip = p.spare ? `${p.name} · port du modèle non déclaré` : `${p.name} · ${p.detail}${p.peer ? ' · câblé vers ' + p.peer : ' · libre'}`;
+      return `<div class="vx-fp ${kind}" title="${esc(tip)}"><span class="num">${esc(p.name)}</span><div class="jack"><i class="led l"></i><i class="led r"></i></div>
+        ${bar}<span class="addr">${p.spare ? '&nbsp;' : esc(switching ? (p.trunk ? 'trunk' : 'VLAN ' + p.vlan) : p.address ? p.address.split('/')[0] : '—')}</span></div>`;
+    }).join('');
+    const ifRows = switching ? d.ports.map(p => [`<b>${esc(p.name)}</b>`, p.trunk ? '<span class="vx-tag s">trunk</span>' : '<span class="vx-tag">access</span>',
+        esc(p.trunk ? p.detail.replace('Trunk ', '') : 'VLAN ' + p.vlan), esc(p.peer || '—'),
+        p.down ? '<span class="vx-bad">● down</span>' : p.peer ? '<span class="vx-ok">● up</span>' : '<span class="vx-off">● no link</span>'])
+      : d.ports.map(p => [`<b>${esc(p.name)}</b>`, esc(p.address ? ipMask(p.address) : p.detail), esc(p.peer || '—'),
+        p.down ? '<span class="vx-bad">● down</span>' : p.peer ? '<span class="vx-ok">● up</span>' : '<span class="vx-off">● no link</span>']);
+    const routeRows = [...d.connected.map(r => [esc(r.network), '—', esc(r.port), '<span class="vx-tag">C · connected</span>']),
+      ...d.static.map(r => [esc(r.network), esc(r.gateway), esc(r.port), '<span class="vx-tag s">S · static</span>'])];
+    const vlanRows = d.vlans.map(v => [`<span class="vchip" style="background:${vlanColour(v)}"></span><b>VLAN ${v}</b>`,
+      esc(d.ports.filter(p => !p.trunk && p.vlan === v).map(p => p.name).join(', ') || '—'),
+      esc(d.ports.filter(p => p.trunk && (/toutes/.test(p.detail) || p.detail.replace('Trunk ', '').split(',').map(Number).includes(v))).map(p => p.name).join(', ') || '—')]);
+    const second = switching
+      ? `<div class="vx-w"><h3>VLAN<small>${d.vlans.length} déclaré${d.vlans.length > 1 ? 's' : ''}</small></h3><div class="body"><div class="vx-big">${d.vlans.length}</div>
+          <div class="vx-legend">${d.vlans.slice(0, 6).map(v => `<span><i style="background:${vlanColour(v)}"></i>VLAN ${v}</span>`).join('')}</div></div></div>`
+      : `<div class="vx-w"><h3>Routing<small>${featureList().length} protocole${featureList().length > 1 ? 's' : ''} / service${featureList().length > 1 ? 's' : ''}</small></h3>
+          <div class="body"><div class="vx-big">${d.connected.length + d.static.length}<small> route${d.connected.length + d.static.length > 1 ? 's' : ''}</small></div>
+          <div class="vx-legend"><span><i style="background:#3aa0e8"></i>connectées ${d.connected.length}</span><span><i style="background:#6c63d6"></i>statiques ${
+            d.static.length}</span></div><div class="vx-note">${esc(featureList().map(f => f.name).filter((v, i, a) => a.indexOf(v) === i).join(' · ') || 'routes statiques seulement')}</div></div></div>`;
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(t.home)}</h1><p class="lead">${esc(n.name)} · ${esc(d.brand)} ${esc(d.model)} : la configuration du
+      laboratoire${live ? ', et le relevé de ' + esc(live.time) : ''}.</p>
+      <div class="vx-face"><div class="vx-plate"><b>${esc(d.model)}</b><span>${esc(d.brand)}</span>
+        <div class="vx-leds"><span><i class="on"></i>PWR</span><span><i class="${running ? 'on' : ''}"></i>SYS</span></div></div>
+        <div class="vx-ports">${face}</div></div>
+      <div class="vx-widgets">
+        <div class="vx-w"><h3>System Information</h3><div class="body vx-kv"><span>Hostname</span><b>${esc(n.name)}</b>
+          <span>Model</span><b>${esc(d.brand)} ${esc(d.model)}</b><span>Software</span><b>Linux · Network LABS</b>
+          <span>CLI</span><b>${esc(d.cli || 'terminal Linux')}</b><span>Runtime</span><b>${esc(d.runtime)}</b>
+          <span>State</span><b>${running ? '<span class="vx-ok">● En marche</span>' : '<span class="vx-off">○ Non observé</span>'}</b></div></div>
+        <div class="vx-w"><h3>${esc(t.ifaces)}<small>${up} up / ${d.ports.length}</small></h3><div class="body"><div class="vx-big">${up}<small> / ${d.ports.length}</small></div>
+          <div class="vx-meter"><i style="width:${percent(up, d.ports.length)}%;background:#3ddc84"></i></div>
+          <div class="vx-legend"><span><i style="background:#3ddc84"></i>up ${up}</span><span><i style="background:#c9d3dc"></i>no link ${
+            d.ports.filter(p => !p.peer).length}</span><span><i style="background:#e04f4f"></i>down ${d.ports.filter(p => p.down).length}</span></div></div></div>
+        ${second}
+        <div class="vx-w full"><h3>${esc(t.ifaces)}<small>configuration du laboratoire</small></h3><div class="body flush">${tableHtml(
+          switching ? ['Port', 'Mode', 'VLAN', 'Câble vers', 'Link'] : ['Name', 'IP Address / Mask', 'Câble vers', 'Link'], ifRows, 'Aucun port déclaré.')}</div></div>
+        <div class="vx-w wide"><h3>${switching ? 'VLAN' : 'Routing Table'}</h3><div class="body flush">${switching
+          ? tableHtml(['VLAN', 'Ports access', 'Trunks'], vlanRows, 'Aucun VLAN.') : tableHtml(['Destination', 'Gateway', 'Interface', 'Type'], routeRows,
+            'Aucune route : donner une adresse à un port.')}</div></div>
+        <div class="vx-w"><h3>${switching ? 'Spanning tree · sécurité' : 'Protocols & services'}</h3><div class="body flush">${tableHtml(['', ''],
+          featureRows(), switching ? 'Rien de plus que les VLAN : spanning tree, sécurité des ports et EtherChannel se configurent dans le terminal.'
+            : 'Routes statiques seulement : OSPF, RIP, EIGRP, BGP, HSRP, NAT se configurent dans le terminal.')}</div></div>
+      </div>`);
+    main.querySelectorAll('.vx-fp:not(.spare)').forEach((element, index) => {
+      element.onclick = () => { vxPage = switching ? 'ports' : 'interfaces'; editing = switching ? null : state.device.ports[index].port; draw(); };
+    });
+  }
+
+  function portsPage(main) {
+    const d = state.device;
+    const rows = d.ports.map(p => [`<b>${esc(p.name)}</b>`, p.trunk ? '<span class="vx-tag s">trunk</span>' : '<span class="vx-tag">access</span>',
+      p.trunk ? esc(p.detail.replace('Trunk ', 'VLAN ')) : `<span class="vchip" style="background:${vlanColour(p.vlan)}"></span>VLAN ${esc(p.vlan)}`,
+      esc(p.peer || '—'), p.down ? '<span class="vx-bad">down</span>' : p.peer ? '<span class="vx-ok">up</span>' : '<span class="vx-off">no link</span>',
+      `<span class="vx-off">${esc(p.port)}</span>`]);
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(current().label)}</h1><p class="lead">Mode et VLAN de chaque port, et l’équipement au bout du câble.</p>
+      <div class="vx-bar"><button type="button" class="new">✎ Modifier les ports et les VLAN</button></div>
+      <div class="vx-table">${tableHtml(['Port', 'Mode', 'VLAN', 'Câble vers', 'Link', 'Linux'], rows, 'Aucun port.')}</div>
+      <p class="vx-note">Modifier ouvre l’éditeur de ports du laboratoire ; « switchport » dans le terminal fait de même.</p>`);
+    main.querySelector('.vx-bar button').onclick = () => openStandard('switching');
+  }
+
+  function vlansPage(main) {
+    const d = state.device;
+    const rows = d.vlans.map(v => [`<span class="vchip" style="background:${vlanColour(v)}"></span><b>${v}</b>`,
+      esc(v === 1 ? 'default' : `VLAN${String(v).padStart(4, '0')}`), esc(d.ports.filter(p => !p.trunk && p.vlan === v).map(p => p.name).join(', ') || '—'),
+      esc(d.ports.filter(p => p.trunk).map(p => p.name).join(', ') || '—')]);
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(current().label)}</h1><p class="lead">VLAN déclarés et leurs ports.</p>
+      <div class="vx-bar"><button type="button" class="new">+ Add / ✎ Edit</button></div>
+      <div class="vx-table">${tableHtml(['VLAN ID', 'Name', 'Access ports', 'Trunks'], rows, 'Aucun VLAN.')}</div>`);
+    main.querySelector('.vx-bar button').onclick = () => openStandard('switching');
+  }
+
+  function subinterfacesPage(main) {
+    const rows = state.device.subinterfaces.map(s => [`<b>${esc(s.name)}</b>`, `<span class="vx-tag s">VLAN ${esc(s.vlan)}</span>`, esc(s.address || '—'),
+      `<span class="vx-off">${esc(s.port)}</span>`]);
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(current().label)}</h1><p class="lead">Sous-interfaces 802.1Q (router-on-a-stick).</p>
+      <div class="vx-bar"><button type="button" class="new">+ Add / ✎ Edit</button></div>
+      <div class="vx-table">${tableHtml(['Interface', 'Encapsulation', 'IP Address', 'Linux'], rows, 'Aucune sous-interface.')}</div>`);
+    main.querySelector('.vx-bar button').onclick = () => openStandard('subinterfaces');
+  }
+
+  function featuresPage(main) {
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(current().label)}</h1><p class="lead">Ce que l’équipement fait tourner, d’après le projet.</p>
+      <div class="vx-table">${tableHtml(['Fonction', 'Détail'], featureRows(), 'Rien de configuré au-delà des adresses et routes.')}</div>
+      <p class="vx-note">Ces fonctions se configurent dans le terminal de l’équipement (double-clic dans Network LABS), comme sur l’appareil ;
+      « show » y lit leur état réel quand le lab est en marche.</p>`);
+  }
+
+  function dhcpPage(main) {
+    const server = state.node.dhcp_server;
+    main.insertAdjacentHTML('beforeend', `<h1>${esc(current().label)}</h1><p class="lead">Serveur DHCP de l’équipement.</p>
+      <div class="vx-na"><b>${server ? 'Actif sur ' + esc(portName(server.interface)) : 'Aucun pool'}</b>${server
+        ? esc(`${server.start} – ${server.end}${server.router ? ' · passerelle ' + server.router : ''}`) : 'Créer un pool pour un réseau d’un port.'}
+        <div class="vx-bar" style="margin-top:12px"><button type="button" class="new">${server ? '✎ Edit' : '+ Add'}</button></div></div>`);
+    main.querySelector('.vx-bar button').onclick = () => openStandard('dhcpserver');
   }
 
   function interfacesPage(main) {
@@ -369,16 +521,19 @@
     app.querySelector('.ref').onclick = () => load();
     const main = app.querySelector('main');
     if (profile.family !== 'side') main.insertAdjacentHTML('beforeend', `<div class="vx-crumb">${esc(item.group)} › ${esc(item.label)}</div>`);
-    const pages = {status: statusPage, interfaces: interfacesPage, routes: routesPage, rules: m => rulesPage(m, false), nat: m => rulesPage(m, true),
-      live: livePage, settings: settingsPage};
+    const pages = {status: n.role === 'firewall' ? statusPage : devicePage, interfaces: interfacesPage, routes: routesPage,
+      rules: m => rulesPage(m, false), nat: m => rulesPage(m, true), live: livePage, settings: settingsPage, ports: portsPage, vlans: vlansPage,
+      subif: subinterfacesPage, features: featuresPage, dhcp: dhcpPage};
     (item.why ? unavailablePage : pages[item.id] || unavailablePage)(main);
   }
 
   const previous = render;
   render = function () {
     previous();
-    if (!state || !state.device || state.node.role !== 'firewall' || state.device.cli === 'FortiOS' || standard) return;
-    profile = choose(state.device);
+    const role = state && state.node && state.node.role;
+    if (!state || !state.device || standard || state.device.brand === 'Linux' || !['firewall', 'router', 'switch'].includes(role)
+        || (role === 'firewall' && state.device.cli === 'FortiOS')) return;
+    profile = choose(state.device, role);
     if (!app.isConnected) { document.body.append(app); document.body.classList.add('vx'); }
     draw();
   };
