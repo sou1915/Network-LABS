@@ -159,5 +159,27 @@ class PortGuardGuestTest(unittest.TestCase):
                 guest_startup.check_switch('/socket', node)  # down without a reason: refused
 
 
+
+class AgentGuardParseTest(unittest.TestCase):
+    """PORT_GUARD_START splits its policies with strtok: parsing one must leave that split where it was (run 875 guarded
+    only the first port of three)."""
+
+    def test_parsing_a_policy_keeps_the_request_split(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        agent = Path('network_labs/appliances/guest/agent.c').resolve()
+        harness = (f'#define main agent_main\n#include "{agent}"\n#undef main\n'
+                   'int main(void) { char line[] = "eth0/1/s/y/n/0/- eth1/1/s/n/n/0/020000000001 eth2/1/r/n/n/0/-";\n'
+                   '  struct guard g; int count = 0;\n'
+                   '  for (char *item = strtok(line, " "); item; item = strtok(NULL, " ")) count += guard_parse(item, &g);\n'
+                   '  printf("%d\\n", count); return 0; }\n')
+        with tempfile.TemporaryDirectory() as folder:
+            source, binary = Path(folder) / 'harness.c', Path(folder) / 'harness'
+            source.write_text(harness)
+            subprocess.run(['gcc', '-Wall', '-Wno-unused-function', '-o', str(binary), str(source)], check=True)
+            self.assertEqual(subprocess.run([str(binary)], capture_output=True, text=True, check=True).stdout.strip(), '3')
+
+
 if __name__ == '__main__':
     unittest.main()

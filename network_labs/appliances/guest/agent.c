@@ -477,10 +477,10 @@ static void guard_pin(struct guard *g, const unsigned char *mac) {
     close(fd);
 }
 static int guard_parse(const char *text, struct guard *g) {
-    char copy[1024], *fields[7]; int n = 0;
+    char copy[1024], *fields[7], *rest = NULL; int n = 0;  /* strtok_r: the request loop splits with strtok */
     if (strlen(text) >= sizeof(copy)) return 0;
     strcpy(copy, text);
-    for (char *item = strtok(copy, "/"); item && n < 7; item = strtok(NULL, "/")) fields[n++] = item;
+    for (char *item = strtok_r(copy, "/", &rest); item && n < 7; item = strtok_r(NULL, "/", &rest)) fields[n++] = item;
     if (n != 7 || !valid_port(fields[0]) || strspn(fields[1], "0123456789") != strlen(fields[1]) || !strchr("srpn", fields[2][0])
         || strlen(fields[2]) != 1 || strlen(fields[3]) != 1 || !strchr("yn", fields[3][0]) || strlen(fields[4]) != 1
         || !strchr("yn", fields[4][0]) || strspn(fields[5], "0123456789") != strlen(fields[5])) return 0;
@@ -490,7 +490,7 @@ static int guard_parse(const char *text, struct guard *g) {
     g->vid = atoi(fields[5]);
     if (g->max > GUARD_MACS || g->vid > 4094 || (g->mode != 'n' && g->max < 1)) return 0;
     if (strcmp(fields[6], "-")) {
-        for (char *item = strtok(fields[6], "+"); item; item = strtok(NULL, "+")) {
+        for (char *item = strtok_r(fields[6], "+", &rest); item; item = strtok_r(NULL, "+", &rest)) {
             if (g->count >= g->max || !hex_mac(item, g->macs[g->count])) return 0;
             g->kinds[g->count++] = 's';  /* configured: static or sticky in the running configuration */
         }
