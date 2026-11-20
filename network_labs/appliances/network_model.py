@@ -427,10 +427,11 @@ class Model:
                 return ipaddress.IPv4Address(entry['to'])
         return destination
 
-    def deliver(self, source, packet, tracked=None, hops=None):
+    def deliver(self, source, packet, tracked=None, hops=None, legs=None):
         """Walk PACKET {source, destination} from node SOURCE. A request records its translations in a new
         'tracked' list; a reply passes TRACKED to be translated back. Returns (ok, path, why, tracked, node).
-        HOPS, when given, receives each (node, port it arrives by) on the way."""
+        HOPS, when given, receives each (node, port it arrives by) on the way; LEGS each hop as the simulation mode shows
+        it: {'from', 'egress', 'to', 'ingress', 'gateway', 'packet'} (the packet as it leaves, after translation)."""
         from .missions import evaluate_policy
         path, here, ingress = [source], source, None
         reply = tracked is not None
@@ -481,6 +482,9 @@ class Model:
             path.append(following)
             if hops is not None:
                 hops.append((following, port))
+            if legs is not None:
+                legs.append({'from': here, 'egress': egress, 'to': following, 'ingress': port,
+                             'gateway': self.route(here, packet['destination'])[1], 'packet': dict(packet)})
             here, ingress = following, port
         return False, path, 'boucle de routage', tracked, here
 

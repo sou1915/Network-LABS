@@ -93,6 +93,11 @@ passe en `BLK`, orange sur le schéma ; un port `shutdown` y est rouge), `spanni
 l'arbre, `show spanning-tree` le montre (calculé d'après les câbles tant que le lab est arrêté), et couper le port racine
 fait passer le câble de secours en `FWD`. Un seul arbre pour tous les VLAN (celui du VLAN 1), en STP classique (pas de
 Rapid PVST+). Chaque port de micro-VM a une adresse MAC fixe, d'un démarrage à l'autre.
+Le bouton **✉ Simulation** fait comme le mode simulation de Packet Tracer : choisir la source et l'adresse de
+destination, puis « Capture / Avancer » (ou « Lecture ») : chaque trame du ping avance sur les câbles du schéma
+(ARP en orange, puis ICMP en magenta ; une croix rouge là où le paquet est abandonné), avec la liste des événements,
+les en-têtes de chaque trame (MAC, 802.1Q, IP, TTL, ICMP) et ce que fait l'équipement qui la reçoit. Le chemin est
+celui que calcule `ping` (routes, VLAN, trunks, spanning tree, NAT, ACL), lab arrêté ou en marche.
 Un Catalyst 9200L est un switch de niveau 3 : `ip routing` et une `interface vlan N` par VLAN routent entre les VLAN
 sans routeur (routage inter-VLAN, `show ip route` avec ses réseaux `C`, `ip route` vers un routeur) ; un 2960 reste
 de niveau 2 et refuse `ip routing`, comme dans Packet Tracer.

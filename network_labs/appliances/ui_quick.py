@@ -176,6 +176,19 @@ class QuickEditing:
         self.record_event('console', 'Terminal : ' + name + ('' if running else ' (projet)'))
         return windows[name]
 
+    def open_simulation(self, source=None, destination=None):
+        """Packet Tracer's simulation mode: the ping's frames step by step on the drawing (one window per workbench)."""
+        from .ui_simulation import SimulationWindow
+        current = getattr(self, 'simulation', None)
+        if current is None or not current.window.winfo_exists():
+            self.simulation = current = SimulationWindow(self)
+        current.window.deiconify()
+        current.window.lift()
+        if source and destination:
+            current.load(source, destination)
+        self.record_event('simulation', 'Mode simulation')
+        return current
+
     def draft_cli(self):
         """The console server's request handling, in this process, on the project instead of a running lab."""
         from . import console_server, guest_console

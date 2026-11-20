@@ -91,6 +91,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
         for title,action in [('▶ Démarrer','start'),('↻ État','status'),('■ Arrêter','stop')]:
             button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a),style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
         button=ttk.Button(toolbar,text='▣ Enregistrer',command=self.save,style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
+        button=ttk.Button(toolbar,text='✉ Simulation',command=self.open_simulation,style='Native.TButton')
+        button.pack(side='left',padx=3)
+        self.buttons.append(button)
 
         nav=tk.Frame(self.window,bg=BG,height=24);nav.grid(row=2,column=0,sticky='ew')
         self.nav_items={};self.nav_current='Topologie'

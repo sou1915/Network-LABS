@@ -27,14 +27,17 @@ Current progress against this list is tracked in [STATUS.md](STATUS.md).
 
 ## Required engineering (derived from the stories)
 
-| Need | State (updated 2026-11-16) |
+| Need | State (updated 2026-11-20) |
 | --- | --- |
 | Micro-VM host, router, firewall (NAT), DHCP guests | Done, real-KVM tested |
-| Switch guest with access and trunk VLANs | Done, real-KVM tested on the Network LABS kernel; router-on-a-stick too |
+| Switch guest with access and trunk VLANs | Done, real-KVM tested on the Network LABS kernel; router-on-a-stick, management SVI, Layer 3 switch (9200L `ip routing`) and spanning tree too |
 | GUI start/stop/status for micro-VM labs | Done |
-| GUI forms writing to running guests | Draft forms for every guest role; live apply for the firewall policy only |
-| GUI ping, console and capture for guests | Capture done; ping from any running node via the CLI tab (vendor models); no guest console by design (decision needed) |
-| Installable on Ubuntu 24.04 with documented KVM prerequisites | Partial; guest kernel and image must be provided by the user |
+| GUI forms writing to running guests | Done through each device's CLI window: typed lines apply to the running guest, line by line (addresses, routes, VLANs, switchports, shutdown, OSPF/RIP/EIGRP/BGP, NAT, DHCP, ACLs, STP), read back or refused with the reason; firewall policy form applies live too |
+| GUI ping, console and capture for guests | Done: in-app CLI window per device (double-click), ping / traceroute from it, PCAP capture |
+| Installable on Ubuntu 24.04 with documented KVM prerequisites | Partial; guest kernel and image must be provided by the user (the main gap left) |
+
+Release 1 also ships, ahead of plan, what the list below put out of scope: OSPF, RIP, EIGRP and BGP, vendor-style
+CLIs (IOS and others) on guests, and STP on switch guests.
 
 ## Out of scope for release 1
 
