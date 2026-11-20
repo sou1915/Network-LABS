@@ -40,7 +40,7 @@ class WebPortal:
                     if not re.fullmatch(r'[a-z]+(-[a-z]+)?@\d{2,3}\.png',name) or not (folder/name).is_file():
                         return self.respond(404,{'error':'Image absente.'})
                     return self.respond(200,(folder/name).read_bytes(),'image/png')
-                scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_desktop.js')
+                scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_vendor.js','/native_desktop.js')
                 if native and parsed.path in scripts:
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':

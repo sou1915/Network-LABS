@@ -136,7 +136,13 @@ class DesktopTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn(b'Configuration IP', response.read())
             connection.request('GET', '/', headers={'Host': portal.host})
-            self.assertIn(b'/native_desktop.js', connection.getresponse().read())
+            page = connection.getresponse().read()
+            self.assertIn(b'/native_desktop.js', page)
+            self.assertIn(b'/native_vendor.js', page)  # the firewall vendors' faces (ASDM, pfSense, PAN-OS…)
+            connection.request('GET', '/native_vendor.js', headers={'Host': portal.host})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertTrue(all(word in response.read() for word in (b'Access Rules', b'Firewall Rules', b'Security Policy Rules')))
         finally:
             portal.close()
 

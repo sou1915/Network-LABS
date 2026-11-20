@@ -58,15 +58,22 @@ def apply(root):
         element('Soft.button',('#f9fbfe','#e0e8f2'),('#eaf3ff','#b9d9fc'),('#ddecff','#9fc8f9'),('#f0f4f8','#e1e8f0'),('#e4f0ff','#9cc9ff'))
         element('Soft.primary',('#087fe9','#087fe9'),('#168df4','#168df4'),('#0067ce','#0067ce'),('#e1ebf7','#e1ebf7'))
         element('Soft.rail',('#253440','#253440'),('#364f64','#364f64'),('#3c5d79','#3c5d79'),('#253440','#253440'))
+        element('Soft.start',('#1f9d55','#1f9d55'),('#24b062','#24b062'),('#178245','#178245'),('#e1ebf7','#e1ebf7'))
+        element('Soft.stop',('#fff5f5','#f0c9c9'),('#ffe9e9','#e7a8a8'),('#ffdcdc','#df9090'),('#f0f4f8','#e1e8f0'))
         element('Soft.entry',('#ffffff','#dae4ef'),('#ffffff','#8bbcf5'),('#ffffff','#7fb5f1'),('#f3f6fa','#e3eaf2'))
         blank=tk.PhotoImage(master=root,width=1,height=2);blank.put(BG,to=(0,0,1,2))
         active=tk.PhotoImage(master=root,width=1,height=2);active.put(BLUE,to=(0,0,1,2))
         images['tabline']=(blank,active)
         s.element_create('Soft.tabline','image',blank,('selected',active),sticky='ew')
         root._native_soft_images=images
-    for name,element in [('Native.Rail.TButton','Soft.rail'),('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),('Native.Primary.TButton','Soft.primary')]:
+    for name,element in [('Native.Rail.TButton','Soft.rail'),('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),('Native.Primary.TButton','Soft.primary'),
+                         ('Native.Start.TButton','Soft.start'),('Native.Stop.TButton','Soft.stop')]:
         s.layout(name,[(element,{'sticky':'nswe','children':[('Button.padding',{'sticky':'nswe','children':[('Button.label',{'sticky':'nswe'})]})]})])
     s.configure('Native.Rail.TButton',background='#253440',foreground='#edf4fa',font=(font,8),padding=(4,8),anchor='w')
+    s.configure('Native.Start.TButton',background=BG,foreground='white',font=(font,9,'bold'),padding=(11,5),borderwidth=0)
+    s.map('Native.Start.TButton',foreground=[('disabled','#71859d')])
+    s.configure('Native.Stop.TButton',background=BG,foreground='#b42323',font=(font,9),padding=(10,5),borderwidth=0)
+    s.map('Native.Stop.TButton',foreground=[('disabled','#8a98aa')])
     s.layout('Native.TNotebook.Tab',[('Soft.button',{'sticky':'nswe','children':[('Notebook.padding',{'sticky':'nswe','children':[('Notebook.label',{'sticky':'nswe'})]})]})])
     s.layout('Native.Hidden.TNotebook.Tab',[]);s.configure('Native.Hidden.TNotebook',background=BG,borderwidth=0,lightcolor=BG,darkcolor=BG,bordercolor=BG)
     s.configure('Native.Treeview',background=PANEL,fieldbackground=PANEL,foreground=TEXT,font=(font,9),rowheight=23,borderwidth=0)

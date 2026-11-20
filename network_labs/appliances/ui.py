@@ -84,17 +84,24 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
         toolbar=tk.Frame(self.window,bg='#f1f5fb',padx=7,pady=2);toolbar.grid(row=1,column=0,sticky='ew',pady=(0,2))
         tools=[('↖ Sélection',lambda:self.set_edit_mode(None)),('+ Ajouter un équipement',self.add_menu),
                ('⌁ Connecter un câble',lambda:self.set_edit_mode('cable')),('Supprimer',self.delete_selected)]
+        separator=lambda:tk.Frame(toolbar,bg='#d3dde8',width=1,height=24).pack(side='left',padx=7,pady=3)  # between groups
         for title,callback in tools:
             if title.startswith('↖') or title.startswith('⌁'):
                 button=ttk.Radiobutton(toolbar,text=title,command=callback,variable=self.tool_mode,value='select' if title.startswith('↖') else 'cable',style='Native.Toolbutton')
             else:button=ttk.Button(toolbar,text=title,command=callback,style='Native.TButton')
             button.pack(side='left',padx=2);self.buttons.append(button)
-        for title,action in [('▶ Démarrer','start'),('↻ État','status'),('■ Arrêter','stop')]:
-            button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a),style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
+        separator()
+        for title,action,style in [('▶ Démarrer','start','Native.Start.TButton'),('■ Arrêter','stop','Native.Stop.TButton'),
+                                   ('↻ État','status','Native.TButton')]:
+            button=ttk.Button(toolbar,text=title,command=lambda a=action:self.launch(a),style=style);button.pack(side='left',padx=3);self.buttons.append(button)
+        separator()
         button=ttk.Button(toolbar,text='▣ Enregistrer',command=self.save,style='Native.TButton');button.pack(side='left',padx=3);self.buttons.append(button)
         button=ttk.Button(toolbar,text='✉ Simulation',command=self.open_simulation,style='Native.TButton')
         button.pack(side='left',padx=3)
         self.buttons.append(button)
+        # The lab's state at a glance, at the end of the toolbar (draw() keeps it up to date).
+        self.lab_chip=tk.Label(toolbar,text='○ Lab arrêté',bg='#e8eef5',fg=MUTED,font=(self.font,8,'bold'),padx=10,pady=3)
+        self.lab_chip.pack(side='right',padx=6)
 
         nav=tk.Frame(self.window,bg=BG,height=24);nav.grid(row=2,column=0,sticky='ew')
         self.nav_items={};self.nav_current='Topologie'
@@ -621,6 +628,14 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
         self.runtime_hint.set(f'● Relevé : {running} processus OCI en marche' if running else '● Arrêt confirmé' if stopped
                               else '◇ Mode modèle : CLI, ping et simulation' if model_mode() else '○ État non observé')
         self.runtime_label.configure(fg='#159746' if running else MUTED)
+        guests=sum(self.states.get(n['name'],{}).get('status')=='running' for n in graph['nodes'])
+        if guests:
+            self.lab_chip.configure(text=f'● Lab en marche · {guests} équipement{"s" if guests>1 else ""}',bg='#e3f6ea',fg='#157a3e')
+        elif model_mode():
+            self.lab_chip.configure(text='◇ Mode modèle',bg='#efe9fb',fg='#5b3aa6')
+        else:
+            self.lab_chip.configure(text='○ Lab arrêté · '+str(len(graph['nodes']))+' équipement'+('s' if len(graph['nodes'])>1 else ''),
+                                    bg='#e8eef5',fg=MUTED)
         self.filter_library();self.project_title.set(graph['name'])
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
         if self.zoom!=1.:
@@ -668,7 +683,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
         self.verify_button.state(['!disabled'] if node and node['runtime']=='oci' and node['role']=='host' and not self.pending else ['disabled'])
         self.refresh_overview(node)
         if node:self.load_config()
-        self.config_apply.state(['!disabled'] if node and node['runtime']=='oci' and not self.pending and self.config_baseline is not None else ['disabled'])
+        self.config_apply.state(['!disabled'] if node and not self.pending and self.config_baseline is not None else ['disabled'])
 
     def set_zoom(self,value,x=None,y=None):
         value=max(.65,min(1.75,value))
@@ -782,6 +797,10 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
         self.config_fields['port'].bind('<<ComboboxSelected>>',self.config_port_selected)
         self.config_enabled=tk.BooleanVar(value=True)
         self.config_admin=ttk.Checkbutton(form,text='Interface activée',variable=self.config_enabled,style='Native.TCheckbutton');self.config_admin.pack(anchor='w',padx=9,pady=5)
+        self.config_admin_hint=tk.Label(form,text='Arrêter un port : « shutdown » dans le terminal de l’équipement.',bg=PANEL,fg=MUTED,
+                                        font=(self.font,8),anchor='w',justify='left',wraplength=260)
+        self.config_admin_hint.bind('<Configure>',lambda event:self.config_admin_hint.configure(wraplength=max(120,event.width-4)))
+        self.config_admin_anchor=tk.Frame(form,bg=PANEL,height=1);self.config_admin_anchor.pack(fill='x')
         self.config_apply=ttk.Button(self.config_actions,text='Appliquer au brouillon',command=self.apply_config,style='Native.Primary.TButton');self.config_apply.pack(side='left',fill='x',expand=True,padx=(0,5))
         ttk.Button(self.config_actions,text='Recharger',command=lambda:self.load_config(force=True),style='Native.TButton').pack(side='right')
         self.firewall_live=ttk.Button(form,text='Appliquer le pare-feu au lab actif',command=lambda:self.launch('firewall'),
@@ -807,8 +826,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
         selected=self.port_table.selection()
         # A subinterface row stands for its parent port: the form edits physical ports only.
         port=(self.port_table.parent(selected[0]) or selected[0]) if selected else None
-        if port and port!=self.config_vars['port'].get():
-            self.config_vars['port'].set(port)
+        if port and port!=self.config_port():
+            self.config_vars['port'].set(self.port_choice(port))
             self.config_port_selected()
 
     def load_config(self,force=False):
@@ -844,8 +863,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
                         self.port_table.insert(port,'end',iid=name,text=name,values=row,tags=('enabled',))
                 self.port_table.item(port,open=True)
             self.config_vars['name'].set(node['name']);self.config_vars['gateway'].set(node.get('gateway',''))
-            ports=list(node['interfaces']);self.config_fields['port'].configure(values=ports)
-            self.config_vars['port'].set(ports[0] if ports else '')
+            ports=list(node['interfaces']);self.config_fields['port'].configure(values=[self.port_choice(p,node) for p in ports])
+            self.config_vars['port'].set(self.port_choice(ports[0],node) if ports else '')
             self.config_port_selected()
             self.config_fields['name'].configure(state='normal')
             self.config_fields['gateway'].configure(state='normal' if node['role']!='switch' else 'disabled')
@@ -1188,13 +1207,31 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
     def config_port_selected(self,event=None):
         if self.config_baseline is None:return
         node=next(n for n in self.config_baseline['nodes'] if n['name']==self.config_key[1])
-        port=self.config_vars['port'].get()
+        port=self.config_port()
         self.config_vars['address'].set(node['interfaces'].get(port,''));self.config_enabled.set(port not in node.get('shutdown',[]))
         if self.port_table.exists(port) and self.port_table.selection()!=(port,):self.port_table.selection_set(port)
         editable=node['role']!='switch' and port not in node.get('dhcp_clients',[])
         self.config_fields['address'].configure(state='normal' if editable else 'disabled')
-        # Guest ports have no administrative shutdown in the lab file.
-        self.config_admin.state(['!disabled'] if node['runtime']=='oci' else ['disabled'])
+        # A micro-VM's port is shut from its terminal (« shutdown »), as on the device: no checkbox for it here.
+        guest=node['runtime']=='firecracker'
+        if guest:
+            self.config_admin.pack_forget()
+            self.config_admin_hint.pack(anchor='w',padx=9,pady=5,before=self.config_admin_anchor)
+        else:
+            self.config_admin_hint.pack_forget()
+            self.config_admin.pack(anchor='w',padx=9,pady=5,before=self.config_admin_anchor)
+
+    def port_choice(self,port,node=None):
+        """How the GUI tab's port picker shows PORT: the vendor's name, with the Linux one in brackets."""
+        if node is None:
+            node=next(n for n in self.config_baseline['nodes'] if n['name']==self.config_key[1])
+        shown=port_names(node).get(port,port)
+        return port if shown==port else f'{shown} ({port})'
+
+    def config_port(self):
+        """The Linux port the picker shows (« port1 (eth0) » → eth0)."""
+        text=self.config_vars['port'].get()
+        return text[text.rindex('(')+1:-1] if text.endswith(')') and '(' in text else text
 
     def apply_config(self):
         try:
@@ -1202,7 +1239,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview):
             if self.config_baseline is None or current!=self.config_baseline:
                 raise ValueError('Le projet a changé. Recharger le formulaire avant d’appliquer.')
             old=self.config_key[1];values={k:v.get().strip() for k,v in self.config_vars.items()}
-            result=topology_edit.configure_node(current,old,new_name=values['name'],port=values['port'],address=values['address'],gateway=values['gateway'],enabled=self.config_enabled.get())
+            result=topology_edit.configure_node(current,old,new_name=values['name'],port=self.config_port(),address=values['address'],gateway=values['gateway'],enabled=self.config_enabled.get())
             if old!=values['name'] and old in self.positions:self.positions[values['name']]=self.positions.pop(old)
             self.config_key=None;self.commit_edit(result);self.choose_node(values['name']);self.load_config(force=True)
             self.config_message.set('Brouillon appliqué. Enregistrer puis arrêter / démarrer pour activer les changements.')
