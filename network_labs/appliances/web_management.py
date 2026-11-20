@@ -5,7 +5,6 @@ from .web_observations import revision as draft_revision,snapshot
 from .management_switching import component,peers
 from .management_options import PUBLIC_FIELDS,sections,configure_section
 from .device_view import summary as device_summary
-from .design import DESIGN
 
 
 class NativeDeviceAPI:
@@ -38,7 +37,7 @@ class NativeDeviceAPI:
                     'sections':sections(node),'section_editable':not window.pending,
                     'editable':not window.pending and node['runtime']=='oci','device':device_summary(spec,node),
                     'live':self.live(spec,node),'observing':observing,
-                    'app_design':DESIGN}  # the pages open in the workbench's own look (native_studio.js)
+                    'config_text':running_config(spec,node)}  # the product pages show it as the device's configuration
         if action=='observe':
             # Read the running node (sudo-confirmed in a terminal, like the CLI tab's show commands).
             if window.view_lab!=spec['name'] or window.states.get(name,{}).get('status')!='running':
@@ -161,3 +160,13 @@ class NativeDeviceAPI:
         except (OSError,ValueError) as error:
             return f'consoles du lab injoignables ({error})'
         return 'appliqué'
+
+
+def running_config(spec,node):
+    """The device's configuration in its own syntax (IOS, Junos, RouterOS…), as its product page shows it; None when the
+    brand has no command set in the laboratory."""
+    from .vendor_config import dialect,render
+    try:
+        return render(spec,node['name']) if dialect(node) else None
+    except (ValueError,KeyError,TypeError):
+        return None

@@ -5,9 +5,8 @@
 'use strict';
 (() => {
   const KEY = 'network-labs-design';
-  // The browser's choice, else the application's own design: the Studio workbench opens its pages in Studio.
-  const fallback = () => (typeof state !== 'undefined' && state && state.app_design === 'studio' ? 'studio' : 'vendor');
-  window.nlDesign = () => { try { return localStorage.getItem(KEY) || fallback(); } catch (error) { return fallback(); } };
+  // The browser's choice, else the product's own interface (the « Constructeur » design: a copy of the real product).
+  window.nlDesign = () => { try { return localStorage.getItem(KEY) || 'vendor'; } catch (error) { return 'vendor'; } };
   window.nlSetDesign = value => {
     try { localStorage.setItem(KEY, value); } catch (error) { /* private window: the choice lasts this page only */ }
     chosen = value;

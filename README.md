@@ -193,10 +193,15 @@ modifiables dans les éditeurs dédiés : filtrage IPv4 ordonné, NAT, routes,
 VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC, DHCP snooping/DAI/IP Source Guard,
 sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
 Enregistrer puis arrêter / démarrer pour activer les changements.
-La page a trois designs, au choix en haut à droite (le choix reste dans le navigateur) : **Studio** (sombre, comme
-l'atelier : barre de tâches à gauche, tuile de l'équipement, face avant cliquable ; par défaut depuis l'atelier
-Studio), **Simple** (clair, mêmes tâches) et **Constructeur** (l'allure de l'interface du fabricant : FortiGate,
-ASDM, pfSense…). Les éditeurs complets (règles et NAT, DHCP…) suivent le design Studio.
+Par défaut, la page est une copie de l'interface du produit réel (design **Constructeur**) : ses menus, ses mots,
+ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer. MikroTik : WebFig (OK applique les commandes
+`/ip address`, `/ip route`) ; Cisco ISR et Catalyst 9200 : WebUI IOS-XE (« Update & Apply to Device » envoie les
+commandes IOS) ; Cisco ASA : ASDM (Access Rules, « Apply ») ; pfSense : « Apply Changes » ; Palo Alto : PAN-OS
+(Security Policy Rule, « Commit ») ; Juniper : J-Web (Commit) ; FortiGate : FortiOS. Les produits sans interface web
+(VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS) montrent leur console et leur configuration. Dessinées par
+Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
+du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
+comme l'atelier) et **Simple** (clair).
 [Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
 Le menu **Fichier → LAN sécurité access** crée un profil adapté aux protections
 snooping/DAI/source guard ; le profil actuel exige des ports physiques access.

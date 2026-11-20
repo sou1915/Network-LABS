@@ -534,6 +534,7 @@
     previous();
     if (window.nlDesignNow && window.nlDesignNow() !== 'vendor') { app.remove(); document.body.classList.remove('vx'); return; }  // the « Simple » design draws the page
     const role = state && state.node && state.node.role;
+    if (state && state.device && window.nlProduct && window.nlProduct(state.device)) { app.remove(); document.body.classList.remove('vx'); return; }  // its own copy
     if (!state || !state.device || standard || state.device.brand === 'Linux' || !['firewall', 'router', 'switch'].includes(role)
         || (role === 'firewall' && state.device.cli === 'FortiOS')) return;
     profile = choose(state.device, role);
