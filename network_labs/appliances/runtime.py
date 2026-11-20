@@ -422,6 +422,27 @@ class Manager:
     def ns(self, index, *args, **options):
         return run(['ip', 'netns', 'exec', namespace(self.state['spec'], index), *args], **options)
 
+    def join_cable(self, index, port):
+        """Join a micro-VM's tap to its cable (the veth named PORT in its namespace) so that every frame crosses as on a
+        wire: a tc redirect each way. A Linux bridge would hold back the IEEE link-local group addresses (LACP, LLDP);
+        a host kernel without tc ingress filtering gets that bridge all the same."""
+        tap = 'tap' + port[3:]
+        redirected = all(
+            self.ns(index, 'tc', 'qdisc', 'add', 'dev', here, 'ingress', check=False).returncode == 0
+            and self.ns(index, 'tc', 'filter', 'add', 'dev', here, 'parent', 'ffff:', 'protocol', 'all', 'u32', 'match', 'u32', '0', '0',
+                        'action', 'mirred', 'egress', 'redirect', 'dev', there, check=False).returncode == 0
+            for here, there in ((tap, port), (port, tap)))
+        if redirected:
+            return 'redirect'
+        for device in (tap, port):
+            self.ns(index, 'tc', 'qdisc', 'del', 'dev', device, 'ingress', check=False)
+        bridge = 'vmbr' + port[3:]
+        self.ns(index, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
+        for device in (tap, port):
+            self.ns(index, 'ip', 'link', 'set', device, 'master', bridge)
+        self.ns(index, 'ip', 'link', 'set', bridge, 'up')
+        return 'bridge'
+
     def preflight(self, spec):
         report = capabilities()
         installed = {r['id']: r['prerequisites_detected'] for r in report['runtimes']}
@@ -559,14 +580,11 @@ class Manager:
                     self.ns(i, 'sysctl', '-qw', 'net.ipv6.conf.all.disable_ipv6=1', 'net.ipv6.conf.default.disable_ipv6=1',
                             check=False)
                     for port in node['interfaces']:
-                        tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
+                        tap = 'tap' + port[3:]
                         # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
                         owner = ['user', str(self.state['vm_uid_base'] + i), 'group', str(self.state['vm_uid_base'] + i)] if jailed else []
                         self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap', *owner)
-                        self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
-                        self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
-                        self.ns(i, 'ip', 'link', 'set', tap, 'up')
-                        self.ns(i, 'ip', 'link', 'set', bridge, 'up')
+                        self.ns(i, 'ip', 'link', 'set', tap, 'up')  # its cable is joined to it when the link is made
             byname = {n['name']: (i, n) for i, n in enumerate(spec['nodes'])}
             for i, link in enumerate(spec['links']):
                 peers = [f'{prefix(spec)}l{i}{side}' for side in ('a', 'b')]
@@ -580,7 +598,7 @@ class Manager:
                     self.ns(j, 'ip', 'link', 'set', peer, 'name', port)
                     if node['runtime'] == 'firecracker':
                         self.ns(j, 'ip', 'link', 'set', port, 'up')
-                        self.ns(j, 'ip', 'link', 'set', port, 'master', 'vmbr' + port[3:])
+                        self.join_cable(j, port)
             connected = {tuple(e) for link in spec['links'] for e in link}
             for i, node in enumerate(spec['nodes']):
                 if node['runtime'] == 'oci':
