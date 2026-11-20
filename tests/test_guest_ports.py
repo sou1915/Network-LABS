@@ -42,6 +42,12 @@ class PortLimitTest(unittest.TestCase):
         self.assertEqual([d['host_dev_name'] for d in devices], [f'tap{i}' for i in range(16)])
         self.assertTrue(devices[15]['guest_mac'].endswith(':0f'))
 
+    def test_a_guest_kernel_with_bonding_makes_no_bond_of_its_own(self):
+        from pathlib import Path as P
+        from network_labs.appliances.runtime import firecracker_config
+        boot = firecracker_config(switch_lab()['nodes'][0], P('/k'), P('/d'))['boot-source']['boot_args']
+        self.assertIn('bonding.max_bonds=0', boot.split())  # else bond0 appears, an interface no switch declared
+
     def test_the_last_port_carries_traffic_in_the_model(self):
         from network_labs.appliances.network_model import Model
         self.assertEqual(Model(switch_lab()).ping('PC1', '192.168.1.20')[0], True)

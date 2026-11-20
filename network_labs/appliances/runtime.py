@@ -130,7 +130,9 @@ def guest_mac(name, port):
 
 
 def firecracker_config(node, kernel, disk):
-    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
+    # bonding.max_bonds=0: a kernel with bonding built in (the Network LABS one, for EtherChannel) creates no bond0 of its
+    # own; a guest holds only the bonds its switch declares. Kernels without bonding ignore the module parameter.
+    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw bonding.max_bonds=0'
     if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
         interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
         boot += f' ip={interface.ip}::{node.get("gateway", "")}:{interface.netmask}:{node["name"]}:eth0:off'
