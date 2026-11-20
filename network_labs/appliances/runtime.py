@@ -18,7 +18,7 @@ import subprocess
 import time
 
 from .catalog import capabilities
-from .spec import DEFAULT_VCPU_BUDGET, MIB, identifier, namespace, prefix, validate
+from .spec import DEFAULT_VCPU_BUDGET, MIB, identifier, namespace, port_order, prefix, validate
 
 STATE_ROOT = Path('/run/network-labs')
 CONFIG_ROOT = Path('/var/lib/network-labs')
@@ -140,7 +140,7 @@ def firecracker_config(node, kernel, disk):
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
         'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:], 'guest_mac': guest_mac(node['name'], port)}
-                               for port in sorted(node['interfaces'])],
+                               for port in sorted(node['interfaces'], key=port_order)],  # eth2 before eth10: the guest's order
         'vsock': {'guest_cid': 3, 'uds_path': str(Path(disk).parent / 'guest.vsock')},
     }
 

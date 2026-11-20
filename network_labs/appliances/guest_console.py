@@ -54,9 +54,18 @@ class Console:
         return node
 
     def observe(self):
+        """The node as it runs (or as the project says, the lab stopped); a port with no cable is down, as on IOS (its
+        guest device stays administratively up)."""
         with self.manager().locked() as manager:
             manager.state = None
-            return manager.observe_node(self.name)
+            observation = manager.observe_node(self.name)
+            spec = manager.read()['spec']
+        cabled = {end[1] for link in spec['links'] for end in link if end[0] == self.name}
+        for interface in observation.get('interfaces', []):
+            port = interface['port'].split('.')[0]
+            if port.startswith('eth') and port not in cabled:
+                interface['up'] = False
+        return observation
 
     def ping(self, destination, count=5):
         with self.manager().locked() as manager:

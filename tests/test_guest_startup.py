@@ -234,7 +234,7 @@ class GuestStartupTests(unittest.TestCase):
         self.assertEqual(_dhcp_command('dhcp-serve', 'eth0', dict(dhcp_pool(router), dns=['192.0.2.53', '198.51.100.53'], router='')).split()[-3:], ['-', '600', '192.0.2.53,198.51.100.53'])
         self.assertEqual((_dhcp_command('dhcp-client', 'eth1', None), _dhcp_command('dhcp-leases', 'eth0', None)), ('DHCP_CLIENT eth1', 'DHCP_LEASES eth0'))
         pool = dhcp_pool(router)
-        for interface, server in (('eth9', pool), ('eth0', dict(pool, end='192.0.3.200')), ('eth0', dict(pool, lease_seconds=5)),
+        for interface, server in (('eth16', pool), ('eth0', dict(pool, end='192.0.3.200')), ('eth0', dict(pool, lease_seconds=5)),
                                   ('eth0', dict(pool, dns=['1.1.1.1'] * 4)), ('eth0', dict(pool, extra='x')), ('eth0', None)):
             with self.subTest(interface=interface, server=server), self.assertRaises(ValueError): _dhcp_command('dhcp-serve', interface, server)
         with self.assertRaises(ValueError): _dhcp_command('dhcp-client', 'eth0', pool)
@@ -324,7 +324,7 @@ class SwitchVlanTests(unittest.TestCase):
         self.assertEqual(_bridge_vlan_command('bridge-vlan-add', 'eth0', 20, 'pvid'), 'BRIDGE_VLAN_ADD eth0 20 pvid')
         self.assertEqual(_bridge_vlan_command('bridge-vlan-delete', 'eth0', 1, None), 'BRIDGE_VLAN_DEL eth0 1')
         self.assertEqual(_bridge_vlan_command('bridge-vlans', None, None, None), 'BRIDGE_VLANS')
-        bad = [('bridge-vlan-add', 'eth9', 10, 'pvid'), ('bridge-vlan-add', 'eth0', 0, 'pvid'), ('bridge-vlan-add', 'eth0', 4095, 'pvid'),
+        bad = [('bridge-vlan-add', 'eth16', 10, 'pvid'), ('bridge-vlan-add', 'eth0', 0, 'pvid'), ('bridge-vlan-add', 'eth0', 4095, 'pvid'),
                ('bridge-vlan-add', 'eth0', '10', 'pvid'), ('bridge-vlan-add', 'eth0', 10, 'untagged'),
                ('bridge-vlan-delete', 'eth0', 10, 'pvid'),
                ('bridge-vlans', 'eth0', None, None), ('bridge-vlan-filtering', None, 1, None)]
@@ -420,7 +420,8 @@ class RouterOnAStickTests(unittest.TestCase):
         # br0: a switch guest's bridge, which holds its management SVI address and route (interface vlan N).
         # br0.N: a routing switch's SVIs (the bridge's VLAN interfaces).
         self.assertTrue(all(guest_interface(name) for name in ('eth0', 'eth3', 'eth0.1', 'eth2.4094', 'br0', 'br0.10', 'br0.1')))
-        refused = ('eth4', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0.0', 'br0.4095', 'br0.', 'br1', 'br1.10', 'eth0.10;id', None)
+        refused = ('eth16', 'eth010', 'eth4x', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0.0', 'br0.4095', 'br0.', 'br1', 'br1.10',
+                   'eth0.10;id', None)
         self.assertFalse(any(guest_interface(name) for name in refused))
         for operation, kwargs in (('vlan-add', {'interface': 'eth0.10', 'vlan': 10}), ('vlan-add', {'interface': 'eth0', 'vlan': 0}),
                                   ('vlan-delete', {'interface': 'eth0'}), ('vlan-delete', {'interface': 'eth0.10', 'vlan': 10}),

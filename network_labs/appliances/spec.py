@@ -24,6 +24,11 @@ def integer(value, low, high, label):
     return value
 
 
+def port_order(name):
+    """Ports in their number order (eth2 before eth10); a guest numbers its network devices in this order."""
+    return (0, int(name[3:])) if name.startswith('eth') and name[3:].isdigit() else (1, name)
+
+
 def keys(obj, allowed, label):
     if not isinstance(obj, dict) or set(obj) - set(allowed):
         raise ValueError(f'{label}: object with known fields required ({", ".join(allowed)}).')
@@ -126,14 +131,16 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
-                raise ValueError('Firecracker host, router, firewall or switch requires contiguous ports eth0..eth3.')
+            from .native_models import MICROVM_PORTS
+            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= MICROVM_PORTS \
+                    or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
+                raise ValueError(f'Firecracker host, router, firewall or switch requires contiguous ports eth0..eth{MICROVM_PORTS - 1}.')
             if role == 'switch':
                 # Access and trunk ports on the guest bridge; VLANs other than one untagged VLAN 1 need a
                 # guest kernel with 802.1Q and bridge VLAN filtering (tools/guest_kernel). No addressing.
                 if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node
                         or len(node['vlans']) > 32):
-                    raise ValueError('Firecracker switch: 2..4 unnumbered ports, at most 32 VLANs; no port addresses, '
+                    raise ValueError('Firecracker switch: 2..16 unnumbered ports, at most 32 VLANs; no port addresses, '
                                      'gateway or guest_network (management: one SVI, ip default-gateway).')
                 for port in node['switchports'].values():
                     if port['mode'] == 'trunk':
@@ -142,7 +149,7 @@ def validate(data):
                             raise ValueError('Firecracker switch trunk: native and allowed VLANs must be declared in vlans.')
                 if node.get('firewall') is not None:
                     raise ValueError('A firewall policy requires role firewall.')
-                node['interfaces'] = dict(sorted(interfaces.items()))
+                node['interfaces'] = dict(sorted(interfaces.items(), key=lambda item: port_order(item[0])))
                 from .guest_startup import validate_profile
                 validate_profile(node)
                 continue
@@ -167,7 +174,7 @@ def validate(data):
                 raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
             if role != 'firewall' and node.get('firewall') is not None:
                 raise ValueError('A firewall policy requires role firewall.')
-            interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
+            interfaces = node['interfaces'] = dict(sorted(interfaces.items(), key=lambda item: port_order(item[0])))
             addresses_declared = [*interfaces.values(), *(sub['address'] for sub in node['subinterfaces'].values())]
             networks = [ipaddress.IPv4Interface(a).network for a in addresses_declared if a]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):

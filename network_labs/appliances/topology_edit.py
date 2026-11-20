@@ -30,8 +30,9 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
     """
     if role not in ('host', 'switch', 'router', 'firewall'):
         raise ValueError('Micro-VM : poste, switch, routeur ou pare-feu.')
-    if type(ports) is not int or not 1 <= ports <= 4:
-        raise ValueError('Une micro-VM a de 1 à 4 interfaces (eth0..eth3).')
+    from .native_models import MICROVM_PORTS
+    if type(ports) is not int or not 1 <= ports <= MICROVM_PORTS:
+        raise ValueError(f'Une micro-VM a de 1 à {MICROVM_PORTS} interfaces (eth0..eth{MICROVM_PORTS - 1}).')
     node = {'name': name, 'role': role, 'runtime': 'firecracker', 'kernel': kernel, 'disk': disk,
             'memory_mib': memory_mib, 'vcpus': vcpus}
     text = addresses.strip()

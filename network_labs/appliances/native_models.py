@@ -12,7 +12,7 @@ _HOST_ROLES = {'Poste': 'host', 'Serveur': 'server', 'NAS': 'server', 'Imprimant
                'Téléphone IP': 'device', 'IoT': 'device', 'Portable': 'host'}
 # Specialised references with no Linux equivalent here (Wi-Fi, hubs, L7 appliances) are left out.
 _EXCLUDED_ROLES = {'Point d’accès', 'Contrôleur WLAN', 'Hub', 'Firewall spécialisé'}
-MICROVM_PORTS = 4
+MICROVM_PORTS = 16  # eth0..eth15 (guest agent and Firecracker's interrupts for network devices)
 CONTAINER_PORTS = 24
 
 

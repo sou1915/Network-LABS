@@ -105,7 +105,7 @@ class RipAgentTest(unittest.TestCase):
             path.write_text(config)
             checked = subprocess.run(['bird', '-p', '-c', str(path)], capture_output=True, text=True)
             self.assertEqual(checked.returncode, 0, checked.stderr)
-            for bad in ('192.168.1.1 3 eth0:a', '192.168.1.1 2 eth9:a', '192.168.1.1 2 eth0:a,eth0:p', '1.1.1 2 eth0:a',
+            for bad in ('192.168.1.1 3 eth0:a', '192.168.1.1 2 eth16:a', '192.168.1.1 2 eth0:a,eth0:p', '1.1.1 2 eth0:a',
                         '192.168.1.1 2 eth0:x', '192.168.1.1 2 eth0:a extra'):
                 with self.subTest(fields=bad):
                     self.assertEqual(invoke('NL1 RIP_RENDER ' + bad)[0], 2)

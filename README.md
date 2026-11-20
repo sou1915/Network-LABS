@@ -93,6 +93,8 @@ passe en `BLK`, orange sur le schéma ; un port `shutdown` y est rouge), `spanni
 l'arbre, `show spanning-tree` le montre (calculé d'après les câbles tant que le lab est arrêté), et couper le port racine
 fait passer le câble de secours en `FWD`. Un seul arbre pour tous les VLAN (celui du VLAN 1), en STP classique (pas de
 Rapid PVST+). Chaque port de micro-VM a une adresse MAC fixe, d'un démarrage à l'autre.
+Chaque micro-VM a jusqu'à 16 ports (un 2960 de la bibliothèque arrive avec Fa0/1 à Fa0/16) ; un port sans câble
+est `notconnect`, comme sur un vrai switch.
 Le bouton **✉ Simulation** fait comme le mode simulation de Packet Tracer : choisir la source et l'adresse de
 destination, puis « Capture / Avancer » (ou « Lecture ») : chaque trame du ping avance sur les câbles du schéma
 (ARP en orange, puis ICMP en magenta ; une croix rouge là où le paquet est abandonné), avec la liste des événements,

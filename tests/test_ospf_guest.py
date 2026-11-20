@@ -66,7 +66,7 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(subprocess.run(['bird', '-p', '-c', str(path)], capture_output=True).returncode, 0)
 
     def test_malformed_processes_and_stdio_changes_are_refused(self):
-        for fields in ('1.1.1.1 4 4 eth0:10:n:p:1', '1.1.1.1 1 4 eth4:10:n:p:1', '1.1.1.1 1 4 eth0:10:y:p:1', '1.1.1.1 1 4 eth0:0:n:p:1',
+        for fields in ('1.1.1.1 4 4 eth0:10:n:p:1', '1.1.1.1 1 4 eth16:10:n:p:1', '1.1.1.1 1 4 eth0:10:y:p:1', '1.1.1.1 1 4 eth0:0:n:p:1',
                        '1.1.1.1 1 4 eth0:10:n:p:2', '1.1.1.1 1 4 eth0:10:n:p:1,eth0:10:n:p:1', '1.1.1.1 1 4 eth0:10:n:p:1;id',
                        'x 1 4 eth0:10:n:p:1', '1.1.1.1 1 4 eth0:10:n:p:1,eth1:1:n:p:1,eth2:1:n:p:1,eth3:1:n:p:1,eth0:1:n:p:1'):
             with self.subTest(fields=fields):

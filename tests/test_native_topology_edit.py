@@ -95,7 +95,7 @@ class MicroVMDraftTests(unittest.TestCase):
     def test_bad_drafts_are_refused_and_input_is_unchanged(self):
         spec = self.lab()
         before = json.dumps(spec, sort_keys=True)
-        bad = [dict(role='router', ports=2, addresses='10.9.0.1/24'), dict(role='router', ports=5, addresses=''),
+        bad = [dict(role='router', ports=2, addresses='10.9.0.1/24'), dict(role='router', ports=17, addresses=''),
                dict(role='router', ports=2, addresses='dhcp'), dict(role='host', ports=2, addresses='dhcp'),
                dict(role='server', ports=1, addresses='10.9.0.1/24'), dict(role='router', ports=1, addresses='')]
         for case in bad:

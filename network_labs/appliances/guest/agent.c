@@ -27,23 +27,26 @@
 #include <string.h>
 
 #define LIMIT 32768
-#define RELAY_PORTS 4
+#define MAX_PORTS 16   /* eth0..eth15: Firecracker's MMIO interrupts hold 16 network devices beside the disk and vsock */
+#define PORT_SIZE 6    /* "eth15" */
+#define IFACE_SIZE 11  /* "eth15.4094" */
+#define RELAY_PORTS MAX_PORTS
 static int valid_port(const char *value) {
-    return strlen(value) == 4 && !strncmp(value, "eth", 3) && value[3] >= '0' && value[3] <= '3';
+    size_t n = strlen(value);
+    if ((n != 4 && n != 5) || strncmp(value, "eth", 3) || value[3] < '0' || value[3] > '9') return 0;
+    if (n == 5 && (value[3] == '0' || value[4] < '0' || value[4] > '9')) return 0;
+    return atoi(value + 3) < MAX_PORTS;
 }
-/* A guest port eth0..eth3, one of its 802.1Q subinterfaces eth0.1 .. eth3.4094, or the bridge br0 and its VLANs. */
+/* A guest port eth0..eth15, one of its 802.1Q subinterfaces eth0.1 .. eth15.4094, or the bridge br0 and its VLANs. */
 static int valid_interface(const char *value) {
     if (!strcmp(value, "br0")) return 1;  /* a switch guest's bridge: its management address (IOS interface vlan N) */
-    if (!strncmp(value, "br0.", 4)) {  /* a routing switch's SVI: the bridge's VLAN interface br0.1 .. br0.4094 */
-        const char *vid = value + 4;
-        if (!vid[0] || vid[0] == '0' || strlen(vid) > 4 || strspn(vid, "0123456789") != strlen(vid)) return 0;
-        long number = atol(vid); return number >= 1 && number <= 4094;
-    }
-    if (strlen(value) == 4) return valid_port(value);
-    if (strlen(value) < 6 || strlen(value) > 9 || value[4] != '.') return 0;
-    char base[5]; memcpy(base, value, 4); base[4] = 0;
-    const char *vid = value + 5;
-    if (!valid_port(base) || vid[0] == '0' || strspn(vid, "0123456789") != strlen(vid)) return 0;
+    const char *dot = strchr(value, '.');
+    if (!dot) return valid_port(value);
+    if ((size_t)(dot - value) >= PORT_SIZE) return 0;
+    char base[PORT_SIZE]; memcpy(base, value, (size_t)(dot - value)); base[dot - value] = 0;
+    const char *vid = dot + 1;  /* br0.1 .. br0.4094: a routing switch's SVI; ethN.1 .. ethN.4094: a subinterface */
+    if (strcmp(base, "br0") && !valid_port(base)) return 0;
+    if (!vid[0] || vid[0] == '0' || strlen(vid) > 4 || strspn(vid, "0123456789") != strlen(vid)) return 0;
     long number = atol(vid); return number >= 1 && number <= 4094;
 }
 static int valid_cidr(const char *value) {
@@ -281,8 +284,8 @@ static int bgp_render(const char *fields, char *out, size_t size) {
 }
 /* EIGRP with FRR (zebra and eigrpd), from typed fields only: "AS ROUTER_ID NET[,NET...] PORT[,PORT...]|-". */
 static int eigrp_render(const char *fields, char *out, size_t size) {
-    char asn[6], rid[16], networks[160], passive[24], extra;
-    if (sscanf(fields, "%5s %15s %159s %23s %c", asn, rid, networks, passive, &extra) != 4) return -1;
+    char asn[6], rid[16], networks[160], passive[100], extra;
+    if (sscanf(fields, "%5s %15s %159s %99s %c", asn, rid, networks, passive, &extra) != 4) return -1;
     if (!valid_asn(asn) || atol(asn) > 65535 || !valid_ipv4(rid)) return -1;
     int n = snprintf(out, size, "frr defaults traditional\nrouter eigrp %s\n eigrp router-id %s\n", asn, rid);
     int count = 0;
@@ -295,25 +298,25 @@ static int eigrp_render(const char *fields, char *out, size_t size) {
     if (strcmp(passive, "-")) {
         int ports = 0;
         for (char *item = strtok(passive, ","); item; item = strtok(NULL, ",")) {
-            if (++ports > 4 || !valid_port(item)) return -1;
+            if (++ports > MAX_PORTS || !valid_port(item)) return -1;
             n += snprintf(out + n, size - (size_t)n, " passive-interface %s\n", item);
         }
     }
     return n;
 }
 static int ospf_render(const char *fields, char *out, size_t size) {
-    char rid[16], list[100], extra; unsigned hello, dead;
-    if (sscanf(fields, "%15s %u %u %99s %c", rid, &hello, &dead, list, &extra) != 4) return -1;
+    char rid[16], list[400], extra; unsigned hello, dead;
+    if (sscanf(fields, "%15s %u %u %399s %c", rid, &hello, &dead, list, &extra) != 4) return -1;
     if (!valid_ipv4(rid) || hello < 1 || hello > 60 || dead < 2 || dead > 240 || dead <= hello) return -1;
     int n = snprintf(out, size, "router id %s;\nlog stderr all;\nprotocol device { scan time 1; }\n"
                      "protocol kernel kernel4 { scan time 1; ipv4 { import none; export where source = RTS_OSPF; }; }\n"
                      "protocol ospf v2 ospf4 {\n  ipv4 { import where source = RTS_OSPF; export none; };\n"
                      "  ecmp no;\n  area 0.0.0.0 {\n", rid);
-    int count = 0, active = 0; char seen[4] = {0};
+    int count = 0, active = 0; char seen[MAX_PORTS] = {0};
     for (char *item = strtok(list, ","); item; item = strtok(NULL, ",")) {
-        char port[5], stub, type, tail; unsigned cost, priority;
-        if (++count > 4 || sscanf(item, "%4[^:]:%u:%c:%c:%u%c", port, &cost, &stub, &type, &priority, &tail) != 5) return -1;
-        if (!valid_port(port) || seen[port[3] - '0']++ || cost < 1 || cost > 65535 || (stub != 'y' && stub != 'n')) return -1;
+        char port[PORT_SIZE], stub, type, tail; unsigned cost, priority;
+        if (++count > MAX_PORTS || sscanf(item, "%5[^:]:%u:%c:%c:%u%c", port, &cost, &stub, &type, &priority, &tail) != 5) return -1;
+        if (!valid_port(port) || seen[atoi(port + 3)]++ || cost < 1 || cost > 65535 || (stub != 'y' && stub != 'n')) return -1;
         if ((type != 'p' && type != 'b') || priority > 255 || (type == 'p' && priority != 1)) return -1;
         active += stub == 'n';
         n += snprintf(out + n, size - (size_t)n, "    interface \"%s\" { type %s; cost %u; stub %s; hello %u; dead %u;",
@@ -329,17 +332,17 @@ static int ospf_render(const char *fields, char *out, size_t size) {
 /* RIP with BIRD 2 (shares BIRD's files with OSPF; a router runs one or the other). From typed fields only:
    "ROUTER_ID VERSION PORT:a|p[,...]": the ports RIP runs on, a(ctive) or p(assive: announced, no updates sent). */
 static int rip_render(const char *fields, char *out, size_t size) {
-    char rid[16], list[64], copy[64], extra; unsigned version;
-    if (sscanf(fields, "%15s %u %63s %c", rid, &version, list, &extra) != 3) return -1;
+    char rid[16], list[160], copy[160], extra; unsigned version;
+    if (sscanf(fields, "%15s %u %159s %c", rid, &version, list, &extra) != 3) return -1;
     if (!valid_ipv4(rid) || (version != 1 && version != 2)) return -1;
     memcpy(copy, list, sizeof(copy));
-    char names[4][5]; char modes[4]; int count = 0;
+    char names[MAX_PORTS][PORT_SIZE]; char modes[MAX_PORTS]; int count = 0;
     for (char *item = strtok(copy, ","); item; item = strtok(NULL, ",")) {
-        char port[5], mode, tail;
-        if (count >= 4 || sscanf(item, "%4[^:]:%c%c", port, &mode, &tail) != 2) return -1;
+        char port[PORT_SIZE], mode, tail;
+        if (count >= MAX_PORTS || sscanf(item, "%5[^:]:%c%c", port, &mode, &tail) != 2) return -1;
         if (!valid_port(port) || (mode != 'a' && mode != 'p')) return -1;
         for (int i = 0; i < count; i++) if (!strcmp(names[i], port)) return -1;
-        memcpy(names[count], port, 5); modes[count++] = mode;
+        memcpy(names[count], port, PORT_SIZE); modes[count++] = mode;
     }
     if (!count) return -1;
     int n = snprintf(out, size, "router id %s;\nlog stderr all;\nprotocol device { scan time 1; }\n"
@@ -372,7 +375,7 @@ static void reply(int fd, int code, const char *data, size_t size) {
     if (!send_all(fd, header, (size_t)n)) (void)send_all(fd, data, size);
 }
 static void serve(int input, int output, int mutations) {
-    char request[320]; size_t used = 0;
+    char request[1024]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
     while (used < sizeof(request) - 1) {
         char c; ssize_t n = read(input, &c, 1);
@@ -421,8 +424,8 @@ static void serve(int input, int output, int mutations) {
     }
     /* Proxy ARP on one port (IOS « ip proxy-arp », on by default): the port answers ARP for an address the router
      * reaches through another port. Read back as "port value" lines. */
-    char proxy_port[8], proxy_state[4], proxy_extra;
-    if (mutations && sscanf(request, "NL1 PROXY_ARP %7s %3s %c", proxy_port, proxy_state, &proxy_extra) == 2 &&
+    char proxy_port[IFACE_SIZE], proxy_state[4], proxy_extra;
+    if (mutations && sscanf(request, "NL1 PROXY_ARP %10s %3s %c", proxy_port, proxy_state, &proxy_extra) == 2 &&
         valid_interface(proxy_port) && strcmp(proxy_port, "br0") && (!strcmp(proxy_state, "on") || !strcmp(proxy_state, "off"))) {
         char path[64]; snprintf(path, sizeof(path), "/proc/sys/net/ipv4/conf/%s/proxy_arp", proxy_port);
         int fd = open(path, O_WRONLY | O_CLOEXEC);
@@ -433,7 +436,7 @@ static void serve(int input, int output, int mutations) {
     }
     if (!strcmp(request, "NL1 PROXY_ARPS")) {
         char listing[256]; size_t used = 0;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < MAX_PORTS; i++) {
             char path[64], value[4] = {0}; snprintf(path, sizeof(path), "/proc/sys/net/ipv4/conf/eth%d/proxy_arp", i);
             int fd = open(path, O_RDONLY | O_CLOEXEC);
             ssize_t n = fd < 0 ? -1 : read(fd, value, sizeof(value) - 1);
@@ -482,10 +485,10 @@ static void serve(int input, int output, int mutations) {
         if (n != 2) { reply(output, 1, "bridge vlan filtering change failed", 35); return; }
         reply(output, 0, "", 0); return;
     }
-    char vlan_port[5], vlan_mode[8], vlan_extra; unsigned vlan_id;
-    int vlan_fields = sscanf(request, "NL1 BRIDGE_VLAN_ADD %4s %u %7s %c", vlan_port, &vlan_id, vlan_mode, &vlan_extra);
+    char vlan_port[PORT_SIZE], vlan_mode[8], vlan_extra; unsigned vlan_id;
+    int vlan_fields = sscanf(request, "NL1 BRIDGE_VLAN_ADD %5s %u %7s %c", vlan_port, &vlan_id, vlan_mode, &vlan_extra);
     int vlan_add = vlan_fields == 3 && (!strcmp(vlan_mode, "pvid") || !strcmp(vlan_mode, "tagged"));
-    int vlan_delete = !vlan_add && sscanf(request, "NL1 BRIDGE_VLAN_DEL %4s %u %c", vlan_port, &vlan_id, &vlan_extra) == 2;
+    int vlan_delete = !vlan_add && sscanf(request, "NL1 BRIDGE_VLAN_DEL %5s %u %c", vlan_port, &vlan_id, &vlan_extra) == 2;
     if (mutations && (vlan_add || vlan_delete) && (valid_port(vlan_port) || !strcmp(vlan_port, "br0")) && vlan_id >= 1 && vlan_id <= 4094) {
         unsigned short flags = vlan_add && !strcmp(vlan_mode, "pvid") ? BRIDGE_VLAN_INFO_PVID | BRIDGE_VLAN_INFO_UNTAGGED : 0;
         int failure = bridge_vlan(vlan_add ? RTM_SETLINK : RTM_DELLINK, vlan_port, vlan_id, flags);
@@ -495,8 +498,8 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, "", 0); return;
     }
-    char bridge_port[5], bridge_extra;
-    if (mutations && sscanf(request, "NL1 BRIDGE_ADD %4s %c", bridge_port, &bridge_extra) == 1 && valid_port(bridge_port)) {
+    char bridge_port[PORT_SIZE], bridge_extra;
+    if (mutations && sscanf(request, "NL1 BRIDGE_ADD %5s %c", bridge_port, &bridge_extra) == 1 && valid_port(bridge_port)) {
         int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
         if (!failure && ioctl(fd, SIOCBRADDBR, "br0") < 0 && errno != EEXIST) failure = errno;
         struct ifreq change;
@@ -517,7 +520,7 @@ static void serve(int input, int output, int mutations) {
     /* Spanning tree on the switch bridge (the kernel's IEEE 802.1D engine), from typed numbers only:
      * BRIDGE_STP PRIORITY HELLO MAX_AGE FORWARD_DELAY (seconds), BRIDGE_STP_PORT PORT COST PRIORITY, BRIDGE_STP_OFF,
      * and BRIDGE_STP_SHOW: "bridge KEY VALUE" and "PORT KEY VALUE" lines read from sysfs. */
-    unsigned stp_priority, stp_hello, stp_age, stp_delay, stp_cost, stp_port_priority; char stp_port[5], stp_extra;
+    unsigned stp_priority, stp_hello, stp_age, stp_delay, stp_cost, stp_port_priority; char stp_port[PORT_SIZE], stp_extra;
     if (mutations && sscanf(request, "NL1 BRIDGE_STP %u %u %u %u %c", &stp_priority, &stp_hello, &stp_age, &stp_delay, &stp_extra) == 4 &&
         stp_priority <= 61440 && stp_priority % 4096 == 0 && stp_hello >= 1 && stp_hello <= 10 && stp_age >= 6 && stp_age <= 40 &&
         stp_delay >= 4 && stp_delay <= 30) {
@@ -532,7 +535,7 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, "", 0); return;
     }
-    if (mutations && sscanf(request, "NL1 BRIDGE_STP_PORT %4s %u %u %c", stp_port, &stp_cost, &stp_port_priority, &stp_extra) == 3 &&
+    if (mutations && sscanf(request, "NL1 BRIDGE_STP_PORT %5s %u %u %c", stp_port, &stp_cost, &stp_port_priority, &stp_extra) == 3 &&
         valid_port(stp_port) && stp_cost >= 1 && stp_cost <= 65535 && stp_port_priority <= 240 && stp_port_priority % 16 == 0) {
         const char *names[] = {"path_cost", "priority"};
         unsigned values[] = {stp_cost, stp_port_priority / 16};  /* the kernel keeps the port priority's upper four bits */
@@ -553,7 +556,7 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, "", 0); return;
     }
     if (!strcmp(request, "NL1 BRIDGE_STP_SHOW")) {
-        static char listing[4096]; size_t used = 0;
+        static char listing[8192]; size_t used = 0;
         const char *bridge_keys[] = {"stp_state", "bridge_id", "root_id", "root_port", "root_path_cost", "priority", "hello_time",
                                      "max_age", "forward_delay"};
         const char *port_keys[] = {"port_no", "state", "path_cost", "priority", "designated_bridge", "designated_root"};
@@ -566,7 +569,7 @@ static void serve(int input, int output, int mutations) {
             value[strcspn(value, "\n")] = 0;
             used += (size_t)snprintf(listing + used, sizeof(listing) - used, "bridge %s %s\n", bridge_keys[i], value);
         }
-        for (int p = 0; p < 4; p++) {
+        for (int p = 0; p < MAX_PORTS; p++) {
             for (int i = 0; i < 6; i++) {
                 char path[80], value[64] = {0}; snprintf(path, sizeof(path), "/sys/class/net/br0/brif/eth%d/%s", p, port_keys[i]);
                 int fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -594,7 +597,7 @@ static void serve(int input, int output, int mutations) {
         reply(output, size == sizeof(table) ? 3 : 0, table, size); return;
     }
     /* OSPF: render (read-only, for conformity checks), start, stop, and fixed BIRD show commands. */
-    char ospf_config[1024];
+    char ospf_config[8192];
     if (!strncmp(request, "NL1 OSPF_RENDER ", 16)) {
         int n = ospf_render(request + 16, ospf_config, sizeof(ospf_config));
         if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
@@ -745,7 +748,7 @@ static void serve(int input, int output, int mutations) {
     char *const *bgp_show = !strcmp(request, "NL1 BGP_SHOW summary") ? bgp_summary
                           : !strcmp(request, "NL1 BGP_SHOW routes") ? bgp_routes : NULL;
     /* EIGRP: render (read-only), start zebra then eigrpd under /run/frr, stop, and fixed vtysh views. */
-    char eigrp_config[1024];
+    char eigrp_config[4096];
     if (!strncmp(request, "NL1 EIGRP_RENDER ", 17)) {
         int n = eigrp_render(request + 17, eigrp_config, sizeof(eigrp_config));
         if (n < 0) { reply(output, 2, "unsupported operation", 21); return; }
@@ -806,11 +809,11 @@ static void serve(int input, int output, int mutations) {
     char *const *eigrp_show = !strcmp(request, "NL1 EIGRP_SHOW neighbors") ? eigrp_neighbors
                             : !strcmp(request, "NL1 EIGRP_SHOW topology") ? eigrp_topology : NULL;
     /* DHCP relay (IOS « ip helper-address »): this agent's --dhcp-relay mode, one per guest. */
-    char relay_server[16], relay_clients[48], relay_extra;
-    if (mutations && sscanf(request, "NL1 DHCP_RELAY_START %15s %47s %c", relay_server, relay_clients, &relay_extra) == 2) {
+    char relay_server[16], relay_clients[200], relay_extra;
+    if (mutations && sscanf(request, "NL1 DHCP_RELAY_START %15s %199s %c", relay_server, relay_clients, &relay_extra) == 2) {
         struct in_addr server_address;
         int ok = inet_pton(AF_INET, relay_server, &server_address) == 1, ports = 0;
-        char copy[48]; strcpy(copy, relay_clients);
+        char copy[200]; strcpy(copy, relay_clients);
         for (char *item = strtok(copy, ","); item && ok; item = strtok(NULL, ",")) ok = valid_interface(item) && ++ports <= RELAY_PORTS;
         if (!ok) { reply(output, 2, "invalid dhcp relay", 18); return; }
         if (pidfile_alive("/run/dhcprelay.pid")) { reply(output, 1, "dhcp relay already running", 26); return; }
@@ -845,13 +848,13 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, line, (size_t)n); return;
     }
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
-    char dhcp_port[5], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
+    char dhcp_port[PORT_SIZE], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
     /* An optional 8th field « relayed »: the pool serves a remote LAN through a relay. udhcpd then skips its ARP check of
      * each address (-a 0): on the port toward the relay, the relay router answers ARP for that LAN by proxy (IOS's
      * default), so every address would look taken; an IOS server checks with a ping through the routes instead. */
     char dhcp_flag[8] = "";
-    int dhcp_fields = sscanf(request, "NL1 DHCP_SERVE %4s %15s %15s %15s %15s %6s %47s %7s %c", dhcp_port, dhcp_start, dhcp_end,
+    int dhcp_fields = sscanf(request, "NL1 DHCP_SERVE %5s %15s %15s %15s %15s %6s %47s %7s %c", dhcp_port, dhcp_start, dhcp_end,
                              dhcp_mask, dhcp_router, dhcp_lease, dhcp_dns, dhcp_flag, &dhcp_extra);
     int dhcp_relayed = dhcp_fields == 8 && !strcmp(dhcp_flag, "relayed");
     if (mutations && !strncmp(request, "NL1 DHCP_SERVE ", 15) && (dhcp_fields == 7 || dhcp_relayed)) {
@@ -890,7 +893,7 @@ static void serve(int input, int output, int mutations) {
         }
         reply(output, 0, "", 0); return;
     }
-    if (mutations && sscanf(request, "NL1 DHCP_CLIENT %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
+    if (mutations && sscanf(request, "NL1 DHCP_CLIENT %5s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
         snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpc.%s.pid", dhcp_port);
         if (pidfile_alive(dhcp_pid)) { reply(output, 1, "dhcp client already running", 27); return; }
         char *const client[] = {"busybox", "udhcpc", "-f", "-i", dhcp_port, "-s", "/etc/network-labs/dhcp-client.sh", "-p", dhcp_pid,
@@ -900,7 +903,7 @@ static void serve(int input, int output, int mutations) {
     }
     char *const lease_list[] = {"busybox", "dumpleases", "-f", dhcp_leases, NULL};
     char *const *lease_args = NULL;
-    if (sscanf(request, "NL1 DHCP_LEASES %4s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
+    if (sscanf(request, "NL1 DHCP_LEASES %5s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
         snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
         snprintf(dhcp_leases, sizeof(dhcp_leases), "/run/udhcpd.%s.leases", dhcp_port);
         pid_t server = pidfile_alive(dhcp_pid);
@@ -927,7 +930,7 @@ static void serve(int input, int output, int mutations) {
     if (!strcmp(request, "NL1 ROUTES")) args = routes;
     char *const neighbors[] = {"busybox", "ip", "neigh", "show", NULL};  /* the ARP table (show arp, arp -a) */
     if (!strcmp(request, "NL1 NEIGHBORS")) args = neighbors;
-    char port[10], action[5], cidr[20], extra;
+    char port[IFACE_SIZE], action[5], cidr[20], extra;
     /* One traceroute hop (one UDP probe at TTL, 1 s wait): the host loops TTLs, as it loops ping's echoes. */
     char trace_ttl[4], trace_destination[16];
     unsigned ttl;
@@ -940,10 +943,10 @@ static void serve(int input, int output, int mutations) {
     }
     /* 802.1Q subinterfaces, named ethN.VID (br0.VID: a routing switch's SVI), through the kernel's VLAN ioctl as vconfig does. */
     unsigned subinterface_vid;
-    int subinterface_add = sscanf(request, "NL1 VLAN_ADD %4s %u %c", port, &subinterface_vid, &extra) == 2;
-    int subinterface_delete = !subinterface_add && sscanf(request, "NL1 VLAN_DEL %9s %c", port, &extra) == 1;
+    int subinterface_add = sscanf(request, "NL1 VLAN_ADD %5s %u %c", port, &subinterface_vid, &extra) == 2;
+    int subinterface_delete = !subinterface_add && sscanf(request, "NL1 VLAN_DEL %10s %c", port, &extra) == 1;
     if (mutations && ((subinterface_add && (valid_port(port) || !strcmp(port, "br0")) && subinterface_vid >= 1 && subinterface_vid <= 4094) ||
-                      (subinterface_delete && valid_interface(port) && strlen(port) > 4))) {
+                      (subinterface_delete && valid_interface(port) && strchr(port, '.')))) {
         int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), failure = fd < 0 ? errno : 0;
         struct vlan_ioctl_args vlan;
         if (!failure && subinterface_add) {
@@ -966,7 +969,7 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, "", 0); return;
     }
     char *const link_args[] = {"busybox", "ip", "link", "set", "dev", port, action, NULL};
-    if (mutations && sscanf(request, "NL1 LINK %9s %4s %c", port, action, &extra) == 2 &&
+    if (mutations && sscanf(request, "NL1 LINK %10s %4s %c", port, action, &extra) == 2 &&
         valid_interface(port) && (!strcmp(action, "up") || !strcmp(action, "down"))) args = link_args;
     char *const address_add[] = {"busybox", "ip", "address", "add", request + 13, "dev", "eth0", NULL};
     char *const address_delete[] = {"busybox", "ip", "address", "del", request + 13, "dev", "eth0", NULL};
@@ -974,23 +977,23 @@ static void serve(int input, int output, int mutations) {
     if (mutations && !strncmp(request, "NL1 ADDR_DEL ", 13) && valid_cidr(request + 13)) args = address_delete;
     char *const iface_add[] = {"busybox", "ip", "address", "add", cidr, "dev", port, NULL};
     char *const iface_delete[] = {"busybox", "ip", "address", "del", cidr, "dev", port, NULL};
-    if (mutations && sscanf(request, "NL1 IF_ADD %9s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
+    if (mutations && sscanf(request, "NL1 IF_ADD %10s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
         args = iface_add;
-    if (mutations && sscanf(request, "NL1 IF_DEL %9s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
+    if (mutations && sscanf(request, "NL1 IF_DEL %10s %19s %c", port, cidr, &extra) == 2 && valid_interface(port) && valid_cidr(cidr))
         args = iface_delete;
     char via_network[20], via_gateway[16];
     char *const iface_route_add[] = {"busybox", "ip", "route", "add", via_network, "via", via_gateway, "dev", port, NULL};
     char *const iface_route_delete[] = {"busybox", "ip", "route", "del", via_network, "via", via_gateway, "dev", port, NULL};
-    if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_ADD %10s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
         valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_add;
     /* A route through a port with no next hop (IOS « ip route NET MASK PORT »): the port's neighbours answer ARP. */
     char *const dev_route_add[] = {"busybox", "ip", "route", "add", via_network, "dev", port, NULL};
     char *const dev_route_delete[] = {"busybox", "ip", "route", "del", via_network, "dev", port, NULL};
-    if (mutations && sscanf(request, "NL1 DEV_ROUTE_ADD %9s %19s %c", port, via_network, &extra) == 2 &&
+    if (mutations && sscanf(request, "NL1 DEV_ROUTE_ADD %10s %19s %c", port, via_network, &extra) == 2 &&
         valid_interface(port) && valid_cidr(via_network)) args = dev_route_add;
-    if (mutations && sscanf(request, "NL1 DEV_ROUTE_DEL %9s %19s %c", port, via_network, &extra) == 2 &&
+    if (mutations && sscanf(request, "NL1 DEV_ROUTE_DEL %10s %19s %c", port, via_network, &extra) == 2 &&
         valid_interface(port) && valid_cidr(via_network)) args = dev_route_delete;
-    if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %9s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
+    if (mutations && sscanf(request, "NL1 IF_ROUTE_DEL %10s %19s %15s %c", port, via_network, via_gateway, &extra) == 3 &&
         valid_interface(port) && valid_cidr(via_network) && inet_pton(AF_INET, via_gateway, &destination) == 1) args = iface_route_delete;
     char *route_network = request + 14;
     char *route_gateway = NULL;
@@ -1010,7 +1013,7 @@ static void serve(int input, int output, int mutations) {
     if (route_gateway && route_delete) args = route_remove;
     /* IPv4 forward filtering through the image's iptables; every argument is typed and validated here. */
     const char *program = "/bin/busybox";
-    char fw_action[7], fw_in[5], fw_out[5], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
+    char fw_action[7], fw_in[PORT_SIZE], fw_out[PORT_SIZE], fw_proto[5], fw_source[20], fw_destination[20], fw_port[6];
     char nat_kind[11], nat_to[32], nat_to_port[6], nat_target[40]; struct in_addr nat_address, nat_last;
     char *firewall[24]; int count = 0;
     #define FW(word) firewall[count++] = (char *)(word)
@@ -1021,7 +1024,7 @@ static void serve(int input, int output, int mutations) {
     /* Address translation in the nat table: destination NAT before routing, source NAT after it. */
     else if (!strcmp(request, "NL1 FW_NAT_LIST")) { FW("-t"); FW("nat"); FW("-S"); fw_ready = 1; }
     else if (mutations && !strcmp(request, "NL1 FW_NAT_FLUSH")) { FW("-t"); FW("nat"); FW("-F"); fw_ready = 1; }
-    else if (mutations && sscanf(request, "NL1 FW_NAT %10s %4s %4s %4s %19s %19s %5s %31s %5s %c", nat_kind, fw_in, fw_out, fw_proto,
+    else if (mutations && sscanf(request, "NL1 FW_NAT %10s %5s %5s %4s %19s %19s %5s %31s %5s %c", nat_kind, fw_in, fw_out, fw_proto,
                                  fw_source, fw_destination, fw_port, nat_to, nat_to_port, &extra) == 9) {
         int dnat = !strcmp(nat_kind, "dnat"), snat = !strcmp(nat_kind, "snat"), masquerade = !strcmp(nat_kind, "masquerade");
         int tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
@@ -1061,7 +1064,7 @@ static void serve(int input, int output, int mutations) {
         int invalid = request[13] == 'i';
         FW("-A"); FW("FORWARD"); FW("-m"); FW("conntrack"); FW("--ctstate");
         FW(invalid ? "INVALID" : "RELATED,ESTABLISHED"); FW("-j"); FW(invalid ? "DROP" : "ACCEPT"); fw_ready = 1;
-    } else if (mutations && sscanf(request, "NL1 FW_RULE %6s %4s %4s %4s %19s %19s %5s %c", fw_action, fw_in, fw_out,
+    } else if (mutations && sscanf(request, "NL1 FW_RULE %6s %5s %5s %4s %19s %19s %5s %c", fw_action, fw_in, fw_out,
                                    fw_proto, fw_source, fw_destination, fw_port, &extra) == 7) {
         int accept = !strcmp(fw_action, "accept"), tcp = !strcmp(fw_proto, "tcp"), udp = !strcmp(fw_proto, "udp");
         int has_port = strcmp(fw_port, "-") != 0, port_ok = !has_port;
@@ -1130,8 +1133,8 @@ static int port_address(const char *name, struct in_addr *address) {
 static int dhcp_relay(const char *server_text, const char *clients_text) {
     struct in_addr server;
     char names[RELAY_PORTS][IFNAMSIZ]; unsigned indexes[RELAY_PORTS]; int count = 0;
-    if (inet_pton(AF_INET, server_text, &server) != 1 || strlen(clients_text) >= 48) return 2;
-    char copy[48]; strcpy(copy, clients_text);
+    if (inet_pton(AF_INET, server_text, &server) != 1 || strlen(clients_text) >= 200) return 2;
+    char copy[200]; strcpy(copy, clients_text);
     for (char *item = strtok(copy, ","); item; item = strtok(NULL, ",")) {
         if (count == RELAY_PORTS || !valid_interface(item)) return 2;
         snprintf(names[count], IFNAMSIZ, "%s", item);

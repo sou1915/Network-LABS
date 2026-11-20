@@ -4,6 +4,8 @@ import re
 import socket
 import time
 
+MAX_GUEST_PORTS = 16  # eth0..eth15: the agent's limit, within Firecracker's interrupts for network devices
+GUEST_PORTS = tuple(f'eth{i}' for i in range(MAX_GUEST_PORTS))
 OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
               'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
               'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE',
@@ -31,12 +33,12 @@ def rip_fields(rip):
     """'ROUTER_ID VERSION PORT:a|p,...' for one RIP process; the guest checks it again."""
     if not isinstance(rip, dict) or set(rip) != {'router_id', 'version', 'interfaces'}:
         raise ValueError('Guest RIP requires router_id, version and interfaces.')
-    if rip['version'] not in (1, 2) or not isinstance(rip['interfaces'], list) or not 1 <= len(rip['interfaces']) <= 4:
-        raise ValueError('Guest RIP: version 1 or 2, on 1..4 ports.')
+    if rip['version'] not in (1, 2) or not isinstance(rip['interfaces'], list) or not 1 <= len(rip['interfaces']) <= MAX_GUEST_PORTS:
+        raise ValueError(f'Guest RIP: version 1 or 2, on 1..{MAX_GUEST_PORTS} ports.')
     items = []
     for port in rip['interfaces']:
-        if not isinstance(port, dict) or set(port) != {'port', 'passive'} or port['port'] not in ('eth0', 'eth1', 'eth2', 'eth3'):
-            raise ValueError('Guest RIP port: eth0..eth3 and passive.')
+        if not isinstance(port, dict) or set(port) != {'port', 'passive'} or port['port'] not in GUEST_PORTS:
+            raise ValueError('Guest RIP port: eth0..eth15 and passive.')
         items.append(f"{port['port']}:{'p' if port['passive'] else 'a'}")
     if len(set(items)) != len(items):
         raise ValueError('Guest RIP: each port once.')
@@ -75,14 +77,14 @@ def ospf_fields(ospf):
     hello, dead, ports = ospf['hello'], ospf['dead'], ospf['interfaces']
     if type(hello) is not int or type(dead) is not int or not 1 <= hello <= 60 or not 2 <= dead <= 240 or dead <= hello:
         raise ValueError('Guest OSPF timers: hello 1..60, dead 2..240 and above hello.')
-    if not isinstance(ports, list) or not 1 <= len(ports) <= 4:
-        raise ValueError('Guest OSPF runs on 1..4 ports.')
+    if not isinstance(ports, list) or not 1 <= len(ports) <= MAX_GUEST_PORTS:
+        raise ValueError(f'Guest OSPF runs on 1..{MAX_GUEST_PORTS} ports.')
     items = []
     for port in ports:
         if not isinstance(port, dict) or set(port) != {'port', 'cost', 'passive', 'type', 'priority'}:
             raise ValueError('Guest OSPF port requires port, cost, passive, type and priority.')
-        if port['port'] not in ('eth0', 'eth1', 'eth2', 'eth3') or port['type'] not in ('point-to-point', 'broadcast'):
-            raise ValueError('Guest OSPF port: eth0..eth3, point-to-point or broadcast.')
+        if port['port'] not in GUEST_PORTS or port['type'] not in ('point-to-point', 'broadcast'):
+            raise ValueError('Guest OSPF port: eth0..eth15, point-to-point or broadcast.')
         if type(port['cost']) is not int or not 1 <= port['cost'] <= 65535 or type(port['passive']) is not bool:
             raise ValueError('Guest OSPF port: cost 1..65535 and passive true or false.')
         if type(port['priority']) is not int or not 0 <= port['priority'] <= 255:
@@ -112,8 +114,8 @@ def _firewall_command(operation, state, rule):
         raise ValueError('Guest firewall rule: action accept/drop and protocol any/tcp/udp/icmp.')
     fields = [rule['action']]
     for key in ('in', 'out'):
-        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
-            raise ValueError('Guest firewall interface must be eth0..eth3.')
+        if key in rule and rule[key] not in GUEST_PORTS:
+            raise ValueError('Guest firewall interface must be eth0..eth15.')
         fields.append(rule.get(key, '-'))
     fields.append(protocol)
     for key in ('source', 'destination'):
@@ -139,8 +141,8 @@ def _nat_fields(state, rule):
         raise ValueError('Guest SNAT and DNAT need to; masquerade chooses its own address.')
     fields = [kind]
     for key in ('in', 'out'):
-        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
-            raise ValueError('Guest NAT interface must be eth0..eth3.')
+        if key in rule and rule[key] not in GUEST_PORTS:
+            raise ValueError('Guest NAT interface must be eth0..eth15.')
         fields.append(rule.get(key, '-'))
     fields.append(protocol)
     for key in ('source', 'destination'):
@@ -157,10 +159,10 @@ def _nat_fields(state, rule):
 
 
 def relay_fields(relay):
-    """« SERVER PORT[,PORT…] » for DHCP_RELAY_START: the helper address and the ports it relays for (1..4)."""
+    """« SERVER PORT[,PORT…] » for DHCP_RELAY_START: the helper address and the ports it relays for."""
     if not isinstance(relay, dict) or set(relay) != {'server', 'clients'} or not isinstance(relay['clients'], list) \
-            or not 1 <= len(relay['clients']) <= 4 or not all(guest_interface(p) for p in relay['clients']):
-        raise ValueError('Guest DHCP relay: a server address and 1..4 client ports.')
+            or not 1 <= len(relay['clients']) <= MAX_GUEST_PORTS or not all(guest_interface(p) for p in relay['clients']):
+        raise ValueError('Guest DHCP relay: a server address and its client ports.')
     return f'{ipaddress.IPv4Address(relay["server"])} ' + ','.join(relay['clients'])
 
 
@@ -175,8 +177,8 @@ def nat_to(value, kind):
 
 
 def _dhcp_command(operation, interface, server):
-    if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
-        raise ValueError('Guest DHCP requires interface eth0..eth3.')
+    if interface not in GUEST_PORTS:
+        raise ValueError('Guest DHCP requires interface eth0..eth15.')
     command = OPERATIONS[operation] + ' ' + interface
     if operation != 'dhcp-serve':
         if server is not None:
@@ -199,11 +201,11 @@ def _dhcp_command(operation, interface, server):
 
 
 def guest_interface(name):
-    """A guest port eth0..eth3, one of its 802.1Q subinterfaces eth0.1 .. eth3.4094, a switch's bridge br0, or one of
+    """A guest port eth0..eth15, one of its 802.1Q subinterfaces eth0.1 .. eth15.4094, a switch's bridge br0, or one of
     the bridge's VLAN interfaces br0.1 .. br0.4094 (a routing switch's SVIs)."""
     if name == 'br0':
         return True
-    match = re.fullmatch(r'(?:eth[0-3]|br0)(?:\.([1-9][0-9]{0,3}))?', name) if isinstance(name, str) else None
+    match = re.fullmatch(r'(?:eth(?:1[0-5]|[0-9])|br0)(?:\.([1-9][0-9]{0,3}))?', name) if isinstance(name, str) else None
     return bool(match) and (match[1] is None or int(match[1]) <= 4094)
 
 
@@ -213,8 +215,8 @@ def _bridge_vlan_command(operation, interface, vlan, state):
         if interface is not None or vlan is not None or state is not None:
             raise ValueError(f'Guest {operation} accepts no arguments.')
         return command
-    if interface not in ('eth0', 'eth1', 'eth2', 'eth3', 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
-        raise ValueError('Guest bridge VLAN change requires interface eth0..eth3 (or br0, the bridge itself) and a VLAN 1..4094.')
+    if interface not in (*GUEST_PORTS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+        raise ValueError('Guest bridge VLAN change requires interface eth0..eth15 (or br0, the bridge itself) and a VLAN 1..4094.')
     if operation == 'bridge-vlan-add':
         if state not in ('pvid', 'tagged'):
             raise ValueError('Guest bridge-vlan-add requires state pvid (untagged, ingress default) or tagged.')
@@ -238,7 +240,7 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             return _exchange(path, operation, 'BRIDGE_STP ' + ' '.join(map(str, numbers)), timeout)
         if operation == 'bridge-stp-port':
             numbers = [stp[k] for k in ('cost', 'priority')] if isinstance(stp, dict) else []
-            if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or len(numbers) != 2 or any(type(n) is not int for n in numbers):
+            if interface not in GUEST_PORTS or len(numbers) != 2 or any(type(n) is not int for n in numbers):
                 raise ValueError('Guest bridge-stp-port requires a port, its cost and its priority.')
             return _exchange(path, operation, f'BRIDGE_STP_PORT {interface} ' + ' '.join(map(str, numbers)), timeout)
         if interface is not None or stp is not None:
@@ -261,7 +263,7 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         raise ValueError('Only eigrp-render and eigrp-start accept an EIGRP process.')
     if operation in ('proxy-arp', 'dev-route-add', 'dev-route-delete'):  # a port's proxy ARP, a route through a port
         if not guest_interface(interface) or interface == 'br0' or any(v is not None for v in (destination, cidr, gateway, rule, dhcp, vlan)):
-            raise ValueError(f'Guest {operation} requires a port eth0..eth3 (or a subinterface).')
+            raise ValueError(f'Guest {operation} requires a port eth0..eth15 (or a subinterface).')
         if operation == 'proxy-arp':
             if state not in ('on', 'off') or network is not None:
                 raise ValueError('Guest proxy-arp requires state on or off.')
@@ -323,8 +325,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if any(value is not None for value in (destination, state, cidr, network, gateway, rule, dhcp)):
             raise ValueError('Guest VLAN interface operations accept only an interface and, to add one, a VLAN.')
         if operation == 'vlan-add':
-            if interface not in ('eth0', 'eth1', 'eth2', 'eth3', 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
-                raise ValueError('Guest vlan-add requires a parent port eth0..eth3 (or the bridge br0) and a VLAN 1..4094.')
+            if interface not in (*GUEST_PORTS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+                raise ValueError('Guest vlan-add requires a parent port eth0..eth15 (or the bridge br0) and a VLAN 1..4094.')
             return _exchange(path, operation, f'VLAN_ADD {interface} {vlan}', timeout)
         if not guest_interface(interface) or '.' not in interface or vlan is not None:
             raise ValueError('Guest vlan-delete requires a subinterface such as eth0.10 and no VLAN.')
@@ -354,11 +356,11 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         raise ValueError('Only ping accepts a destination.')
     if operation == 'link':
         if not guest_interface(interface) or state not in ('up', 'down'):
-            raise ValueError('Guest link requires interface eth0..eth3 (or a subinterface) and state up or down.')
+            raise ValueError('Guest link requires interface eth0..eth15 (or a subinterface) and state up or down.')
         command += ' ' + interface + ' ' + state
     elif operation == 'bridge-add':
-        if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state is not None:
-            raise ValueError('Guest bridge-add requires interface eth0..eth3 and no state.')
+        if interface not in GUEST_PORTS or state is not None:
+            raise ValueError('Guest bridge-add requires interface eth0..eth15 and no state.')
         command += ' ' + interface
     elif operation == 'forward':
         if interface is not None or state not in ('on', 'off'):
@@ -371,7 +373,7 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             raise ValueError('Guest address requires explicit IPv4/prefix.')
         if interface is not None:
             if not guest_interface(interface):
-                raise ValueError('Guest address interface must be eth0..eth3 or a subinterface.')
+                raise ValueError('Guest address interface must be eth0..eth15 or a subinterface.')
             command = ('IF_ADD' if operation == 'address-add' else 'IF_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Interface(cidr))
     elif cidr is not None:
@@ -381,7 +383,7 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             raise ValueError('Guest route requires an explicit IPv4 network/prefix.')
         if interface is not None:
             if not guest_interface(interface):
-                raise ValueError('Guest route interface must be eth0..eth3 or a subinterface.')
+                raise ValueError('Guest route interface must be eth0..eth15 or a subinterface.')
             command = ('IF_ROUTE_ADD' if operation == 'route-add' else 'IF_ROUTE_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Network(network, strict=True)) + ' ' + str(ipaddress.IPv4Address(gateway))
     elif network is not None or gateway is not None:
