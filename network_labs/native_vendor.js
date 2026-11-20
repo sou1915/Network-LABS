@@ -477,7 +477,8 @@
     app.style.setProperty('--vx', profile.accent);
     app.innerHTML = `<div class="vx-top"><b>${esc(n.name)}</b><span class="sub">${esc(d.brand)} ${esc(d.model)} · menus ${esc(profile.product || d.model)} · système Linux</span>
       <span class="grow"></span><span class="vx-pill"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Non observé'}</span>
-      <button type="button" class="std">Vue Network LABS</button><button type="button" class="ref">↻</button></div>
+      <button type="button" class="simple">◐ Design simple</button><button type="button" class="std">Vue Network LABS</button>
+      <button type="button" class="ref">↻</button></div>
       <div class="vx-strip"></div><div class="vx-body"><nav class="vx-nav"></nav><main class="vx-main"></main></div>`;
     const strip = app.querySelector('.vx-strip'), nav = app.querySelector('.vx-nav');
     if (profile.family === 'tabs') {
@@ -519,6 +520,7 @@
     }
     app.querySelector('.std').onclick = () => openStandard('dashboard');
     app.querySelector('.ref').onclick = () => load();
+    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('simple');
     const main = app.querySelector('main');
     if (profile.family !== 'side') main.insertAdjacentHTML('beforeend', `<div class="vx-crumb">${esc(item.group)} › ${esc(item.label)}</div>`);
     const pages = {status: n.role === 'firewall' ? statusPage : devicePage, interfaces: interfacesPage, routes: routesPage,
@@ -530,6 +532,7 @@
   const previous = render;
   render = function () {
     previous();
+    if (window.nlDesignNow && window.nlDesignNow() === 'simple') { app.remove(); document.body.classList.remove('vx'); return; }  // the « Simple » design draws the page
     const role = state && state.node && state.node.role;
     if (!state || !state.device || standard || state.device.brand === 'Linux' || !['firewall', 'router', 'switch'].includes(role)
         || (role === 'firewall' && state.device.cli === 'FortiOS')) return;

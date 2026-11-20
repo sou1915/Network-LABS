@@ -174,7 +174,8 @@
     app.className = 'pc-app';
     app.innerHTML = `<div class="pc-desk"></div><div class="pc-bar"><b>${esc(n.name)}</b><span class="sub">${esc(d.brand)} · ${esc(d.model)}</span>
       <span class="pc-pill"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span><span class="grow"></span>
-      <button type="button" class="std">Vue Network LABS</button><button type="button" class="ref">↻</button><span class="pc-clock">${clock()}</span></div>`;
+      <button type="button" class="simple">◐ Design simple</button><button type="button" class="std">Vue Network LABS</button>
+      <button type="button" class="ref">↻</button><span class="pc-clock">${clock()}</span></div>`;
     desk = app.querySelector('.pc-desk');
     for (const [id, title, colour, glyph, later] of APPS) {
       const icon = document.createElement('button');
@@ -188,12 +189,14 @@
     if (open) desk.append(open);
     app.querySelector('.std').onclick = () => { standard = true; document.body.classList.remove('pc'); app.remove(); render(); };
     app.querySelector('.ref').onclick = () => load();
+    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('simple');
     if (!app.isConnected) document.body.append(app);
   }
 
   const previous = render;
   render = function () {
     previous();
+    if (window.nlDesignNow && window.nlDesignNow() === 'simple') { document.querySelector('.pc-app')?.remove(); document.body.classList.remove('pc'); return; }
     if (!state || !state.node || state.node.role !== 'host' || standard) return;
     document.body.classList.add('pc');
     draw();

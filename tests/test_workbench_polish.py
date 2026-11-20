@@ -160,6 +160,12 @@ class DesktopTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             script = response.read()
             self.assertTrue(all(word in script for word in (b'Access Rules', b'Firewall Rules', b'Security Policy Rules')))
+            self.assertIn(b'/native_simple.js', page)  # the « Simple » design, chosen per browser beside the vendor one
+            connection.request('GET', '/native_simple.js', headers={'Host': portal.host})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            script = response.read()
+            self.assertTrue(all(word in script for word in (b'network-labs-design', b'/api/host_ip', b"section: 'switching'")))
         finally:
             portal.close()
 
