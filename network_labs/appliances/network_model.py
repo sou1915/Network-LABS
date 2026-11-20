@@ -61,9 +61,13 @@ def segments(spec):
     """{(node, interface): segment id} for every L3 interface (ports and subinterfaces)."""
     nodes = {n['name']: n for n in spec['nodes']}
     union = _Union()
+    from .port_guard import disabled_ends
+    cut = disabled_ends(spec) if any(n.get('cli_config') and n.get('role') == 'switch' for n in spec['nodes']) else set()
     for a, b in spec['links']:
         if a[1] in (nodes[a[0]].get('shutdown') or []) or b[1] in (nodes[b[0]].get('shutdown') or []):
             continue  # a shut port carries nothing
+        if tuple(a) in cut or tuple(b) in cut:
+            continue  # nor an err-disabled one (port security, BPDU guard), nor a host it keeps out
         left, right = _frames(nodes[a[0]], a[1]), _frames(nodes[b[0]], b[1])
         if len(left) > 4094 and len(right) > 4094:
             union.join(left[None], right[None])  # two plain bridges: one segment for everything

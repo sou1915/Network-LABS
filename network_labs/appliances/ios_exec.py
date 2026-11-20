@@ -16,7 +16,7 @@ SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', '
          'show interfaces', 'show startup-config', 'show history', 'show clock', 'show users', 'show privilege', 'show ip protocols',
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
          'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree',
-         'show etherchannel summary']
+         'show etherchannel summary', 'show port-security', 'show port-security interface {p0}', 'show port-security address']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -42,6 +42,9 @@ def answer(console, low):
         return mac_table(console)
     if full in ('show etherchannel summary', 'show etherchannel'):
         return etherchannel(console)
+    match = re.fullmatch(r'show port-security(?: (interfaces? (\S+)|address(?:-table)?))?', full)
+    if match:
+        return port_security(console, low.split()[-1] if match[2] else None, address=bool(match[1]) and not match[2])
     match = re.fullmatch(r'show spanning-tree(?: vlan (\d+))?', full)
     if match:
         return spanning_tree(console, int(match[1]) if match[1] else None)
@@ -100,7 +103,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'add': 'address-table', 'address-table': 'address-table', 'mac-address-table': 'mac-address-table', 'ro': 'route',
          'route': 'route', 'eigrp': 'eigrp', 'spa': 'spanning-tree', 'span': 'spanning-tree', 'spanning': 'spanning-tree',
          'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan', 'eth': 'etherchannel', 'ether': 'etherchannel',
-         'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary'}
+         'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary',
+         'port-sec': 'port-security', 'port-security': 'port-security', 'addr': 'address', 'address': 'address'}
 
 
 def _expand(words):
@@ -234,11 +238,13 @@ def status(console):
     if node['role'] != 'switch':
         return ''
     up = {i['port']: i['up'] for i in console.observe()['interfaces']}
+    guarded = guard_states(console)
     lines = [f'{"Port":<10}{"Name":<19}{"Status":<13}{"Vlan":<11}{"Duplex":>6} {"Speed":>6} Type']
     for port in node['interfaces']:
         label = _label(node, port)
         shut = port in (node.get('shutdown') or [])
-        state = 'disabled' if shut else 'connected' if up.get(port) else 'notconnect'
+        disabled = (guarded.get(port) or {}).get('state') == 'err-disabled'  # port security, BPDU guard
+        state = 'disabled' if shut else 'err-disabled' if disabled else 'connected' if up.get(port) else 'notconnect'
         from .etherchannel import bundle_of
         switchport = (node.get('switchports') or {}).get(bundle_of(node, port)) or {'mode': 'access', 'vlan': 1}  # a member: its bundle's
         vlan = 'trunk' if switchport['mode'] == 'trunk' else str(switchport['vlan'])
@@ -295,6 +301,30 @@ def mac_table(console):
     lines += [f'{vlan:>4}    {mac:<18}{"DYNAMIC":<12}{port}' for vlan, mac, port in sorted(rows)]
     lines.append(f'Total Mac Addresses for this criterion: {len(rows)}')
     return '\n'.join(lines)
+
+
+def guard_states(console):
+    """The guarded ports' states (port security, BPDU guard): read in the running switch guest, or the lab's outcome."""
+    from . import port_guard
+    node = console.node()
+    if not port_guard.policy(node):
+        return {}
+    if console.running():
+        return port_guard.parse(console.query('port-guard-show'))
+    return {port: state for (name, port), state in port_guard.model(console.spec_now()).items() if name == node['name']}
+
+
+def port_security(console, port_word=None, address=False):
+    """« show port-security [interface PORT | address] »."""
+    from . import port_guard
+    from .vendor_config import _port
+    node = console.node()
+    if node['role'] != 'switch':
+        return "% Invalid input detected at '^' marker."
+    states = guard_states(console)
+    if port_word:
+        return port_guard.interface(node, _port(node, port_word), states)
+    return port_guard.addresses(node, states) if address else port_guard.summary(node, states)
 
 
 def etherchannel(console):

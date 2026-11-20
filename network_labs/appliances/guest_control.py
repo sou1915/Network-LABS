@@ -26,6 +26,8 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'proxy-arp': 'PROXY_ARP', 'proxy-arps': 'PROXY_ARPS', 'dev-route-add': 'DEV_ROUTE_ADD',
               'dev-route-delete': 'DEV_ROUTE_DEL', 'bridge-stp': 'BRIDGE_STP', 'bridge-stp-port': 'BRIDGE_STP_PORT',
               'bridge-stp-off': 'BRIDGE_STP_OFF', 'bridge-stp-show': 'BRIDGE_STP_SHOW'}
+OPERATIONS.update({'port-guard-start': 'PORT_GUARD_START', 'port-guard-stop': 'PORT_GUARD_STOP',
+                   'port-guard-clear': 'PORT_GUARD_CLEAR', 'port-guard-show': 'PORT_GUARD_SHOW'})  # port security, BPDU guard
 OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
                    'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
@@ -232,9 +234,30 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('port-guard-'):  # the agent's port guard: its policies, one argument per port
+        others = (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)
+        if any(v is not None for v in others):
+            raise ValueError('Guest port guard operations accept only policies or a port.')
+        if operation == 'port-guard-start':
+            pattern = r'eth(?:1[0-5]|[0-9])/\d{1,2}/[srpn]/[yn]/[yn]/\d{1,4}/(?:-|[0-9a-f]{12}(?:\+[0-9a-f]{12})*)'
+            if interface is not None or not isinstance(guard, list) or not 1 <= len(guard) <= MAX_GUEST_PORTS \
+                    or not all(isinstance(g, str) and re.fullmatch(pattern, g) for g in guard):
+                raise ValueError('Guest port-guard-start requires one policy per guarded port.')
+            return _exchange(path, operation, 'PORT_GUARD_START ' + ' '.join(guard), timeout)
+        if guard is not None:
+            raise ValueError(f'Guest {operation} takes no policy.')
+        if operation == 'port-guard-clear':
+            if interface not in GUEST_PORTS:
+                raise ValueError('Guest port-guard-clear requires a port eth0..eth15.')
+            return _exchange(path, operation, f'PORT_GUARD_CLEAR {interface}', timeout)
+        if interface is not None:
+            raise ValueError(f'Guest {operation} takes no port.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if guard is not None:
+        raise ValueError('Only port-guard-start accepts policies.')
     if operation.startswith('bond-'):  # an EtherChannel: a bond and its member ports
         if any(v is not None for v in (destination, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)):
             raise ValueError('Guest bond operations accept only a bond and, for its members, a port.')

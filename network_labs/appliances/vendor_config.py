@@ -937,6 +937,8 @@ class IOS:
             return _set_address(node, self.port, '')
         if low.startswith('switchport') and not low.startswith('switchport port-security'):
             return self._switchport(low)
+        if low.startswith('switchport port-security') and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
+            self._port_security(low)  # IOS's checks; the line is then kept (ios_store) and acts through port_guard
         match = re.fullmatch(r'(no )?channel-group(?: (\d+) mode (\S+))?', low)
         if match and node['role'] == 'switch' and node.get('runtime') == 'firecracker':
             return self._channel_group(bool(match[1]), match[2], match[3])
@@ -984,6 +986,31 @@ class IOS:
         if not _is_ipv4(values[2]):
             raise ValueError('Network LABS : sur un switch de niveau 3, ip route NET MASK ADRESSE-DU-SAUT-SUIVANT.')
         store_route(self.node, network, ipaddress.IPv4Address(values[2]))
+
+    def _port_security(self, low):
+        """IOS refuses port security on a port that is not a plain access port, and a maximum below the addresses set."""
+        from . import ios_store
+        from .etherchannel import bundle_of
+        from .native_models import port_names
+        from .port_guard import MAXIMUM, MAC
+        node, port = self.node, self.port
+        name = ios_name(port_names(node).get(port, port))
+        if port not in node['interfaces'] or bundle_of(node, port) != port \
+                or ((node.get('switchports') or {}).get(port) or {}).get('mode', 'access') != 'access':
+            raise ValueError(f'Command rejected: {name} is a dynamic port.')
+        if low.startswith('no '):
+            return
+        current = [' '.join(line.lower().split()) for line in ios_store.config(node)['interfaces'].get(port, [])]
+        match = re.fullmatch(r'switchport port-security maximum (\d+)', low)
+        addresses = [l for l in current if l.startswith('switchport port-security mac-address') and MAC.search(l)]
+        if match and not 1 <= int(match[1]) <= MAXIMUM:
+            raise ValueError(f'Network LABS : maximum de 1 à {MAXIMUM} adresses par port dans le lab.')
+        if match and int(match[1]) < len(addresses):
+            raise ValueError(f'Maximum is less than number of currently secured mac-addresses on {name}')
+        if MAC.search(low) and not any(MAC.search(low)[0] in l for l in addresses):
+            limit = next((int(l.split()[-1]) for l in current if re.fullmatch(r'switchport port-security maximum \d+', l)), 1)
+            if len(addresses) >= limit:
+                raise ValueError(f'Total secure mac-addresses on interface {name} has reached maximum limit.')
 
     def _port_channel(self, number):
         """« interface port-channel N »: the switch's Port-channel N (its bond), created empty as on IOS."""

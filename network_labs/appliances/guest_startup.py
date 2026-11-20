@@ -217,7 +217,9 @@ def check_switch(socket, node):
                                           for line in query(socket, 'routes').splitlines()):
         raise ValueError('Switch guest lacks its ip default-gateway route.')
     down = set(node.get('shutdown') or [])
-    if not {'br0', *(set(node['interfaces']) - down), *bundles(node)} <= up or down & up:
+    from .port_guard import arguments, parse
+    disabled = {p for p, s in parse(query(socket, 'port-guard-show')).items() if s['state'] == 'err-disabled'} if arguments(node) else set()
+    if not {'br0', *(set(node['interfaces']) - down - disabled), *bundles(node)} <= up or down & up:
         raise ValueError('Switch guest bridge and its ports must be up, its shut ports down.')
     plan = vlan_plan(node)
     if plan is not None and observed_vlans(socket, node) != plan:
@@ -571,6 +573,12 @@ def change_switch(socket, old, new):
         # Untagged (pvid) entries last: each one replaces the port's default VLAN.
         for port, vid, mode in sorted(wanted - before, key=lambda entry: (entry[2] == 'pvid', entry)):
             query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
+    from .port_guard import arguments
+    guarded_before, guarded_after = arguments(old), arguments(new)
+    recovered = [p for p in (old.get('shutdown') or []) if p not in (new.get('shutdown') or []) and p in new['interfaces']]
+    for port in recovered:  # « shutdown » then « no shutdown »: an err-disabled port comes back, as on IOS
+        if guarded_after or guarded_before:
+            query(socket, 'port-guard-clear', interface=port)
     for port in sorted(set(new.get('shutdown') or []) ^ set(old.get('shutdown') or [])):
         if port in new['interfaces']:  # a shut interface vlan only takes the SVI off the bridge (below)
             query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
@@ -583,6 +591,8 @@ def change_switch(socket, old, new):
             query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
     if routing(new) and not routing(old):
         query(socket, 'forward', state='on')  # « ip routing »
+    if guarded_after != guarded_before or (recovered and guarded_after):
+        query(socket, 'port-guard-start', guard=guarded_after) if guarded_after else query(socket, 'port-guard-stop')
     if (old.get('spanning_tree') or {}) != (new.get('spanning_tree') or {}):
         _stp(socket, new)  # spanning-tree vlan 1 priority …, or a loop closed by a new cable after a restart
     check_switch(socket, new)
@@ -785,6 +795,9 @@ def apply(socket, node, timeout=40, alive=None):
                 query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
         _svi(socket, node, plan, add=True)  # interface vlan N: the management address on the bridge
         _routed(socket, node, plan, add=True)  # or, with ip routing, every SVI as a router interface
+        from .port_guard import arguments
+        if arguments(node):  # port security, BPDU guard: the agent's guard watches those ports
+            query(socket, 'port-guard-start', guard=arguments(node))
         from .svi import routing, static_routes
         for network, gateway, device, _ in static_routes(node):
             query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)

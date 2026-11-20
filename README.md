@@ -122,7 +122,11 @@ spanning tree, et le LACP tourne pour de vrai entre les micro-VM (noyau Network 
 Un Catalyst 9200L est un switch de niveau 3 : `ip routing` et une `interface vlan N` par VLAN routent entre les VLAN
 sans routeur (routage inter-VLAN, `show ip route` avec ses réseaux `C`, `ip route` vers un routeur) ; un 2960 reste
 de niveau 2 et refuse `ip routing`, comme dans Packet Tracer.
-Celles qui n'agissent pas encore sur le trafic du lab (port-security, portfast, bpduguard…) sont
+La sécurité des ports agit pour de vrai sur les switchs : `switchport port-security` (`maximum`, `mac-address sticky`,
+`mac-address H.H.H`, `violation shutdown|restrict|protect`) met un port en `err-disabled` (ou écarte le PC en trop),
+`spanning-tree bpduguard enable` coupe un port qui reçoit un BPDU ; `show port-security [interface | address]`,
+`show interfaces status`, et `shutdown` puis `no shutdown` pour rétablir le port, comme sur IOS.
+Celles qui n'agissent pas encore sur le trafic du lab (portfast, IPv6, NTP, SNMP, logging…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).
 Les abréviations du constructeur sont acceptées (`int`, `ip add`, `no shut`, `sh ip int br`, `do …`), comme
