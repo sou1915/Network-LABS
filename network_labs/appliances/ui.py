@@ -493,6 +493,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing):
                 blocked=blocked_ports(spec)  # amber link lights: the ports spanning tree blocks
         except (ValueError,KeyError,TypeError):pass
         shut={(n['name'],port) for n in (spec or {}).get('nodes',[]) for port in n.get('shutdown') or []}
+        try:
+            from .port_guard import model as guarded
+            if spec:  # red too: a port that port security or BPDU guard err-disables
+                shut|={end for end,state in guarded(spec).items() if state['state']=='err-disabled'}
+        except (ValueError,KeyError,TypeError):pass
         parallel={}  # several cables between the same two devices (a redundant link): drawn side by side
         for a,b in graph['links']:
             parallel.setdefault(frozenset((a[0],b[0])),[]).append((a,b))
