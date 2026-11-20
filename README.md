@@ -126,6 +126,9 @@ La sécurité des ports agit pour de vrai sur les switchs : `switchport port-sec
 `mac-address H.H.H`, `violation shutdown|restrict|protect`) met un port en `err-disabled` (ou écarte le PC en trop),
 `spanning-tree bpduguard enable` coupe un port qui reçoit un BPDU ; `show port-security [interface | address]`,
 `show interfaces status`, et `shutdown` puis `no shutdown` pour rétablir le port, comme sur IOS.
+HSRP aussi, sur les routeurs : `standby 1 ip 192.168.1.1`, `standby 1 priority 110`, `standby 1 preempt`
+(`timers`, `authentication`, `standby version 2`) ; les routeurs élisent l'actif pour de vrai, il répond pour l'adresse
+virtuelle avec la MAC 0000.0c07.ac01, et le standby prend la relève si l'actif tombe (`show standby`, `show standby brief`).
 Celles qui n'agissent pas encore sur le trafic du lab (portfast, IPv6, NTP, SNMP, logging…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).

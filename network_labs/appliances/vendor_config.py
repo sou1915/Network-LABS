@@ -882,6 +882,9 @@ class IOS:
 
     def _interface(self, command, low, words):
         node = self.node
+        if low.split()[:1] == ['standby'] or low.split()[:2] == ['no', 'standby']:
+            from .hsrp import configure  # HSRP: a router port's or subinterface's standby groups (acts in the guest)
+            return configure(node, self.port, ' '.join(command.split()))
         if self.port in (node.get('svis') or {}):
             svi = node['svis'][self.port]
             if low.startswith('ip address '):

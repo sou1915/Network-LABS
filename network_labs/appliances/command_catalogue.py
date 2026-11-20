@@ -200,6 +200,27 @@ _EOS_OSPF_NETWORK = [('OSPF', 'config-router', 'network A.B.C.D/N area 0.0.0.0',
                       ['router ospf 1', 'network {net1}/{len1} area 0.0.0.0'], 'R')]
 
 _IOS_MORE = [
+    ('HSRP', 'config-if', 'standby [N] ip A.B.C.D',
+     'Passerelle virtuelle du groupe HSRP N (0 sans numéro), dans le réseau du port : le routeur actif y répond avec la MAC '
+     '0000.0c07.acNN ; les PC la prennent pour passerelle.', ['interface {p0}', 'standby 1 ip {peer0}'], 'R'),
+    ('HSRP', 'config-if', 'standby [N] priority N', 'Priorité dans le groupe (100 par défaut) : la plus haute devient le routeur actif.',
+     ['interface {p0}', 'standby 1 ip {peer0}', 'standby 1 priority 110'], 'R'),
+    ('HSRP', 'config-if', 'standby [N] preempt',
+     'Reprendre le rôle actif dès que ce routeur a la plus haute priorité (sans preempt, il attend la panne de l’actif).',
+     ['interface {p0}', 'standby 1 ip {peer0}', 'standby 1 preempt'], 'R'),
+    ('HSRP', 'config-if', 'standby [N] timers N N',
+     'Hello et hold en secondes (3 et 10 par défaut) : sans hello de l’actif pendant hold, le standby prend la relève.',
+     ['interface {p0}', 'standby 1 ip {peer0}', 'standby 1 timers 1 4'], 'R'),
+    ('HSRP', 'config-if', 'standby [N] authentication TEXTE', 'Mot de passe en clair du groupe (8 caractères au plus, cisco par défaut).',
+     ['interface {p0}', 'standby 1 ip {peer0}', 'standby 1 authentication LAB'], 'R'),
+    ('HSRP', 'config-if', 'standby version 1|2', 'Version de HSRP (2 : groupes jusqu’à 4095, MAC virtuelle 0000.0c9f.fNNN).',
+     ['interface {p0}', 'standby version 2'], 'R'),
+    ('HSRP', 'config-if', 'no standby [N]', 'Retirer le groupe N de ce port (sans numéro : tous ses groupes).',
+     ['interface {p0}', 'standby 1 ip {peer0}', 'no standby 1'], 'R'),
+    ('HSRP', 'exec', 'show standby', 'Chaque groupe HSRP : état (Active, Standby, Listen…), adresse et MAC virtuelles, routeurs actif '
+     'et standby avec leur priorité (lus dans la micro-VM).', ['show standby'], 'R'),
+    ('HSRP', 'exec', 'show standby brief', 'Un groupe par ligne : priorité, P (preempt), état, actif, standby, adresse virtuelle.',
+     ['show standby brief'], 'R'),
     ('Vérification', 'exec', 'show version', 'Le modèle, la mémoire, les ports, la durée de fonctionnement.', ['show version'], ALL),
     ('Vérification', 'exec', 'show interfaces', 'L’état détaillé de chaque port.', ['show interfaces'], ALL),
     ('Vérification', 'exec', 'show cdp neighbors', 'Les équipements Cisco voisins, par câble.', ['show cdp neighbors'], ALL),
@@ -658,15 +679,16 @@ def expand(node, line, mode=None):
     typed, done = line.split(), []
     for index, word in enumerate(typed):
         low = word.lower()
-        options = set()
+        options, value = set(), False
         for pattern in patterns:
             if len(pattern) <= index or any(not _fits(pattern[i], w) for i, w in enumerate(done)):
                 continue
             options.update(c for c in pattern[index].split('|') if c.isascii() and c.islower() and not c.startswith('['))
+            value = value or _fits(pattern[index], '\0')  # a placeholder there (« standby [N] … »: the group number)
         chosen = [o for o in options if o.startswith(low)]
         if low in options or len(chosen) != 1:
             done.append(low if low in options else word)
-            if low not in options and not chosen:
+            if low not in options and not chosen and not value:
                 done.extend(typed[index + 1:])
                 break
             continue
@@ -734,7 +756,7 @@ KEYWORD_HELP = {'ip': 'Configuration IPv4', 'ospf': 'Paramètres OSPF', 'dhcp': 
                 'network': 'Réseau annoncé', 'trunk': 'Port trunk 802.1Q', 'access': 'Port d’accès', 'mode': 'Mode du port',
                 'vlan': 'VLAN', 'interface-brief': '', 'running-config': 'Configuration courante',
                 'configure': 'Entrer en configuration', 'terminal': 'Depuis ce terminal', 'ping': 'Écho ICMP',
-                'traceroute': 'Chemin jusqu’à une destination'}
+                'traceroute': 'Chemin jusqu’à une destination', 'standby': 'Groupe HSRP (passerelle de secours)'}
 
 
 def _tokens(syntax):

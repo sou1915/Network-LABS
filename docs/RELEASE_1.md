@@ -37,7 +37,8 @@ Current progress against this list is tracked in [STATUS.md](STATUS.md).
 | Installable on Ubuntu 24.04 with documented KVM prerequisites | Partial; guest kernel and image must be provided by the user (the main gap left) |
 
 Release 1 also ships, ahead of plan, what the list below put out of scope: OSPF, RIP, EIGRP and BGP, vendor-style
-CLIs (IOS and others) on guests, and STP on switch guests.
+CLIs (IOS and others) on guests, STP, EtherChannel (LACP) and port security on switch guests, and HSRP on router
+guests.
 
 ## Out of scope for release 1
 

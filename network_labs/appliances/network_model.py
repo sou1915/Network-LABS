@@ -300,6 +300,12 @@ class Model:
             for port, values in public_addresses(node).items():  # a router answers for its static NAT and pool addresses
                 for value in values:
                     self.owners.setdefault((self.seg.get((node['name'], port)), ipaddress.IPv4Interface(value).ip), (node['name'], port))
+        self.virtual = {}  # (segment, address) -> (router, port): HSRP, the group's active router answers for its address
+        if any(n.get('role') == 'router' and n.get('cli_config') for n in spec['nodes']):
+            from .hsrp import virtual_owners
+            self.virtual = virtual_owners(spec, self.seg)
+            for key, owner in self.virtual.items():
+                self.owners.setdefault(key, owner)
 
     def _relayed_leases(self, servers):
         """Leases through an « ip helper-address » relay: a router on the client's segment relays to a server whose
@@ -344,7 +350,8 @@ class Model:
         return found
 
     def local(self, name, destination):
-        return any(a.ip == destination for a in self.held(name).values())
+        return any(a.ip == destination for a in self.held(name).values()) or \
+            any(owner[0] == name and address == destination for (_, address), owner in self.virtual.items())
 
     def route(self, name, destination):
         """(interface, next hop address, reason) or (None, None, reason) for a packet leaving NAME."""

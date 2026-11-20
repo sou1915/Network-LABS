@@ -28,6 +28,10 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'bridge-stp-off': 'BRIDGE_STP_OFF', 'bridge-stp-show': 'BRIDGE_STP_SHOW'}
 OPERATIONS.update({'port-guard-start': 'PORT_GUARD_START', 'port-guard-stop': 'PORT_GUARD_STOP',
                    'port-guard-clear': 'PORT_GUARD_CLEAR', 'port-guard-show': 'PORT_GUARD_SHOW'})  # port security, BPDU guard
+OPERATIONS.update({'hsrp-start': 'HSRP_START', 'hsrp-stop': 'HSRP_STOP', 'hsrp-show': 'HSRP_SHOW'})  # IOS « standby »
+# One HSRP group: IFACE/GROUP/VERSION/VIRTUAL-ADDRESS/PRIORITY/PREEMPT/HELLO/HOLD/AUTHENTICATION (hex); the agent checks it again.
+HSRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/\d{1,3}/(?:[0-9a-f]{2}){1,8}'
+HSRP_GROUPS = 16
 OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
                    'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
@@ -234,9 +238,23 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, hsrp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation.startswith('hsrp-'):  # the agent's HSRP speaker: one argument per group
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard)
+        if any(v is not None for v in others):
+            raise ValueError('Guest HSRP operations accept only groups.')
+        if operation == 'hsrp-start':
+            if not isinstance(hsrp, list) or not 1 <= len(hsrp) <= HSRP_GROUPS \
+                    or not all(isinstance(g, str) and re.fullmatch(HSRP_GROUP, g) for g in hsrp):
+                raise ValueError(f'Guest hsrp-start requires 1..{HSRP_GROUPS} groups.')
+            return _exchange(path, operation, 'HSRP_START ' + ' '.join(hsrp), timeout)
+        if hsrp is not None:
+            raise ValueError(f'Guest {operation} takes no group.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if hsrp is not None:
+        raise ValueError('Only hsrp-start accepts groups.')
     if operation.startswith('port-guard-'):  # the agent's port guard: its policies, one argument per port
         others = (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)
         if any(v is not None for v in others):

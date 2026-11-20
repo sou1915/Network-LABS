@@ -248,10 +248,15 @@ def observe(socket, node):
     declared = guest_interfaces(node)
     by_port = {port: [] for port in declared}
     interface = None; active = set()
+    from .hsrp import virtual_addresses
+    standby = virtual_addresses(node)
     for line in text.splitlines():
         header = re.match(r'^\d+: ([^:@]+)(?:@[^:]+)?: <([^>]*)>', line)  # a subinterface reads "eth0.10@eth0
         if header:
             interface = header[1]
+            if standby and re.fullmatch(r'hsrp\d+-\d+', interface):
+                interface = None  # the active HSRP router's virtual MAC device (the agent's): not a port, never saved
+                continue
             if interface != 'lo' and interface not in by_port:
                 raise ValueError('Guest has an undeclared interface.')
             if 'UP' in header[2].split(','): active.add(interface)
@@ -279,6 +284,9 @@ def observe(socket, node):
         if missing:
             raise ValueError(f'Guest {port} lacks the NAT address(es) {", ".join(missing)}.')
         extras[port] = [a for a in extras[port] if a not in values]
+    for port, values in standby.items():  # a guest kernel without macvlan holds the virtual address on the port itself
+        if port in extras:
+            extras[port] = [a for a in extras[port] if a not in values]
     for name in node.get('subinterfaces', {}):
         if extras.pop(name):
             raise ValueError(f'Extra addresses on subinterface {name} cannot be saved; only its declared address is.')
@@ -707,6 +715,9 @@ def change_routing(socket, old, new):
             query(socket, 'dhcp-relay-stop')
         if relay_process(new):
             start_relay(socket, new)
+    from .hsrp import arguments as hsrp_groups
+    if hsrp_groups(old) != hsrp_groups(new):  # a standby line typed or removed: the speaker takes its groups back as they were
+        query(socket, 'hsrp-start', hsrp=hsrp_groups(new)) if hsrp_groups(new) else query(socket, 'hsrp-stop')
     from .acl import policy
     if old.get('role') == 'router' and policy(old) != policy(new):  # access lists or IOS NAT changed
         from .guest_firewall import apply as apply_firewall
@@ -868,6 +879,9 @@ def apply(socket, node, timeout=40, alive=None):
     from .ios_relay import process as relay_process
     if relay_process(node):  # « ip helper-address »: relays even before the server's guest boots
         start_relay(socket, node)
+    from .hsrp import arguments as hsrp_groups
+    if hsrp_groups(node):  # « standby »: the agent speaks HSRP on those ports and holds the address once active
+        query(socket, 'hsrp-start', hsrp=hsrp_groups(node))
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)

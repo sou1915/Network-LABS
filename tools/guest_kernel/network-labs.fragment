@@ -5,3 +5,5 @@ CONFIG_VLAN_8021Q=y
 CONFIG_BRIDGE_VLAN_FILTERING=y
 # EtherChannel: 802.3ad (LACP) bonds of switch ports, bridged as one port.
 CONFIG_BONDING=y
+# HSRP: the active router holds the virtual address on a macvlan device with the group's virtual MAC.
+CONFIG_MACVLAN=y
