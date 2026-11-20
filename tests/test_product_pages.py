@@ -251,6 +251,8 @@ class PortalTest(unittest.TestCase):
             self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_products_hosts.js'))
             self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_desktop.js'))
             self.assertLess(page.index(b'/native_desktop.js'), page.index(b'/native_simple.js'))
+            # The first state request waits for every script: a busy machine must not draw before a product registered.
+            self.assertIn(b"document.addEventListener('DOMContentLoaded',load)", page)
             connection.request('GET', '/native_products_hosts.js', headers={'Host': portal.host})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
