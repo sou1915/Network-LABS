@@ -528,7 +528,8 @@ class Manager:
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
         if any(n.get('dot1x') or (n.get('firewall') is not None and n['runtime'] == 'oci') or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed 802.1X/firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
-        if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
+        # Container switches bond in the host kernel; a switch micro-VM bonds in its own (the Network LABS guest kernel).
+        if any(n['runtime'] == 'oci' and n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
         from .lacp import preflight_strict
         preflight_strict(spec)
