@@ -39,7 +39,8 @@ class MultiNICGuestTests(unittest.TestCase):
                         # Each tap is joined to its cable by a tc redirect each way (every frame crosses, LACP included).
                         for port in ('eth0','eth1'):
                             tap='tap'+port[3:]
-                            self.assertIsNone(masters[tap]);self.assertIsNone(masters[port])
+                            self.assertIsNone(masters[tap])
+                            self.assertIsNone(masters[port])
                             for here,there in ((tap,port),(port,tap)):
                                 shown=manager.ns(0,'tc','filter','show','dev',here,'ingress').stdout
                                 self.assertIn(f'Egress Redirect to device {there}',shown)
