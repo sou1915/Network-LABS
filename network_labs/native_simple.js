@@ -1,11 +1,13 @@
-/* « Simple » design of the device pages, beside the vendor design (FortiGate, ASDM, pfSense, WebUI…): one layout for
- * every device. A clickable front panel (a port opens a drawer to change it), task tabs in plain words, health checks
+/* « Simple » and « Studio » designs of the device pages, beside the vendor design (FortiGate, ASDM, pfSense, WebUI…):
+ * one layout for every device; Studio wears the dark look of the application (native_studio.js). A clickable front panel (a port opens a drawer to change it), task tabs in plain words, health checks
  * that say what to fix with a button that does it, and the neighbours one click away. The choice of design is kept in
  * the browser (localStorage). Every change goes through the same checked actions as the other pages. */
 'use strict';
 (() => {
   const KEY = 'network-labs-design';
-  window.nlDesign = () => { try { return localStorage.getItem(KEY) || 'vendor'; } catch (error) { return 'vendor'; } };
+  // The browser's choice, else the application's own design: the Studio workbench opens its pages in Studio.
+  const fallback = () => (typeof state !== 'undefined' && state && state.app_design === 'studio' ? 'studio' : 'vendor');
+  window.nlDesign = () => { try { return localStorage.getItem(KEY) || fallback(); } catch (error) { return fallback(); } };
   window.nlSetDesign = value => {
     try { localStorage.setItem(KEY, value); } catch (error) { /* private window: the choice lasts this page only */ }
     chosen = value;
@@ -406,20 +408,20 @@
     load();
   }
   function showStandard(target) {
-    standardView = true; page = target; root.remove(); document.body.classList.remove('sd'); render();
+    standardView = true; page = target; root.remove(); document.body.classList.remove('sd', 'st'); render();
     let back = document.querySelector('.sd-back');
     if (!back) {
       back = document.createElement('button');
-      back.className = 'sd-btn primary sd-back'; back.textContent = '← Revenir au design simple';
+      back.className = 'sd-btn primary sd-back'; back.textContent = design() === 'studio' ? '← Revenir au design Studio' : '← Revenir au design simple';
       back.onclick = () => { standardView = false; back.remove(); render(); };
       document.body.append(back);
     }
   }
 
-  function draw() {
-    const n = state.node, d = state.device, running = state.observed === 'running';
-    if (!tabs().some(([id]) => id === tab)) tab = 'overview';
-    const face = [...d.ports, ...d.spare.map(name => ({name, spare: true}))].map(p => {
+  // The front panel: every port, a click opens its drawer (both looks).
+  function faceHtml() {
+    const n = state.node, d = state.device;
+    const ports = [...d.ports, ...d.spare.map(name => ({name, spare: true}))].map(p => {
       const kind = p.spare ? 'spare' : p.down ? 'down' : p.peer ? 'up' : '';
       const bar = n.role === 'switch' && !p.spare ? `<i class="vbar" style="background:${p.trunk
         ? 'repeating-linear-gradient(90deg,#3aa0e8 0 6px,#35c47c 6px 12px,#f2a93b 12px 18px)' : vlanColour(p.vlan)}"></i>` : '';
@@ -428,18 +430,51 @@
       return `<div class="sd-port ${kind}${drawer === p.port ? ' sel' : ''}" ${p.spare ? '' : `data-port="${esc(p.port)}"`} title="${esc(p.spare ? 'Port du modèle non déclaré' : p.peer ? 'Câblé vers ' + p.peer : 'Libre')}">
         <span class="dot"></span><b>${esc(p.name)}</b><div class="jack"></div><small>${esc(line)}</small><small>${esc(p.spare ? '' : peerName(p) || 'libre')}</small>${bar}</div>`;
     }).join('');
-    root.innerHTML = `<div class="sd-top"><img alt="" src="/devices/${esc(d.art)}@${d.art.startsWith('host') || d.art === 'server' ? 145 : 175}.png">
+    return `<div class="sd-chassis"><div class="head"><b>Face avant</b><span>Cliquer sur un port pour le régler</span></div>
+        <div class="sd-ports">${ports}</div><div class="sd-legend"><span><i style="background:#3ddc84"></i>câblé</span><span><i style="background:#5a6672"></i>libre</span>
+        <span><i style="background:#ff5d5d"></i>arrêté</span>${n.role === 'switch' ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)};border-radius:2px"></i>VLAN ${v}</span>`).join('') : ''}</div></div>`;
+  }
+
+  const designSwitch = current => [['vendor', 'Constructeur'], ['simple', 'Simple'], ['studio', 'Studio']]
+    .map(([id, label]) => `<button data-d="${id}" class="${id === current ? 'on' : ''}">${label}</button>`).join('');
+
+  // The « Studio » look (native_studio.js): an icon rail of the tasks, a top bar with the device's tile, dark cards.
+  function studioHtml() {
+    const n = state.node, d = state.device, running = state.observed === 'running', look = window.nlStudio;
+    const icons = {overview: 'overview', ports: 'ports', vlans: 'vlans', security: 'security', routing: 'routing', services: 'services'};
+    const rail = tabs().map(([id, label, count]) => `<button data-tab="${id}" class="${id === tab ? 'on' : ''}" title="${esc(label)}">
+      ${look.icon(icons[id], 21)}<span>${esc(label.replace('Vue d’ensemble', 'Aperçu'))}</span>${count !== undefined ? `<em>${count}</em>` : ''}</button>`).join('');
+    const title = tabs().find(([id]) => id === tab) || ['', ''];
+    const chips = [`<span class="st-chip${running ? ' on' : ''}"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span>`,
+      `<span class="st-chip">${esc(roleName(n.role))}</span>`, `<span class="st-chip">${d.ports.length} port${d.ports.length > 1 ? 's' : ''}</span>`,
+      `<span class="st-chip">${n.runtime === 'firecracker' ? 'Micro-VM' : 'OCI'}</span>`].join('');
+    return `<nav class="st-rail"><div class="st-logo">N</div>${rail}</nav><div class="st-main">
+      <div class="st-top">${look.tile(look.kind(d), running ? 'running' : 'unknown', 52)}
+        <div><h1>${esc(n.name)}</h1><div class="model">${esc(d.brand)} · ${esc(d.model)}</div><div class="st-chips">${chips}</div></div>
+        <span class="sd-grow"></span><span class="st-seg" title="Choisir le design des pages">${designSwitch('studio')}</span>
+        <button class="st-action" id="sdRefresh" title="Actualiser">${look.icon('refresh', 17)}</button>
+        <button class="st-action primary" id="stTerm">${look.icon('terminal', 17)}Terminal</button></div>
+      <div class="st-wrap">${faceHtml()}<h2 class="st-title">${esc(title[1])}${title[2] !== undefined ? `<small>${title[2]}</small>` : ''}</h2>
+        <main></main></div></div>${drawer ? drawerHtml() : ''}`;
+  }
+
+  function draw() {
+    const n = state.node, d = state.device, running = state.observed === 'running', studio = design() === 'studio' && !!window.nlStudio;
+    if (!tabs().some(([id]) => id === tab)) tab = 'overview';
+    root.classList.toggle('st', studio);
+    document.body.classList.toggle('st', studio);
+    root.innerHTML = studio ? studioHtml() : `<div class="sd-top"><img alt="" src="/devices/${esc(d.art)}@${d.art.startsWith('host') || d.art === 'server' ? 145 : 175}.png">
       <div><h1>${esc(n.name)}</h1><div class="model">${esc(d.brand)} · ${esc(d.model)}</div></div>
       <span class="sd-badge">${esc(roleName(n.role))}</span><span class="sd-badge"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span>
-      <span class="sd-grow"></span><span class="sd-switch" title="Choisir le design des pages"><button data-d="vendor">Constructeur</button><button data-d="simple" class="on">Simple</button></span>
+      <span class="sd-grow"></span><span class="sd-switch" title="Choisir le design des pages">${designSwitch('simple')}</span>
       <button class="sd-icon" id="sdRefresh" title="Actualiser">↻</button></div>
-      <div class="sd-wrap"><div class="sd-chassis"><div class="head"><b>Face avant</b><span>Cliquer sur un port pour le régler</span></div>
-        <div class="sd-ports">${face}</div><div class="sd-legend"><span><i style="background:#3ddc84"></i>câblé</span><span><i style="background:#5a6672"></i>libre</span>
-        <span><i style="background:#ff5d5d"></i>arrêté</span>${n.role === 'switch' ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)};border-radius:2px"></i>VLAN ${v}</span>`).join('') : ''}</div></div>
+      <div class="sd-wrap">${faceHtml()}
         <nav class="sd-tabs">${tabs().map(([id, label, count]) => `<button data-tab="${id}" class="${id === tab ? 'on' : ''}">${esc(label)}${count !== undefined ? `<span>${count}</span>` : ''}</button>`).join('')}</nav>
         <main></main></div>${drawer ? drawerHtml() : ''}`;
-    root.querySelectorAll('.sd-switch button').forEach(button => { button.onclick = () => window.nlSetDesign(button.dataset.d); });
+    root.querySelectorAll('.sd-switch button, .st-seg button').forEach(button => { button.onclick = () => window.nlSetDesign(button.dataset.d); });
     root.querySelector('#sdRefresh').onclick = () => load();
+    const terminal = root.querySelector('#stTerm');
+    if (terminal) terminal.onclick = openTerminal;
     root.querySelectorAll('[data-tab]').forEach(button => { button.onclick = () => { tab = button.dataset.tab; drawer = null; draw(); }; });
     root.querySelectorAll('.sd-port[data-port]').forEach(element => { element.onclick = () => openDrawer(element.dataset.port); });
     const main = root.querySelector('main');
@@ -452,8 +487,9 @@
   render = function () {
     previous();
     if (!state || !state.device) return;
-    if (design() !== 'simple' || standardView) {
-      root.remove(); document.body.classList.remove('sd');
+    document.body.classList.toggle('stb', standardView && design() === 'studio');  // the full editors, dark under Studio
+    if (!['simple', 'studio'].includes(design()) || standardView) {
+      root.remove(); document.body.classList.remove('sd', 'st');
       return;
     }
     document.body.classList.add('sd');

@@ -193,6 +193,10 @@ modifiables dans les éditeurs dédiés : filtrage IPv4 ordonné, NAT, routes,
 VLAN/access/trunk/SVI, STP/protections BPDU, LACP apparié, LLDP, admission MAC, DHCP snooping/DAI/IP Source Guard,
 sous-interfaces, IPv6 et DHCP/DNS selon le rôle.
 Enregistrer puis arrêter / démarrer pour activer les changements.
+La page a trois designs, au choix en haut à droite (le choix reste dans le navigateur) : **Studio** (sombre, comme
+l'atelier : barre de tâches à gauche, tuile de l'équipement, face avant cliquable ; par défaut depuis l'atelier
+Studio), **Simple** (clair, mêmes tâches) et **Constructeur** (l'allure de l'interface du fabricant : FortiGate,
+ASDM, pfSense…). Les éditeurs complets (règles et NAT, DHCP…) suivent le design Studio.
 [Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
 Le menu **Fichier → LAN sécurité access** crée un profil adapté aux protections
 snooping/DAI/source guard ; le profil actuel exige des ports physiques access.

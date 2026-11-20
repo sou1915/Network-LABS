@@ -105,6 +105,11 @@ class DesktopTest(unittest.TestCase):
     def pc(self):
         return next(n for n in self.app.spec['nodes'] if n['name'] == 'PC1')
 
+    def test_state_tells_the_page_the_workbench_design(self):
+        # The device pages open in the application's own look (Studio pages from the Studio workbench).
+        from network_labs.appliances.design import DESIGN
+        self.assertEqual(self.api.dispatch('state', {'node': 'PC1'})['app_design'], DESIGN)
+
     def test_static_then_dhcp(self):
         state = self.ip(mode='static', address='192.168.10.50/24', gateway='192.168.10.1')
         self.assertEqual(state['node']['interfaces']['eth0'], '192.168.10.50/24')
@@ -166,6 +171,14 @@ class DesktopTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             script = response.read()
             self.assertTrue(all(word in script for word in (b'network-labs-design', b'/api/host_ip', b"section: 'switching'")))
+            self.assertIn(b"state.app_design === 'studio'", script)  # no saved choice: the workbench's design decides
+            self.assertIn(b'/native_studio.js', page)  # the dark « Studio » look, loaded before the page that uses it
+            self.assertLess(page.index(b'/native_studio.js'), page.index(b'/native_simple.js'))
+            connection.request('GET', '/native_studio.js', headers={'Host': portal.host})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            studio = response.read()
+            self.assertTrue(all(word in studio for word in (b'window.nlStudio', b'.sd-app.st', b'body.stb')))
         finally:
             portal.close()
 

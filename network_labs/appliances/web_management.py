@@ -5,6 +5,7 @@ from .web_observations import revision as draft_revision,snapshot
 from .management_switching import component,peers
 from .management_options import PUBLIC_FIELDS,sections,configure_section
 from .device_view import summary as device_summary
+from .design import DESIGN
 
 
 class NativeDeviceAPI:
@@ -36,7 +37,8 @@ class NativeDeviceAPI:
                     'switch_component':component(spec,name) if switch else [],'aggregation_peers':peers(spec,name) if switch else {},
                     'sections':sections(node),'section_editable':not window.pending,
                     'editable':not window.pending and node['runtime']=='oci','device':device_summary(spec,node),
-                    'live':self.live(spec,node),'observing':observing}
+                    'live':self.live(spec,node),'observing':observing,
+                    'app_design':DESIGN}  # the pages open in the workbench's own look (native_studio.js)
         if action=='observe':
             # Read the running node (sudo-confirmed in a terminal, like the CLI tab's show commands).
             if window.view_lab!=spec['name'] or window.states.get(name,{}).get('status')!='running':
