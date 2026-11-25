@@ -1,11 +1,11 @@
-"""The saved choice of design (classic or studio) and the one asked for by the environment. Kept apart from design.py,
+"""The saved choice of design (classic, studio or mono) and the one asked for by the environment. Kept apart from design.py,
 which fixes the design when it loads: the launcher reads the saved choice here, then sets the environment, before the
 workbench's modules (and design.py) load."""
 import json
 import os
 from pathlib import Path
 
-DESIGNS = ('classic', 'studio')
+DESIGNS = ('classic', 'studio', 'mono')
 SETTINGS = Path.home() / '.config' / 'network-labs' / 'ui.json'
 
 

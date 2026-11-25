@@ -233,6 +233,7 @@ class StudioChrome:
         menu.add_separator()
         designs = tk.Menu(menu, tearoff=False)
         chosen = tk.StringVar(value=design.DESIGN)
+        designs.add_radiobutton(label='Noir & blanc', variable=chosen, value='mono', command=lambda: self.switch_design('mono'))
         designs.add_radiobutton(label='Studio · sombre', variable=chosen, value='studio', command=lambda: self.switch_design('studio'))
         designs.add_radiobutton(label='Classique · clair', variable=chosen, value='classic',
                                 command=lambda: self.switch_design('classic'))
@@ -528,7 +529,7 @@ class StudioChrome:
         """Save the choice, then start the application again on the project as it is (saved first)."""
         if chosen == design.DESIGN:
             return
-        name = 'Studio (sombre)' if chosen == 'studio' else 'classique (clair)'
+        name = {'mono': 'noir & blanc', 'studio': 'Studio (sombre)'}.get(chosen, 'classique (clair)')
         if self.pending:
             messagebox.showinfo('Design', 'Attendre la fin de l’opération en cours, puis changer de design.', parent=self.window)
             return

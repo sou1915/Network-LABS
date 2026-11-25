@@ -70,16 +70,17 @@ activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network L
 
 ### Utilisation, comme dans Packet Tracer
 
-L'atelier s'ouvre dans le design **Studio** (sombre) : à gauche une barre d'icônes (Topologie, Équipements · JSON,
-Scénarios, Outils, Simulation, Journal, ⚙ réglages) ; en haut le projet, le mode (Concevoir · Simuler · Lab en
-direct) et le grand bouton « ▶ Démarrer le lab » ; sous le plan, le dock des équipements par catégorie, avec une
-recherche ; sur le plan, les outils (sélection, câble, supprimer, zoom, tout afficher). Chaque équipement est une
-tuile colorée par rôle (routeur bleu, switch vert d'eau, pare-feu orange, PC violet, serveur gris), son voyant
-d'état au coin. « Lab en direct » remplace le dock par le journal (événements, sorties des commandes).
-Le design **classique** (clair) reste disponible : ⚙ › Design (ou Affichage › Design Studio dans le classique) ;
-le choix est gardé dans `~/.config/network-labs/ui.json`, le logiciel redémarre et rouvre le projet.
-Pour une seule session : `python3 -m network_labs --design classic` (ou `studio`) ; `--open projet.json` ouvre
-un projet au démarrage.
+L'atelier s'ouvre dans le design **noir & blanc** : fond blanc, équipements en tuiles noires (icône blanche), câbles
+noirs ; à gauche une barre d'icônes (Topologie, Équipements · JSON, Scénarios, Outils, Simulation, Journal, ⚙
+réglages) ; en haut le projet, le mode (Concevoir · Simuler · Lab en direct) et le grand bouton « ▶ Démarrer le lab » ;
+sous le plan, le dock des équipements par catégorie, avec une recherche ; sur le plan, les outils (sélection, câble,
+supprimer, zoom, tout afficher). Le voyant au coin de chaque tuile est plein quand l'équipement tourne, vide sinon.
+« Lab en direct » remplace le dock par le journal (événements, sorties des commandes).
+Deux autres designs restent disponibles : **Studio** (la même disposition en sombre, tuiles colorées par rôle) et
+**classique** (clair) : ⚙ › Design (ou Affichage › Design… dans le classique) ; le choix est gardé dans
+`~/.config/network-labs/ui.json`, le logiciel redémarre et rouvre le projet.
+Pour une seule session : `python3 -m network_labs --design mono` (ou `studio`, `classic`) ; `--open projet.json`
+ouvre un projet au démarrage.
 
 Une fois la machine préparée (`setup`, ci-dessous) :
 

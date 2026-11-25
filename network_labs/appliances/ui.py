@@ -52,9 +52,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         # stays separate from the pedagogical Session/model behind that desktop.
         from ..__main__ import App
         self.root=app.root;self.embedded=embedded;self.previous_widgets=[]
+        design.install(self.root)  # studio: the panels' hand-set light colours turn dark; mono: every colour to black and white
         App.style(self)
         self.font=reference_theme.apply(self.root)
-        design.install(self.root)  # under the studio design, the panels' hand-set light colours turn dark
         if self.embedded:
             app.pause()
             for widget in app.root.pack_slaves():
@@ -82,6 +82,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                                ('Affichage',[('Topologie',lambda:self.tabs.select(self.topology_tab)),
                                              ('Configuration du projet',lambda:self.tabs.select(self.editor_tab)),
                                              ('Configuration du dispositif',lambda:self.device_tabs.select(self.config_panel)),
+                                             ('Design noir & blanc…',lambda:self.switch_design('mono')),
                                              ('Design Studio (sombre)…',lambda:self.switch_design('studio'))]),
                                ('Outils',[('Valider / plan',self.preview),('Actualiser l’état',lambda:self.launch('status'))])]:
             menu_button=tk.Menubutton(header,text=title,bg='#223344',fg='white',activebackground='#334b60',activeforeground='white',font=(self.font,8),padx=8)

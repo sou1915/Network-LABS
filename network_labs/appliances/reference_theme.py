@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import font as tkfont,ttk
 from .soft_widgets import surface
 
-from .design import COLOURS,STUDIO
+from .design import COLOURS,MONO,STUDIO
 
 # The active design's colours (design.py): light for « classic », dark for « studio ».
 BG=COLOURS['BG']
@@ -39,7 +39,16 @@ ELEMENTS_STUDIO={
     'stop':(('#2a1416','#5b2a2e'),('#3a1a1d','#7f2d33'),('#4a1c20','#b91c1c'),('#0f1922','#1a2836'),None),
     'entry':(('#0c141d','#23364a'),('#0c141d','#3b82f6'),('#0c141d','#60a5fa'),('#0f1922','#1a2836'),None),
 }
-ELEMENTS=ELEMENTS_STUDIO if STUDIO else ELEMENTS_CLASSIC
+# Black and white: white buttons with a grey edge (black under the pointer), black filled ones for the main actions.
+ELEMENTS_MONO={
+    'button':(('#ffffff','#d4d4d4'),('#f5f5f5','#111111'),('#e8e8e8','#111111'),('#ffffff','#ebebeb'),('#eeeeee','#111111')),
+    'primary':(('#111111','#111111'),('#333333','#333333'),('#000000','#000000'),('#e6e6e6','#e6e6e6'),None),
+    'rail':(('#ffffff','#ffffff'),('#f2f2f2','#f2f2f2'),('#e6e6e6','#e6e6e6'),('#ffffff','#ffffff'),('#111111','#111111')),
+    'start':(('#111111','#111111'),('#333333','#333333'),('#000000','#000000'),('#e6e6e6','#e6e6e6'),None),
+    'stop':(('#ffffff','#111111'),('#f2f2f2','#111111'),('#e6e6e6','#111111'),('#ffffff','#e6e6e6'),None),
+    'entry':(('#ffffff','#cfcfcf'),('#ffffff','#111111'),('#ffffff','#111111'),('#f7f7f7','#e6e6e6'),None),
+}
+ELEMENTS=ELEMENTS_MONO if MONO else ELEMENTS_STUDIO if STUDIO else ELEMENTS_CLASSIC
 
 
 def choose_font(root):
@@ -65,7 +74,7 @@ def choose_font(root):
 def apply(root):
     font=choose_font(root);s=ttk.Style(root)
     # Every menu of the application (Fichier, Édition, « + Ajouter »…): white, the theme's font, a soft blue highlight.
-    menu_colours=(('#121e2a','#1e3a5f','#5d7288') if STUDIO else ('#ffffff','#e4f0ff','#8a98aa'))
+    menu_colours=(('#ffffff','#eeeeee','#9a9a9a') if MONO else ('#121e2a','#1e3a5f','#5d7288') if STUDIO else ('#ffffff','#e4f0ff','#8a98aa'))
     for key,value in (('background',menu_colours[0]),('foreground',TEXT),('activeBackground',menu_colours[1]),('activeForeground',TEXT),
                       ('disabledForeground',menu_colours[2]),('relief','solid'),('borderWidth',1),('activeBorderWidth',0),
                       ('font',(font,9)),('selectColor',BLUE)):
@@ -119,7 +128,7 @@ def apply(root):
     s.configure('Native.TCheckbutton',background=PANEL,foreground=TEXT,font=(font,9))
     for orient in ('Vertical','Horizontal'):
         if 'Soft.'+orient+'.Scrollbar.thumb' not in s.element_names():
-            shade='#24384d' if STUDIO else '#c4d4e6'
+            shade='#c8c8c8' if MONO else '#24384d' if STUDIO else '#c4d4e6'
             thumb=surface(root,shade,shade,radius=6,size=12)
             root._native_soft_images['thumb',orient]=thumb
             s.element_create('Soft.'+orient+'.Scrollbar.thumb','image',thumb,border=5,sticky='nswe',width=10 if orient=='Vertical' else 24,height=24 if orient=='Vertical' else 10)

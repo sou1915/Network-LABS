@@ -1,5 +1,6 @@
-"""The « Studio » design: how it is chosen and saved, the dark colour mapping, the tiles, and the workbench built under
-it (in a separate process, since the design is read once, when the modules load)."""
+"""The « Studio » design and its black and white variant « mono »: how they are chosen and saved, the dark and the
+black and white colour mappings, the tiles, and the workbench built under each (in a separate process, since the design
+is read once, when the modules load)."""
 import json
 import os
 from pathlib import Path
@@ -45,6 +46,11 @@ class DesignChoiceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             design.save_choice('neon')
 
+    def test_the_black_and_white_design_can_be_chosen(self):
+        design.save_choice('mono')
+        self.assertEqual(design.chosen(), 'mono')
+        self.assertIn('mono', design_choice.DESIGNS)
+
     def test_a_damaged_or_unknown_setting_is_ignored(self):
         self.settings.write_text('{not json')
         self.assertIsNone(design.chosen())
@@ -66,6 +72,42 @@ class ColourMappingTest(unittest.TestCase):
         # A colour converted once must stay as it is when Tk is given it again (configure after creation).
         self.assertFalse(set(design.SURFACES.values()) & set(design.SURFACES))
         self.assertFalse(set(design.INKS.values()) & set(design.INKS))
+
+
+class MonoToneTest(unittest.TestCase):
+    """Under mono every colour becomes black, white or a grey; the studio's colours, made for a dark window, turn around."""
+    def test_greys_stay_and_strong_colours_turn_black(self):
+        for grey in ('#ffffff', '#111111', '#e8e8e8', 'white'):
+            self.assertEqual(design.tone(grey, 'surface'), grey)
+        for strong in ('#2563eb', '#22c55e', '#ef4444', '#087fe9', '#f97316'):
+            self.assertEqual(design.tone(strong, 'surface'), '#111111')
+
+    def test_the_dark_window_turns_white_and_its_light_text_dark(self):
+        self.assertEqual(design.tone(design.DARK['BG'], 'surface'), '#ffffff')
+        self.assertGreater(int(design.tone(design.DARK['PANEL'], 'surface')[1:3], 16), 0xf0)
+        self.assertLess(int(design.tone(design.DARK['TEXT'], 'ink')[1:3], 16), 0x30)
+
+    def test_light_tints_keep_their_lightness_without_colour(self):
+        tinted = design.tone('#e4f0ff', 'surface')
+        self.assertEqual(len({tinted[1:3], tinted[3:5], tinted[5:7]}), 1)
+        self.assertGreater(int(tinted[1:3], 16), 0xe0)
+        self.assertEqual(design.tone('#8a98aa', 'ink')[1:3], design.tone('#8a98aa', 'ink')[3:5])  # a pale text stays pale grey
+
+    def test_canvas_items_follow_under_mono_only(self):
+        with mock.patch.object(design, 'MONO', True), mock.patch.object(design, 'STUDIO', True):
+            converted = design.convert(('-fill', '#3b82f6', '-outline', '#23364a', '-width', 2), item='rectangle')
+            text = design.convert(('-fill', '#dbe7f3'), item='text')
+        self.assertEqual(converted[1], '#111111')
+        self.assertEqual(converted[3], design.tone('#23364a', 'line'))
+        self.assertLess(int(text[1][1:3], 16), 0x30)
+        with mock.patch.object(design, 'MONO', False):
+            self.assertEqual(design.convert(('-fill', '#3b82f6'), item='rectangle'), ('-fill', '#3b82f6'))
+
+    def test_the_palettes_are_black_white_and_grey(self):
+        def grey(colour):
+            return colour[1:3] == colour[3:5] == colour[5:7]
+        self.assertTrue(all(grey(c) for c in design.MONO_COLOURS.values()))
+        self.assertTrue(all(grey(c) for c in design._flat(design.CANVAS_MONO.values())))
 
 
 class TileTest(unittest.TestCase):
@@ -157,6 +199,53 @@ class StudioWorkbenchTest(unittest.TestCase):
         self.assertEqual(report['page'], '/  Scénarios')
         self.assertTrue(report['missions_active'])
         self.assertEqual(report['panel_colour'], design.DARK['PANEL'])  # a hand-set white panel, turned dark
+
+
+MONO_WORKBENCH = r'''
+import json, tkinter as tk
+from types import SimpleNamespace
+from network_labs.appliances import design
+from network_labs.appliances.spec import example
+from network_labs.appliances.ui import ApplianceWindow
+root = tk.Tk()
+root.geometry('1400x880')
+window = ApplianceWindow(SimpleNamespace(root=root, pause=lambda: None), embedded=True)
+window.load_spec(example('/tmp/rootfs'))
+names = [n['name'] for n in window.graph['nodes']]
+window.draw(window.graph, {name: {'status': 'running'} for name in names})
+root.update()
+canvas = window.canvas
+colours = set()
+for item in canvas.find_all():
+    for option in ('fill', 'outline'):
+        try:
+            value = canvas.itemcget(item, option)
+        except tk.TclError:
+            continue
+        if value.startswith('#'):
+            colours.add(value.lower())
+report = {'design': design.DESIGN, 'canvas': canvas.cget('background'), 'panel': window.device_panel.cget('background'),
+          'colours': sorted(colours), 'rail': sorted(window.rail_buttons)}
+print('REPORT ' + json.dumps(report))
+root.destroy()
+'''
+
+
+@unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
+class MonoWorkbenchTest(unittest.TestCase):
+    def test_the_workbench_in_black_and_white(self):
+        environment = dict(os.environ, NETWORK_LABS_DESIGN='mono', PYTHONPATH=str(ROOT))
+        result = subprocess.run([sys.executable, '-c', MONO_WORKBENCH], cwd=ROOT, env=environment, capture_output=True, text=True,
+                                timeout=120)
+        line = next((l for l in result.stdout.splitlines() if l.startswith('REPORT ')), None)
+        self.assertIsNotNone(line, result.stderr[-3000:])
+        report = json.loads(line[7:])
+        self.assertEqual(report['design'], 'mono')
+        self.assertEqual(report['rail'], ['editor', 'missions', 'tools', 'topology'])  # the studio's layout
+        self.assertEqual(report['canvas'], '#ffffff')
+        self.assertEqual(report['panel'], '#ffffff')
+        self.assertIn('#111111', report['colours'])  # black tiles and cables
+        self.assertTrue(all(c[1:3] == c[3:5] == c[5:7] for c in report['colours']), report['colours'])  # nothing but greys
 
 
 if __name__ == '__main__':

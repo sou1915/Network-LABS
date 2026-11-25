@@ -61,15 +61,16 @@ def main(arguments=None):
     parser = argparse.ArgumentParser(description='Network LABS desktop: micro-VM workbench, missions and scenarios')
     parser.add_argument('--native-lab', action='store_true', help='Accepted for compatibility: the workbench always opens.')
     parser.add_argument('--open', metavar='PROJET', help='Open this project file (JSON) at start.')
-    parser.add_argument('--design', choices=('studio', 'classic'), help='The look of the workbench for this run.')
+    parser.add_argument('--design', choices=('mono', 'studio', 'classic'), help='The look of the workbench for this run.')
     options = parser.parse_args(arguments)
-    # The design is chosen before the workbench's modules load: --design, else the saved choice, else Studio (the dark
-    # design) for the application. Code that builds the workbench without main(), as the tests do, keeps classic.
+    # The design is chosen before the workbench's modules load: --design, else the saved choice, else mono (the studio's
+    # layout in black and white) for the application. Code that builds the workbench without main(), as the tests do,
+    # keeps classic.
     if options.design:
         os.environ['NETWORK_LABS_DESIGN'] = options.design
     elif not os.environ.get('NETWORK_LABS_DESIGN'):
         from .appliances.design_choice import chosen  # not design.py: it would fix the design before this choice
-        os.environ['NETWORK_LABS_DESIGN'] = chosen() or 'studio'
+        os.environ['NETWORK_LABS_DESIGN'] = chosen() or 'mono'
     root = tk.Tk()
     window = App(root).open_native_lab()
     if options.open:

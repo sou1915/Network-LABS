@@ -3,9 +3,11 @@ switch, firewall, PC, server), a soft glow under it and a status light at its co
 image files), so it scales with the zoom and needs nothing beyond Tk."""
 import math
 
+from .design import MONO
+
 ROLE_COLOURS = {'router': ('#3b82f6', '#1d4ed8'), 'switch': ('#14b8a6', '#0f766e'), 'firewall': ('#f97316', '#c2410c'),
                 'host': ('#8b5cf6', '#6d28d9'), 'server': ('#64748b', '#334155')}
-BACKGROUND = '#0c131b'
+BACKGROUND = '#ffffff' if MONO else '#0c131b'
 
 
 def _mix(a, b, t):
@@ -58,8 +60,33 @@ def glyph(canvas, kind, x, y, size, colour='#ffffff', tags=()):
         canvas.create_line(*p(8.5, 20), *p(15.5, 20), **line)
 
 
+def mono_tile(canvas, kind, x, y, size, status, tags, selected):
+    """The black and white design's device: a black tile, a soft grey shadow, the white icon; its state as a dot at the
+    corner, filled black when it runs, hollow when it does not."""
+    half, r = size / 2, size * .3
+    glow = tuple(tags) + ('glow',)
+    for spread, shade in ((5, '#f1f1f1'), (2, '#e2e2e2')):
+        rounded(canvas, x - half - spread, y - half - spread + 3, x + half + spread, y + half + spread + 3, r + spread, fill=shade,
+                outline='', tags=glow)
+    rounded(canvas, x - half, y - half, x + half, y + half, r, fill='#111111', outline='', tags=tags)
+    rounded(canvas, x - half + 1, y - half + 1, x + half - 1, y - half + size * .2, r * .8, fill='#2a2a2a', outline='', tags=tags)
+    glyph(canvas, kind, x, y + size * .02, size * .54, tags=tags)
+    if selected:
+        rounded(canvas, x - half - 6, y - half - 6, x + half + 6, y + half + 6, r + 6, outline='#111111', fill='', width=2,
+                dash=(4, 3), tags=tags)
+    if status is not None:
+        d = size * .14
+        fill, edge = ('#111111', '#ffffff') if status == 'running' else ('#ffffff', '#111111' if status == 'stopped' else '#9a9a9a')
+        canvas.create_oval(x + half - d, y + half - d, x + half + d, y + half + d, fill='#ffffff', outline='#ffffff',
+                           width=max(2, size * .05), tags=tags)
+        canvas.create_oval(x + half - d * .72, y + half - d * .72, x + half + d * .72, y + half + d * .72, fill=fill,
+                           outline='#111111' if fill == '#111111' else edge, width=max(1.5, size * .03), tags=tags)
+
+
 def tile(canvas, kind, x, y, size=60, status=None, tags=(), selected=False):
     """One device: glow, tile (lighter top half for depth), icon, status light. KIND: router, switch, firewall, host, server."""
+    if MONO:
+        return mono_tile(canvas, kind, x, y, size, status, tags, selected)
     light, dark = ROLE_COLOURS.get(kind, ROLE_COLOURS['host'])
     half, r = size / 2, size * .3
     glow = tuple(tags) + ('glow',)  # tagged apart, so the workbench can slip cables between the glow and the tile
@@ -154,8 +181,12 @@ def icon(canvas, name, x, y, size, colour, tags=()):
 
 
 def logo(canvas, x, y, size, font):
-    """The application's mark on the rail: a blue rounded square with an N."""
+    """The application's mark on the rail: a blue rounded square with an N (black under the black and white design)."""
     half = size / 2
+    if MONO:
+        rounded(canvas, x - half, y - half, x + half, y + half, size * .3, fill='#111111', outline='')
+        canvas.create_text(x, y + 1, text='N', fill='white', font=(font, int(size * .36), 'bold'))
+        return
     rounded(canvas, x - half, y - half + 3, x + half, y + half + 3, size * .3, fill='#0f2347', outline='')
     rounded(canvas, x - half, y - half, x + half, y + half, size * .3, fill='#1d4ed8', outline='')
     rounded(canvas, x - half, y - half, x + half, y + half * .2, size * .3, fill='#3b82f6', outline='')

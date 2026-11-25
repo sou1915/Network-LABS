@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from .design import STUDIO
+
+STATES = {'running': 'en marche', 'stopped': 'arrêté', 'exited': 'arrêté', 'failed': 'en échec'}  # the window's language
 from .reference_theme import BG, BLUE, MUTED, PANEL, TEXT
 
 
@@ -136,7 +138,7 @@ class DeviceOverview:
         status = self.states.get(node['name'], {}).get('status', 'non observé')
         cabled = sum(1 for port in configured.get('interfaces', {}) if (node['name'], port) in peers)
         lines = [f"{len(configured.get('interfaces', {}))} ports · {cabled} câblé{'s' if cabled > 1 else ''} · "
-                 f"{'micro-VM' if guest else 'conteneur OCI'} · état : {status}"]
+                 f"{'micro-VM' if guest else 'conteneur OCI'} · état : {STATES.get(status, status)}"]
         if configured.get('gateway'):
             lines.append('Passerelle : ' + configured['gateway'])
         self.selected_details.set('\n'.join(lines))
