@@ -11,6 +11,8 @@
   const {SKINS, D, N, h, maskOf, prefixOf, ipOf, lenOf, validIp, running, toast, send, rename, attempt, openTerminal, dialog, val, field, input, select, table, tr, NA,
     naBox, skinCss} = K;
   const V = () => K.view;
+  // A list of settings the way these pages show them: a name, then its value, no header row.
+  const kv = (cls, rows) => `<table class="${cls}"><tbody>${rows.map(([k, v]) => `<tr><th>${h(k)}</th><td>${h(v)}</td></tr>`).join('')}</tbody></table>`;
   const go = (page, extra = {}) => { Object.assign(V(), {page}, extra); render(); };
   const own = (models, id) => K.MATCH.push([(d, role) => role === 'host' && models.some(m => d.model.startsWith(m)), id]);
   own(['DiskStation'], 'dsm');
@@ -74,6 +76,7 @@
   .ds-nav b{display:block;padding:10px 14px 4px;color:#8a949e;font-size:11px}.ds-nav a{display:block;padding:7px 14px 7px 22px;cursor:pointer}.ds-nav a.on{background:#dceaf7;color:#0d67b8;font-weight:bold}
   .ds-nav a.na{color:#a5adb5}.ds-main{padding:14px 18px;overflow:auto}.ds-tabs{display:flex;gap:16px;border-bottom:1px solid #e6e9ec;margin-bottom:12px}.ds-tabs a{padding:7px 0;cursor:pointer;color:#666}
   .ds-tabs a.on{color:#0d67b8;border-bottom:2px solid #0d67b8}.ds-tabs a.na{color:#b0b6bc}
+  .ds-kv{border-collapse:collapse}.ds-kv th{text-align:left;font-weight:normal;color:#777;padding:7px 28px 7px 0}.ds-kv td{padding:7px 0}
   .ds-t{width:100%;border-collapse:collapse}.ds-t th{text-align:left;padding:7px;border-bottom:1px solid #e6e9ec;color:#777;font-weight:normal}.ds-t td{padding:8px 7px;border-bottom:1px solid #f0f2f4}
   .ds-btn{border:1px solid #c9d1d9;background:#fff;padding:5px 14px;border-radius:3px;cursor:pointer;margin-right:6px}.ds-btn.pri{background:#0d67b8;color:#fff;border-color:#0d67b8}
   .px-shade.dsm .px-dtitle{background:#f4f6f8}.px-shade.dsm .px-dialog{border-radius:8px}.px-shade.dsm .px-dfoot button{border:1px solid #c9d1d9;background:#fff;padding:5px 16px;border-radius:3px;cursor:pointer}
@@ -122,9 +125,9 @@
   }
   function dsInfo(main) {
     const d = D();
-    main.innerHTML = `<div class="ds-tabs"><a class="on">General</a><a class="na">Network</a><a class="na">Storage</a><a class="na">Service</a></div>${table('ds-t', ['', ''], [['Server name', N().name],
+    main.innerHTML = `<div class="ds-tabs"><a class="on">General</a><a class="na">Network</a><a class="na">Storage</a><a class="na">Service</a></div>${kv('ds-kv', [['Server name', N().name],
       ['Model name', d.model], ['Serial number', '—'], ['DSM version', 'sous-ensemble Network LABS'], ['Physical memory', `${N().memory_mib || 128} MB`], ['System time', new Date().toLocaleString('fr-FR')],
-      ['Operating time', running() ? 'en marche' : '—'], ['LAN 1', ipLine()], ['Default gateway', gateway() || '—']].map(r => tr(r.map(h))))}`;
+      ['Operating time', running() ? 'en marche' : '—'], ['LAN 1', ipLine()], ['Default gateway', gateway() || '—']])}`;
   }
 
   /* =============================== QNAP QTS =============================== */
@@ -192,7 +195,8 @@
   .hp-top{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 20px;background:#1d5f8f;color:#fff}.hp-top b{font-size:17px}.hp-top .grow{flex:1}
   .hp-nav{background:#fff;border-right:1px solid #e1e4e8;padding:10px 0}.hp-nav a{display:flex;gap:10px;padding:10px 18px;cursor:pointer}.hp-nav a.on{background:#e7f1f9;color:#1d5f8f;font-weight:bold;border-left:4px solid #1d5f8f}
   .hp-nav a.na{color:#a3aab1}.hp-main{padding:18px 24px}.hp-card{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:16px 18px;margin-bottom:14px;max-width:760px}
-  .hp-card h3{margin:0 0 10px;font-size:15px}.hp-ready{color:#2e8540;font-size:18px;font-weight:bold}.hp-toner{height:16px;background:#e4e7ea;border-radius:3px;overflow:hidden;width:260px}
+  .hp-card h3{margin:0 0 10px;font-size:15px}.hp-ready{color:#2e8540;font-size:18px;font-weight:bold}.hp-ready.off{color:#8a939c}
+  .hp-kv{border-collapse:collapse}.hp-kv th{text-align:left;font-weight:normal;color:#5c6670;padding:6px 28px 6px 0}.hp-kv td{padding:6px 0}.hp-toner{height:16px;background:#e4e7ea;border-radius:3px;overflow:hidden;width:260px}
   .hp-toner i{display:block;height:100%;width:70%;background:#222}.hp-tabs{display:flex;gap:18px;border-bottom:1px solid #e1e4e8;margin-bottom:12px}.hp-tabs a{padding:8px 0;color:#666}
   .hp-tabs a.on{color:#1d5f8f;border-bottom:3px solid #1d5f8f}.hp-btn{border:0;background:#1d5f8f;color:#fff;padding:7px 18px;border-radius:3px;cursor:pointer;margin-right:8px}.hp-btn.sec{background:#8a939c}
   `);
@@ -210,9 +214,9 @@
     },
   };
   function hpHome(main) {
-    main.innerHTML = `<div class="hp-card"><h3>Printer Status</h3><div class="hp-ready">${running() ? '✔ Ready' : '○ Off'}</div></div><div class="hp-card"><h3>Supplies</h3>Black Cartridge
-      <div class="hp-toner"><i></i></div>~70%</div><div class="hp-card"><h3>Device Information</h3>${table('', ['', ''], [['Device Name', N().name], ['Product Name', D().model], ['IP Address', ipLine()],
-      ['Network Connection', linked() ? 'Wired (802.3) · connected' : 'Not connected'], ['Firmware', 'sous-ensemble Network LABS']].map(r => tr(r.map(h))))}</div>`;
+    main.innerHTML = `<div class="hp-card"><h3>Printer Status</h3><div class="hp-ready${running() ? '' : ' off'}">${running() ? '✔ Ready' : '○ Off'}</div></div><div class="hp-card"><h3>Supplies</h3>Black Cartridge
+      <div class="hp-toner"><i></i></div>~70%</div><div class="hp-card"><h3>Device Information</h3>${kv('hp-kv', [['Device Name', N().name], ['Product Name', D().model], ['IP Address', ipLine()],
+      ['Network Connection', linked() ? 'Wired (802.3) · connected' : 'Not connected'], ['Firmware', 'sous-ensemble Network LABS']])}</div>`;
   }
   function hpNetwork(main) {
     main.innerHTML = `<div class="hp-tabs"><a class="on">Wired (802.3)</a><a>Wi-Fi Direct</a><a>Network Identification</a></div><div class="hp-card"><h3>IPv4 Configuration</h3>
@@ -237,7 +241,8 @@
   .br-tabs{display:flex;gap:2px;padding:0 22px;background:#eef2f7;border-bottom:1px solid #c9d3df}.br-tabs a{padding:10px 18px;cursor:pointer;color:#0e3c7a}.br-tabs a.on{background:#fff;font-weight:bold;border:1px solid #c9d3df;border-bottom:0}
   .br-body{display:grid;grid-template-columns:220px 1fr}.br-side{padding:14px 0;border-right:1px solid #e1e6ec}.br-side b{display:block;padding:8px 18px;color:#0e3c7a}
   .br-side a{display:block;padding:5px 18px 5px 28px;cursor:pointer}.br-side a.on{font-weight:bold;background:#e8eef6}.br-side a.na{color:#a3abb4}.br-main{padding:16px 22px;max-width:720px}
-  .br-main h3{color:#0e3c7a;border-bottom:1px solid #c9d3df;padding-bottom:6px}.br-btn{border:1px solid #8a96a3;background:linear-gradient(#fff,#e2e6ea);padding:4px 18px;cursor:pointer;margin-right:6px}
+  .br-main h3{color:#0e3c7a;border-bottom:1px solid #c9d3df;padding-bottom:6px}
+  .br-kv{border-collapse:collapse}.br-kv th{text-align:left;font-weight:normal;background:#eef2f7;padding:6px 24px 6px 10px;border:1px solid #d6dde6}.br-kv td{padding:6px 12px;border:1px solid #d6dde6}.br-btn{border:1px solid #8a96a3;background:linear-gradient(#fff,#e2e6ea);padding:4px 18px;cursor:pointer;margin-right:6px}
   .br-toner{display:inline-block;width:30px;height:90px;border:1px solid #888;position:relative;vertical-align:bottom}.br-toner i{position:absolute;left:0;right:0;bottom:0;height:70%;background:#222}
   `);
   SKINS.brother = {
@@ -271,8 +276,8 @@
     };
   }
   function brNetStatus(main) {
-    main.innerHTML = `<h3>Network Status</h3>${table('', ['', ''], [['Wired Status', linked() ? '100BASE-TX Full Duplex' : 'Inactive'], ['IP Address', ipLine()], ['Subnet Mask', address() ? maskOf(lenOf(address())) : '—'],
-      ['Gateway', gateway() || '—'], ['Node Name', N().name]].map(r => tr(r.map(h))))}`;
+    main.innerHTML = `<h3>Network Status</h3>${kv('br-kv', [['Wired Status', linked() ? '100BASE-TX Full Duplex' : 'Inactive'], ['IP Address', ipLine()], ['Subnet Mask', address() ? maskOf(lenOf(address())) : '—'],
+      ['Gateway', gateway() || '—'], ['Node Name', N().name]])}`;
   }
   function brMachine(main) {
     main.innerHTML = `<h3>Machine Information</h3>${field('Node Name', input('brName', N().name))}${field('Location', input('l', '', 'disabled'))}<p><button class="br-btn submit">Submit</button></p>`;
@@ -380,6 +385,8 @@
   .bmc-kv{display:grid;grid-template-columns:160px 1fr;gap:6px}.bmc-kv span{color:#666}.bmc-ok{color:#2e8540;font-weight:bold}.bmc-off{color:#a3001b;font-weight:bold}
   .bmc-console{height:150px;background:#000;display:grid;place-items:center;color:#7fdc7f;font:12px Consolas,monospace;margin-bottom:10px}
   .bmc-btn{border:0;background:#1d6fb8;color:#fff;padding:7px 14px;border-radius:2px;cursor:pointer}
+  .bmc-t{width:100%;border-collapse:collapse}.bmc-t th{text-align:left;padding:7px 10px;border-bottom:1px solid #d9dee3;color:#555;font-weight:600;background:#f7f8f9}
+  .bmc-t td{padding:8px 10px;border-bottom:1px solid #eef0f2}
   `);
   const BMC = {
     idrac: {title: 'Integrated Dell Remote Access Controller 9', tabs: [['Dashboard', 'dashboard'], ['System', 'system'], ['Storage', 'na'], ['Configuration', 'na'], ['Maintenance', 'logs'],
@@ -417,13 +424,13 @@
     main.querySelector('.launch').onclick = openTerminal;
   }
   function bmcSystem(main) {
-    main.innerHTML = `<div class="bmc-card"><h3>Network Devices</h3><div class="b">${table('', ['Device', 'Port', 'Link Status', 'OS IPv4 Address', 'Connected To'], [tr(['Embedded NIC 1', 'Port 1',
+    main.innerHTML = `<div class="bmc-card"><h3>Network Devices</h3><div class="b">${table('bmc-t', ['Device', 'Port', 'Link Status', 'OS IPv4 Address', 'Connected To'], [tr(['Embedded NIC 1', 'Port 1',
       linked() ? '<span class="bmc-ok">Up</span>' : '<span class="bmc-off">Down</span>', h(ipLine()), h(peer())])])}</div></div>
       <div class="bmc-card" style="margin-top:14px"><h3>Inventory</h3><div class="b bmc-kv"><span>Processors</span><b>${h(N().vcpus || 1)} vCPU</b><span>Memory</span><b>${h(N().memory_mib || 128)} MiB</b>
       <span>BIOS</span><b>Network LABS</b></div></div>`;
   }
   function bmcLogs(main) {
-    main.innerHTML = `<div class="bmc-card"><h3>Event Log</h3><div class="b">${table('', ['Severity', 'Date and Time', 'Message'], running()
+    main.innerHTML = `<div class="bmc-card"><h3>Event Log</h3><div class="b">${table('bmc-t', ['Severity', 'Date and Time', 'Message'], running()
       ? [tr(['<span class="bmc-ok">OK</span>', new Date().toLocaleString('fr-FR'), 'The server is powered on.'])] : [tr(['<span class="bmc-ok">OK</span>', '—', 'The server is powered off.'])])}</div></div>`;
   }
   function bmcNet(main) {

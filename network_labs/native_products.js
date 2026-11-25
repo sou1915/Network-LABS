@@ -1391,8 +1391,9 @@
   .pa-widgets{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px}
   .pa-w{background:#fff;border:1px solid #d5d9dc}.pa-w h4{margin:0;padding:6px 9px;background:#eceff1;border-bottom:1px solid #d5d9dc;font-size:12px}
   .pa-w .b{padding:8px 10px}.pa-kv{display:grid;grid-template-columns:150px 1fr;gap:4px}.pa-kv span{color:#666}
-  .pa-ports{display:flex;flex-wrap:wrap;gap:4px}.pa-ports i{width:22px;height:22px;background:#9aa3aa;display:grid;place-items:center;font-style:normal;color:#fff;font-size:9px}
-  .pa-ports i.up{background:#43a047}.pa-ports i.down{background:#e53935}
+  .pa-ports{display:flex;flex-wrap:wrap;gap:10px}.pa-ports span{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#555;cursor:pointer}
+  .pa-ports i{width:30px;height:26px;border-radius:2px;background:#9aa3aa;display:block}.pa-ports .up i{background:#43a047}.pa-ports .down i{background:#e53935}
+  .pa-ports span:hover i{filter:brightness(1.15)}.pa-legend{display:flex;gap:14px;color:#666;margin-top:10px}.pa-legend i{display:inline-block;width:10px;height:10px;margin-right:5px}
   .px-shade.panos .px-dialog{border-radius:2px;font:12px Arial}.px-shade.panos .px-dtitle{background:#27323c;color:#fff}
   .px-shade.panos .px-dfoot button{border:1px solid #9aa3aa;background:#fff;padding:5px 18px;cursor:pointer;font:12px Arial}.px-shade.panos .px-dfoot button.pri{background:#0b6ea8;color:#fff;border-color:#0b6ea8}
   .pa-dtabs{display:flex;gap:2px;border-bottom:1px solid #d5d9dc;margin-bottom:10px}.pa-dtabs a{padding:6px 10px;cursor:pointer;color:#555}.pa-dtabs a.on{border-bottom:3px solid #0b6ea8;color:#000}
@@ -1451,13 +1452,15 @@
       <span>MGT IP Address</span><b>${h(ipOf(Object.values(n.interfaces).find(Boolean) || '') || '—')}</b><span>Model</span><b>${h(d.model)}</b><span>Serial #</span><b>—</b>
       <span>Software Version</span><b>sous-ensemble Network LABS</b><span>Application Version</span><b>—</b><span>Threat Version</span><b>—</b><span>Uptime</span><b>${running() ? 'en marche' : 'lab arrêté'}</b>
       <span>Time</span><b>${new Date().toLocaleString('fr-FR')}</b></div></div>
-      <div class="pa-w"><h4>Interfaces</h4><div class="b"><div class="pa-ports">${d.ports.map(p => `<i class="${p.down ? 'down' : p.peer ? 'up' : ''}" title="${h(p.name)}">${h(p.name.split('/').pop())}</i>`).join('')}</div>
-        <p style="color:#666">■ up &nbsp; ■ down &nbsp; ■ not connected</p></div></div>
+      <div class="pa-w"><h4>Interfaces</h4><div class="b"><div class="pa-ports">${d.ports.map((p, i) => `<span class="${p.down ? 'down' : p.peer ? 'up' : ''}" data-pi="${i}"
+        title="${h(p.name + (p.peer ? ' → ' + p.peer : ' · not connected'))}"><i></i>${h(p.name)}</span>`).join('')}</div><div class="pa-legend"><span><i style="background:#43a047"></i>up</span>
+        <span><i style="background:#e53935"></i>down</span><span><i style="background:#9aa3aa"></i>not connected</span></div></div></div>
       <div class="pa-w"><h4>System Resources</h4><div class="b pa-kv"><span>Management CPU</span><b>${running() ? '2%' : '—'}</b><span>Data Plane CPU</span><b>${running() ? '0%' : '—'}</b>
         <span>Session Count</span><b>${state.live && state.live.sessions ? state.live.sessions.length : 0} / 64000</b></div></div>
       <div class="pa-w"><h4>Logged In Admins</h4><div class="b">${table('pa-t', ['Admin', 'From', 'Client', 'Session Start'], [tr(['admin', '127.0.0.1', 'Web', new Date().toLocaleTimeString('fr-FR')])])}</div></div>
       <div class="pa-w"><h4>Config Logs</h4><div class="b">${pending() ? `${pending()} change(s) not committed` : 'No data available.'}</div></div>
       <div class="pa-w"><h4>Security Policies</h4><div class="b pa-kv"><span>Rules</span><b>${f.rules.length}</b><span>NAT</span><b>${(f.nat || []).length}</b></div></div></div>`;
+    main.querySelectorAll('[data-pi]').forEach(port => { port.onclick = () => paEditIf(d.ports[Number(port.dataset.pi)]); });
   }
   function paSecurity(main) {
     const f = candidateFw();
