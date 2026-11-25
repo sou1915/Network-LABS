@@ -504,7 +504,7 @@
   .sw-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}.sw-bar .grow{flex:1}
   .sw-btn{border:1px solid #1162b0;background:#fff;color:#1162b0;padding:5px 12px;border-radius:3px;cursor:pointer}.sw-btn.pri{background:#1162b0;color:#fff}
   .sw-t{width:100%;border-collapse:collapse;background:#fff;border:1px solid #dde3e8}.sw-t th{text-align:left;padding:8px;background:#f7f9fa;border-bottom:1px solid #dde3e8;white-space:nowrap}
-  .sw-t td{padding:8px;border-bottom:1px solid #edf1f4;white-space:nowrap}.sw-t a{color:#1162b0;cursor:pointer}.sw-ok{color:#2e7d32}.sw-no{color:#c62828}
+  .sw-t td{padding:8px;border-bottom:1px solid #edf1f4;white-space:nowrap}.sw-t.wrap th,.sw-t.wrap td{white-space:normal}.sw-t a{color:#1162b0;cursor:pointer}.sw-ok{color:#2e7d32}.sw-no{color:#c62828}
   .sw-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.sw-card{background:#fff;border:1px solid #dde3e8;padding:12px}.sw-card h3{margin:0 0 8px;font-size:14px}
   .px-shade.sonicos .px-dtitle{background:#212e3a;color:#fff}.px-shade.sonicos .px-dfoot button{border:1px solid #1162b0;background:#fff;color:#1162b0;padding:5px 16px;cursor:pointer}
   .px-shade.sonicos .px-dfoot button.pri{background:#1162b0;color:#fff}
@@ -592,7 +592,7 @@
   }
   function swNat(main) {
     const nat = fw().nat || [];
-    main.insertAdjacentHTML('beforeend', `<div class="sw-bar"><span class="grow"></span><button class="sw-btn pri add">＋ Add</button></div>${table('sw-t', ['#', 'Name', 'Source Original',
+    main.insertAdjacentHTML('beforeend', `<div class="sw-bar"><span class="grow"></span><button class="sw-btn pri add">＋ Add</button></div>${table('sw-t wrap', ['#', 'Name', 'Source Original',
       'Source Translated', 'Destination Original', 'Destination Translated', 'Service Original', 'Service Translated', 'Inbound', 'Outbound', ''], nat.map((r, i) => tr([String(i + 1),
         `<a data-e="${i}">${h(r.name)}</a>`, h(r.source || 'Any'), h(r.type === 'masquerade' ? `${r.out ? portName(r.out) : 'X1'} IP` : r.type === 'snat' ? r.to : 'Original'),
         h(r.destination || 'Any'), h(r.type === 'dnat' ? r.to : 'Original'), h(r.protocol && r.protocol !== 'any' ? svc(r) : 'Any'), h(r.to_port || 'Original'),
@@ -792,8 +792,10 @@
   .hw-btn.pri{background:#0067b8;color:#fff}.hw-t{width:100%;border-collapse:collapse}.hw-t th{background:#f5f7fa;text-align:left;padding:7px 10px;border-bottom:1px solid #ebeef5;white-space:nowrap}
   .hw-t td{padding:7px 10px;border-bottom:1px solid #ebeef5;white-space:nowrap}.hw-t a{color:#0067b8;cursor:pointer;margin-right:10px}.hw-up{color:#2e7d32}.hw-dn{color:#c62828}
   .hw-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.hw-kv{display:grid;grid-template-columns:140px 1fr;gap:6px}.hw-kv span{color:#777}
-  .hw-ports{display:flex;gap:4px;flex-wrap:wrap;background:#3b4a5c;padding:10px}.hw-ports i{width:26px;height:20px;background:#22303e;border:2px solid #61707f;font-style:normal;color:#ccc;font-size:9px;display:grid;place-items:center}
-  .hw-ports i.up{border-color:#46b14a}.hw-ports i.down{border-color:#d9363e}.hw-ports i.spare{opacity:.35}
+  .hw-ports{display:grid;grid-template-rows:repeat(2,28px);grid-auto-flow:column;grid-auto-columns:34px;gap:6px;justify-content:start;overflow-x:auto;
+    background:linear-gradient(#46576b,#324153);padding:12px 14px;border-radius:3px;box-shadow:inset 0 1px 0 #5a6c80}
+  .hw-ports i{background:#141d26;border:2px solid #61707f;border-radius:2px;font-style:normal;color:#b9c3cd;font-size:10px;display:grid;place-items:center}
+  .hw-ports i.up{border-color:#46b14a;color:#fff;box-shadow:0 0 6px rgba(70,177,74,.5)}.hw-ports i.down{border-color:#d9363e}.hw-ports i.spare{opacity:.35}
   .hw-cfg{background:#fff;font:12px Consolas,monospace;white-space:pre;padding:10px;border:1px solid #dcdfe6;max-height:60vh;overflow:auto}
   .px-shade.huawei .px-dtitle{background:#2b3b4e;color:#fff}.px-shade.huawei .px-dfoot button{border:1px solid #0067b8;background:#fff;color:#0067b8;padding:4px 14px;cursor:pointer}
   .px-shade.huawei .px-dfoot button.pri{background:#0067b8;color:#fff}
@@ -895,10 +897,22 @@
       }], ['Cancel']]);
     }; });
   }
+  // Port lists the way VRP writes them: GE0/0/1 to GE0/0/8, GE0/0/10.
+  function hwRange(ports) {
+    const runs = [];
+    for (const port of ports) {
+      const short = hwName(port.name).replace('GigabitEthernet', 'GE'), cut = short.lastIndexOf('/') + 1;
+      const head = short.slice(0, cut), n = Number(short.slice(cut)), last = runs[runs.length - 1];
+      if (!cut || !Number.isFinite(n)) runs.push({head: short, from: '', to: ''});
+      else if (last && last.head === head && last.to === n - 1) last.to = n;
+      else runs.push({head, from: n, to: n});
+    }
+    return runs.map(r => (r.from === r.to ? `${r.head}${r.from}` : `${r.head}${r.from} to ${r.head}${r.to}`)).join(', ');
+  }
   function hwVlans(main) {
     const d = D();
     main.innerHTML = hwPanel('VLAN', table('hw-t', ['VLAN ID', 'Description', 'Untagged Ports', 'Tagged Ports', 'Operation'], vlans().map(v => tr([String(v), v === 1 ? 'default' : `VLAN ${String(v).padStart(4, '0')}`,
-      h(d.ports.filter(p => member(p.port, v) === 'U').map(p => hwName(p.name)).join(', ')), h(d.ports.filter(p => member(p.port, v) === 'T').map(p => hwName(p.name)).join(', ')),
+      h(hwRange(d.ports.filter(p => member(p.port, v) === 'U'))), h(hwRange(d.ports.filter(p => member(p.port, v) === 'T'))),
       v === 1 ? '' : `<a data-x="${v}">Delete</a>`]))), '<button class="hw-btn pri add">Create</button>');
     main.querySelector('.add').onclick = () => dialog('huawei', 'Create VLAN', field('VLAN ID', input('hwV', '', 'placeholder="2-4094, ex. 10 20"')), [['OK', 'pri', async b => {
       const ids = val(b, '#hwV').split(/[ ,]+/).filter(Boolean);
@@ -1011,22 +1025,65 @@
   .uf-ports{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-bottom:14px}.uf-ports i{height:34px;border-radius:5px;background:#e9ebee;display:grid;place-items:center;font-style:normal;cursor:pointer;font-size:12px}
   .uf-ports i.up{background:#d9f2df;color:#1d7a33}.uf-ports i.sel{outline:2px solid #006fff}.uf-btn{border:0;background:#006fff;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer}
   .uf-btn.sec{background:#eceef1;color:#212327}
+  .uf-h{margin:0 0 12px;font-weight:normal;font-size:20px}.uf-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .uf-card{background:#fff;border-radius:8px;padding:14px 16px}.uf-card span{color:#808893}.uf-card b{display:block;font-size:24px;font-weight:600;margin-top:6px}
+  .uf-card small{color:#808893}.uf-wide{background:#fff;border-radius:8px;padding:14px 16px;margin-bottom:16px}.uf-wide h3{margin:0 0 10px;font-size:14px}
+  .uf-wide .uf-ports{grid-template-columns:repeat(auto-fill,minmax(34px,1fr));margin:0}.uf-wide .uf-ports i{cursor:default}.uf-ports i.down{background:#fde2e1;color:#c0392b}
+  .uf-tree{display:flex;flex-direction:column;align-items:center;gap:0;padding:20px 0}.uf-node{background:#fff;border:1px solid #e3e5e8;border-radius:10px;padding:10px 16px;
+    min-width:150px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.05)}.uf-node small{display:block;color:#808893}.uf-node.me{border:2px solid #006fff}
+  .uf-link{width:2px;height:28px;background:#c7ccd3}.uf-row{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;position:relative;padding-top:14px;border-top:2px solid #c7ccd3}
+  .uf-row .uf-node{position:relative}.uf-row .uf-node::before{content:'';position:absolute;top:-16px;left:50%;width:2px;height:14px;background:#c7ccd3}
   `);
   SKINS.unifi = {
     start: {page: 'devices', open: null, tab: 'Ports', port: 0},
     draw(root) {
       const v = V();
-      root.innerHTML = `<nav class="uf-rail">${[['◎', 'dashboard'], ['▦', 'devices'], ['☺', 'clients'], ['⌗', 'topology'], ['▤', 'stats'], ['⚙', 'networks']].map(([icon, page]) =>
-        `<a data-go="${page}" class="${page === v.page ? 'on' : ''}" title="${page}">${icon}</a>`).join('')}</nav><div><div class="uf-top"><b>Network</b><span>Default</span><span class="grow"></span>
+      root.innerHTML = `<nav class="uf-rail">${UF_RAIL.map(([icon, page, title]) =>
+        `<a data-go="${page}" class="${page === v.page ? 'on' : ''}" title="${title}">${icon}</a>`).join('')}</nav><div><div class="uf-top"><b>Network</b><span>Default</span><span class="grow"></span>
         <span>${h(N().name)} · sous-ensemble Network LABS</span></div><main class="uf-main"></main></div>`;
       root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => go(a.dataset.go); });
       const main = root.querySelector('main');
-      ({devices: ufDevices, networks: ufNetworks}[v.page] || (m => { m.innerHTML = naBox(v.page, 'La console UniFi gère tout un site ; ici, ce switch du laboratoire (UniFi Devices, Networks).'); }))(main);
+      ({dashboard: ufDashboard, devices: ufDevices, clients: ufClients, topology: ufTopology, stats: ufInsights, networks: ufNetworks}[v.page] || ufDevices)(main);
     },
   };
+  const UF_RAIL = [['◎', 'dashboard', 'Dashboard'], ['▦', 'devices', 'UniFi Devices'], ['☺', 'clients', 'Client Devices'], ['⌗', 'topology', 'Topology'], ['▤', 'stats', 'Insights'],
+    ['⚙', 'networks', 'Settings · Networks']];
+  // What is cabled to the switch, as UniFi sorts it: hosts are clients, routers, firewalls and switches are network devices.
+  const roleOf = name => ((state.equipment || []).find(e => e.name === name) || {}).role;
+  const ufNet = port => (pvid(port) === 1 ? 'Default' : `VLAN ${pvid(port)}`);
+  const ufClientPorts = () => D().ports.filter(p => p.peer && roleOf(peerName(p)) === 'host');
+  const ufUplinks = () => D().ports.filter(p => p.peer && roleOf(peerName(p)) !== 'host');
+  function ufDashboard(main) {
+    const d = D(), up = d.ports.filter(p => portLink(p) === 'up').length;
+    main.innerHTML = `<h2 class="uf-h">Dashboard</h2><div class="uf-cards"><div class="uf-card"><span>UniFi Devices</span><b>1</b><small>${running() ? '1 online' : '1 offline'}</small></div>
+      <div class="uf-card"><span>Client Devices</span><b>${ufClientPorts().length}</b><small>wired</small></div><div class="uf-card"><span>Ports</span><b>${up} / ${d.ports.length}</b><small>connected</small></div>
+      <div class="uf-card"><span>Networks</span><b>${vlans().length}</b><small>${h(vlans().map(x => (x === 1 ? 'Default' : x)).join(', '))}</small></div></div>
+      <div class="uf-wide"><h3>${h(N().name)} · ${h(d.model)}</h3><div class="uf-ports">${d.ports.map((x, i) => `<i class="${portLink(x)}" title="${h(x.name + (x.peer ? ' → ' + x.peer : ''))}">${i + 1}</i>`)
+        .join('')}</div></div><div class="uf-wide"><h3>Uplink</h3>${ufUplinks().length ? h(ufUplinks().map(p => `${p.peer} (port ${d.ports.indexOf(p) + 1})`).join(' · ')) : 'No uplink'}</div>`;
+  }
+  function ufClients(main) {
+    const d = D(), rows = ufClientPorts();
+    main.innerHTML = `<h2 class="uf-h">Client Devices</h2><table class="uf-t"><thead><tr><th>Name</th><th>Connection</th><th>Network</th><th>Uplink</th><th>Experience</th></tr></thead><tbody>${rows.length
+      ? rows.map(p => `<tr><td><b>${h(peerName(p))}</b></td><td>Wired · Port ${d.ports.indexOf(p) + 1}</td><td>${h(ufNet(p.port))}</td><td>${h(N().name)}</td><td>${running() ? 'Excellent' : '—'}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="uf-off">No clients connected to this switch.</td></tr>'}</tbody></table>`;
+  }
+  function ufTopology(main) {
+    const d = D(), node = (name, sub, me = false) => `<div class="uf-node${me ? ' me' : ''}"><b>${h(name)}</b><small>${h(sub)}</small></div>`;
+    main.innerHTML = `<h2 class="uf-h">Topology</h2><div class="uf-tree">${ufUplinks().map(p => node(peerName(p), `${roleOf(peerName(p))} · port ${d.ports.indexOf(p) + 1}`)).join('')}
+      ${ufUplinks().length ? '<div class="uf-link"></div>' : ''}${node(N().name, d.model, true)}${ufClientPorts().length ? `<div class="uf-link"></div><div class="uf-row">${ufClientPorts().map(p =>
+        node(peerName(p), `Port ${d.ports.indexOf(p) + 1} · ${ufNet(p.port)}`)).join('')}</div>` : ''}</div>`;
+  }
+  function ufInsights(main) {
+    const d = D();
+    main.innerHTML = `<h2 class="uf-h">Insights · Port Insights</h2><table class="uf-t"><thead><tr><th>Port</th><th>Name</th><th>Status</th><th>Speed</th><th>Native Network</th><th>Tagged</th>
+      <th>Connected to</th><th>RX / TX</th></tr></thead><tbody>${d.ports.map((p, i) => { const pol = policy(p.port), link = portLink(p);
+      return `<tr><td>${i + 1}</td><td>${h(p.name)}</td><td class="${link === 'up' ? 'uf-on' : 'uf-off'}">${link === 'up' ? '● Up' : link === 'down' ? '○ Disabled' : '○ Down'}</td>
+        <td>${link === 'up' ? 'GbE' : '—'}</td><td>${h(ufNet(p.port))}</td><td>${pol.mode === 'trunk' ? h(pol.allowed === 'all' ? 'Allow All' : pol.allowed.join(', ')) : 'Block All'}</td>
+        <td>${h(p.peer || '—')}</td><td>${running() && link === 'up' ? '0 B / 0 B' : '—'}</td></tr>`; }).join('')}</tbody></table>`;
+  }
   function ufDevices(main) {
     const d = D(), v = V(), up = d.ports.filter(p => p.peer && !p.down).length;
-    main.innerHTML = `<h2 style="margin:0 0 12px;font-weight:normal">UniFi Devices</h2><table class="uf-t"><thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Ports</th><th>Uplink</th><th>Experience</th></tr></thead>
+    main.innerHTML = `<h2 class="uf-h">UniFi Devices</h2><table class="uf-t"><thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Ports</th><th>Uplink</th><th>Experience</th></tr></thead>
       <tbody><tr class="click"><td><b>${h(N().name)}</b></td><td>${h(d.model.replace('UniFi ', ''))}</td><td class="${running() ? 'uf-on' : 'uf-off'}">${running() ? '● Online' : '○ Offline'}</td>
       <td>${up} / ${d.ports.length}</td><td>${h((d.ports.find(p => p.peer) || {}).peer || '—')}</td><td>${running() ? 'Excellent' : '—'}</td></tr></tbody></table>`;
     main.querySelector('tr.click').onclick = () => { v.open = true; render(); };
@@ -1059,7 +1116,7 @@
     };
   }
   function ufNetworks(main) {
-    main.innerHTML = `<h2 style="margin:0 0 12px;font-weight:normal">Settings · Networks</h2><p><button class="uf-btn add">Create New Network</button></p><table class="uf-t"><thead><tr><th>Name</th><th>VLAN ID</th>
+    main.innerHTML = `<h2 class="uf-h">Settings · Networks</h2><p><button class="uf-btn add">Create New Network</button></p><table class="uf-t"><thead><tr><th>Name</th><th>VLAN ID</th>
       <th>Ports (native)</th><th></th></tr></thead><tbody>${vlans().map(x => `<tr><td>${x === 1 ? 'Default' : `VLAN ${x}`}</td><td>${x}</td><td>${h(D().ports.filter(p => pvid(p.port) === x).map(p => p.name).join(', '))}</td>
       <td>${x === 1 ? '' : `<a data-x="${x}" style="color:#e5484d;cursor:pointer">Remove</a>`}</td></tr>`).join('')}</tbody></table>`;
     main.querySelector('.add').onclick = () => dialog('unifi', 'Create New Network', `${field('Network Name', input('n', ''))}${field('VLAN ID', input('ufVid', '', 'placeholder="2-4094"'))}`,
@@ -1097,6 +1154,9 @@
     },
   };
   const tpPortNo = p => `Port ${D().ports.indexOf(p) + 1}`;
+  // Port numbers the way the switch lists them: 1-4,7
+  const tpRange = numbers => numbers.reduce((runs, n) => { const last = runs[runs.length - 1]; if (last && last[1] === n - 1) last[1] = n; else runs.push([n, n]); return runs; }, [])
+    .map(([a, b]) => (a === b ? String(a) : `${a}-${b}`)).join(',');
   function tpSys(main) {
     main.innerHTML = `<div class="tp-title">System Info</div><table class="tp-t"><tbody><tr><td class="l">Device Description</td><td style="text-align:left">${input('tpName', N().name)}
       <button class="tp-btn apply">Apply</button></td></tr>${[['MAC Address', '—'], ['IP Address', '—'], ['Subnet Mask', '—'], ['Default Gateway', '—'], ['Firmware Version', 'Network LABS'],
@@ -1128,9 +1188,9 @@
         return `<tr><td>${tpPortNo(p)}</td>${['U', 'T', ''].map(c => `<td><input type="radio" name="m-${h(p.port)}" value="${c}" ${m === c ? 'checked' : ''}></td>`).join('')}</tr>`; }).join('')}</tbody></table>
       <button class="tp-btn add">Add/Modify</button><button class="tp-btn del">Delete</button><div class="px-err"></div>
       <table class="tp-t" style="margin-top:10px"><thead><tr><th>VLAN ID</th><th>VLAN Name</th><th>Member Ports</th><th>Tagged Ports</th><th>Untagged Ports</th></tr></thead><tbody>${vlans().map(x => {
-        const tagged = d.ports.filter(p => member(p.port, x) === 'T').map(tpPortNo), untagged = d.ports.filter(p => member(p.port, x) === 'U').map(tpPortNo);
-        return `<tr data-v="${x}" class="${x === vid ? 'sel' : ''}" style="cursor:pointer"><td>${x}</td><td>${x === 1 ? 'Default_VLAN' : `VLAN${x}`}</td><td>${h([...untagged, ...tagged].join(', '))}</td>
-          <td>${h(tagged.join(', '))}</td><td>${h(untagged.join(', '))}</td></tr>`; }).join('')}</tbody></table>
+        const pick = mark => d.ports.filter(p => mark.includes(member(p.port, x))).map(p => d.ports.indexOf(p) + 1);
+        return `<tr data-v="${x}" class="${x === vid ? 'sel' : ''}" style="cursor:pointer"><td>${x}</td><td>${x === 1 ? 'Default_VLAN' : `VLAN${x}`}</td><td>${tpRange(pick('UT'))}</td>
+          <td>${tpRange(pick('T'))}</td><td>${tpRange(pick('U'))}</td></tr>`; }).join('')}</tbody></table>
       <p class="tp-note"><b>Note:</b> un port est non étiqueté (Untagged) dans un seul VLAN ; Tagged en fait un trunk 802.1Q.</p>`;
     main.querySelectorAll('tr[data-v]').forEach(row => { row.onclick = () => { v.vid = Number(row.dataset.v); render(); }; });
     followVid(main, '#tpVid', 'm-');

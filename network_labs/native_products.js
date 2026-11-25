@@ -73,8 +73,10 @@
     clearTimeout(toast.timer);
     toast.timer = setTimeout(() => box.remove(), bad ? 7000 : 4200);
   }
+  let sending = 0;  // saves in flight: the page does not refresh itself under them
   async function send(path, data) {
-    state = await request(path, {node, revision: state.revision, ...data});
+    sending += 1;
+    try { state = await request(path, {node, revision: state.revision, ...data}); } finally { sending -= 1; }
     node = state.node.name;
     return state;
   }
@@ -137,10 +139,19 @@
       button.type = 'button'; button.className = kind || ''; button.textContent = label;
       button.onclick = async () => {
         if (!action) return close();
+        const all = [...foot.querySelectorAll('button')];
+        all.forEach(b => { b.disabled = true; });  // one save at a time, as on the products
         try { const keep = await action(shade); if (!keep) close(); } catch (error) { shade.querySelector('.px-err').textContent = error.message; }
+        finally { all.forEach(b => { b.disabled = false; }); }
       };
       foot.append(button);
     }
+    // Enter in a field confirms the window, as on the products.
+    shade.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+      event.preventDefault();
+      (foot.querySelector('button.pri') || foot.firstElementChild)?.click();
+    });
     app.append(shade);
     shade.querySelector('input,select')?.focus();
     return shade;
@@ -266,7 +277,7 @@
   :where(.px-app) input[type=checkbox],:where(.px-app) input[type=radio]{all:revert}:where(.px-app) input[type=checkbox]::after{content:none}
   :where(.px-app) label{all:revert}:where(.px-app) table{font-size:inherit}
   :where(.px-app) th,:where(.px-app) td{padding:revert;border:revert;background:revert;text-align:revert}
-  :where(.px-app) tr:last-child td{border-bottom:revert}:where(.px-app) h1,:where(.px-app) h2{font-size:revert;margin:revert}
+  :where(.px-app) main{min-width:0}:where(.px-app) tr:last-child td{border-bottom:revert}:where(.px-app) h1,:where(.px-app) h2{font-size:revert;margin:revert}
   .px-app{min-height:100vh;font:13px Arial,Helvetica,sans-serif}
   .px-pill{position:fixed;right:14px;bottom:14px;z-index:12;font:12px Inter,Arial,sans-serif}
   .px-pill-main{background:rgba(23,40,58,.88);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;cursor:pointer;
@@ -569,9 +580,11 @@
   .ix-kv{display:grid;grid-template-columns:150px 1fr;gap:7px}.ix-kv span{color:#6c757d}
   .ix-gauge{width:120px;height:120px;border-radius:50%;margin:6px auto;display:grid;place-items:center}
   .ix-gauge b{width:92px;height:92px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:20px}
-  .ix-panel{display:flex;gap:4px;flex-wrap:wrap;background:#3a4450;padding:12px;border-radius:2px}
-  .ix-port{width:30px;height:24px;border-radius:2px;background:#1d242b;border:2px solid #56606a;color:#cfd6dd;font-size:9px;display:grid;place-items:center}
-  .ix-port.up{border-color:#6cc04a}.ix-port.down{border-color:#cf2030}
+  .ix-panel{display:flex;gap:12px;flex-wrap:wrap;background:linear-gradient(#4a5561,#353e48);padding:14px 16px 10px;border-radius:3px;box-shadow:inset 0 1px 0 #5d6976}
+  .ix-port{display:flex;flex-direction:column;align-items:center;gap:5px;color:#d4dbe2;font-size:10px;cursor:pointer}
+  .ix-port i{width:34px;height:28px;border-radius:2px;background:#0f1418;border:2px solid #5b6570;position:relative}
+  .ix-port i::after{content:'';position:absolute;left:10px;right:10px;bottom:-2px;height:7px;background:#353e48}
+  .ix-port.up i{border-color:#6cc04a;box-shadow:0 0 7px rgba(108,192,74,.55)}.ix-port.down i{border-color:#cf2030}.ix-port:hover i{filter:brightness(1.6)}
   .ix-legend{display:flex;gap:14px;font-size:12px;color:#6c757d;margin-top:8px}.ix-legend i{display:inline-block;width:10px;height:10px;margin-right:5px;border:2px solid}
   .ix-tools{display:flex;gap:8px;margin-bottom:8px}
   .ix-btn{border:1px solid #049fd9;color:#049fd9;background:#fff;padding:6px 14px;border-radius:2px;cursor:pointer;font:inherit}
@@ -635,19 +648,22 @@
   const ixMaskLine = cidr => (cidr ? `${ipOf(cidr)} ${maskOf(lenOf(cidr))}` : '');
   function ixDashboard(main) {
     const d = D(), n = N(), up = d.ports.filter(p => p.peer && !p.down).length;
-    const gauge = (value, colour) => `<div class="ix-gauge" style="background:conic-gradient(${colour} 0 ${value}%,#e6e8eb ${value}% 100%)"><b>${value}%</b></div>`;
+    // Lab stopped: an empty dial and a dash, not a reading the device never gave.
+    const gauge = (value, colour) => `<div class="ix-gauge" style="background:conic-gradient(${colour} 0 ${value || 0}%,#e6e8eb ${value || 0}% 100%)"><b>${
+      value === null ? '—' : value + '%'}</b></div>`;
     main.insertAdjacentHTML('beforeend', `<div class="ix-grid"><div class="ix-card"><h3>${n.role === 'switch' ? 'Switch View' : 'Interfaces'}</h3><div class="b">
-      <div class="ix-panel">${d.ports.map(p => `<span class="ix-port ${p.down ? 'down' : p.peer ? 'up' : ''}" title="${h(p.name + (p.peer ? ' → ' + p.peer : ''))}">${
-        h(p.name.split('/').pop())}</span>`).join('')}</div><div class="ix-legend"><span><i style="border-color:#6cc04a"></i>Up</span><span><i style="border-color:#cf2030"></i>Admin Down</span>
+      <div class="ix-panel">${d.ports.map((p, i) => `<span class="ix-port ${p.down ? 'down' : p.peer ? 'up' : ''}" data-pi="${i}" title="${h(ios(p.name) + (p.peer ? ' → '
+        + p.peer : ' · not connected'))}"><i></i>${h(p.name.replace(/^[a-z]+/i, ''))}</span>`).join('')}</div><div class="ix-legend"><span><i style="border-color:#6cc04a"></i>Up</span><span><i style="border-color:#cf2030"></i>Admin Down</span>
       <span><i style="border-color:#56606a"></i>Down</span></div></div></div>
-      <div class="ix-card"><h3>CPU Utilization</h3><div class="b">${gauge(running() ? 3 : 0, '#6cc04a')}</div></div>
-      <div class="ix-card"><h3>Memory Utilization</h3><div class="b">${gauge(running() ? 41 : 0, '#049fd9')}</div></div></div>
+      <div class="ix-card"><h3>CPU Utilization</h3><div class="b">${gauge(running() ? 3 : null, '#6cc04a')}</div></div>
+      <div class="ix-card"><h3>Memory Utilization</h3><div class="b">${gauge(running() ? 41 : null, '#049fd9')}</div></div></div>
       <div class="ix-grid"><div class="ix-card"><h3>System Information</h3><div class="b ix-kv"><span>Host name</span><b>${h(n.name)}</b>
       <span>Model</span><b>${h(d.brand)} ${h(d.model.split(' · ')[0])}</b><span>Software</span><b>IOS-XE (sous-ensemble Network LABS)</b>
       <span>Interfaces up</span><b>${up} / ${d.ports.length}</b><span>Uptime</span><b>${running() ? 'en marche' : 'lab arrêté'}</b></div></div>
       <div class="ix-card" style="grid-column:span 2"><h3>Device Configuration</h3><div class="b ix-kv"><span>Routes</span><b>${d.connected.length} connected · ${d.static.length} static</b>
       <span>Protocols</span><b>${h((d.features || []).map(f => f.name).filter((v, i, a) => a.indexOf(v) === i).join(', ') || '—')}</b>
       ${n.role === 'switch' ? `<span>VLANs</span><b>${h(d.vlans.join(', '))}</b>` : ''}</div></div></div>`);
+    main.querySelectorAll('[data-pi]').forEach(port => { port.onclick = () => ixEditIf(d.ports[Number(port.dataset.pi)]); });
   }
   function ixSlide(title, body, onApply, applyLabel = 'Update & Apply to Device') {
     document.querySelector('.ix-slide')?.remove();
@@ -1624,9 +1640,12 @@
   .jw-card .b{padding:12px 14px}.jw-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
   .jw-kv{display:grid;grid-template-columns:150px 1fr;gap:6px}.jw-kv span{color:#78838e}
   .jw-t{width:100%;border-collapse:collapse}.jw-t th{text-align:left;padding:8px 10px;background:#f7f8fa;border-bottom:1px solid #d9dee3;font-weight:600;white-space:nowrap;color:#4b5763}
-  .jw-t td{padding:8px 10px;border-bottom:1px solid #edf0f2;white-space:nowrap}.jw-t tr.sel td{background:#e3f0fa}.jw-t tbody tr:hover td{background:#f4f8fb}
-  .jw-up{color:#84b135}.jw-dn{color:#d0021b}.jw-ports{display:flex;gap:4px;flex-wrap:wrap}.jw-ports i{width:26px;height:20px;border:2px solid #9aa5b0;font-style:normal;font-size:9px;display:grid;place-items:center}
-  .jw-ports i.up{border-color:#84b135;background:#eef6e1}
+  .jw-t td{padding:8px 10px;border-bottom:1px solid #edf0f2;white-space:nowrap}.jw-t.wrap th,.jw-t.wrap td{white-space:normal}.jw-t tr.sel td{background:#e3f0fa}.jw-t tbody tr:hover td{background:#f4f8fb}
+  .jw-up{color:#84b135}.jw-dn{color:#d0021b}.jw-ports{display:flex;gap:12px;flex-wrap:wrap;background:#eef1f4;border:1px solid #dde2e7;padding:12px 14px 8px;border-radius:3px}
+  .jw-pt{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:11px;color:#4b5763;cursor:pointer}
+  .jw-pt i{width:34px;height:28px;border:2px solid #9aa5b0;background:#2f3b47;border-radius:2px;position:relative}
+  .jw-pt i::after{content:'';position:absolute;left:10px;right:10px;top:-2px;height:7px;background:#eef1f4}
+  .jw-pt.up i{border-color:#84b135;box-shadow:0 0 6px rgba(132,177,53,.55)}.jw-pt.down i{border-color:#d0021b}.jw-pt:hover i{filter:brightness(1.4)}
   .jw-slide{position:fixed;top:0;right:0;bottom:0;width:480px;background:#fff;z-index:15;box-shadow:-6px 0 20px rgba(0,0,0,.2);display:flex;flex-direction:column}
   .jw-slide h2{margin:0;padding:16px 18px;font-size:17px;font-weight:normal;border-bottom:1px solid #e6eaee}.jw-slide .body{flex:1;overflow:auto;padding:14px 18px}
   .jw-slide .foot{padding:12px 18px;border-top:1px solid #e6eaee;display:flex;gap:8px;justify-content:flex-end}
@@ -1688,8 +1707,10 @@
       <span>Device Model</span><b>${h(d.model.toLowerCase())}</b><span>Junos Version</span><b>sous-ensemble Network LABS</b><span>Serial Number</span><b>—</b>
       <span>System Uptime</span><b>${running() ? 'en marche' : 'lab arrêté'}</b></div></div><div class="jw-card"><h3>Resource Utilization</h3><div class="b jw-kv"><span>CPU Control Plane</span>
       <b>${running() ? '3%' : '—'}</b><span>Memory</span><b>${running() ? '42%' : '—'}</b><span>Storage</span><b>11%</b></div></div><div class="jw-card"><h3>Alarms</h3><div class="b jw-kv">
-      <span>Major</span><b>0</b><span>Minor</span><b>0</b></div></div></div><div class="jw-card"><h3>Interface Status</h3><div class="b"><div class="jw-ports">${d.ports.map(p =>
-        `<i class="${p.peer && !p.down ? 'up' : ''}" title="${h(p.name)}">${h(p.name.split('/').pop())}</i>`).join('')}</div></div></div>`;
+      <span>Major</span><b>0</b><span>Minor</span><b>0</b></div></div></div><div class="jw-card"><h3>Interface Status</h3><div class="b"><div class="jw-ports">${d.ports.map((p, i) =>
+        `<span class="jw-pt ${p.down ? 'down' : p.peer ? 'up' : ''}" data-pi="${i}" title="${h(p.name + (p.peer ? ' → ' + p.peer : ' · not connected'))}"><i></i>${h(p.name)}</span>`).join('')}
+      </div></div></div>`;
+    main.querySelectorAll('[data-pi]').forEach(port => { port.onclick = () => jwEditIf(d.ports[Number(port.dataset.pi)]); });
   }
   function jwInterfaces(main) {
     const d = D(), fwRole = N().role === 'firewall';
@@ -1736,7 +1757,7 @@
   function jwPolicies(main) {
     const f = candidateFw();
     main.innerHTML = `<h1 class="jw-h">Security Policies</h1><div class="jw-card"><h3>Rules (${f.rules.length})<span class="acts"><a class="add" title="Create">＋</a><a class="edit" title="Edit">✎</a>
-      <a class="del" title="Delete">🗑</a><a class="up">↑</a><a class="down">↓</a></span></h3>${table('jw-t', ['Seq.', 'Rule Name', 'Source Zone', 'Source Addresses', 'Destination Zone',
+      <a class="del" title="Delete">🗑</a><a class="up">↑</a><a class="down">↓</a></span></h3>${table('jw-t wrap', ['Seq.', 'Rule Name', 'Source Zone', 'Source Addresses', 'Destination Zone',
         'Destination Addresses', 'Dynamic Application', 'Services', 'Action', 'Hit Count'], [...f.rules.map((r, i) => tr([String(i + 1), h(r.name), h(r.in ? jwZoneOf(r.in) : 'any'),
         h(r.source || 'any'), h(r.out ? jwZoneOf(r.out) : 'any'), h(r.destination || 'any'), 'None', h(svc(r) === 'any' ? 'any' : `junos-${svc(r).replace('/', '-')}`),
         r.action === 'accept' ? '<span class="jw-up">✔ permit</span>' : '<span class="jw-dn">✖ deny</span>', '0'], `data-r="${i}"`)),
@@ -1884,7 +1905,9 @@ ${h(cliText())}
     moveEntry, wanPort, zoneNames, cleanRule, route, openStandard: target => { standard = true; page = target; render(); }};
 
   // ---- drawing ----
+  let typed = false;  // a field changed since the last drawing: the page does not refresh itself over it
   function draw(id) {
+    typed = false;
     if (view.node !== N().name || view.skin !== id) view = {node: N().name, skin: id, ...JSON.parse(JSON.stringify(SKINS[id].start)), edit: null};
     app.className = 'px-app ' + id;
     SKINS[id].draw(app);
@@ -1916,6 +1939,26 @@ ${h(cliText())}
     if (!pill.isConnected) document.body.append(pill);
     draw(id);
   };
+  app.addEventListener('input', () => { typed = true; });
+  // Changes staged for Apply / Commit are not in the project yet: the browser asks before leaving, as the products do.
+  window.addEventListener('beforeunload', event => {
+    if (!document.body.classList.contains('px') || !pending()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+  // The project changes elsewhere (the application, another page, the lab starting or stopping): the page follows by
+  // itself, but never while something is being done here (a window open, a field typed in, changes staged, a save running).
+  const busy = () => typed || sending || pending() || document.querySelector('.px-shade, .ix-slide, .jw-slide, .uf-panel, .ix-fly, .pf-nav .m.open, .jw-commit.open, .px-pill.open') ||
+    (app.contains(document.activeElement) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName));
+  setInterval(async () => {
+    if (document.hidden || !document.body.classList.contains('px') || !state || busy()) return;
+    let fresh;
+    try { fresh = await request('/api/state?node=' + encodeURIComponent(node)); } catch (error) { return; }
+    const same = fresh.revision === state.revision && fresh.observed === state.observed && JSON.stringify(fresh.live) === JSON.stringify(state.live);
+    if (same || busy() || fresh.node.name !== state.node.name) return;
+    state = fresh;
+    render();
+  }, 4000);
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') { document.querySelector('.px-shade')?.remove(); document.querySelector('.ix-slide,.jw-slide')?.remove(); document.querySelector('.ix-fly')?.remove(); }
   });

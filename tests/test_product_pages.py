@@ -119,8 +119,13 @@ const { chromium } = require('playwright');
   await page.click('.pf-page .save'); await page.click('.pf-alert .apply'); await page.waitForTimeout(500);
   await open('SOPH'); await page.click('[data-go="routing"]'); await page.click('.so-bar .add'); await page.fill('#soNet', '172.17.0.0'); await page.fill('#soMask', '255.255.0.0');
   await page.fill('#soGw', '192.168.99.1'); await ok(); const refused = await page.textContent('.px-shade .px-err');
-  await page.fill('#soGw', '10.71.0.254'); await ok();
-  console.log('RESULT ' + JSON.stringify({seen, errors, greyed, stayed, refused}));
+  await page.fill('#soGw', '10.71.0.254'); await page.press('#soGw', 'Enter'); await page.waitForTimeout(500);  // Enter confirms the window
+  const saved = await page.evaluate(() => state.device.static.map(r => r.network + '>' + r.gateway));
+  const other = await browser.newPage({ viewport: { width: 1440, height: 900 } });  // the same device changed in another tab
+  await other.goto(urls.SOPH); await other.waitForSelector('.px-app'); await other.click('[data-go="routing"]'); await other.click('[data-x="0"]'); await other.waitForTimeout(500);
+  await page.waitForTimeout(5000);
+  const followed = await page.evaluate(() => state.device.static.length);
+  console.log('RESULT ' + JSON.stringify({seen, errors, greyed, stayed, refused, saved, followed}));
   await browser.close();
 })();
 """
@@ -202,7 +207,8 @@ class RunningConfigTest(unittest.TestCase):
         more = SCRIPT.with_name('native_products_more.js').read_text(encoding='utf-8')
         for skin in ('sophos', 'gaia', 'sonicos', 'fireware', 'huawei', 'edgeos', 'unifi', 'tplink', 'netgear', 'dlink', 'aruba', 'devmgr'):
             self.assertIn(f"'{skin}');", more)  # registered with the engine
-        for wording in ('Install Policy', 'Add firewall rule', 'ADD POLICY', '802.1Q VLAN', 'VLAN Membership', 'Device Manager', 'ip route-static'):
+        for wording in ('Install Policy', 'Add firewall rule', 'ADD POLICY', '802.1Q VLAN', 'VLAN Membership', 'Device Manager', 'ip route-static',
+                        'Client Devices', 'Port Insights', 'function hwRange'):
             self.assertIn(wording, more)
         hosts = SCRIPT.with_name('native_products_hosts.js').read_text(encoding='utf-8')
         for skin in ('dsm', 'qts', 'hpews', 'brother', 'axis', 'yealink', 'idrac', 'ilo', 'xcc'):
@@ -360,7 +366,9 @@ class ProductFormsTest(unittest.TestCase):
         self.assertEqual(nodes['CAM-HALL']['interfaces']['eth0'], '192.168.10.124/24')
         from network_labs.appliances.vendor_config import routes
         self.assertEqual(routes(nodes['PFS']), [('172.16.0.0/16', '10.74.0.254')])  # staged, then « Apply Changes »
-        self.assertEqual(routes(nodes['SOPH']), [('172.17.0.0/16', '10.71.0.254')])
+        self.assertEqual(result['saved'], ['172.17.0.0/16>10.71.0.254'])  # saved with Enter
+        self.assertEqual(result['followed'], 0)  # deleted in another tab: the first one followed by itself
+        self.assertEqual(routes(nodes['SOPH']), [])
 
 
 if __name__ == '__main__':
