@@ -221,6 +221,8 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 | Dell, HPE, Lenovo | iDRAC, iLO, XClarity Controller (tableau de bord, inventaire, journal) | Virtual / Remote Console |
 | Windows 11, Windows 10, Windows Server 2022 | bureau Windows : Paramètres › Réseau et Internet › Ethernet, Panneau de configuration › Connexions réseau › Propriétés TCP/IPv4, Invite de commandes (`ipconfig`), Gestionnaire de serveur | Enregistrer / OK |
 
+Chaque page s'ouvre d'abord sur la page de connexion du produit, une fois par équipement et par onglet, avec ses
+identifiants d'usine (admin / pfsense, root / calvin, ubnt / ubnt…) rappelés sous le formulaire.
 Les produits sans interface web (VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS, Extreme EXOS) montrent leur
 console et leur configuration. Les NAS, imprimantes, caméras et téléphones enregistrent leur adresse (DHCP ou fixe,
 masque, passerelle) comme la « Configuration IP » d'un PC ; les cartes de gestion des serveurs ouvrent la console du
@@ -228,7 +230,8 @@ serveur. Les PC et serveurs Windows s'ouvrent sur leur bureau Windows : écran d
 fenêtres déplaçables, agrandies ou réduites dans la barre des tâches, clic droit, notifications, Terminal et
 Explorateur à onglets. Polices et icônes libres publiées par Microsoft : Selawik (pour Segoe UI), Cascadia Mono (le
 Terminal) et les Fluent UI System Icons (licence MIT) ; le logo Windows et le fond d'écran officiel ne sont pas copiés.
-Le menu Network LABS est dans la zone de notification. Les autres PC gardent le bureau Network LABS. Dessinées par
+Le menu Network LABS est dans la zone de notification ; clic droit sur Démarrer : le menu Win+X (Connexions réseau,
+Terminal, Exécuter…) ; « Exécuter » ouvre ncpa.cpl, cmd, control. Les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
 du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
 comme l'atelier) et **Simple** (clair).

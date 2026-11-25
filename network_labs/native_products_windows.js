@@ -366,7 +366,17 @@
   .wn-lock .d{position:absolute;left:0;right:0;top:calc(11% + 132px);text-align:center;font-size:24px;font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,.25)}
   .px-app.win10 .wn-lock .t{left:4.5%;right:auto;top:auto;bottom:calc(9% + 54px);font-weight:300;font-size:110px;text-align:left}
   .px-app.win10 .wn-lock .d{left:4.5%;right:auto;top:auto;bottom:9%;font-weight:300;font-size:38px;text-align:left}
-  .wn-lock .ico{position:absolute;right:28px;bottom:24px;display:flex;gap:18px}.wn-lock .cad{position:absolute;left:0;right:0;bottom:22%;text-align:center;font-size:20px}
+  .wn-lock .ico{position:absolute;right:28px;bottom:24px;display:flex;gap:18px}
+  .wn-signin .wn-wall{filter:blur(18px) brightness(.85);transform:scale(1.08)}.wn-signin .who{position:absolute;left:0;right:0;top:20%;display:flex;flex-direction:column;align-items:center;gap:14px}
+  .wn-signin .who b{font-size:28px;font-weight:600}.wn-signin .go{margin-top:6px;min-width:160px;padding:8px 18px;border-radius:4px;border:1px solid rgba(255,255,255,.4);
+    background:rgba(255,255,255,.18);color:#fff;font:14px 'Segoe UI',Selawik,sans-serif;cursor:default}.wn-signin .go:hover{background:rgba(255,255,255,.3)}
+  .wn-signin small{opacity:.85;margin-top:18px}.wn-signin .spin{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:wnSpin .8s linear infinite;margin-top:80px}
+  @keyframes wnSpin{to{transform:rotate(360deg)}}
+  .wn-winx{left:8px;bottom:56px;width:260px;padding:4px 0;font-size:13px}.px-app.win10 .wn-winx{left:0;bottom:40px}
+  .wn-winx a{display:block;padding:6px 18px;cursor:default}.wn-winx a:hover{background:rgba(0,0,0,.06)}.px-app.win10 .wn-winx a:hover{background:#3a3a3a}
+  .wn-winx hr{border:0;border-top:1px solid rgba(0,0,0,.1);margin:4px 0}.px-app.win10 .wn-winx hr{border-top-color:#444}
+  .wn-run{left:12px;bottom:60px;width:410px;padding:14px 16px;font-size:13px}.px-app.win10 .wn-run{background:#f0f0f0;color:#000;border-radius:0}
+  .wn-run .row{display:flex;gap:14px;align-items:flex-start}.wn-run input{flex:1;padding:4px 6px;font:inherit;border:1px solid #7a7a7a}.wn-run .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.wn-lock .cad{position:absolute;left:0;right:0;bottom:22%;text-align:center;font-size:20px}
   `);
 
   /* =============================== the shell =============================== */
@@ -424,10 +434,14 @@
     front?.querySelector('[data-autofocus]')?.focus({preventScroll: true});
     if (v.fly === 'start') root.append(w11 ? start11() : start10());
     if (v.fly === 'net') root.append(w11 ? quick11() : net10());
+    if (v.fly === 'winx') root.append(winX());
+    if (v.fly === 'run') root.append(runBox());
     const fly = root.querySelector('.wn-fly');
     if (fly && v.flyFresh) fly.classList.add('fresh');
     v.flyFresh = false;
     root.querySelectorAll('[data-start]').forEach(b => { b.onclick = event => { event.stopPropagation(); v.fly = v.fly === 'start' ? null : 'start'; v.flyFresh = true; render(); }; });
+    // A right-click on Start: the Win+X menu (Connexions réseau, Terminal, Exécuter…).
+    root.querySelector('.wn-tb[data-start]').oncontextmenu = event => { event.preventDefault(); event.stopPropagation(); v.fly = 'winx'; v.flyFresh = true; render(); };
     root.querySelectorAll('[data-fly]').forEach(b => { b.onclick = event => { event.stopPropagation(); if (b.dataset.fly === 'cal') return; v.fly = v.fly === 'net' ? null : 'net';
       v.flyFresh = true; render(); }; });
     // A pinned app: opens it, brings it back from the taskbar, or, when it is in front, puts it away there (as Windows does).
@@ -466,17 +480,34 @@
       <div class="ico">${cabled(ports()[0]) ? ICON.ethernet(20) : ICON.offline(20)}${ICON.power(20)}</div>`;
     const enter = () => {
       if (lock.classList.contains('leave')) return;
-      try { sessionStorage.setItem(lockKey(), '1'); } catch (error) { /* private window: the session opens for this page only */ }
       lock.classList.add('leave');
-      setTimeout(() => { V().locked = false; render(); }, 360);
+      setTimeout(() => { lock.replaceWith(signIn()); }, 360);
     };
     lock.onclick = enter;
     return lock;
   }
+  // After the lock screen, Windows' sign-in: the account's picture and name; a local account without a password signs in with a click.
+  function signIn() {
+    const screen = document.createElement('div');
+    screen.className = 'wn-lock wn-signin';
+    const user = SERVER() ? 'Administrateur' : 'Utilisateur';
+    screen.innerHTML = `<div class="wn-wall"></div><div class="who">${ICON.user(190)}<b>${user}</b><button class="go" type="button">Se connecter</button>
+      <small>Options de connexion</small></div><div class="ico">${cabled(ports()[0]) ? ICON.ethernet(20) : ICON.offline(20)}${FX('accessibility', 20)}${ICON.power(20)}</div>`;
+    const go = () => {
+      try { sessionStorage.setItem(lockKey(), '1'); } catch (error) { /* private window: the session opens for this page only */ }
+      screen.classList.add('welcome');
+      screen.querySelector('.who').innerHTML = '<span class="spin"></span><b>Bienvenue</b>';
+      setTimeout(() => { V().locked = false; render(); }, 700);
+    };
+    screen.querySelector('.go').onclick = go;
+    setTimeout(() => screen.querySelector('.go')?.focus());
+    return screen;
+  }
   // One listener for every drawing of the lock screen: a key opens the session like a click.
-  document.addEventListener('keydown', () => {
-    const lock = document.querySelector('.wn-lock');
+  document.addEventListener('keydown', event => {
+    const lock = document.querySelector('.wn-lock:not(.wn-signin)');
     if (lock && !lock.classList.contains('leave')) lock.click();
+    else if (event.key === 'Enter' && document.querySelector('.wn-signin:not(.welcome) .go')) document.querySelector('.wn-signin .go').click();
   });
   function context(root, event, items) {
     root.querySelector('.wn-ctx')?.remove();
@@ -529,6 +560,43 @@
       V().fly = null;
       if (found) OPEN[found](); else { render(); toast(`Aucun résultat pour « ${box.value} ».`, true); }
     };
+  }
+  function winX() {
+    const fly = document.createElement('div');
+    fly.className = 'wn-fly wn-winx';
+    const items = [['Applications installées', null], ['Options d’alimentation', null], ['Observateur d’événements', null], ['Système', () => openWin('settings', {page: W11() ? 'system' : 'about'})],
+      ['Gestionnaire de périphériques', null], ['Connexions réseau', () => openWin('cpl', {page: 'ncpa'})], ['Gestion des disques', null], ['Gestion de l’ordinateur', null], ['-'],
+      [W11() ? 'Terminal' : 'Windows PowerShell', () => openWin('cmd')], [W11() ? 'Terminal (administrateur)' : 'Windows PowerShell (admin)', () => openWin('cmd')],
+      ['Gestionnaire des tâches', null], ['Paramètres', () => openWin('settings')], ['Explorateur de fichiers', () => openWin('explorer', {page: 'pc'})], ['Rechercher', () => { V().fly = 'start'; render(); }],
+      ['Exécuter', () => { V().fly = 'run'; V().flyFresh = true; render(); }], ['-'], ['Arrêter ou se déconnecter', null], ['Bureau', () => { V().fly = null; render(); }]];
+    fly.innerHTML = items.map(([label]) => (label === '-' ? '<hr>' : `<a>${h(label)}</a>`)).join('');
+    [...fly.querySelectorAll('a')].forEach((a, i) => { const [label, act] = items.filter(([l]) => l !== '-')[i];
+      a.onclick = event => { event.stopPropagation(); V().fly = null; if (act) act(); else { render(); later(label); } }; });
+    fly.onclick = event => event.stopPropagation();
+    return fly;
+  }
+  // « Exécuter » (Win+R): ncpa.cpl, cmd, control… open their windows.
+  function runBox() {
+    const fly = document.createElement('div');
+    fly.className = 'wn-fly wn-run';
+    fly.innerHTML = `<b style="font-weight:600">Exécuter</b><div class="row" style="margin-top:12px">${ICON.cmd(32)}<span>Entrez le nom d’un programme, dossier, document ou ressource Internet,
+      et Windows l’ouvrira pour vous.</span></div><div class="row" style="margin-top:14px;align-items:center"><span>Ouvrir :</span><input class="what" value="ncpa.cpl"></div>
+      <div class="btns"><button class="wn-btn def ok">OK</button><button class="wn-btn cancel">Annuler</button><button class="wn-btn" disabled>Parcourir...</button></div>`;
+    fly.onclick = event => event.stopPropagation();
+    const run = () => {
+      const what = fly.querySelector('.what').value.trim().toLowerCase();
+      const open = {'ncpa.cpl': () => openWin('cpl', {page: 'ncpa'}), control: () => openWin('cpl', {page: 'home'}), cmd: () => openWin('cmd'), 'cmd.exe': () => openWin('cmd'),
+        powershell: () => openWin('cmd'), wt: () => openWin('cmd'), explorer: () => openWin('explorer', {page: 'pc'}), 'ms-settings:': () => openWin('settings'),
+        'ms-settings:network': () => openWin('settings', {page: 'network'}), servermanager: () => openWin('servermgr', {page: 'dash'})}[what];
+      V().fly = null;
+      if (open) open();
+      else { render(); toast(`Windows ne trouve pas « ${what} ». Vérifiez que vous avez tapé le nom correctement, puis réessayez.`, true); }
+    };
+    fly.querySelector('.ok').onclick = run;
+    fly.querySelector('.cancel').onclick = () => { V().fly = null; render(); };
+    fly.querySelector('.what').onkeydown = event => { if (event.key === 'Enter') run(); };
+    setTimeout(() => { fly.querySelector('.what').select(); });
+    return fly;
   }
   function quick11() {
     const port = ports()[0], fly = document.createElement('div');

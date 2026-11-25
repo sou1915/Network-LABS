@@ -280,6 +280,24 @@
   :where(.px-app) main{min-width:0}:where(.px-app) tr:last-child td{border-bottom:revert}:where(.px-app) h1,:where(.px-app) h2{font-size:revert;margin:revert}
   .px-app{min-height:100vh;font:13px Arial,Helvetica,sans-serif}
   .px-pill{position:fixed;right:14px;bottom:14px;z-index:12;font:12px Inter,Arial,sans-serif}
+  body.px-locked .fg-app,body.px-locked>header,body.px-locked>.layout{display:none!important}
+  .px-app.px-login{position:fixed;inset:0;background:var(--lg-page);color:var(--lg-ink);font:14px 'Segoe UI',Inter,Arial,sans-serif;display:grid;place-items:center}
+  .px-login .lg-box{width:380px;background:var(--lg-panel);border-radius:6px;padding:30px 34px;box-shadow:0 14px 40px rgba(0,0,0,.18)}
+  .px-login .lg-name{display:block;font-size:30px;font-weight:600;color:var(--lg-accent);letter-spacing:-.3px}.px-login .lg-sub{display:block;font-size:12px;letter-spacing:1px;opacity:.7;margin:2px 0 18px}
+  .px-login .lg-form label{display:block;font-size:13px;margin:12px 0 0}.px-login .lg-form input{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:9px 11px;
+    border:1px solid #c8ced4;border-radius:3px;font:inherit;background:#fff;color:#222}.px-login .lg-form input:focus{outline:2px solid var(--lg-accent);outline-offset:-1px}
+  .px-login .go{width:100%;margin-top:18px;padding:10px;border:0;border-radius:3px;background:var(--lg-accent);color:#fff;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer;letter-spacing:.3px}
+  .px-login .lg-err{color:#c62828;font-size:13px;min-height:18px;margin-top:10px}.px-login .lg-hint{display:block;margin-top:16px;font-size:11.5px;opacity:.65;line-height:1.4}
+  .px-login.lg-dark .lg-box{background:var(--lg-panel);color:var(--lg-ink)}.px-login.lg-dark .lg-name{color:var(--lg-ink)}.px-login.lg-dark .lg-form input{border-color:#4b5660}.px-login.lg-dark .lg-err{color:#ff8a80}
+  .px-login.lg-split{display:grid;grid-template-columns:42% 1fr;place-items:stretch}.px-login .lg-side{background:var(--lg-page);color:#fff;display:flex;flex-direction:column;
+    justify-content:center;padding:0 9%}.px-login .lg-side b{font-size:34px;font-weight:600;line-height:1.15}.px-login .lg-side span{opacity:.75;margin-top:10px}
+  .px-login .lg-main{background:var(--lg-panel);display:flex;flex-direction:column;justify-content:center;padding:0 12%}.px-login .lg-main h2{font-weight:400;font-size:26px;margin:0 0 8px}
+  .px-login .lg-main .lg-form{max-width:380px}
+  .px-login.lg-banner{display:block;place-items:normal}.px-login .lg-band{height:64px;background:var(--lg-accent);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 28px}
+  .px-login .lg-band b{font-size:20px}.px-login.lg-banner .lg-box{margin:9vh auto 0}.px-login.lg-banner h2{margin:0 0 6px;font-size:18px;font-weight:600}
+  .px-login.lg-dialog .lg-box{width:430px;padding:0;border-radius:0;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  .px-login .lg-tt{background:var(--lg-accent);color:#fff;padding:7px 12px;font-size:13px}.px-login .lg-in{padding:16px 20px 20px;font-size:13px}.px-login .lg-in p{margin:0 0 4px;font-weight:600}
+  .px-login.lg-dialog .go{width:auto;padding:5px 26px;border-radius:2px}
   .px-pill-main{background:rgba(23,40,58,.88);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;cursor:pointer;
     box-shadow:0 6px 18px rgba(0,0,0,.25)}
   .px-pill-menu{display:none;position:absolute;right:0;bottom:40px;background:#17283a;border-radius:10px;padding:6px;min-width:230px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
@@ -1917,10 +1935,87 @@ ${h(cliText())}
     pill.querySelector('[data-a="std"]').textContent = '☰ Vue Network LABS';
   }
   const previous = render;
+  /* ---- each product's sign-in page, once per device and browser tab, with its factory credentials ---- */
+  // id: [product, second line, user, password, layout, [page, panel, accent, ink], button, French labels]
+  const LOGIN = {
+    iosxe: ['Cisco IOS XE', 'Web User Interface', 'admin', 'cisco', 'split', ['#0d274d', '#ffffff', '#049fd9', '#39424e'], 'Log In'],
+    asdm: ['Cisco ASDM-IDM Launcher', 'Cisco ASDM 7', 'admin', 'cisco', 'dialog', ['#d4d8dd', '#f0f0f0', '#2d6db5', '#222'], 'OK'],
+    webfig: ['RouterOS', 'WebFig', 'admin', '', 'card', ['#eef0f2', '#ffffff', '#2d7fc1', '#333'], 'Login'],
+    pfsense: ['pfSense', 'COMMUNITY EDITION', 'admin', 'pfsense', 'card', ['#f2f2f2', '#ffffff', '#1e3f75', '#333'], 'SIGN IN'],
+    opnsense: ['OPNsense', '', 'root', 'opnsense', 'card', ['#f7f7f7', '#ffffff', '#d94f00', '#333'], 'Login'],
+    panos: ['PAN-OS', '', 'admin', 'admin', 'dark', ['#1c2a35', '#25333f', '#fa582d', '#e8edf1'], 'Log In'],
+    jweb: ['J-Web', 'Junos OS', 'root', 'Juniper', 'split', ['#2b3a4a', '#ffffff', '#84b135', '#333'], 'Log In'],
+    sophos: ['Sophos Firewall', 'Web admin console', 'admin', 'admin', 'split', ['#13283f', '#ffffff', '#0f6bce', '#1f2d3d'], 'Login'],
+    gaia: ['Gaia Portal', 'Check Point', 'admin', 'admin', 'card', ['#e9ecef', '#ffffff', '#e8461d', '#333'], 'Log In'],
+    sonicos: ['SonicOS', 'Management', 'admin', 'password', 'dark', ['#1d2329', '#2a3138', '#e3262e', '#eef1f4'], 'LOG IN'],
+    fireware: ['Fireware Web UI', '', 'admin', 'readwrite', 'card', ['#dfe3e8', '#ffffff', '#c8102e', '#333'], 'LOG IN'],
+    huawei: ['Web Management', 'Huawei VRP', 'admin', 'Admin@123', 'banner', ['#f3f4f7', '#ffffff', '#e60012', '#333'], 'Log In'],
+    edgeos: ['EdgeOS', 'EdgeRouter', 'ubnt', 'ubnt', 'dark', ['#1e2328', '#272d33', '#0559c9', '#e8ecf0'], 'Login'],
+    unifi: ['UniFi Network', 'Sign in to your console', 'admin', 'admin', 'card', ['#f6f6f8', '#ffffff', '#006fff', '#212327'], 'Sign In'],
+    tplink: ['Easy Smart Switch', '', 'admin', 'admin', 'banner', ['#eef4f8', '#ffffff', '#1b88c4', '#333'], 'Login'],
+    netgear: ['Smart Managed Plus Switch', 'Enter the device password', '', 'password', 'banner', ['#f1f1f6', '#ffffff', '#5b2d8e', '#333'], 'LOGIN'],
+    dlink: ['Web Smart Switch', '', 'admin', '', 'banner', ['#f0f2f4', '#ffffff', '#2f3438', '#333'], 'Login'],
+    aruba: ['Aruba', 'Switch management', 'admin', '', 'split', ['#1f1f1f', '#ffffff', '#ff8300', '#333'], 'Log in'],
+    dsm: ['DSM', 'Synology DiskStation', 'admin', 'admin', 'card', ['#2f6ea5', '#ffffff', '#0d67b8', '#333'], 'Connexion', true],
+    qts: ['QTS', 'QNAP Turbo NAS', 'admin', 'admin', 'dark', ['#1c2b3a', '#24384d', '#1f66c1', '#eef2f6'], 'Connexion', true],
+    idrac: ['Integrated Dell Remote Access Controller 9', 'Enterprise', 'root', 'calvin', 'split', ['#1d3a57', '#ffffff', '#0076ce', '#333'], 'Log In'],
+    ilo: ['iLO 5', 'Integrated Lights-Out', 'Administrator', 'password', 'dark', ['#2b2f33', '#35393d', '#01a982', '#eeeeee'], 'Log In'],
+    xcc: ['XClarity Controller', 'Lenovo ThinkSystem', 'USERID', 'PASSW0RD', 'dark', ['#1f1f1f', '#2a2a2a', '#e2231a', '#eeeeee'], 'Log In'],
+    yealink: ['Yealink', 'IP Phone', 'admin', 'admin', 'banner', ['#f2f5f9', '#ffffff', '#2a6db0', '#333'], 'Confirm'],
+    fortios: ['FortiGate', 'FortiOS', 'admin', '', 'dark', ['#2c3339', '#ffffff', '#da291c', '#333'], 'Login'],
+  };
+  const signedIn = new Set();  // when the browser keeps nothing (private window): this page only
+  const loginKey = () => `nl-login:${state.project}:${N().name}`;
+  function needsLogin(id) {
+    if (!LOGIN[id] || signedIn.has(loginKey())) return false;
+    try { return !sessionStorage.getItem(loginKey()); } catch (error) { return true; }
+  }
+  function drawLogin(id) {
+    const [product, second, user, password, layout, [pageBg, panel, accent, ink], button, french] = LOGIN[id];
+    const labels = french ? ['Nom d’utilisateur', 'Mot de passe', 'Nom d’utilisateur ou mot de passe incorrect.']
+      : ['Username', 'Password', user ? 'Invalid username or password.' : 'Invalid password.'];
+    app.className = `px-app px-login lg-${layout}`;
+    app.dataset.pass = password;
+    app.style.cssText = `--lg-page:${pageBg};--lg-panel:${panel};--lg-accent:${accent};--lg-ink:${ink}`;
+    const form = `<form class="lg-form" autocomplete="off">${layout === 'dialog' ? `<label>Device IP Address / Name:<input value="${h(ipOf(Object.values(N().interfaces).find(Boolean) || '') || N().name)}" disabled></label>` : ''}
+      ${user ? `<label>${labels[0]}<input class="us" value="${h(user)}"></label>` : ''}<label>${labels[1]}<input class="pw" type="password" autofocus></label>
+      <div class="lg-err"></div><button class="go" type="submit">${h(button)}</button>
+      <small class="lg-hint">Laboratoire Network LABS · identifiants d’usine : ${user ? h(user) + ' / ' : ''}${password ? h(password) : '(mot de passe vide)'}</small></form>`;
+    app.innerHTML = layout === 'split' ? `<div class="lg-side"><b>${h(product)}</b><span>${h(second)}</span></div><div class="lg-main"><h2>Log In</h2>${form}</div>`
+      : layout === 'banner' ? `<div class="lg-band"><b>${h(product)}</b><span>${h(N().name)}</span></div><div class="lg-box"><h2>${h(second || product)}</h2>${form}</div>`
+      : layout === 'dialog' ? `<div class="lg-box"><div class="lg-tt">${h(product)}</div><div class="lg-in"><p>${h(second)}</p>${form}</div></div>`
+      : `<div class="lg-box"><b class="lg-name">${h(product)}</b>${second ? `<span class="lg-sub">${h(second)}</span>` : ''}${form}</div>`;
+    const formEl = app.querySelector('form');
+    setTimeout(() => app.querySelector('.pw')?.focus());
+    formEl.onsubmit = event => {
+      event.preventDefault();
+      const typedUser = (app.querySelector('.us') || {value: user}).value.trim();
+      if (typedUser.toLowerCase() !== user.toLowerCase() || app.querySelector('.pw').value !== password) {
+        app.querySelector('.lg-err').textContent = labels[2];
+        return;
+      }
+      signedIn.add(loginKey());
+      try { sessionStorage.setItem(loginKey(), '1'); } catch (error) { /* kept in signedIn for this page */ }
+      app.removeAttribute('style');
+      delete app.dataset.pass;
+      document.body.classList.remove('px-locked');
+      render();
+    };
+  }
+
   render = function () {
     previous();
     const vendor = !window.nlDesignNow || window.nlDesignNow() === 'vendor';
     const id = vendor && state && state.device ? window.nlProduct(state.device) : null;
+    // FortiGate draws its own face (native_fortios.js): its sign-in page comes from here, over it.
+    const forti = vendor && !id && !standard && state && state.device && state.device.brand === 'Fortinet' && state.node.role === 'firewall';
+    if (forti && needsLogin('fortios')) {
+      document.body.classList.add('px', 'px-locked');
+      if (!app.isConnected) document.body.append(app);
+      if (!pill.isConnected) document.body.append(pill);
+      return drawLogin('fortios');
+    }
+    document.body.classList.remove('px-locked');
     if (!id || standard) {
       app.remove();
       pill.remove();
@@ -1940,6 +2035,8 @@ ${h(cliText())}
     document.body.classList.add('px');
     if (!app.isConnected) document.body.append(app);
     if (!pill.isConnected) document.body.append(pill);
+    if (needsLogin(id)) return drawLogin(id);
+    app.removeAttribute('style');
     draw(id);
   };
   app.addEventListener('input', () => { typed = true; });

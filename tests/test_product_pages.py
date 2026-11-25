@@ -31,7 +31,14 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
+  const login = async (tab = page) => {
+    if (!(await tab.$('.px-login'))) return;
+    await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
+    await tab.click('.px-login .go');
+    await tab.waitForFunction(() => !document.querySelector('.px-login'));
+  };
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await login(); };
   const product = async () => page.evaluate(() => document.querySelector('.px-app').className);
   const seen = {};
   await open('R1'); seen.R1 = await product();
@@ -49,7 +56,7 @@ const { chromium } = require('playwright');
   await page.click('.pa-top [data-t="Policies"]'); await page.click('.pa-bar .add'); await page.fill('#paName', 'web-in');
   await page.click('.pa-dtabs [data-p="4"]'); await page.fill('#paSvc', 'service-https'); await page.click('.px-dfoot button.pri');
   await page.click('.pa-commit'); await page.click('.px-dfoot button:text-is("Commit")'); await page.waitForSelector('text=Configuration committed successfully');
-  await page.goto(urls.FW1); await page.waitForTimeout(1500);  // the FortiGate keeps its own face (native_fortios.js)
+  await page.goto(urls.FW1); await page.waitForSelector('.px-login'); await login(); await page.waitForTimeout(1500);  // then the FortiGate's own face
   seen.FW1 = await page.evaluate(() => (document.querySelector('.px-app') ? 'px' : 'own face'));
   console.log('RESULT ' + JSON.stringify({seen, errors}));
   await browser.close();
@@ -66,7 +73,14 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
+  const login = async (tab = page) => {
+    if (!(await tab.$('.px-login'))) return;
+    await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
+    await tab.click('.px-login .go');
+    await tab.waitForFunction(() => !document.querySelector('.px-login'));
+  };
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await login(); };
   const ok = async () => { await page.click('.px-dfoot button >> nth=0'); await page.waitForTimeout(400); };
   const seen = {};
   await open('SOPH'); seen.SOPH = await page.evaluate(() => document.querySelector('.px-app').className);
@@ -102,7 +116,14 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
+  const login = async (tab = page) => {
+    if (!(await tab.$('.px-login'))) return;
+    await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
+    await tab.click('.px-login .go');
+    await tab.waitForFunction(() => !document.querySelector('.px-login'));
+  };
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await login(); };
   const ok = async () => { await page.click('.px-dfoot button >> nth=0'); await page.waitForTimeout(400); };
   const seen = {};
   for (const name of ['QN', 'BRO', 'TEL', 'IDR', 'ILO', 'XCC']) { await open(name); seen[name] = await page.evaluate(() => document.querySelector('.px-app').className); }
@@ -123,7 +144,7 @@ const { chromium } = require('playwright');
   await page.fill('#soGw', '10.71.0.254'); await page.press('#soGw', 'Enter'); await page.waitForTimeout(500);  // Enter confirms the window
   const saved = await page.evaluate(() => state.device.static.map(r => r.network + '>' + r.gateway));
   const other = await browser.newPage({ viewport: { width: 1440, height: 900 } });  // the same device changed in another tab
-  await other.goto(urls.SOPH); await other.waitForSelector('.px-app'); await other.click('[data-go="routing"]'); await other.click('[data-x="0"]'); await other.waitForTimeout(500);
+  await other.goto(urls.SOPH); await other.waitForSelector('.px-app'); await login(other); await other.click('[data-go="routing"]'); await other.click('[data-x="0"]'); await other.waitForTimeout(500);
   await page.waitForTimeout(5000);
   const followed = await page.evaluate(() => state.device.static.length);
   console.log('RESULT ' + JSON.stringify({seen, errors, greyed, stayed, refused, saved, followed}));
@@ -142,7 +163,8 @@ const { chromium } = require('playwright');
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   // Windows opens on its lock screen, once per device and tab: a click opens the session.
-  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await page.click('.wn-lock'); await page.waitForTimeout(450); };
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await page.click('.wn-lock'); await page.waitForTimeout(450);
+    await page.click('.wn-signin .go'); await page.waitForTimeout(800); };
   const seen = {};
   await open('W11'); seen.W11 = await page.evaluate(() => document.querySelector('.px-app').className);
   await page.click('.wn-mid [data-start]'); await page.click('.wn-pin[data-app="settings"]'); await page.click('[data-p="network"]'); await page.click('.wn-card.link[data-eth]');
@@ -279,6 +301,9 @@ class RunningConfigTest(unittest.TestCase):
         for name in ('"settings:c"', '"wifi:c"', '"search"', '"chevron_up"'):
             self.assertIn(name, icons)
         self.assertNotIn('<img', script + more + hosts)  # drawn by Network LABS: no vendor picture or logo
+        for skin, credentials in (('pfsense', "'admin', 'pfsense'"), ('idrac', "'root', 'calvin'"), ('edgeos', "'ubnt', 'ubnt'"), ('fortios', "'admin', ''")):
+            self.assertIn(f"{skin}: [", script)
+            self.assertIn(credentials, script)  # the product's factory credentials
 
 
 class RouteActionTest(unittest.TestCase):
