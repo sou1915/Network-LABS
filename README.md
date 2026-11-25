@@ -219,11 +219,13 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 | HP, Brother | Embedded Web Server (Networking), Web Based Management (TCP/IP Wired) | Apply / Submit |
 | Axis, Yealink | AXIS OS (System › Network), page du téléphone (Network › Basic) | Save / Confirm |
 | Dell, HPE, Lenovo | iDRAC, iLO, XClarity Controller (tableau de bord, inventaire, journal) | Virtual / Remote Console |
+| Windows 11, Windows 10, Windows Server 2022 | bureau Windows : Paramètres › Réseau et Internet › Ethernet, Panneau de configuration › Connexions réseau › Propriétés TCP/IPv4, Invite de commandes (`ipconfig`), Gestionnaire de serveur | Enregistrer / OK |
 
 Les produits sans interface web (VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco NX-OS, Extreme EXOS) montrent leur
 console et leur configuration. Les NAS, imprimantes, caméras et téléphones enregistrent leur adresse (DHCP ou fixe,
 masque, passerelle) comme la « Configuration IP » d'un PC ; les cartes de gestion des serveurs ouvrent la console du
-serveur. Les PC et Windows Server gardent leur bureau. Dessinées par
+serveur. Les PC et serveurs Windows s'ouvrent sur leur bureau Windows (icônes et fond d'écran dessinés par Network
+LABS, sans logo Microsoft) ; les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
 du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
 comme l'atelier) et **Simple** (clair).

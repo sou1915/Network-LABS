@@ -3,7 +3,8 @@ configuration in its own syntax for the pages, and, in a real browser when one i
 products' own forms (Cisco WebUI « Update & Apply to Device », ASDM « Apply », pfSense « Apply Changes », PAN-OS
 « Commit ») landing in the project; the static routes of the products without a command set (/api/route); and the
 host devices' own products: Synology DSM, QNAP QTS, HP and Brother printer pages, AXIS camera, Yealink phone, and the
-server management controllers (iDRAC, iLO, XClarity)."""
+server management controllers (iDRAC, iLO, XClarity); and Windows PCs and servers as Windows shows them (Settings,
+Control Panel, the TCP/IPv4 properties dialog, Server Manager)."""
 import json
 import os
 import subprocess
@@ -131,6 +132,54 @@ const { chromium } = require('playwright');
 """
 
 
+WINDOWS_FLOWS = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const urls = JSON.parse(process.argv[1]);
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { console.log('NOBROWSER'); return; }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  const seen = {};
+  await open('W11'); seen.W11 = await page.evaluate(() => document.querySelector('.px-app').className);
+  await page.click('.wn-mid [data-start]'); await page.click('.wn-pin[data-app="settings"]'); await page.click('[data-p="network"]'); await page.click('.wn-card.link[data-eth]');
+  await page.click('.wn-mbtn.edit'); await page.selectOption('.wn-cd .mode', 'static'); await page.fill('.wn-cd .a', '192.168.20.50'); await page.fill('.wn-cd .m', '255.255.255.0');
+  await page.fill('.wn-cd .g', '192.168.20.1'); await page.click('.wn-cd .save'); await page.waitForTimeout(500);
+  const settings = await page.evaluate(() => [state.node.interfaces.eth0, state.node.gateway]);
+  await page.click('.wn-tt .x'); await page.click('.wn-bar [data-app="cpl"]'); await page.click('[data-cat="Réseau et Internet"] >> nth=0'); await page.click('[data-ncpa]');
+  await page.dblclick('[data-ad="eth0"]'); await page.click('.wn-win.dlg .pr'); await page.click('.wn-win.dlg >> nth=-1 >> .prop');
+  const boxes = page.locator('.wn-win.dlg >> nth=-1 >> .wn-ipbox.a input');
+  for (const [i, v] of ['192', '168', '20', '60'].entries()) await boxes.nth(i).fill(v);
+  await page.click('.wn-win.dlg >> nth=-1 >> .ok');
+  const held = await page.evaluate(() => state.node.interfaces.eth0);  // the TCP/IPv4 OK keeps it; « Propriétés de Ethernet » OK applies it
+  await page.click('.wn-win.dlg >> nth=-1 >> .ok'); await page.waitForTimeout(500);
+  const classic = await page.evaluate(() => state.node.interfaces.eth0);
+  await page.click('.wn-bar [data-app="terminal"]'); await page.keyboard.type('ipconfig'); await page.keyboard.press('Enter');
+  const ipconfig = await page.textContent('.wn-term .log');
+  await open('W10'); seen.W10 = await page.evaluate(() => document.querySelector('.px-app').className);
+  await page.click('.wn-bar [data-start]'); await page.click('.wn-start10 [data-app="settings"] >> nth=0'); await page.click('[data-p="network"]');
+  await page.click('[data-p="ethernet"]'); await page.click('[data-eth]'); await page.click('.wn-mbtn.edit'); await page.selectOption('.wn-cd .mode', 'dhcp'); await page.click('.wn-cd .save');
+  await page.waitForTimeout(500);
+  await open('SRV'); seen.SRV = await page.evaluate(() => document.querySelector('.px-app').className);
+  const manager = await page.evaluate(() => Boolean(document.querySelector('.wn-sm .welcome')));
+  console.log('RESULT ' + JSON.stringify({seen, errors, settings, held, classic, ipconfig, manager}));
+  await browser.close();
+})();
+"""
+
+
+def windows_lab():
+    spec = blank_project('windows')
+    add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
+    spec = add(spec, name='SW1', role='switch', ports=4, model='cisco-2960')
+    for i, (name, model) in enumerate((('W11', 'windows-11'), ('W10', 'windows-10'), ('SRV', 'windows-server'))):
+        spec = add(spec, name=name, role='host', ports=1, model=model, addresses=f'192.168.20.{10 + i}/24')
+        spec = topology_edit.connect(spec, (name, 'eth0'), ('SW1', f'eth{i + 1}'))
+    return validate(spec)
+
+
 def more_lab():
     spec = blank_project('produits')
     add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
@@ -217,6 +266,13 @@ class RunningConfigTest(unittest.TestCase):
                         'Internet Port', 'Virtual Console', 'Integrated Remote Console', 'XClarity Controller'):
             self.assertIn(wording, hosts)
         self.assertIn("role === 'host'", script)  # PCs keep their desktop: only these products take a host's page
+        win = SCRIPT.with_name('native_products_windows.js').read_text(encoding='utf-8')
+        for skin in ('win11', 'win10'):
+            self.assertIn(f"SKINS.{skin} = shell('{skin}')", win)
+        for wording in ('Propriétés de : Protocole Internet version 4 (TCP/IPv4)', 'Modifier les paramètres IP', 'Connexions réseau', 'Centre Réseau et partage',
+                        'Gestionnaire de serveur', 'Obtenir une adresse IP automatiquement', 'Taper ici pour rechercher'):
+            self.assertIn(wording, win)
+        self.assertNotIn('<img', win)
         self.assertNotIn('<img', script + more + hosts)  # drawn by Network LABS: no vendor picture or logo
 
 
@@ -255,7 +311,8 @@ class PortalTest(unittest.TestCase):
             self.assertLess(page.index(b'/native_vendor.js'), page.index(b'/native_products.js'))
             self.assertLess(page.index(b'/native_products.js'), page.index(b'/native_products_more.js'))
             self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_products_hosts.js'))
-            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_desktop.js'))
+            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_products_windows.js'))
+            self.assertLess(page.index(b'/native_products_windows.js'), page.index(b'/native_desktop.js'))
             self.assertLess(page.index(b'/native_desktop.js'), page.index(b'/native_simple.js'))
             # The first state request waits for every script: a busy machine must not draw before a product registered.
             self.assertIn(b"document.addEventListener('DOMContentLoaded',load)", page)
@@ -369,6 +426,22 @@ class ProductFormsTest(unittest.TestCase):
         self.assertEqual(result['saved'], ['172.17.0.0/16>10.71.0.254'])  # saved with Enter
         self.assertEqual(result['followed'], 0)  # deleted in another tab: the first one followed by itself
         self.assertEqual(routes(nodes['SOPH']), [])
+
+    def test_windows_pcs_and_servers_are_set_up_the_windows_way(self):
+        app = Workbench()
+        app.spec = windows_lab()
+        app.view_lab = app.spec['name']
+        result = drive(app, WINDOWS_FLOWS, ('W11', 'W10', 'SRV'))
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['seen'], {'W11': 'px-app win11', 'W10': 'px-app win10', 'SRV': 'px-app win10 server'})
+        self.assertEqual(result['settings'], ['192.168.20.50/24', '192.168.20.1'])  # Paramètres › Ethernet › Modifier
+        self.assertEqual(result['held'], '192.168.20.50/24')  # held by the TCP/IPv4 dialog until « Propriétés de Ethernet » OK
+        self.assertEqual(result['classic'], '192.168.20.60/24')
+        self.assertIn('Adresse IPv4. . . . . . . . . . . . . .: 192.168.20.60', result['ipconfig'])
+        self.assertTrue(result['manager'])  # Windows Server opens on Server Manager
+        nodes = {n['name']: n for n in app.spec['nodes']}
+        self.assertEqual((nodes['W11']['interfaces']['eth0'], nodes['W11']['gateway']), ('192.168.20.60/24', '192.168.20.1'))
+        self.assertEqual(nodes['W10']['dhcp_clients'], ['eth0'])
 
 
 if __name__ == '__main__':
