@@ -70,12 +70,14 @@ def apply(root):
                       ('disabledForeground',menu_colours[2]),('relief','solid'),('borderWidth',1),('activeBorderWidth',0),
                       ('font',(font,9)),('selectColor',BLUE)):
         root.option_add('*Menu.'+key,value)
+    # Disabled text: dim enough on the dark Studio tiles to read as unavailable, as the menus already do.
+    off=menu_colours[2]
     s.configure('Native.TButton',background=BG,foreground=TEXT,font=(font,9),padding=(9,5),borderwidth=0)
-    s.map('Native.TButton',foreground=[('disabled','#8a98aa')])
+    s.map('Native.TButton',foreground=[('disabled',off)])
     s.configure('Native.Toolbutton',background=BG,foreground=TEXT,font=(font,9),padding=(9,5),borderwidth=0)
-    s.map('Native.Toolbutton',foreground=[('selected',BLUE),('disabled','#8a98aa')])
+    s.map('Native.Toolbutton',foreground=[('selected',BLUE),('disabled',off)])
     s.configure('Native.Primary.TButton',background=PANEL,foreground='white',font=(font,9,'bold'),padding=(9,5),borderwidth=0)
-    s.map('Native.Primary.TButton',foreground=[('disabled','#71859d')])
+    s.map('Native.Primary.TButton',foreground=[('disabled','#5d7288' if STUDIO else '#71859d')])
     s.configure('Native.TNotebook',background=BG,borderwidth=0,lightcolor=BG,darkcolor=BG,bordercolor=BG)
     s.configure('Native.TNotebook.Tab',padding=(10,5),font=(font,9),background=BG)
     s.map('Native.TNotebook.Tab',background=[('selected',PANEL)],foreground=[('selected',BLUE)])

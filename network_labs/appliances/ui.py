@@ -471,7 +471,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             where='le dock, en bas' if STUDIO else 'la bibliothèque'
             self.canvas.create_text(width/2,height/2-24,text='Cliquer ou glisser un équipement depuis '+where,
                                     fill=MUTED,font=(self.font,13,'bold'),tags=('hint',))
-            self.canvas.create_text(width/2,height/2+6,text='puis « Connecter un câble » : deux clics · ▶ Démarrer · double-clic : '
+            cable='l’outil câble de la barre d’outils' if STUDIO else '« Connecter un câble »'  # Studio: the toolbar's second tool
+            self.canvas.create_text(width/2,height/2+6,text='puis '+cable+' : deux clics · ▶ Démarrer · double-clic : '
                                     'le terminal de l’équipement',fill=MUTED,font=(self.font,10),tags=('hint',))
         palette=CANVAS['vlans']
         self.vlan_members=members;captions=[]
@@ -641,8 +642,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             self.canvas.tag_bind('node:'+name,'<Double-Button-1>',lambda event,n=name:self.device_double_click(n))
             self.canvas.tag_bind('node:'+name,'<Enter>',lambda event,n=name:self.hover_node(n,True))
             self.canvas.tag_bind('node:'+name,'<Leave>',lambda event,n=name:self.hover_node(n,False))
-            self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],state,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
+            shown={'running':'en marche','stopped':'arrêté','exited':'arrêté','failed':'en échec'}.get(state,state)  # in the window's language
+            self.nodes.insert('','end',iid=name,text=name,values=(node['runtime'],shown,'—' if memory is None else f'{memory/1048576:.1f} MiB'))
             self.library.insert('','end',iid=name,text=name)
+        # Every device listed (up to eight rows, then the wheel): a fixed three hid the rest of a larger lab.
+        self.nodes.configure(height=max(3,min(8,len(self.nodes.get_children()))))
         obstacles=[self.canvas.bbox(item) for item in self.canvas.find_all() if self.canvas.type(item)=='text']
         for node in graph['nodes']:
             x,y=positions[node['name']];host=node['role']=='host'
@@ -833,7 +837,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.label(form,'Configuration du projet · brouillon',MUTED,7).pack(anchor='w',padx=9,pady=(0,6))
         ports_card=SoftCard(form,PANEL);ports_card.pack(fill='x',padx=7)
         self.port_table=ttk.Treeview(ports_card.inner,columns=('address','admin'),show='tree headings',height=3,style='Native.Treeview')
-        for key,label,width in [('#0','Nom',116),('address','Adresse IPv4',112),('admin','Admin',54)]:
+        for key,label,width in [('#0','Nom',96),('address','Adresse IPv4',96),('admin','Admin',58)]:  # fits the panel's default width
             self.port_table.heading(key,text=label);self.port_table.column(key,width=width,minwidth=35)
         self.port_table.tag_configure('enabled',foreground='#168942');self.port_table.tag_configure('disabled',foreground='#bb3646')
         self.port_table.pack(fill='x');self.port_table.bind('<<TreeviewSelect>>',self.config_table_selected)

@@ -84,7 +84,7 @@ class WorkbenchGUITests(unittest.TestCase):
         graph=bridge.public_topology(example('/rootfs'));lab=graph['name']
         response={'ok':True,'lab':lab,'action':'status','topology':graph,'data':{'name':lab,'phase':'running','nodes':[{'name':n['name'],'state':{'status':'running'},'memory_current_bytes':1048576} for n in graph['nodes']]}}
         window.apply_response(response,{'lab':lab,'action':'status'});self.root.update()
-        self.assertTrue(all(n['values'][1]=='running' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
+        self.assertTrue(all(n['values'][1]=='en marche' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
         with self.assertRaises(ValueError):window.apply_response({**response,'lab':'wrong-lab'},{'lab':lab,'action':'status'})
         window.apply_response({'ok':False,'error':'Root result unconfirmed'},{'lab':lab,'action':'stop'})
         self.assertTrue(all(n['values'][1]=='non observé' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
