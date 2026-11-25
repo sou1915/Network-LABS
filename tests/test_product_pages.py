@@ -141,7 +141,8 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); };
+  // Windows opens on its lock screen, once per device and tab: a click opens the session.
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await page.click('.wn-lock'); await page.waitForTimeout(450); };
   const seen = {};
   await open('W11'); seen.W11 = await page.evaluate(() => document.querySelector('.px-app').className);
   await page.click('.wn-mid [data-start]'); await page.click('.wn-pin[data-app="settings"]'); await page.click('[data-p="network"]'); await page.click('.wn-card.link[data-eth]');

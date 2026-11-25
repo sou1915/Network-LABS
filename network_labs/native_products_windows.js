@@ -56,19 +56,19 @@
   // ---- drawn icons (no Microsoft artwork) ----
   const svg = (body, size = 24, box = 24) => `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
   const ICON = {
-    start: s => svg('<rect x="3" y="3" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="9.5" y="3" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="16" y="3" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="3" y="9.5" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="9.5" y="9.5" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="16" y="9.5" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="3" y="16" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="9.5" y="16" width="5" height="5" rx="1.3" fill="#2b88d8"/><rect x="16" y="16" width="5" height="5" rx="1.3" fill="#2b88d8"/>', s),
+    start: (s, c = '#2b88d8') => svg([3, 9.5, 16].map(y => [3, 9.5, 16].map(x => `<rect x="${x}" y="${y}" width="5" height="5" rx="1.3" fill="${c}"/>`).join('')).join(''), s),
     search: s => svg('<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14.5 14.5 20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', s),
-    settings: s => svg('<circle cx="12" cy="12" r="9.5" fill="#6b7a8a"/><circle cx="12" cy="12" r="6" fill="none" stroke="#fff" stroke-width="2"/><circle cx="12" cy="12" r="2.2" fill="#fff"/>' + [0, 45, 90, 135, 180, 225, 270, 315].map(a => `<rect x="11" y="1.5" width="2" height="3.6" rx=".6" fill="#6b7a8a" transform="rotate(${a} 12 12)"/>`).join(''), s),
-    explorer: s => svg('<path d="M2.5 6.5a1.5 1.5 0 0 1 1.5-1.5h5l2 2h9a1.5 1.5 0 0 1 1.5 1.5V9H2.5z" fill="#e9a93a"/><rect x="2.5" y="8.5" width="19" height="11" rx="1.5" fill="#f8c547"/>', s),
-    terminal: s => svg('<rect x="2" y="4" width="20" height="16" rx="2.5" fill="#2d2d2d"/><path d="M6 9l3 2.5L6 14" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 15h6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>', s),
+    settings: s => svg('<defs><linearGradient id="wnG1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a9bab"/><stop offset="1" stop-color="#4f6072"/></linearGradient></defs>' + [0, 45, 90, 135, 180, 225, 270, 315].map(a => `<rect x="10.4" y="1.2" width="3.2" height="4.4" rx="1" fill="url(#wnG1)" transform="rotate(${a} 12 12)"/>`).join('') + '<circle cx="12" cy="12" r="8.2" fill="url(#wnG1)"/><circle cx="12" cy="12" r="5.2" fill="#e8eef4"/><circle cx="12" cy="12" r="3.1" fill="url(#wnG1)"/>', s),
+    explorer: s => svg('<defs><linearGradient id="wnG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd86b"/><stop offset="1" stop-color="#f5b43a"/></linearGradient></defs><path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h5.2l2 2.2H20a1.5 1.5 0 0 1 1.5 1.5V10h-19z" fill="#e39f2b"/><rect x="2.5" y="8.6" width="19" height="11.4" rx="1.6" fill="url(#wnG2)"/><rect x="2.5" y="8.6" width="19" height="2" rx="1" fill="#3a8fe0"/>', s),
+    terminal: s => svg('<defs><linearGradient id="wnG3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a4a"/><stop offset="1" stop-color="#1f1f1f"/></linearGradient></defs><rect x="2" y="3.5" width="20" height="17" rx="3" fill="url(#wnG3)"/><rect x="2.5" y="4" width="19" height="16" rx="2.6" fill="none" stroke="#7a7a7a" stroke-width=".6"/><path d="M6.2 9.2l3.2 2.6-3.2 2.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.4 15.2h6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>', s),
     cmd: s => svg('<rect x="2" y="3.5" width="20" height="17" rx="1" fill="#1b1b1b"/><rect x="2" y="3.5" width="20" height="3" fill="#4a4a4a"/><text x="4.2" y="15.5" font-size="6.5" font-family="monospace" fill="#fff">C:\\</text>', s),
     cpl: s => svg('<rect x="2.5" y="3.5" width="19" height="15" rx="1.5" fill="#3d8fd6"/><rect x="4.5" y="6" width="6" height="3" fill="#bfe1ff"/><rect x="12" y="6" width="7.5" height="3" fill="#fff"/><rect x="4.5" y="11" width="15" height="2" fill="#fff"/><rect x="4.5" y="14.5" width="10" height="2" fill="#fff"/><rect x="8" y="19" width="8" height="2" fill="#7a8796"/>', s),
     notepad: s => svg('<rect x="4" y="2.5" width="16" height="19" rx="1.5" fill="#ffffff" stroke="#6c9fd4"/><path d="M7 8h10M7 11.5h10M7 15h7" stroke="#6c9fd4" stroke-width="1.4"/>', s),
     calc: s => svg('<rect x="4" y="2.5" width="16" height="19" rx="2" fill="#4a5563"/><rect x="6.5" y="5" width="11" height="4" fill="#d9e2ea"/>' + [0, 1, 2].map(r => [0, 1, 2].map(c => `<rect x="${6.5 + c * 4}" y="${11 + r * 3.4}" width="3" height="2.4" fill="#cfd8e1"/>`).join('')).join(''), s),
     taskmgr: s => svg('<rect x="2.5" y="4" width="19" height="16" rx="2" fill="#ffffff" stroke="#3a7bd5"/><path d="M5 16l3.5-5 3 3 3.5-6 3 4" fill="none" stroke="#3a7bd5" stroke-width="1.6" stroke-linejoin="round"/>', s),
-    pc: s => svg('<rect x="2.5" y="3.5" width="19" height="12.5" rx="1.2" fill="#3b87d6"/><rect x="4" y="5" width="16" height="9.5" fill="#8fd0ff"/><rect x="9" y="17" width="6" height="2" fill="#7a8796"/><rect x="6.5" y="19" width="11" height="1.6" rx=".8" fill="#7a8796"/>', s),
-    bin: s => svg('<path d="M6 7h12l-1.2 13.2a1.4 1.4 0 0 1-1.4 1.3H8.6a1.4 1.4 0 0 1-1.4-1.3z" fill="#e8eef4" stroke="#8796a6"/><rect x="5" y="4.5" width="14" height="2.5" rx=".8" fill="#c7d2dd" stroke="#8796a6"/><path d="M10 10v8M14 10v8" stroke="#8796a6"/>', s),
-    network: s => svg('<rect x="2" y="4" width="9" height="7" rx="1" fill="#3b87d6"/><rect x="13" y="4" width="9" height="7" rx="1" fill="#3b87d6"/><path d="M6.5 11v3h11v-3M12 14v4" stroke="#556372" stroke-width="1.4" fill="none"/><rect x="8" y="18" width="8" height="3" rx=".8" fill="#556372"/>', s),
+    pc: s => svg('<defs><linearGradient id="wnG4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="20" height="13.4" rx="1.4" fill="#c9d3dd"/><rect x="3.2" y="4.4" width="17.6" height="11" rx=".6" fill="url(#wnG4)"/><path d="M3.2 12.5 20.8 6.8V4.4H3.2z" fill="#fff" opacity=".12"/><path d="M9.5 16.6h5l.6 2.6h-6.2z" fill="#a9b4bf"/><rect x="6.6" y="19" width="10.8" height="1.6" rx=".8" fill="#8995a1"/>', s),
+    bin: s => svg('<path d="M5.6 7.2h12.8l-1.3 13.1a1.6 1.6 0 0 1-1.6 1.4H8.5a1.6 1.6 0 0 1-1.6-1.4z" fill="#e9f1f8" fill-opacity=".85" stroke="#7d8d9e" stroke-width=".9"/><path d="M8.6 9.4l.6 10M12 9.4v10M15.4 9.4l-.6 10" stroke="#a8b6c4" stroke-width=".9"/><rect x="4.6" y="4.8" width="14.8" height="2.6" rx="1" fill="#dce5ee" stroke="#7d8d9e" stroke-width=".9"/>', s),
+    network: s => svg('<defs><linearGradient id="wnG5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="16" height="11" rx="1.2" fill="#c9d3dd"/><rect x="3" y="4.2" width="14" height="9" rx=".5" fill="url(#wnG5)"/><path d="M8 14.2h4l.5 2h-5z" fill="#a9b4bf"/><circle cx="17" cy="16.4" r="5" fill="#2f9e5f"/><path d="M12 16.4h10M17 11.4c1.6 1.6 1.6 8.4 0 10M17 11.4c-1.6 1.6-1.6 8.4 0 10" fill="none" stroke="#d9f5e4" stroke-width=".8"/>', s),
     ethernet: s => svg('<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 9h6v4H9z" fill="currentColor"/>', s),
     offline: s => svg('<circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 11h16M11 3c3 3 3 13 0 16M11 3c-3 3-3 13 0 16" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="18" cy="18" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.3"/><path d="M15.8 20.2l4.4-4.4" stroke="currentColor" stroke-width="1.3"/>', s),
     speaker: s => svg('<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.8a7 7 0 0 1 0 10.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>', s),
@@ -81,14 +81,51 @@
     user: s => svg('<circle cx="12" cy="12" r="11" fill="#cfd8e3"/><circle cx="12" cy="9.5" r="4" fill="#fff"/><path d="M4.8 19.2a8 8 0 0 1 14.4 0" fill="#fff"/>', s),
   };
 
+  // Settings' own icons, Fluent-style (drawn here): the categories in colour, the rows in outline.
+  const FL = {
+    home: '<path d="M3.5 9.2 10 3.8l6.5 5.4V16a1 1 0 0 1-1 1h-3.3v-4.5H7.8V17H4.5a1 1 0 0 1-1-1z" fill="#cfe4fb" stroke="#0067c0" stroke-width="1.3" stroke-linejoin="round"/>',
+    system: '<rect x="2.5" y="3.5" width="15" height="10" rx="1.5" fill="#cfe4fb" stroke="#0067c0" stroke-width="1.3"/><path d="M7 16.5h6M10 13.5v3" stroke="#0067c0" stroke-width="1.3" stroke-linecap="round"/>',
+    bt: '<path d="M6 6.5l8 7-4 3.5V3l4 3.5-8 7" fill="none" stroke="#0067c0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    network: '<path d="M10 2.8 17.2 10 10 17.2 2.8 10z" fill="#cfe4fb" stroke="#0067c0" stroke-width="1.3" stroke-linejoin="round"/><path d="M6.6 10h6.8M10 6.6v6.8" stroke="#0067c0" stroke-width="1.2"/>',
+    perso: '<path d="M13.8 3.3a1.6 1.6 0 0 1 2.3 2.3l-6.8 6.8-3-.7-.7-3z" fill="#f3b046" stroke="#9a5d00" stroke-width="1"/><path d="M5.2 13.2c-1.4.2-2.2 1.3-2.2 3.3 2 .1 3.6-.6 4.2-2.3z" fill="#0067c0"/>',
+    apps: '<rect x="3" y="3" width="6" height="6" rx="1.2" fill="#0067c0"/><rect x="3" y="11" width="6" height="6" rx="1.2" fill="#0067c0"/><rect x="11" y="11" width="6" height="6" rx="1.2" fill="#0067c0"/><rect x="11.2" y="2.4" width="5.6" height="5.6" rx="1.2" fill="#4cc2ff" transform="rotate(45 14 5.2)"/>',
+    accounts: '<circle cx="10" cy="6.8" r="3.3" fill="#9bd27c" stroke="#2f7a1a" stroke-width="1"/><path d="M3.8 17c.4-3.3 3-5 6.2-5s5.8 1.7 6.2 5z" fill="#9bd27c" stroke="#2f7a1a" stroke-width="1"/>',
+    time: '<circle cx="10" cy="10" r="7" fill="#cfe4fb" stroke="#0067c0" stroke-width="1.3"/><path d="M10 6v4.3l2.8 1.7" fill="none" stroke="#0067c0" stroke-width="1.4" stroke-linecap="round"/>',
+    games: '<path d="M5.2 6.5h9.6a3 3 0 0 1 2.9 2.3l.9 4a2 2 0 0 1-3.5 1.6l-1.4-1.7H6.3l-1.4 1.7a2 2 0 0 1-3.5-1.6l.9-4a3 3 0 0 1 2.9-2.3z" fill="#e3e7ec" stroke="#5b6570" stroke-width="1.1"/><path d="M6.4 8.6v2.4M5.2 9.8h2.4" stroke="#5b6570" stroke-width="1.1"/><circle cx="13.6" cy="9.4" r=".8" fill="#5b6570"/>',
+    access: '<circle cx="10" cy="10" r="7.3" fill="#cfe4fb" stroke="#0067c0" stroke-width="1.2"/><circle cx="10" cy="6.4" r="1.3" fill="#0067c0"/><path d="M6.4 8.6h7.2M10 8.6v3.2l-2 3.4M10 11.8l2 3.4" fill="none" stroke="#0067c0" stroke-width="1.2" stroke-linecap="round"/>',
+    privacy: '<path d="M10 2.6 16 5v4.6c0 3.8-2.6 6.4-6 7.8-3.4-1.4-6-4-6-7.8V5z" fill="#e3e7ec" stroke="#5b6570" stroke-width="1.2" stroke-linejoin="round"/>',
+    update: '<path d="M15.6 8.2A5.8 5.8 0 0 0 5 6.4M4.4 11.8A5.8 5.8 0 0 0 15 13.6" fill="none" stroke="#0067c0" stroke-width="1.5" stroke-linecap="round"/><path d="M4.4 3.6 5 6.6l3-.6M15.6 16.4 15 13.4l-3 .6" fill="none" stroke="#0067c0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    profile: '<path d="M10 2.8 16 5.2v4.4c0 3.7-2.6 6.2-6 7.6-3.4-1.4-6-3.9-6-7.6V5.2z" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M7.3 9.9l1.9 1.9 3.6-3.8" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linecap="round"/>',
+    auth: '<circle cx="7" cy="12.5" r="3.2" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M9.3 10.2 16.5 3M13.8 5.7l1.8 1.8M12 7.5l1.6 1.6" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linecap="round"/>',
+    metered: '<path d="M3.5 14a6.5 6.5 0 1 1 13 0" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linecap="round"/><path d="M10 14l3.4-4.2" stroke="#1b1b1b" stroke-width="1.2" stroke-linecap="round"/><circle cx="10" cy="14" r="1.1" fill="#1b1b1b"/>',
+    ip: '<rect x="3" y="4" width="14" height="9.5" rx="1.3" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M7.5 16.5h5M10 13.5v3M7 8.8h6" stroke="#1b1b1b" stroke-width="1.1" stroke-linecap="round"/>',
+    dns: '<circle cx="10" cy="10" r="7" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M3 10h14M10 3c2.2 2.2 2.2 11.8 0 14M10 3c-2.2 2.2-2.2 11.8 0 14" fill="none" stroke="#1b1b1b" stroke-width=".9"/>',
+    info: '<circle cx="10" cy="10" r="7" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M10 9v4.6" stroke="#1b1b1b" stroke-width="1.2" stroke-linecap="round"/><circle cx="10" cy="6.6" r=".9" fill="#1b1b1b"/>',
+    vpn: '<path d="M10 2.8 16 5.2v4.4c0 3.7-2.6 6.2-6 7.6-3.4-1.4-6-3.9-6-7.6V5.2z" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><rect x="7.4" y="9" width="5.2" height="4" rx=".6" fill="none" stroke="#1b1b1b" stroke-width="1"/><path d="M8.4 9V7.8a1.6 1.6 0 0 1 3.2 0V9" fill="none" stroke="#1b1b1b" stroke-width="1"/>',
+    proxy: '<rect x="3" y="4" width="14" height="9.5" rx="1.3" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><circle cx="10" cy="8.8" r="2.4" fill="none" stroke="#1b1b1b" stroke-width="1"/><path d="M7.5 16.5h5" stroke="#1b1b1b" stroke-width="1.1"/>',
+    dial: '<path d="M5 3.5h2.4l1.2 3.3-1.6 1.2a8.5 8.5 0 0 0 5 5l1.2-1.6 3.3 1.2v2.4A1.5 1.5 0 0 1 15 16.5 11.5 11.5 0 0 1 3.5 5 1.5 1.5 0 0 1 5 3.5z" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linejoin="round"/>',
+    advanced: '<rect x="3" y="4.5" width="9" height="6" rx="1" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><rect x="8" y="9.5" width="9" height="6" rx="1" fill="#f9f9f9" stroke="#1b1b1b" stroke-width="1.1"/>',
+    ethernet: '<rect x="3" y="3.5" width="14" height="9.5" rx="1.3" fill="none" stroke="#1b1b1b" stroke-width="1.1"/><path d="M7.5 16.5h5M10 13v3.5" stroke="#1b1b1b" stroke-width="1.1" stroke-linecap="round"/><rect x="7.6" y="6.4" width="4.8" height="3.6" rx=".4" fill="none" stroke="#1b1b1b" stroke-width="1"/>',
+    usage: '<path d="M3.5 16.5h13M5.5 16.5V11M9 16.5V6.5M12.5 16.5V9M16 16.5V4" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round"/>',
+    rename: '<path d="M4 15.5 13.6 5.9a1.5 1.5 0 0 1 2.1 2.1L6.1 17.6H4z" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linejoin="round"/>',
+  };
+  const fl = (name, size = 20) => svg(FL[name] || FL.info, size, 20);
+  const CAP = {min: '<path d="M0 5.5h10" stroke="currentColor"/>', max: '<rect x=".5" y=".5" width="9" height="9" rx="1" fill="none" stroke="currentColor"/>',
+    restore: '<rect x=".5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor"/><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor"/>',
+    close: '<path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" stroke-width="1.05"/>', back: '<path d="M10 5H1M4.5 1.5 1 5l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'};
+  const glyph = name => `<svg viewBox="0 0 10 10" width="10" height="10" style="overflow:visible">${CAP[name]}</svg>`;
+  const toggle = on => `<span class="wn-sw${on ? ' on' : ''}"><i></i></span>`;
+
   /* =============================== styles =============================== */
   skinCss(`
-  .px-app.win11,.px-app.win10{position:fixed;inset:0;overflow:hidden;font:14px 'Segoe UI Variable Text','Segoe UI',Inter,Arial,sans-serif;color:#1b1b1b;
-    user-select:none}
+  @font-face{font-family:'Selawik';src:url('/Selawik-Regular.woff2') format('woff2');font-weight:400}
+  @font-face{font-family:'Selawik';src:url('/Selawik-Semibold.woff2') format('woff2');font-weight:600}
+  @font-face{font-family:'Selawik';src:url('/Selawik-Semilight.woff2') format('woff2');font-weight:300}
+  .px-app.win11,.px-app.win10{position:fixed;inset:0;overflow:hidden;font:14px 'Segoe UI Variable Text','Segoe UI',Selawik,Inter,Arial,sans-serif;color:#1b1b1b;
+    user-select:none;-webkit-font-smoothing:antialiased}
   .px-app.win11 ~ .px-pill,.px-app.win10 ~ .px-pill{top:10px;bottom:auto}
-  .px-app.win11 .wn-wall{position:absolute;inset:0;background:radial-gradient(70% 60% at 60% 58%,#a9d4ff 0%,rgba(169,212,255,0) 60%),
-    radial-gradient(45% 45% at 42% 46%,#5aa9f5 0%,rgba(90,169,245,0) 70%),radial-gradient(60% 70% at 70% 40%,#1d6fd1 0%,rgba(29,111,209,0) 70%),
-    linear-gradient(160deg,#6fa7e4,#5b9be6 40%,#2a6fc4)}
+  .px-app.win11 .wn-wall{position:absolute;inset:0;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMid slice'><defs><linearGradient id='a' x1='0' y1='1' x2='1' y2='0'><stop offset='0' stop-color='%23cfe8ff' stop-opacity='0'/><stop offset='.55' stop-color='%23e3f2ff' stop-opacity='.9'/><stop offset='1' stop-color='%2399ccff' stop-opacity='.25'/></linearGradient><filter id='b'><feGaussianBlur stdDeviation='16'/></filter></defs><g filter='url(%23b)'><path d='M-120 840 C 280 560 660 780 980 450 S 1480 170 1760 230 L 1760 380 C 1460 350 1250 540 1020 660 S 420 990 -120 980 Z' fill='url(%23a)'/><path d='M-120 720 C 360 440 760 640 1080 320 S 1500 60 1760 80 L 1760 150 C 1460 140 1200 350 1000 490 S 360 880 -120 900 Z' fill='%23ffffff' fill-opacity='.3'/><path d='M200 980 C 520 760 900 820 1200 600 S 1560 420 1760 460 L 1760 520 C 1500 520 1300 680 1080 780 S 640 1000 200 1040 Z' fill='%2366b3ff' fill-opacity='.35'/></g></svg>") center/cover,
+    radial-gradient(60% 60% at 62% 48%,#3b8ff0 0%,rgba(59,143,240,0) 70%),linear-gradient(135deg,#0a3d91,#1a66cf 55%,#3d9bf0)}
   .px-app.win10 .wn-wall{position:absolute;inset:0;background:radial-gradient(40% 70% at 64% 46%,rgba(120,190,255,.55),rgba(0,0,0,0) 70%),
     linear-gradient(115deg,#03101f 0%,#06305f 46%,#0a4f94 60%,#05254a 75%,#020b16)}
   .px-app.win10.server .wn-wall{background:linear-gradient(160deg,#0b2a46,#0e3c64 55%,#08223a)}
@@ -155,7 +192,7 @@
   .wn-win.back .wn-tt{color:#8a8a8a}
   .wn-body{flex:1;min-height:0;overflow:auto;position:relative}
   /* classic dialog look (Win32) */
-  .wn-win.dlg .wn-body{background:#f0f0f0;padding:10px 12px 12px;font:12px 'Segoe UI',Inter,Arial,sans-serif}
+  .wn-win.dlg .wn-body{background:#f0f0f0;padding:10px 12px 12px;font:12px 'Segoe UI',Selawik,Inter,Arial,sans-serif}
   .wn-tabs{display:flex;gap:0;border-bottom:1px solid #d9d9d9;margin-bottom:-1px;position:relative;z-index:1}
   .wn-tabs a{padding:4px 10px;border:1px solid transparent;border-bottom:0;cursor:default}.wn-tabs a.on{background:#fff;border-color:#d9d9d9;border-radius:2px 2px 0 0}
   .wn-page{background:#fff;border:1px solid #d9d9d9;padding:10px 12px}
@@ -169,7 +206,7 @@
   .wn-rad{display:flex;align-items:center;gap:6px;margin:6px 0 0}.wn-rad input,.wn-chk input{margin:0;appearance:auto}
   .wn-chk{display:flex;align-items:center;gap:6px}
   .wn-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-  .wn-btn{min-width:75px;height:23px;padding:0 10px;border:1px solid #adadad;background:#e1e1e1;font:12px 'Segoe UI',Inter,Arial,sans-serif;cursor:default}
+  .wn-btn{min-width:75px;height:23px;padding:0 10px;border:1px solid #adadad;background:#e1e1e1;font:12px 'Segoe UI',Selawik,Inter,Arial,sans-serif;cursor:default}
   .wn-btn:hover{background:#e5f1fb;border-color:#0078d7}.wn-btn.def{border:2px solid #0078d7}.wn-btn:disabled{color:#a0a0a0;border-color:#cfcfcf;background:#f0f0f0}
   .wn-list{background:#fff;border:1px solid #828790;height:132px;overflow:auto;margin-top:4px}
   .wn-list div{display:flex;align-items:center;gap:6px;padding:1px 4px;white-space:nowrap}.wn-list div.sel{background:#0078d7;color:#fff}
@@ -244,6 +281,39 @@
   .wn-sm h3{font-size:14px;font-weight:normal;margin:4px 0 10px;color:#333;letter-spacing:.5px}
   .wn-ctx{position:absolute;z-index:70;background:#f9f9f9;border:1px solid #cfcfcf;box-shadow:0 8px 20px rgba(0,0,0,.2);padding:4px 0;font-size:12.5px;min-width:220px}
   .wn-ctx a{display:block;padding:6px 26px;cursor:default}.wn-ctx a:hover{background:#e5f3ff}.wn-ctx hr{border:0;border-top:1px solid #e0e0e0;margin:4px 0}
+  /* Windows 11 context menu: rounded, light, sub-menus marked » */
+  .wn-ctx.w11{border-radius:8px;background:rgba(249,249,249,.97);backdrop-filter:blur(20px);padding:4px;min-width:250px;border-color:rgba(0,0,0,.12);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+  .wn-ctx.w11 a{display:flex;align-items:center;gap:12px;padding:7px 12px;border-radius:4px}.wn-ctx.w11 a:hover{background:rgba(0,0,0,.05)}
+  .wn-ctx.w11 a em{margin-left:auto;font-style:normal;color:#5b5b5b}.wn-ctx.w11 a svg{flex:none}.wn-ctx.w11 hr{margin:4px -4px}
+  /* caption buttons, maximised and minimised windows, opening */
+  .wn-tt .cap svg{display:block}.wn-tt .back{width:40px;height:100%;display:grid;place-items:center;color:#1b1b1b}.wn-tt .back:hover{background:rgba(0,0,0,.05)}
+  .wn-win.max{left:0!important;top:0!important;width:100%!important;height:calc(100% - 48px)!important;border-radius:0!important;border:0}
+  .px-app.win10 .wn-win.max{height:calc(100% - 40px)!important}.wn-win.min{display:none}
+  @keyframes wnOpen{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:none}}.wn-win.fresh{animation:wnOpen .17s cubic-bezier(.1,.9,.2,1)}
+  @keyframes wnStart11{from{opacity:0;transform:translate(-50%,36px)}to{opacity:1;transform:translate(-50%,0)}}.wn-start11.fresh{animation:wnStart11 .22s cubic-bezier(.1,.9,.2,1)}
+  @keyframes wnUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}.wn-start10.fresh,.wn-quick.fresh,.wn-net10.fresh{animation:wnUp .2s cubic-bezier(.1,.9,.2,1)}
+  /* taskbar: search box, task view, tray chevron */
+  .wn-spill{height:34px;width:180px;display:flex;align-items:center;gap:10px;padding:0 14px;margin:0 4px;border-radius:17px;background:rgba(255,255,255,.8);
+    border:1px solid rgba(0,0,0,.07);color:#5b5b5b;font-size:13px;box-sizing:border-box;cursor:default}.wn-spill:hover{background:#fff}
+  .wn-tray .chev{padding:0 8px}.wn-tray .lang{font-size:12px;padding:0 8px}
+  /* Windows 11 controls: toggle switch, radio rows, expander */
+  .wn-sw{width:40px;height:20px;border-radius:10px;border:1px solid #5b5b5b;position:relative;display:inline-block;vertical-align:middle;box-sizing:border-box;background:#f6f6f6;flex:none;cursor:default}
+  .wn-sw i{position:absolute;left:4px;top:4px;width:10px;height:10px;border-radius:50%;background:#5b5b5b;transition:left .15s,width .15s}
+  .wn-sw.on{background:#005fb8;border-color:#005fb8}.wn-sw.on i{left:24px;background:#fff}.wn-sw:hover i{width:12px;height:12px;top:3px}
+  .wn-card .ic{width:20px;flex:none;display:grid;place-items:center}.wn-card .val{color:#1b1b1b;min-width:150px;text-align:right}
+  .wn-card.exp{display:block;padding:0}.wn-card.exp .head{display:flex;align-items:center;gap:16px;padding:14px 18px}.wn-card.exp .rows{border-top:1px solid #e5e5e5;padding:10px 18px 14px 54px}
+  .wn-card.exp label{display:flex;gap:10px;align-items:flex-start;margin:8px 0}.wn-card.exp label input{appearance:auto;margin-top:3px}.wn-card.exp label small{display:block}
+  .wn-set nav a i{display:grid;place-items:center}.wn-set h1{font-weight:600;letter-spacing:-.2px}
+  .wn-cd input[type=text]:focus,.wn-cd select:focus{outline:0;border-bottom:2px solid #005fb8}.wn-cd .tg{display:flex;align-items:center;gap:12px;margin:14px 0 4px}
+  .wn-props-card{position:relative}.wn-props-card .copy{position:absolute;right:16px;top:12px}
+  /* lock screen */
+  .wn-lock{position:absolute;inset:0;z-index:100;color:#fff;cursor:default;transition:transform .35s cubic-bezier(.6,0,.9,.4)}
+  .wn-lock .wn-wall{filter:brightness(.92)}.wn-lock.leave{transform:translateY(-100%)}
+  .wn-lock .t{position:absolute;left:0;right:0;top:11%;text-align:center;font-size:118px;font-weight:600;line-height:1;text-shadow:0 2px 12px rgba(0,0,0,.2)}
+  .wn-lock .d{position:absolute;left:0;right:0;top:calc(11% + 132px);text-align:center;font-size:24px;font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,.25)}
+  .px-app.win10 .wn-lock .t{left:4.5%;right:auto;top:auto;bottom:calc(9% + 54px);font-weight:300;font-size:110px;text-align:left}
+  .px-app.win10 .wn-lock .d{left:4.5%;right:auto;top:auto;bottom:9%;font-weight:300;font-size:38px;text-align:left}
+  .wn-lock .ico{position:absolute;right:28px;bottom:24px;display:flex;gap:18px}.wn-lock .cad{position:absolute;left:0;right:0;bottom:22%;text-align:center;font-size:20px}
   `);
 
   /* =============================== the shell =============================== */
@@ -274,38 +344,90 @@
     const port = ports()[0];
     const netIcon = cabled(port) ? ICON.ethernet(18) : ICON.offline(18);
     const pinned = w11 ? ['explorer', 'settings', 'terminal', 'cpl'] : SERVER() ? ['servermgr', 'explorer', 'cmd', 'cpl'] : ['explorer', 'settings', 'cmd', 'cpl'];
-    const runs = kind => v.wins.some(x => x.kind === kind || (kind === 'terminal' && x.kind === 'cmd'));
-    const front = v.wins.length ? v.wins[v.wins.length - 1].kind : null;
+    const kindOf = k => (k === 'terminal' ? 'cmd' : k);
+    const open = v.wins.filter(x => !x.parent);
+    const top = open.filter(x => !x.min).slice(-1)[0];
+    const tip = k => (k === 'servermgr' ? 'Gestionnaire de serveur' : (APPS.find(x => x[0] === k) || [0, ''])[1]);
+    const taskview = svg('<rect x="3" y="6" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h10A1.5 1.5 0 0 1 21 4.5v9a1.5 1.5 0 0 1-1.5 1.5H15" fill="none" stroke="currentColor" stroke-width="1.5"/>', 20);
+    const chevron = svg('<path d="M6 14l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>', 14);
     root.innerHTML = `<div class="wn-wall"></div><div class="wn-desk">${[['pc', 'Ce PC'], ['bin', 'Corbeille'], ['network', 'Réseau']].map(([k, label]) =>
-      `<div class="wn-di${v.sel === k ? ' sel' : ''}" data-di="${k}">${ICON[k](42)}${label}</div>`).join('')}</div>
-      <div class="wn-bar">${w11 ? '' : `<span class="wn-tb" data-start="1">${ICON.start(22)}</span><span class="wn-search10">${ICON.search(16)} Taper ici pour rechercher</span>`}
-        <div class="wn-mid">${w11 ? `<span class="wn-tb" data-start="1">${ICON.start(24)}</span><span class="wn-tb" data-start="1">${ICON.search(20)}</span>` : ''}
-        ${pinned.map(k => `<span class="wn-tb${runs(k) ? ' run' : ''}${front === k || (k === 'terminal' && front === 'cmd') ? ' front' : ''}" data-app="${k}" title="${k === 'servermgr'
-          ? 'Gestionnaire de serveur' : (APPS.find(a => a[0] === k) || [0, ''])[1]}">${k === 'servermgr' ? ICON.server(24) : appIcon(k)}</span>`).join('')}</div>
-        <div class="wn-tray"><span class="ic" data-fly="net" title="${h(nic(port))}\n${cabled(port) ? access(port) : 'Câble réseau non connecté'}">${netIcon}${ICON.speaker(18)}</span>
+      `<div class="wn-di${v.sel === k ? ' sel' : ''}" data-di="${k}">${ICON[k](44)}${label}</div>`).join('')}</div>
+      <div class="wn-bar">${w11 ? '' : `<span class="wn-tb" data-start="1">${ICON.start(20, '#ffffff')}</span><span class="wn-search10" data-start="1">${ICON.search(16)} Taper ici pour rechercher</span>
+        <span class="wn-tb" title="Affichage des tâches">${taskview}</span>`}
+        <div class="wn-mid">${w11 ? `<span class="wn-tb" data-start="1" title="Démarrer">${ICON.start(24)}</span><span class="wn-spill" data-start="1">${ICON.search(16)}Rechercher</span>
+          <span class="wn-tb" title="Affichage des tâches">${taskview}</span>` : ''}
+        ${pinned.map(k => { const win = open.find(x => x.kind === kindOf(k));
+          return `<span class="wn-tb${win ? ' run' : ''}${win && win === top ? ' front' : ''}" data-app="${k}" title="${tip(k)}">${k === 'servermgr' ? ICON.server(24) : appIcon(k)}</span>`; }).join('')}</div>
+        <div class="wn-tray"><span class="ic chev" title="Afficher les icônes cachées">${chevron}</span>${w11 ? '' : '<span class="ic lang">FRA</span>'}
+          <span class="ic" data-fly="net" title="${h(nic(port))}\n${cabled(port) ? access(port) : 'Câble réseau non connecté'}">${netIcon}${ICON.speaker(18)}</span>
           <span class="ic wn-clock" data-fly="cal">${clock()}</span>${w11 ? `<span class="ic">${ICON.bell(16)}</span>` : ''}</div></div>`;
-    for (const win of v.wins) root.append(windowEl(win));
+    for (const win of v.wins) {
+      const parent = win.parent && v.wins.find(x => x.id === win.parent);
+      if (!win.min && !(parent && parent.min)) root.append(windowEl(win));
+    }
+    // The window in front takes the keyboard at once (the terminal's prompt), as on Windows.
+    const front = [...root.querySelectorAll('.wn-win')].pop();
+    front?.querySelector('[data-autofocus]')?.focus({preventScroll: true});
     if (v.fly === 'start') root.append(w11 ? start11() : start10());
     if (v.fly === 'net') root.append(w11 ? quick11() : net10());
-    root.querySelectorAll('[data-start]').forEach(b => { b.onclick = event => { event.stopPropagation(); v.fly = v.fly === 'start' ? null : 'start'; render(); }; });
-    root.querySelectorAll('[data-fly]').forEach(b => { b.onclick = event => { event.stopPropagation(); if (b.dataset.fly === 'cal') return; v.fly = v.fly === 'net' ? null : 'net'; render(); }; });
-    root.querySelectorAll('[data-app]').forEach(b => { b.onclick = () => { const kind = b.dataset.app === 'terminal' ? 'cmd' : b.dataset.app;
-      const open = v.wins.find(x => x.kind === kind); if (open) focusWin(open.id); else OPEN[b.dataset.app](); }; });
+    const fly = root.querySelector('.wn-fly');
+    if (fly && v.flyFresh) fly.classList.add('fresh');
+    v.flyFresh = false;
+    root.querySelectorAll('[data-start]').forEach(b => { b.onclick = event => { event.stopPropagation(); v.fly = v.fly === 'start' ? null : 'start'; v.flyFresh = true; render(); }; });
+    root.querySelectorAll('[data-fly]').forEach(b => { b.onclick = event => { event.stopPropagation(); if (b.dataset.fly === 'cal') return; v.fly = v.fly === 'net' ? null : 'net';
+      v.flyFresh = true; render(); }; });
+    // A pinned app: opens it, brings it back from the taskbar, or, when it is in front, puts it away there (as Windows does).
+    root.querySelectorAll('[data-app]').forEach(b => { b.onclick = () => {
+      const win = open.find(x => x.kind === kindOf(b.dataset.app));
+      if (!win) return OPEN[b.dataset.app]();
+      if (win.min) { win.min = false; v.wins = [...v.wins.filter(x => x !== win), win]; return render(); }
+      if (win === top) { win.min = true; return render(); }
+      focusWin(win.id);
+    }; });
     root.querySelectorAll('[data-di]').forEach(icon => {
       icon.onclick = () => { v.sel = icon.dataset.di; root.querySelectorAll('.wn-di').forEach(x => x.classList.toggle('sel', x === icon)); };
       icon.ondblclick = () => openWin('explorer', {page: icon.dataset.di});
     });
     root.querySelector('.wn-wall').onclick = () => { if (v.fly) { v.fly = null; render(); } };
-    root.querySelector('.wn-wall').oncontextmenu = event => { event.preventDefault(); context(root, event, [['Affichage', null], ['Trier par', null], ['Actualiser', () => render()], ['-'],
-      ['Nouveau', null], ['-'], [w11 ? 'Paramètres d’affichage' : 'Paramètres d’affichage', () => openWin('settings')], ['Personnaliser', () => openWin('settings')]]); };
+    root.querySelector('.wn-wall').oncontextmenu = event => { event.preventDefault(); context(root, event, w11
+      ? [['Affichage', null, '›'], ['Trier par', null, '›'], ['Actualiser', () => render()], ['-'], ['Nouveau', null, '›'], ['-'], ['Paramètres d’affichage', () => openWin('settings', {page: 'system'})],
+        ['Personnaliser', () => openWin('settings', {page: 'perso'})], ['-'], ['Ouvrir dans le Terminal', () => openWin('cmd')], ['-'], ['Afficher plus d’options', null]]
+      : [['Affichage', null, '›'], ['Trier par', null, '›'], ['Actualiser', () => render()], ['-'], ['Nouveau', null, '›'], ['-'], ['Paramètres d’affichage', () => openWin('settings')],
+        ['Personnaliser', () => openWin('settings')]]); };
+    if (v.locked === undefined) {
+      try { v.locked = !sessionStorage.getItem(lockKey()); } catch (error) { v.locked = true; }
+    }
+    if (v.locked) root.append(lockScreen());
   }
+  // The lock screen, once per device and browser tab: a click or a key opens the session, as on Windows.
+  const lockKey = () => `nl-windows-session:${state.project}:${N().name}`;
+  function lockScreen() {
+    const now = new Date(), lock = document.createElement('div');
+    lock.className = 'wn-lock';
+    lock.innerHTML = `<div class="wn-wall"></div><div class="t">${now.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}</div>
+      <div class="d">${now.toLocaleDateString('fr-FR', {weekday: 'long', day: 'numeric', month: 'long'})}</div>${SERVER() ? '<div class="cad">Appuyez sur Ctrl+Alt+Suppr pour déverrouiller.</div>' : ''}
+      <div class="ico">${cabled(ports()[0]) ? ICON.ethernet(20) : ICON.offline(20)}${ICON.power(20)}</div>`;
+    const enter = () => {
+      if (lock.classList.contains('leave')) return;
+      try { sessionStorage.setItem(lockKey(), '1'); } catch (error) { /* private window: the session opens for this page only */ }
+      lock.classList.add('leave');
+      setTimeout(() => { V().locked = false; render(); }, 360);
+    };
+    lock.onclick = enter;
+    return lock;
+  }
+  // One listener for every drawing of the lock screen: a key opens the session like a click.
+  document.addEventListener('keydown', () => {
+    const lock = document.querySelector('.wn-lock');
+    if (lock && !lock.classList.contains('leave')) lock.click();
+  });
   function context(root, event, items) {
     root.querySelector('.wn-ctx')?.remove();
     const menu = document.createElement('div');
-    menu.className = 'wn-ctx';
+    menu.className = 'wn-ctx' + (W11() ? ' w11' : '');
     menu.style.left = event.clientX + 'px';
     menu.style.top = event.clientY + 'px';
-    menu.innerHTML = items.map(([label]) => (label === '-' ? '<hr>' : `<a>${h(label)}</a>`)).join('');
+    menu.innerHTML = items.map(([label, , more]) => (label === '-' ? '<hr>' : `<a>${h(label)}${more ? `<em>${more}</em>` : ''}</a>`)).join('');
     [...menu.querySelectorAll('a')].forEach((a, i) => { const item = items.filter(([l]) => l !== '-')[i]; a.onclick = () => { menu.remove(); (item[1] || (() => later(item[0])))(); }; });
     root.append(menu);
     setTimeout(() => document.addEventListener('click', () => menu.remove(), {once: true}));
@@ -382,13 +504,14 @@
     v.fly = null;
     const existing = SINGLE.has(kind) && v.wins.find(x => x.kind === kind);
     if (existing) {
-      Object.assign(existing, data);
+      Object.assign(existing, data, {min: false});
       v.wins = [...v.wins.filter(x => x !== existing), existing];
       return render();
     }
     const [wd, ht] = SIZES[kind] || [600, 400], n = v.wins.length, area = document.querySelector('.px-app');
     const W = area ? area.clientWidth : 1280, H = area ? area.clientHeight : 800;
-    v.wins.push({id: v.seq++, kind, x: Math.max(10, Math.min(W - wd - 10, (W - wd) / 2 + n * 26 - 40)), y: Math.max(10, Math.min(H - ht - 60, (H - ht) / 2 - 30 + n * 26)), ...data});
+    v.wins.push({id: v.seq++, kind, x: Math.max(10, Math.min(W - wd - 10, (W - wd) / 2 + n * 26 - 40)), y: Math.max(10, Math.min(H - ht - 60, (H - ht) / 2 - 30 + n * 26)),
+      fresh: true, ...data});
     render();
   }
   function closeWin(id) {
@@ -422,14 +545,22 @@
   function windowEl(win) {
     const v = V(), spec = KINDS[win.kind](win), [wd, ht] = SIZES[win.kind] || [600, 400], index = v.wins.indexOf(win);
     const el = document.createElement('div');
-    el.className = `wn-win${spec.dialog ? ' dlg' : ''}${spec.mica ? ' mica' : ''}${index !== v.wins.length - 1 ? ' back' : ''}`;
+    el.className = `wn-win${spec.dialog ? ' dlg' : ''}${spec.mica ? ' mica' : ''}${win.max ? ' max' : ''}${win.fresh ? ' fresh' : ''}${index !== v.wins.length - 1 ? ' back' : ''}`;
+    delete win.fresh;  // the opening animation plays once
     el.dataset.w = win.id;
     Object.assign(el.style, {left: win.x + 'px', top: win.y + 'px', width: wd + 'px', height: ht + 'px', zIndex: 10 + index});
-    el.innerHTML = `<div class="wn-tt"><span class="ico">${spec.icon ? (spec.icon === 'server' ? ICON.server(16) : appIcon(spec.icon, 16)) : ''}</span><span class="t"${spec.icon ? '' : ' style="padding-left:10px;margin-left:-40px"'}>${
-      h(spec.title)}</span>${spec.dialog ? '' : '<span class="cap" title="Réduire">─</span><span class="cap" title="Agrandir">▢</span>'}<span class="cap x" title="Fermer">✕</span></div><div class="wn-body"></div>`;
+    const back = win.kind === 'settings' && W11();  // Windows 11 Settings: a back arrow before its name
+    el.innerHTML = `<div class="wn-tt">${back ? `<span class="back" title="Précédent">${glyph('back')}</span>` : ''}<span class="ico"${back ? ' style="width:24px"' : ''}>${spec.icon
+      ? (spec.icon === 'server' ? ICON.server(16) : appIcon(spec.icon, 16)) : ''}</span><span class="t"${spec.icon ? '' : ' style="padding-left:10px;margin-left:-40px"'}>${h(spec.title)}</span>${
+      spec.dialog ? '' : `<span class="cap mn" title="Réduire">${glyph('min')}</span><span class="cap mx" title="${win.max ? 'Niveau inf.' : 'Agrandir'}">${glyph(win.max ? 'restore' : 'max')}</span>`}
+      <span class="cap x" title="Fermer">${glyph('close')}</span></div><div class="wn-body"></div>`;
     el.addEventListener('mousedown', () => focusWin(win.id));
     el.querySelector('.x').onclick = () => closeWin(win.id);
-    el.querySelectorAll('.cap:not(.x)').forEach(cap => { cap.onclick = () => (cap.title === 'Réduire' ? closeWin(win.id) : toast('Fenêtre : taille fixe dans le laboratoire.')); });
+    const toggleMax = () => { win.max = !win.max; render(); };
+    el.querySelector('.mn')?.addEventListener('click', () => { win.min = true; render(); });
+    el.querySelector('.mx')?.addEventListener('click', toggleMax);
+    if (!spec.dialog) el.querySelector('.wn-tt').addEventListener('dblclick', event => { if (!event.target.closest('.cap,.back')) toggleMax(); });
+    el.querySelector('.back')?.addEventListener('click', () => { const previous = (win.history || []).pop(); if (previous) { win.page = previous; render(); } });
     drag(el, win);
     spec.body(el.querySelector('.wn-body'));
     return el;
@@ -437,7 +568,7 @@
   function drag(el, win) {
     const bar = el.querySelector('.wn-tt');
     bar.addEventListener('mousedown', event => {
-      if (event.target.closest('.cap')) return;
+      if (event.target.closest('.cap,.back') || win.max) return;
       const sx = event.clientX - win.x, sy = event.clientY - win.y;
       const move = e => { win.x = Math.max(-200, e.clientX - sx); win.y = Math.max(0, Math.min(window.innerHeight - 80, e.clientY - sy)); el.style.left = win.x + 'px'; el.style.top = win.y + 'px'; };
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
@@ -450,58 +581,73 @@
   const NAV11 = [['home', '⌂', 'Accueil'], ['system', '▭', 'Système'], ['bt', '⌬', 'Bluetooth et appareils'], ['network', '◈', 'Réseau et Internet'],
     ['perso', '✎', 'Personnalisation'], ['apps', '▦', 'Applications'], ['accounts', '☺', 'Comptes'], ['time', '◷', 'Heure et langue'], ['games', '◉', 'Jeux'],
     ['access', '♿', 'Accessibilité'], ['privacy', '⛨', 'Confidentialité et sécurité'], ['update', '⟳', 'Windows Update']];
+  const goPage = (win, page, extra = {}) => { win.history = [...(win.history || []), win.page || 'home'].slice(-20); Object.assign(win, extra, {page}); render(); };
+  const row = (icon, title, sub, right = '<span class="chev">›</span>', attrs = '') => `<div class="wn-card${right.includes('chev') ? ' link' : ''}" ${attrs}><span class="ic">${fl(icon)}</span>
+    <div class="grow">${title}${sub ? `<small>${sub}</small>` : ''}</div>${right}</div>`;
   function settings11(el, win) {
     const page = win.page || 'home', top = page === 'ethernet' || page === 'advanced' ? 'network' : page;
-    el.innerHTML = `<div class="wn-set"><nav><div class="me">${ICON.user(56)}<div><b>Utilisateur</b><small>Compte local</small></div></div>
-      <div class="find">Rechercher un paramètre ${ICON.search(14)}</div>${NAV11.map(([id, glyph, label]) => `<a data-p="${id}" class="${id === top ? 'on' : ''}"><i>${glyph}</i>${label}</a>`).join('')}</nav><main></main></div>`;
-    el.querySelectorAll('[data-p]').forEach(a => { a.onclick = () => { win.page = a.dataset.p; render(); }; });
+    el.innerHTML = `<div class="wn-set"><nav><div class="me">${ICON.user(60)}<div><b>Utilisateur</b><small>Compte local</small></div></div>
+      <div class="find">Rechercher un paramètre ${ICON.search(14)}</div>${NAV11.map(([id, , label]) => `<a data-p="${id}" class="${id === top ? 'on' : ''}"><i>${fl(id)}</i>${label}</a>`).join('')}</nav><main></main></div>`;
+    el.querySelectorAll('[data-p]').forEach(a => { a.onclick = () => goPage(win, a.dataset.p); });
     const main = el.querySelector('main'), port = win.port || ports()[0];
     if (page === 'network') {
-      main.innerHTML = `<h1>Réseau et Internet</h1><div class="wn-hero">${ICON.pc(64)}<div><b>${h(nic(port))}</b><span class="st">${cabled(port) ? h(access(port)) === 'Internet'
+      main.innerHTML = `<h1>Réseau et Internet</h1><div class="wn-hero">${ICON.pc(72)}<div><b>${h(nic(port))}</b><span class="st">${cabled(port) ? access(port) === 'Internet'
         ? 'Connecté' : 'Connecté · ' + h(access(port)) : disabled(port) ? 'Désactivé' : 'Non connecté'}</span></div><span style="flex:1"></span>
-        <button class="wn-mbtn" data-eth="${h(port)}">Propriétés</button></div>
-        ${ports().map(p => `<div class="wn-card link" data-eth="${h(p)}">${ICON.ethernet(22)}<div class="grow">${h(nic(p))}<small>Authentification, IP et paramètres DNS, réseaux limités</small></div><span class="chev">›</span></div>`).join('')}
-        ${[['VPN', 'Ajouter, se connecter, gérer'], ['Proxy', 'Serveur proxy pour les connexions Ethernet et Wi-Fi'], ['Accès à distance', 'Configurer une connexion Internet à distance'],
-          ['Paramètres réseau avancés', 'Afficher toutes les cartes réseau, réinitialisation du réseau']].map(([t, s], i) => `<div class="wn-card link" data-x="${i}">${ICON.network(22)}<div class="grow">${t}<small>${s}</small></div><span class="chev">›</span></div>`).join('')}`;
-      main.querySelectorAll('[data-eth]').forEach(c => { c.onclick = () => { win.page = 'ethernet'; win.port = c.dataset.eth; render(); }; });
-      main.querySelectorAll('[data-x]').forEach(c => { c.onclick = () => { if (c.dataset.x === '3') { win.page = 'advanced'; render(); } else later(c.textContent.trim().split('\n')[0]); }; });
+        <div style="display:flex;gap:8px"><button class="wn-mbtn" data-eth="${h(port)}">${fl('info', 16)} Propriétés</button><button class="wn-mbtn" data-usage="1">${fl('usage', 16)} Utilisation des données<br>
+        <small style="color:#5b5b5b">${running() ? '12 Mo' : '0 Mo'}, 30 derniers jours</small></button></div></div>
+        ${ports().map(p => row('ethernet', h(nic(p)), 'Authentification, IP et paramètres DNS, réseaux limités', '<span class="chev">›</span>', `data-eth="${h(p)}"`)).join('')}
+        ${row('vpn', 'VPN', 'Ajouter, se connecter, gérer', undefined, 'data-x="VPN"')}${row('proxy', 'Proxy', 'Serveur proxy pour les connexions Ethernet et Wi-Fi', undefined, 'data-x="Proxy"')}
+        ${row('dial', 'Accès à distance', 'Configurer une connexion Internet à distance', undefined, 'data-x="Accès à distance"')}
+        ${row('advanced', 'Paramètres réseau avancés', 'Afficher toutes les cartes réseau, réinitialisation du réseau', undefined, 'data-adv="1"')}`;
+      main.querySelectorAll('[data-eth]').forEach(c => { c.onclick = () => goPage(win, 'ethernet', {port: c.dataset.eth}); });
+      main.querySelectorAll('[data-x]').forEach(c => { c.onclick = () => later(c.dataset.x); });
+      main.querySelector('[data-usage]').onclick = () => later('Utilisation des données');
+      main.querySelector('[data-adv]').onclick = () => goPage(win, 'advanced');
     } else if (page === 'ethernet') {
-      const ipv4 = dhcp(port) ? 'Automatique (DHCP)' : address(port) ? 'Manuel' : 'Automatique (DHCP)';
+      const manual = !dhcp(port) && Boolean(address(port)), profile = win.profile || 'public';
       main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>›</small>${h(nic(port))}</h1>
-        <div class="wn-card"><div class="grow">Type de profil réseau<small>Public (recommandé) · votre appareil n’est pas détectable sur le réseau</small></div></div>
-        <div class="wn-card"><div class="grow">Paramètres d’authentification<small>Authentification 802.1X</small></div><button class="wn-mbtn" data-na="1">Modifier</button></div>
-        <div class="wn-card"><div class="grow">Connexion limitée<small>Certaines applications peuvent fonctionner différemment pour réduire l’utilisation des données</small></div><span>Désactivé ◯</span></div>
-        <div class="wn-card"><div class="grow">Attribution d’adresse IP :</div><span style="min-width:170px">${ipv4}</span><button class="wn-mbtn edit">Modifier</button></div>
-        <div class="wn-card"><div class="grow">Attribution du serveur DNS :</div><span style="min-width:170px">Automatique (DHCP)</span><button class="wn-mbtn" data-na="1">Modifier</button></div>
-        <div class="wn-card" style="display:block;padding:0"><div class="wn-props">${[['Vitesse de liaison (réception/transmission) :', cabled(port) ? '1000/1000 (Mbits/s)' : '—'],
-          ['Adresse IPv4 :', dhcp(port) ? '(attribuée par le serveur DHCP)' : ip(port) || '—'], ['Masque de sous-réseau IPv4 :', dhcp(port) ? '—' : mask(port) || '—'],
-          ['Passerelle IPv4 par défaut :', dhcp(port) ? '—' : gateway() || '—'], ['Serveurs DNS IPv4 :', '—'], ['Fabricant :', 'Network LABS'], ['Description :', ADAPTER],
-          ['Version du pilote :', '100.94.104.26100'], ['Adresse physique (MAC) :', mac(port)]].map(([k, val]) => `<span>${k}</span><b>${h(val)}</b>`).join('')}</div>
-          <div style="padding:0 18px 14px;text-align:right"><button class="wn-mbtn copy">Copier</button></div></div>`;
-      main.querySelector('[data-back]').onclick = () => { win.page = 'network'; render(); };
-      main.querySelectorAll('[data-na]').forEach(b => { b.onclick = () => later('DNS et 802.1X'); });
-      main.querySelector('.copy').onclick = () => toast('Propriétés copiées.');
+        <div class="wn-card exp"><div class="head"><span class="ic">${fl('profile')}</span><div class="grow">Type de profil réseau<small>${profile === 'public' ? 'Public (recommandé)' : 'Privé'}</small></div></div>
+          <div class="rows"><label><input type="radio" name="prof" value="public"${profile === 'public' ? ' checked' : ''}><span>Public (recommandé)<small>Votre appareil n’est pas détectable sur le réseau.
+          Utilisez ce paramètre dans la plupart des cas : à la maison, au travail ou dans un lieu public.</small></span></label><label><input type="radio" name="prof" value="private"${profile === 'private'
+            ? ' checked' : ''}><span>Privé<small>Votre appareil est détectable sur le réseau. Sélectionnez ce paramètre si vous avez besoin de partager des fichiers ou d’utiliser des applications
+          qui communiquent sur ce réseau.</small></span></label></div></div>
+        ${row('auth', 'Paramètres d’authentification', 'Authentification 802.1X', '<button class="wn-mbtn" data-na="802.1X">Modifier</button>')}
+        ${row('metered', 'Connexion limitée', 'Certaines applications peuvent fonctionner différemment pour réduire l’utilisation des données lorsque vous êtes connecté à ce réseau',
+          `<span class="val">${win.metered ? 'Activé' : 'Désactivé'}</span>${toggle(win.metered)}`, 'data-metered="1"')}
+        ${row('ip', 'Attribution d’adresse IP :', '', `<span class="val">${manual ? 'Manuel' : 'Automatique (DHCP)'}</span><button class="wn-mbtn edit">Modifier</button>`)}
+        ${row('dns', 'Attribution du serveur DNS :', '', '<span class="val">Automatique (DHCP)</span><button class="wn-mbtn" data-na="DNS">Modifier</button>')}
+        <div class="wn-card exp wn-props-card"><button class="wn-mbtn copy">Copier</button><div class="wn-props" style="grid-template-columns:330px 1fr;padding:16px 18px">${[
+          ['Vitesse de liaison (réception/transmission) :', cabled(port) ? '1000/1000 (Mbits/s)' : '—'],
+          ...(manual ? [['Adresse IPv4 :', ip(port)], ['Masque de sous-réseau IPv4 :', mask(port)], ['Passerelle IPv4 :', gateway() || '—']] : [['Adresse IPv4 :', dhcp(port) && cabled(port) ? '(bail DHCP)' : '—']]),
+          ['Serveurs DNS IPv4 :', '—'], ['Fabricant :', 'Network LABS'], ['Description :', ADAPTER], ['Version du pilote :', '100.94.104.26100'], ['Adresse physique (MAC) :', mac(port)]]
+          .map(([k, val]) => `<span>${k}</span><b>${h(val)}</b>`).join('')}</div></div>`;
+      main.querySelector('[data-back]').onclick = () => goPage(win, 'network');
+      main.querySelectorAll('input[name=prof]').forEach(r => { r.onchange = () => { win.profile = r.value; render(); }; });
+      main.querySelectorAll('[data-na]').forEach(b => { b.onclick = () => later(b.dataset.na); });
+      main.querySelector('[data-metered]').onclick = () => { win.metered = !win.metered; render(); };
+      main.querySelector('.copy').onclick = () => toast('Propriétés copiées dans le Presse-papiers.');
       main.querySelector('.edit').onclick = () => editIpModern(main, port, 'mask');
     } else if (page === 'advanced') {
       main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>›</small>Paramètres réseau avancés</h1><div class="wn-sec">Cartes réseau</div>
-        ${ports().map(p => `<div class="wn-card">${ICON.ethernet(22)}<div class="grow">${h(nic(p))}<small>${h(ADAPTER)}</small></div><button class="wn-mbtn" data-dis="${h(p)}">${disabled(p) ? 'Activer' : 'Désactiver'}</button></div>`).join('')}
-        <div class="wn-sec">Paramètres associés</div><div class="wn-card link" data-ncpa="1"><div class="grow">Plus d’options de carte réseau</div><span class="chev">↗</span></div>
-        <div class="wn-card link" data-net="1"><div class="grow">Centre Réseau et partage</div><span class="chev">↗</span></div>`;
-      main.querySelector('[data-back]').onclick = () => { win.page = 'network'; render(); };
+        ${ports().map(p => row('ethernet', h(nic(p)), h(ADAPTER), `<button class="wn-mbtn" data-dis="${h(p)}">${disabled(p) ? 'Activer' : 'Désactiver'}</button>`)).join('')}
+        <div class="wn-sec">Paramètres associés</div>${row('advanced', 'Plus d’options de carte réseau', '', '<span class="chev">↗</span>', 'data-ncpa="1"')}
+        ${row('info', 'Centre Réseau et partage', '', '<span class="chev">↗</span>', 'data-net="1"')}`;
+      main.querySelector('[data-back]').onclick = () => goPage(win, 'network');
       main.querySelector('[data-ncpa]').onclick = () => openWin('cpl', {page: 'ncpa'});
       main.querySelector('[data-net]').onclick = () => openWin('cpl', {page: 'net'});
       main.querySelectorAll('[data-dis]').forEach(b => { b.onclick = () => K.attempt(() => setEnabled(b.dataset.dis, disabled(b.dataset.dis)), 'Carte réseau modifiée.'); });
     } else if (page === 'system' || page === 'home') {
-      main.innerHTML = `<h1>${page === 'home' ? 'Accueil' : 'Système'}</h1><div class="wn-hero">${ICON.pc(72)}<div><b>${h(N().name)}</b><span class="st">${h(D().model)} · machine virtuelle du laboratoire</span><br>
+      main.innerHTML = `<h1>${page === 'home' ? 'Accueil' : 'Système'}</h1><div class="wn-hero">${ICON.pc(76)}<div><b>${h(N().name)}</b><span class="st">${h(D().model)} · machine virtuelle</span><br>
         <a class="wn-link10 ren" style="color:#005fb8">Renommer</a></div></div>
-        ${[['Affichage', 'Moniteurs, luminosité, éclairage nocturne, profil d’affichage'], ['Son', 'Niveaux de volume, sortie, entrée, périphériques audio'],
-          ['Notifications', 'Alertes des applications et du système'], ['Alimentation', 'Veille, utilisation de la batterie'], ['Stockage', 'Espace de stockage, lecteurs, règles de configuration'],
-          ['Informations système', 'Spécifications de l’appareil, renommer le PC, spécifications de Windows']].map(([t, s]) => `<div class="wn-card link" data-sys="${t}"><div class="grow">${t}<small>${s}</small></div><span class="chev">›</span></div>`).join('')}`;
+        ${[['system', 'Affichage', 'Moniteurs, luminosité, éclairage nocturne, profil d’affichage'], ['bt', 'Son', 'Niveaux de volume, sortie, entrée, périphériques audio'],
+          ['update', 'Notifications', 'Alertes des applications et du système'], ['metered', 'Alimentation', 'Veille, utilisation de la batterie'],
+          ['advanced', 'Stockage', 'Espace de stockage, lecteurs, règles de configuration'], ['info', 'Informations système', 'Spécifications de l’appareil, renommer le PC, spécifications de Windows']]
+          .map(([icon, t, sub]) => row(icon, t, sub, undefined, `data-sys="${t}"`)).join('')}`;
       main.querySelector('.ren').onclick = () => renameModern(main);
       main.querySelectorAll('[data-sys]').forEach(c => { c.onclick = () => (c.dataset.sys === 'Informations système' ? renameModern(main) : later(c.dataset.sys)); });
     } else {
       const label = (NAV11.find(([id]) => id === page) || [0, 0, 'Paramètres'])[2];
-      main.innerHTML = `<h1>${h(label)}</h1><div class="wn-card"><div class="grow">Cette page existe dans Windows ; elle n’est pas reliée au laboratoire.<small>Réseau et Internet et Système le sont.</small></div></div>`;
+      main.innerHTML = `<h1>${h(label)}</h1>${row(page, 'Cette page existe dans Windows ; elle n’est pas reliée au laboratoire.', 'Réseau et Internet et Système le sont.', '')}`;
     }
   }
   // « Modifier les paramètres IP »: Windows 11 asks for a subnet mask, Windows 10 for a prefix length.
@@ -510,10 +656,11 @@
     shade.className = 'wn-shade';
     const manual = !dhcp(port) && Boolean(address(port));
     shade.innerHTML = `<div class="wn-cd"><div class="b"><h3>Modifier les paramètres IP</h3><select class="mode"><option value="dhcp">Automatique (DHCP)</option>
-      <option value="static"${manual ? ' selected' : ''}>Manuel</option></select><div class="man"><div class="wn-tog"><i></i>IPv4 · Activé</div>
+      <option value="static"${manual ? ' selected' : ''}>Manuel</option></select><div class="man"><div class="tg"><b style="font-weight:600">IPv4</b></div><div class="tg">${toggle(true)}Activé</div>
       <label>Adresse IP</label><input type="text" class="a" value="${h(ip(port))}"><label>${kind === 'mask' ? 'Masque de sous-réseau' : 'Longueur du préfixe de sous-réseau'}</label>
       <input type="text" class="m" value="${h(kind === 'mask' ? mask(port) : address(port) ? String(lenOf(address(port))) : '')}"><label>Passerelle</label><input type="text" class="g" value="${h(gateway())}">
-      <label>DNS préféré</label><input type="text" disabled placeholder="non géré par le laboratoire"></div><div class="wn-err"></div></div>
+      <label>DNS préféré</label><input type="text" disabled placeholder="non géré par le laboratoire"><div class="tg" style="margin-top:18px"><b style="font-weight:600">IPv6</b></div>
+      <div class="tg">${toggle(false)}Désactivé</div></div><div class="wn-err"></div></div>
       <div class="f"><button class="wn-mbtn acc save">Enregistrer</button><button class="wn-mbtn cancel">Annuler</button></div></div>`;
     const sync = () => { shade.querySelector('.man').style.display = shade.querySelector('.mode').value === 'static' ? '' : 'none'; };
     shade.querySelector('.mode').onchange = sync;
@@ -809,11 +956,11 @@
     win.log = win.log === undefined ? banner : win.log;
     const promptText = `C:\\Users\\${SERVER() ? 'Administrateur' : 'Utilisateur'}>`;
     el.innerHTML = `${w11 ? `<div class="wn-ttabs"><span class="tab">${ICON.cmd(14)} Invite de commandes <span style="margin-left:auto">✕</span></span><span class="plus">+ ˅</span></div>` : ''}
-      <div class="wn-term" style="height:${w11 ? 'calc(100% - 40px)' : '100%'}"><span class="log"></span>${h(promptText)}<input spellcheck="false" autocomplete="off"></div>`;
+      <div class="wn-term" style="height:${w11 ? 'calc(100% - 40px)' : '100%'}"><span class="log"></span>${h(promptText)}<input spellcheck="false" autocomplete="off" data-autofocus="1"></div>`;
     const term = el.querySelector('.wn-term'), input = term.querySelector('input'), log = term.querySelector('.log');
     log.textContent = win.log;
     term.onclick = () => input.focus();
-    setTimeout(() => { input.focus(); term.scrollTop = term.scrollHeight; });
+    setTimeout(() => { term.scrollTop = term.scrollHeight; });
     input.onkeydown = event => {
       if (event.key !== 'Enter') return;
       const line = input.value, word = line.trim().split(/\s+/)[0].toLowerCase(), args = line.trim().toLowerCase();
