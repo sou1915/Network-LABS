@@ -225,9 +225,10 @@ Les produits sans interface web (VyOS, Nokia SR OS, Arista EOS, Dell OS10, Cisco
 console et leur configuration. Les NAS, imprimantes, caméras et téléphones enregistrent leur adresse (DHCP ou fixe,
 masque, passerelle) comme la « Configuration IP » d'un PC ; les cartes de gestion des serveurs ouvrent la console du
 serveur. Les PC et serveurs Windows s'ouvrent sur leur bureau Windows : écran de verrouillage (un clic ou une touche),
-fenêtres déplaçables, agrandies ou réduites dans la barre des tâches, clic droit, police Selawik (la version libre de
-Segoe UI publiée par Microsoft) ; icônes et fond d'écran dessinés par Network LABS, sans logo Microsoft. Les autres PC
-gardent le bureau Network LABS. Dessinées par
+fenêtres déplaçables, agrandies ou réduites dans la barre des tâches, clic droit, notifications, Terminal et
+Explorateur à onglets. Polices et icônes libres publiées par Microsoft : Selawik (pour Segoe UI), Cascadia Mono (le
+Terminal) et les Fluent UI System Icons (licence MIT) ; le logo Windows et le fond d'écran officiel ne sont pas copiés.
+Le menu Network LABS est dans la zone de notification. Les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
 du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
 comme l'atelier) et **Simple** (clair).

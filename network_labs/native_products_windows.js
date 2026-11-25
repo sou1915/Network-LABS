@@ -53,27 +53,34 @@
   }
   const later = what => toast(`${what} : pas relié au laboratoire.`, true);
 
+  // Fluent UI System Icons (Microsoft, MIT License; native_windows_icons.js): the icon family Windows 11 is drawn with.
+  const FX = (name, size = 20, colour = '') => {
+    const [box, body] = (window.nlFluent || {})[name] || [20, ''];
+    return `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" fill="${name.endsWith(':c') ? 'none' : 'currentColor'}"${colour ? ` style="color:${colour}"` : ''
+    } aria-hidden="true">${body}</svg>`;
+  };
+
   // ---- drawn icons (no Microsoft artwork) ----
   const svg = (body, size = 24, box = 24) => `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
   const ICON = {
     start: (s, c = '#2b88d8') => svg([3, 9.5, 16].map(y => [3, 9.5, 16].map(x => `<rect x="${x}" y="${y}" width="5" height="5" rx="1.3" fill="${c}"/>`).join('')).join(''), s),
-    search: s => svg('<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14.5 14.5 20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', s),
-    settings: s => svg('<defs><linearGradient id="wnG1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a9bab"/><stop offset="1" stop-color="#4f6072"/></linearGradient></defs>' + [0, 45, 90, 135, 180, 225, 270, 315].map(a => `<rect x="10.4" y="1.2" width="3.2" height="4.4" rx="1" fill="url(#wnG1)" transform="rotate(${a} 12 12)"/>`).join('') + '<circle cx="12" cy="12" r="8.2" fill="url(#wnG1)"/><circle cx="12" cy="12" r="5.2" fill="#e8eef4"/><circle cx="12" cy="12" r="3.1" fill="url(#wnG1)"/>', s),
+    search: s => FX('search', s),
+    settings: s => FX('settings:c', s),
     explorer: s => svg('<defs><linearGradient id="wnG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd86b"/><stop offset="1" stop-color="#f5b43a"/></linearGradient></defs><path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h5.2l2 2.2H20a1.5 1.5 0 0 1 1.5 1.5V10h-19z" fill="#e39f2b"/><rect x="2.5" y="8.6" width="19" height="11.4" rx="1.6" fill="url(#wnG2)"/><rect x="2.5" y="8.6" width="19" height="2" rx="1" fill="#3a8fe0"/>', s),
     terminal: s => svg('<defs><linearGradient id="wnG3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a4a"/><stop offset="1" stop-color="#1f1f1f"/></linearGradient></defs><rect x="2" y="3.5" width="20" height="17" rx="3" fill="url(#wnG3)"/><rect x="2.5" y="4" width="19" height="16" rx="2.6" fill="none" stroke="#7a7a7a" stroke-width=".6"/><path d="M6.2 9.2l3.2 2.6-3.2 2.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.4 15.2h6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>', s),
     cmd: s => svg('<rect x="2" y="3.5" width="20" height="17" rx="1" fill="#1b1b1b"/><rect x="2" y="3.5" width="20" height="3" fill="#4a4a4a"/><text x="4.2" y="15.5" font-size="6.5" font-family="monospace" fill="#fff">C:\\</text>', s),
     cpl: s => svg('<rect x="2.5" y="3.5" width="19" height="15" rx="1.5" fill="#3d8fd6"/><rect x="4.5" y="6" width="6" height="3" fill="#bfe1ff"/><rect x="12" y="6" width="7.5" height="3" fill="#fff"/><rect x="4.5" y="11" width="15" height="2" fill="#fff"/><rect x="4.5" y="14.5" width="10" height="2" fill="#fff"/><rect x="8" y="19" width="8" height="2" fill="#7a8796"/>', s),
-    notepad: s => svg('<rect x="4" y="2.5" width="16" height="19" rx="1.5" fill="#ffffff" stroke="#6c9fd4"/><path d="M7 8h10M7 11.5h10M7 15h7" stroke="#6c9fd4" stroke-width="1.4"/>', s),
+    notepad: s => FX('document:c', s),
     calc: s => svg('<rect x="4" y="2.5" width="16" height="19" rx="2" fill="#4a5563"/><rect x="6.5" y="5" width="11" height="4" fill="#d9e2ea"/>' + [0, 1, 2].map(r => [0, 1, 2].map(c => `<rect x="${6.5 + c * 4}" y="${11 + r * 3.4}" width="3" height="2.4" fill="#cfd8e1"/>`).join('')).join(''), s),
-    taskmgr: s => svg('<rect x="2.5" y="4" width="19" height="16" rx="2" fill="#ffffff" stroke="#3a7bd5"/><path d="M5 16l3.5-5 3 3 3.5-6 3 4" fill="none" stroke="#3a7bd5" stroke-width="1.6" stroke-linejoin="round"/>', s),
+    taskmgr: s => FX('data_area:c', s),
     pc: s => svg('<defs><linearGradient id="wnG4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="20" height="13.4" rx="1.4" fill="#c9d3dd"/><rect x="3.2" y="4.4" width="17.6" height="11" rx=".6" fill="url(#wnG4)"/><path d="M3.2 12.5 20.8 6.8V4.4H3.2z" fill="#fff" opacity=".12"/><path d="M9.5 16.6h5l.6 2.6h-6.2z" fill="#a9b4bf"/><rect x="6.6" y="19" width="10.8" height="1.6" rx=".8" fill="#8995a1"/>', s),
     bin: s => svg('<path d="M5.6 7.2h12.8l-1.3 13.1a1.6 1.6 0 0 1-1.6 1.4H8.5a1.6 1.6 0 0 1-1.6-1.4z" fill="#e9f1f8" fill-opacity=".85" stroke="#7d8d9e" stroke-width=".9"/><path d="M8.6 9.4l.6 10M12 9.4v10M15.4 9.4l-.6 10" stroke="#a8b6c4" stroke-width=".9"/><rect x="4.6" y="4.8" width="14.8" height="2.6" rx="1" fill="#dce5ee" stroke="#7d8d9e" stroke-width=".9"/>', s),
     network: s => svg('<defs><linearGradient id="wnG5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="16" height="11" rx="1.2" fill="#c9d3dd"/><rect x="3" y="4.2" width="14" height="9" rx=".5" fill="url(#wnG5)"/><path d="M8 14.2h4l.5 2h-5z" fill="#a9b4bf"/><circle cx="17" cy="16.4" r="5" fill="#2f9e5f"/><path d="M12 16.4h10M17 11.4c1.6 1.6 1.6 8.4 0 10M17 11.4c-1.6 1.6-1.6 8.4 0 10" fill="none" stroke="#d9f5e4" stroke-width=".8"/>', s),
     ethernet: s => svg('<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 9h6v4H9z" fill="currentColor"/>', s),
-    offline: s => svg('<circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 11h16M11 3c3 3 3 13 0 16M11 3c-3 3-3 13 0 16" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="18" cy="18" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.3"/><path d="M15.8 20.2l4.4-4.4" stroke="currentColor" stroke-width="1.3"/>', s),
-    speaker: s => svg('<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.8a7 7 0 0 1 0 10.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>', s),
-    bell: s => svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.6"/>', s),
-    power: s => svg('<path d="M12 3v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7.2 6.2a7.5 7.5 0 1 0 9.6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', s),
+    offline: s => FX('globe_prohibited', s),
+    speaker: s => FX('speaker_2', s),
+    bell: s => FX('alert', s),
+    power: s => FX('power', s),
     adapter: (s, state) => svg(`<rect x="6" y="5" width="26" height="18" rx="1.5" fill="#3b87d6"/><rect x="8" y="7" width="22" height="14" fill="#8fd0ff"/><rect x="15" y="24" width="8" height="3" fill="#7a8796"/><rect x="11" y="27" width="16" height="2.5" rx="1" fill="#7a8796"/><path d="M19 30v6M14 36h10" stroke="#556372" stroke-width="2"/>${
       state === 'off' ? '<circle cx="33" cy="33" r="6.5" fill="#d13438"/><path d="M30 30l6 6M36 30l-6 6" stroke="#fff" stroke-width="2"/>'
         : state === 'disabled' ? '<rect x="0" y="0" width="40" height="40" fill="#fff" opacity=".55"/>' : '<circle cx="33" cy="33" r="6.5" fill="#16a34a"/><path d="M30 33.2l2.2 2.2 4-4.4" fill="none" stroke="#fff" stroke-width="2"/>'}`, s, 40),
@@ -109,7 +116,17 @@
     usage: '<path d="M3.5 16.5h13M5.5 16.5V11M9 16.5V6.5M12.5 16.5V9M16 16.5V4" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round"/>',
     rename: '<path d="M4 15.5 13.6 5.9a1.5 1.5 0 0 1 2.1 2.1L6.1 17.6H4z" fill="none" stroke="#1b1b1b" stroke-width="1.1" stroke-linejoin="round"/>',
   };
-  const fl = (name, size = 20) => svg(FL[name] || FL.info, size, 20);
+  // Settings' categories in colour and its rows in outline, from the Fluent set; the Ethernet glyph stays drawn here.
+  const FLUENT_OF = {home: 'home:c', system: 'laptop:c', bt: ['bluetooth', '#0067c0'], network: 'wifi:c', perso: 'paint_brush:c', apps: 'apps:c',
+    accounts: 'person:c', time: 'globe:c', games: 'game_chat:c', access: ['accessibility', '#0067c0'], privacy: 'shield:c', update: 'arrow_sync:c',
+    profile: 'shield', auth: 'key', metered: 'data_usage', ip: 'desktop', dns: 'globe', info: 'info', vpn: 'shield_lock', proxy: 'router', dial: 'call',
+    advanced: 'network_check', usage: 'data_usage', rename: 'rename'};
+  const fl = (name, size = 20) => {
+    const fluent = FLUENT_OF[name];
+    if (!fluent || !window.nlFluent) return svg(FL[name] || FL.info, size, 20);
+    const [icon, colour] = Array.isArray(fluent) ? fluent : [fluent, ''];
+    return FX(icon, size, colour);
+  };
   const CAP = {min: '<path d="M0 5.5h10" stroke="currentColor"/>', max: '<rect x=".5" y=".5" width="9" height="9" rx="1" fill="none" stroke="currentColor"/>',
     restore: '<rect x=".5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor"/><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor"/>',
     close: '<path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" stroke-width="1.05"/>', back: '<path d="M10 5H1M4.5 1.5 1 5l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'};
@@ -123,7 +140,11 @@
   @font-face{font-family:'Selawik';src:url('/Selawik-Semilight.woff2') format('woff2');font-weight:300}
   .px-app.win11,.px-app.win10{position:fixed;inset:0;overflow:hidden;font:14px 'Segoe UI Variable Text','Segoe UI',Selawik,Inter,Arial,sans-serif;color:#1b1b1b;
     user-select:none;-webkit-font-smoothing:antialiased}
-  .px-app.win11 ~ .px-pill,.px-app.win10 ~ .px-pill{top:10px;bottom:auto}
+  @font-face{font-family:'Cascadia Mono';src:url('/CascadiaMono-Regular.woff2') format('woff2')}
+  .px-app.win11 ~ .px-pill,.px-app.win10 ~ .px-pill{top:auto;bottom:6px;right:140px}.px-app.win11 ~ .px-pill .px-pill-main,.px-app.win10 ~ .px-pill .px-pill-main{display:none}
+  .px-app.win11 ~ .px-pill .px-pill-menu{bottom:50px;background:rgba(249,249,249,.97);border:1px solid rgba(0,0,0,.12);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);
+    font:13px 'Segoe UI',Selawik,Inter,sans-serif}.px-app.win11 ~ .px-pill .px-pill-menu button{color:#1b1b1b;border-radius:4px}.px-app.win11 ~ .px-pill .px-pill-menu button:hover{background:rgba(0,0,0,.05)}
+  .px-app.win10 ~ .px-pill .px-pill-menu{bottom:44px;background:#2b2b2b;border-radius:0;font:13px 'Segoe UI',Selawik,Inter,sans-serif}
   .px-app.win11 .wn-wall{position:absolute;inset:0;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMid slice'><defs><linearGradient id='a' x1='0' y1='1' x2='1' y2='0'><stop offset='0' stop-color='%23cfe8ff' stop-opacity='0'/><stop offset='.55' stop-color='%23e3f2ff' stop-opacity='.9'/><stop offset='1' stop-color='%2399ccff' stop-opacity='.25'/></linearGradient><filter id='b'><feGaussianBlur stdDeviation='16'/></filter></defs><g filter='url(%23b)'><path d='M-120 840 C 280 560 660 780 980 450 S 1480 170 1760 230 L 1760 380 C 1460 350 1250 540 1020 660 S 420 990 -120 980 Z' fill='url(%23a)'/><path d='M-120 720 C 360 440 760 640 1080 320 S 1500 60 1760 80 L 1760 150 C 1460 140 1200 350 1000 490 S 360 880 -120 900 Z' fill='%23ffffff' fill-opacity='.3'/><path d='M200 980 C 520 760 900 820 1200 600 S 1560 420 1760 460 L 1760 520 C 1500 520 1300 680 1080 780 S 640 1000 200 1040 Z' fill='%2366b3ff' fill-opacity='.35'/></g></svg>") center/cover,
     radial-gradient(60% 60% at 62% 48%,#3b8ff0 0%,rgba(59,143,240,0) 70%),linear-gradient(135deg,#0a3d91,#1a66cf 55%,#3d9bf0)}
   .px-app.win10 .wn-wall{position:absolute;inset:0;background:radial-gradient(40% 70% at 64% 46%,rgba(120,190,255,.55),rgba(0,0,0,0) 70%),
@@ -306,6 +327,37 @@
   .wn-set nav a i{display:grid;place-items:center}.wn-set h1{font-weight:600;letter-spacing:-.2px}
   .wn-cd input[type=text]:focus,.wn-cd select:focus{outline:0;border-bottom:2px solid #005fb8}.wn-cd .tg{display:flex;align-items:center;gap:12px;margin:14px 0 4px}
   .wn-props-card{position:relative}.wn-props-card .copy{position:absolute;right:16px;top:12px}
+  /* Windows Terminal and File Explorer: tabs in the title bar */
+  .wn-win.tabbed .wn-tt{height:40px;align-items:flex-end;padding-left:8px}.wn-win.tabbed .cap{align-self:stretch;height:auto}
+  .wn-win.tabbed.dark{background:#0c0c0c;border-color:#3a3a3a}.wn-win.tabbed.dark .wn-tt{background:#202020;color:#fff}.wn-win.tabbed.dark .cap{color:#fff}
+  .wn-win.tabbed.dark .cap:hover{background:rgba(255,255,255,.1)}.wn-win.tabbed.light .wn-tt{background:#eef2f6}
+  .wt-tab{height:34px;min-width:210px;max-width:240px;display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;border-radius:8px 8px 0 0;font-size:12px}
+  .wn-win.tabbed.dark .wt-tab{background:#0c0c0c}.wn-win.tabbed.light .wt-tab{background:#f9f9f9}.wt-tab span:nth-child(2){flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wt-x{width:24px;height:24px;display:grid;place-items:center;border-radius:4px}.wt-x:hover{background:rgba(128,128,128,.25)}
+  .wt-plus{height:34px;width:34px;display:grid;place-items:center;font-size:16px;border-radius:6px 6px 0 0}.wt-plus:hover{background:rgba(128,128,128,.2)}
+  .wn-win.tabbed.dark .wn-term{height:100%}
+  .ex-top{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f9f9f9;font-size:13px}.ex-nav{display:flex;gap:14px;color:#1b1b1b;padding:0 6px}
+  .ex-path{flex:1;display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-radius:4px;background:#fff;border:1px solid #e5e5e5}
+  .ex-find{width:240px;display:flex;align-items:center;justify-content:space-between;height:30px;padding:0 10px;border-radius:4px;background:#fff;border:1px solid #e5e5e5;color:#6b6b6b}
+  .ex-cmd{display:flex;align-items:center;gap:2px;padding:6px 10px;background:#f9f9f9;border-bottom:1px solid #e5e5e5;font-size:13px}
+  .ex-cmd a{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:4px;cursor:default}.ex-cmd a:hover{background:rgba(0,0,0,.05)}.ex-cmd a.off{color:#a0a0a0}
+  .ex-cmd i{width:1px;height:22px;background:#e0e0e0;margin:0 6px}
+  .ex-body{display:grid;grid-template-columns:200px 1fr;height:calc(100% - 118px);background:#fff}.ex-body nav{padding:6px;border-right:1px solid #ededed;overflow:auto;font-size:13px}
+  .ex-body nav a{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:4px;cursor:default}.ex-body nav a:hover{background:rgba(0,0,0,.04)}
+  .ex-body nav a.on{background:#e5f1fb}.ex-body nav hr{border:0;border-top:1px solid #ededed;margin:6px 0}.ex-body main{padding:12px 20px;font-size:13px;overflow:auto}
+  .ex-sec{display:flex;align-items:center;gap:8px;font-weight:600;margin:4px 0 10px}.ex-drive{display:inline-flex;gap:10px;padding:8px 12px;border-radius:4px;cursor:default}
+  .ex-drive:hover{background:#e5f3ff}.ex-drive .bar{width:200px;height:12px;background:#e6e6e6;margin:5px 0}.ex-drive .bar i{display:block;height:100%;background:#26a0da}
+  .ex-drive small{color:#6d6d6d}.ex-hosts{display:flex;flex-wrap:wrap;gap:12px}.ex-hosts div{width:100px;text-align:center}.ex-hosts span{display:block}.ex-empty{color:#6d6d6d;text-align:center;margin-top:40px}
+  .ex-status{height:24px;display:flex;align-items:center;padding:0 12px;font-size:12px;background:#fff;border-top:1px solid #ededed}
+  .wn-quick .tile b{position:relative}.wn-quick .tile b em{position:absolute;right:0;top:0;bottom:0;width:28px;display:grid;place-items:center;border-left:1px solid rgba(0,0,0,.08)}
+  .wn-quick .tile.on b em{border-left-color:rgba(255,255,255,.35)}.wn-quick .slide{color:#1b1b1b}.wn-quick .foot a{color:inherit;display:grid}
+  /* messages as Windows notifications: a card at the bottom right, above the clock */
+  .px-app.win11 ~ .px-toast,.px-app.win10 ~ .px-toast{left:auto;right:12px;bottom:60px;transform:none;width:364px;box-sizing:border-box;padding:12px 16px 16px;
+    font:13px 'Segoe UI',Selawik,Inter,sans-serif;line-height:1.45}
+  .px-app.win11 ~ .px-toast{background:rgba(249,249,249,.98);color:#1b1b1b;border:1px solid rgba(0,0,0,.1);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.22)}
+  .px-app.win10 ~ .px-toast{bottom:52px;background:#1f1f1f;color:#fff;border-radius:0}
+  .px-app.win11 ~ .px-toast::before,.px-app.win10 ~ .px-toast::before{content:'Network LABS';display:block;font-size:12px;opacity:.7;margin-bottom:8px}
+  .px-app.win11 ~ .px-toast.bad{color:#c42b1c}.px-app.win10 ~ .px-toast.bad{color:#ff99a4}
   /* lock screen */
   .wn-lock{position:absolute;inset:0;z-index:100;color:#fff;cursor:default;transition:transform .35s cubic-bezier(.6,0,.9,.4)}
   .wn-lock .wn-wall{filter:brightness(.92)}.wn-lock.leave{transform:translateY(-100%)}
@@ -337,6 +389,7 @@
     ncpa: () => openWin('cpl', {page: 'ncpa'}), notepad: () => later('Bloc-notes'), calc: () => later('Calculatrice'),
     taskmgr: () => later('Gestionnaire des tâches')};
   const appIcon = (kind, size = 24) => (ICON[kind] || ICON.pc)(size);
+  const NL_TRAY = '<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.6" fill="currentColor"/></svg>';
 
   function drawShell(root) {
     const v = V(), w11 = W11();
@@ -349,7 +402,7 @@
     const top = open.filter(x => !x.min).slice(-1)[0];
     const tip = k => (k === 'servermgr' ? 'Gestionnaire de serveur' : (APPS.find(x => x[0] === k) || [0, ''])[1]);
     const taskview = svg('<rect x="3" y="6" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h10A1.5 1.5 0 0 1 21 4.5v9a1.5 1.5 0 0 1-1.5 1.5H15" fill="none" stroke="currentColor" stroke-width="1.5"/>', 20);
-    const chevron = svg('<path d="M6 14l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>', 14);
+    const chevron = FX('chevron_up', 16);
     root.innerHTML = `<div class="wn-wall"></div><div class="wn-desk">${[['pc', 'Ce PC'], ['bin', 'Corbeille'], ['network', 'Réseau']].map(([k, label]) =>
       `<div class="wn-di${v.sel === k ? ' sel' : ''}" data-di="${k}">${ICON[k](44)}${label}</div>`).join('')}</div>
       <div class="wn-bar">${w11 ? '' : `<span class="wn-tb" data-start="1">${ICON.start(20, '#ffffff')}</span><span class="wn-search10" data-start="1">${ICON.search(16)} Taper ici pour rechercher</span>
@@ -358,7 +411,7 @@
           <span class="wn-tb" title="Affichage des tâches">${taskview}</span>` : ''}
         ${pinned.map(k => { const win = open.find(x => x.kind === kindOf(k));
           return `<span class="wn-tb${win ? ' run' : ''}${win && win === top ? ' front' : ''}" data-app="${k}" title="${tip(k)}">${k === 'servermgr' ? ICON.server(24) : appIcon(k)}</span>`; }).join('')}</div>
-        <div class="wn-tray"><span class="ic chev" title="Afficher les icônes cachées">${chevron}</span>${w11 ? '' : '<span class="ic lang">FRA</span>'}
+        <div class="wn-tray"><span class="ic chev" title="Afficher les icônes cachées">${chevron}</span><span class="ic nl" title="Network LABS">${NL_TRAY}</span>${w11 ? '' : '<span class="ic lang">FRA</span>'}
           <span class="ic" data-fly="net" title="${h(nic(port))}\n${cabled(port) ? access(port) : 'Câble réseau non connecté'}">${netIcon}${ICON.speaker(18)}</span>
           <span class="ic wn-clock" data-fly="cal">${clock()}</span>${w11 ? `<span class="ic">${ICON.bell(16)}</span>` : ''}</div></div>`;
     for (const win of v.wins) {
@@ -384,14 +437,17 @@
       if (win === top) { win.min = true; return render(); }
       focusWin(win.id);
     }; });
+    // Network LABS' own menu (refresh, the device's terminal, designs): in the tray, where Windows keeps its helpers.
+    root.querySelector('.wn-tray .nl').onclick = event => { event.stopPropagation(); document.querySelector('.px-pill')?.classList.toggle('open'); };
     root.querySelectorAll('[data-di]').forEach(icon => {
       icon.onclick = () => { v.sel = icon.dataset.di; root.querySelectorAll('.wn-di').forEach(x => x.classList.toggle('sel', x === icon)); };
       icon.ondblclick = () => openWin('explorer', {page: icon.dataset.di});
     });
     root.querySelector('.wn-wall').onclick = () => { if (v.fly) { v.fly = null; render(); } };
     root.querySelector('.wn-wall').oncontextmenu = event => { event.preventDefault(); context(root, event, w11
-      ? [['Affichage', null, '›'], ['Trier par', null, '›'], ['Actualiser', () => render()], ['-'], ['Nouveau', null, '›'], ['-'], ['Paramètres d’affichage', () => openWin('settings', {page: 'system'})],
-        ['Personnaliser', () => openWin('settings', {page: 'perso'})], ['-'], ['Ouvrir dans le Terminal', () => openWin('cmd')], ['-'], ['Afficher plus d’options', null]]
+      ? [['Affichage', null, '›', 'grid'], ['Trier par', null, '›', 'arrow_sort'], ['Actualiser', () => render(), '', 'arrow_clockwise'], ['-'], ['Nouveau', null, '›', 'add_circle'], ['-'],
+        ['Paramètres d’affichage', () => openWin('settings', {page: 'system'}), '', 'desktop'], ['Personnaliser', () => openWin('settings', {page: 'perso'}), '', 'paint_brush'], ['-'],
+        ['Ouvrir dans le Terminal', () => openWin('cmd'), '', 'window_console'], ['-'], ['Afficher plus d’options', null, '', 'open']]
       : [['Affichage', null, '›'], ['Trier par', null, '›'], ['Actualiser', () => render()], ['-'], ['Nouveau', null, '›'], ['-'], ['Paramètres d’affichage', () => openWin('settings')],
         ['Personnaliser', () => openWin('settings')]]); };
     if (v.locked === undefined) {
@@ -427,7 +483,8 @@
     menu.className = 'wn-ctx' + (W11() ? ' w11' : '');
     menu.style.left = event.clientX + 'px';
     menu.style.top = event.clientY + 'px';
-    menu.innerHTML = items.map(([label, , more]) => (label === '-' ? '<hr>' : `<a>${h(label)}${more ? `<em>${more}</em>` : ''}</a>`)).join('');
+    menu.innerHTML = items.map(([label, , more, icon]) => (label === '-' ? '<hr>' : `<a>${W11() ? `<span style="width:16px;display:grid">${icon ? FX(icon, 16) : ''}</span>` : ''}${h(label)}${
+      more ? `<em>${more}</em>` : ''}</a>`)).join('');
     [...menu.querySelectorAll('a')].forEach((a, i) => { const item = items.filter(([l]) => l !== '-')[i]; a.onclick = () => { menu.remove(); (item[1] || (() => later(item[0])))(); }; });
     root.append(menu);
     setTimeout(() => document.addEventListener('click', () => menu.remove(), {once: true}));
@@ -475,11 +532,13 @@
   function quick11() {
     const port = ports()[0], fly = document.createElement('div');
     fly.className = 'wn-fly wn-quick';
-    fly.innerHTML = `<div class="tiles"><span class="tile${cabled(port) ? ' on' : ''}"><b>${cabled(port) ? ICON.ethernet(18) : ICON.offline(18)}</b>${cabled(port) ? 'Ethernet' : 'Non connecté'}</span>
-      <span class="tile"><b>✈</b>Mode avion</span><span class="tile"><b>◐</b>Économiseur</span><span class="tile"><b>☾</b>Éclairage nocturne</span>
-      <span class="tile"><b>♿</b>Accessibilité</span><span class="tile"><b>⌁</b>Partage de proximité</span></div>
-      <div class="slide">☀<i></i></div><div class="slide">${ICON.speaker(16)}<i></i></div>
-      <div class="foot"><span>${h(nic(port))} · ${cabled(port) ? h(access(port)) : 'Câble réseau non connecté'}</span><a data-go="net" title="Paramètres réseau et Internet">${ICON.settings(18)}</a></div>`;
+    const tile = (on, icon, label, more) => `<span class="tile${on ? ' on' : ''}"><b>${FX(icon, 18)}${more ? `<em>${FX('chevron_right', 12)}</em>` : ''}</b>${label}</span>`;
+    fly.innerHTML = `<div class="tiles">${tile(cabled(port), cabled(port) ? 'desktop' : 'globe_prohibited', cabled(port) ? 'Ethernet' : 'Non connecté', true)}
+      ${tile(false, 'bluetooth', 'Bluetooth', true)}${tile(false, 'airplane', 'Mode avion')}${tile(false, 'battery_saver', 'Économiseur d’énergie')}
+      ${tile(false, 'weather_moon', 'Éclairage nocturne')}${tile(false, 'accessibility', 'Accessibilité', true)}</div>
+      <div class="slide">${FX('brightness_high', 18)}<i></i></div><div class="slide">${FX('speaker_2', 18)}<i></i>${FX('chevron_right', 14)}</div>
+      <div class="foot"><span>${h(nic(port))} · ${cabled(port) ? h(access(port)) : 'Câble réseau non connecté'}</span><span style="display:flex;gap:14px">${FX('edit', 16)}
+      <a data-go="net" title="Paramètres réseau et Internet">${FX('settings', 16)}</a></span></div>`;
     fly.onclick = event => event.stopPropagation();
     fly.querySelector('[data-go]').onclick = () => { V().fly = null; openWin('settings', {page: 'network'}); };
     return fly;
@@ -533,9 +592,9 @@
     settings: win => ({title: 'Paramètres', icon: 'settings', mica: true, body: el => (W11() ? settings11 : settings10)(el, win)}),
     cpl: win => ({title: {home: 'Panneau de configuration', net: 'Centre Réseau et partage', ncpa: 'Connexions réseau'}[win.page] || 'Panneau de configuration', icon: 'cpl',
       body: el => controlPanel(el, win)}),
-    cmd: win => ({title: W11() ? 'Invite de commandes' : 'Invite de commandes', icon: 'cmd', body: el => terminal(el, win)}),
-    explorer: win => ({title: {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[win.page] || 'Explorateur de fichiers', icon: win.page === 'bin' ? 'bin' : win.page === 'network' ? 'network' : 'explorer',
-      body: el => explorer(el, win)}),
+    cmd: win => ({title: 'Invite de commandes', icon: 'cmd', tab: W11() ? 'dark' : null, body: el => terminal(el, win)}),
+    explorer: win => ({title: {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[win.page] || 'Explorateur de fichiers', icon: win.page === 'bin' ? 'bin' : win.page === 'network' ? 'network' : 'pc',
+      tab: W11() ? 'light' : null, body: el => explorer(el, win)}),
     servermgr: win => ({title: 'Gestionnaire de serveur', icon: 'server', body: el => serverManager(el, win)}),
     status: win => ({title: `État de ${nic(win.port)}`, icon: null, dialog: true, body: el => statusDlg(el, win)}),
     details: win => ({title: 'Détails de connexion réseau', icon: null, dialog: true, body: el => detailsDlg(el, win)}),
@@ -545,17 +604,25 @@
   function windowEl(win) {
     const v = V(), spec = KINDS[win.kind](win), [wd, ht] = SIZES[win.kind] || [600, 400], index = v.wins.indexOf(win);
     const el = document.createElement('div');
-    el.className = `wn-win${spec.dialog ? ' dlg' : ''}${spec.mica ? ' mica' : ''}${win.max ? ' max' : ''}${win.fresh ? ' fresh' : ''}${index !== v.wins.length - 1 ? ' back' : ''}`;
+    el.className = `wn-win${spec.dialog ? ' dlg' : ''}${spec.mica ? ' mica' : ''}${spec.tab ? ' tabbed ' + spec.tab : ''}${win.max ? ' max' : ''}${win.fresh ? ' fresh' : ''}${
+      index !== v.wins.length - 1 ? ' back' : ''}`;
     delete win.fresh;  // the opening animation plays once
     el.dataset.w = win.id;
     Object.assign(el.style, {left: win.x + 'px', top: win.y + 'px', width: wd + 'px', height: ht + 'px', zIndex: 10 + index});
     const back = win.kind === 'settings' && W11();  // Windows 11 Settings: a back arrow before its name
-    el.innerHTML = `<div class="wn-tt">${back ? `<span class="back" title="Précédent">${glyph('back')}</span>` : ''}<span class="ico"${back ? ' style="width:24px"' : ''}>${spec.icon
+    // Windows Terminal and File Explorer (Windows 11): the title bar is a row of tabs.
+    const head = spec.tab ? `<span class="wt-tab">${spec.icon === 'server' ? ICON.server(16) : appIcon(spec.icon, 16)}<span>${h(spec.title)}</span><span class="wt-x">${glyph('close')}</span></span>
+      <span class="wt-plus">+</span>${spec.tab === 'dark' ? `<span class="wt-plus">${FX('chevron_down', 12)}</span>` : ''}<span class="t"></span>` : '';
+    el.innerHTML = spec.tab ? `<div class="wn-tt">${head}<span class="cap mn" title="Réduire">${glyph('min')}</span><span class="cap mx" title="${win.max ? 'Niveau inf.' : 'Agrandir'}">${
+      glyph(win.max ? 'restore' : 'max')}</span><span class="cap x" title="Fermer">${glyph('close')}</span></div><div class="wn-body"></div>` : `<div class="wn-tt">${back
+      ? `<span class="back" title="Précédent">${glyph('back')}</span>` : ''}<span class="ico"${back ? ' style="width:24px"' : ''}>${spec.icon
       ? (spec.icon === 'server' ? ICON.server(16) : appIcon(spec.icon, 16)) : ''}</span><span class="t"${spec.icon ? '' : ' style="padding-left:10px;margin-left:-40px"'}>${h(spec.title)}</span>${
       spec.dialog ? '' : `<span class="cap mn" title="Réduire">${glyph('min')}</span><span class="cap mx" title="${win.max ? 'Niveau inf.' : 'Agrandir'}">${glyph(win.max ? 'restore' : 'max')}</span>`}
       <span class="cap x" title="Fermer">${glyph('close')}</span></div><div class="wn-body"></div>`;
     el.addEventListener('mousedown', () => focusWin(win.id));
     el.querySelector('.x').onclick = () => closeWin(win.id);
+    el.querySelector('.wt-x')?.addEventListener('click', () => closeWin(win.id));
+    el.querySelectorAll('.wt-plus').forEach(b => { b.onclick = () => later('Nouvel onglet'); });
     const toggleMax = () => { win.max = !win.max; render(); };
     el.querySelector('.mn')?.addEventListener('click', () => { win.min = true; render(); });
     el.querySelector('.mx')?.addEventListener('click', toggleMax);
@@ -568,7 +635,7 @@
   function drag(el, win) {
     const bar = el.querySelector('.wn-tt');
     bar.addEventListener('mousedown', event => {
-      if (event.target.closest('.cap,.back') || win.max) return;
+      if (event.target.closest('.cap,.back,.wt-tab,.wt-plus') || win.max) return;
       const sx = event.clientX - win.x, sy = event.clientY - win.y;
       const move = e => { win.x = Math.max(-200, e.clientX - sx); win.y = Math.max(0, Math.min(window.innerHeight - 80, e.clientY - sy)); el.style.left = win.x + 'px'; el.style.top = win.y + 'px'; };
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
@@ -955,8 +1022,7 @@
         : `Microsoft Windows [version 10.0.19045.5131]\n(c) Microsoft Corporation. Tous droits réservés.\n\n`;
     win.log = win.log === undefined ? banner : win.log;
     const promptText = `C:\\Users\\${SERVER() ? 'Administrateur' : 'Utilisateur'}>`;
-    el.innerHTML = `${w11 ? `<div class="wn-ttabs"><span class="tab">${ICON.cmd(14)} Invite de commandes <span style="margin-left:auto">✕</span></span><span class="plus">+ ˅</span></div>` : ''}
-      <div class="wn-term" style="height:${w11 ? 'calc(100% - 40px)' : '100%'}"><span class="log"></span>${h(promptText)}<input spellcheck="false" autocomplete="off" data-autofocus="1"></div>`;
+    el.innerHTML = `<div class="wn-term"><span class="log"></span>${h(promptText)}<input spellcheck="false" autocomplete="off" data-autofocus="1"></div>`;
     const term = el.querySelector('.wn-term'), input = term.querySelector('input'), log = term.querySelector('.log');
     log.textContent = win.log;
     term.onclick = () => input.focus();
@@ -990,17 +1056,24 @@
   /* =============================== Explorer (Ce PC, Corbeille, Réseau) =============================== */
   function explorer(el, win) {
     const page = win.page || 'pc', others = (state.equipment || []).filter(e => e.name !== N().name && e.role === 'host');
-    el.innerHTML = `<div class="wn-addr"><span class="nav">← → ↑</span><span class="path">${appIcon(page === 'bin' ? 'bin' : page === 'network' ? 'network' : 'pc', 16)} ${
-      {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[page] || 'Ce PC'}</span><span class="find">Rechercher</span></div><div style="display:grid;grid-template-columns:190px 1fr;height:calc(100% - 38px)">
-      <nav style="border-right:1px solid #e5e5e5;padding:10px 0;font-size:13px">${[['pc', 'Ce PC'], ['network', 'Réseau'], ['bin', 'Corbeille']].map(([k, t]) =>
-        `<a data-ex="${k}" style="display:flex;gap:8px;padding:6px 14px;cursor:default;${k === page ? 'background:#cce8ff' : ''}">${appIcon(k, 16)}${t}</a>`).join('')}</nav>
-      <main style="padding:14px 18px;font-size:13px">${page === 'pc' ? `<b style="font-weight:600">Périphériques et lecteurs</b><div style="display:flex;gap:14px;margin-top:10px;align-items:center">
-        <svg width="48" height="40" viewBox="0 0 48 40"><rect x="2" y="10" width="44" height="22" rx="3" fill="#cfd8e3"/><rect x="6" y="24" width="10" height="3" fill="#2b88d8"/></svg>
-        <div>Disque local (C:)<div style="width:220px;height:12px;background:#e6e6e6;margin:4px 0"><div style="width:38%;height:100%;background:#26a0da"></div></div>
-        <small style="color:#6d6d6d">39,6 Go disponibles sur 63,3 Go</small></div></div>` : page === 'network' ? `<b style="font-weight:600">Ordinateurs (${others.length})</b>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">${others.map(e => `<div style="width:110px;text-align:center">${ICON.pc(40)}<br>${h(e.name)}</div>`).join('') || 'Aucun.'}</div>
-        <p style="color:#6d6d6d">La découverte du réseau montre les autres postes du projet.</p>` : '<p style="color:#6d6d6d">Cette corbeille est vide.</p>'}</main></div>`;
-    el.querySelectorAll('[data-ex]').forEach(a => { a.onclick = () => { win.page = a.dataset.ex; render(); }; });
+    const title = {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[page] || 'Ce PC';
+    const nav = [['home:c', 'Accueil', 'na'], ['image', 'Galerie', 'na'], ['-'], ['desktop', 'Bureau', 'na'], ['arrow_download', 'Téléchargements', 'na'], ['document', 'Documents', 'na'],
+      ['image', 'Images', 'na'], ['music_note_2', 'Musique', 'na'], ['video', 'Vidéos', 'na'], ['-'], ['laptop:c', 'Ce PC', 'pc'], ['globe', 'Réseau', 'network'], ['delete', 'Corbeille', 'bin']];
+    const tool = (icon, label, off = false) => `<a class="${off ? 'off' : ''}" title="${label}">${FX(icon, 18)}${label.includes('▾') ? ' ' + label : ''}</a>`;
+    el.innerHTML = `<div class="ex-top"><span class="ex-nav">${FX('arrow_left', 16)}${FX('arrow_right', 16)}${FX('arrow_up', 16)}${FX('arrow_clockwise', 16)}</span>
+      <span class="ex-path">${page === 'network' ? FX('globe', 16) : page === 'bin' ? FX('delete', 16) : FX('laptop:c', 16)}<span>›</span>${title}<span>›</span></span>
+      <span class="ex-find">Rechercher dans : ${title} ${FX('search', 14)}</span></div>
+      <div class="ex-cmd">${tool('add_circle', 'Nouveau ▾')}<i></i>${tool('cut', 'Couper', true)}${tool('copy', 'Copier', true)}${tool('clipboard_paste', 'Coller', true)}
+        ${tool('rename', 'Renommer', true)}${tool('share', 'Partager', true)}${tool('delete', 'Supprimer', true)}<i></i>${tool('arrow_sort', 'Trier ▾')}${tool('grid', 'Afficher ▾')}<i></i>
+        ${tool('more_horizontal', 'Voir plus')}<span style="flex:1"></span>${tool('panel_left', 'Détails')}</div>
+      <div class="ex-body"><nav>${nav.map(([icon, label, go]) => (icon === '-' ? '<hr>' : `<a data-ex="${go}" class="${go === page ? 'on' : ''}">${FX(icon, 16)}${label}</a>`)).join('')}</nav>
+      <main>${page === 'pc' ? `<div class="ex-sec">${FX('chevron_down', 12)} Périphériques et lecteurs</div><div class="ex-drive">${FX('hard_drive', 40)}<div>Disque local (C:)
+        <div class="bar"><i style="width:38%"></i></div><small>39,6 Go disponibles sur 63,3 Go</small></div></div>` : page === 'network' ? `<div class="ex-sec">${FX('chevron_down', 12)}
+        Ordinateur (${others.length})</div><div class="ex-hosts">${others.map(e => `<div>${ICON.pc(44)}<span>${h(e.name)}</span></div>`).join('') || '<p>Aucun.</p>'}</div>`
+        : '<p class="ex-empty">Ce dossier est vide.</p>'}</main></div><div class="ex-status">${page === 'pc' ? '1 élément' : page === 'network' ? `${others.length} élément(s)` : '0 élément'}</div>`;
+    el.querySelectorAll('[data-ex]').forEach(a => { a.onclick = () => { if (a.dataset.ex === 'na') later(a.textContent.trim()); else { win.page = a.dataset.ex; render(); } }; });
+    el.querySelectorAll('.ex-cmd a:not(.off)').forEach(a => { a.onclick = () => later(a.title); });
+    el.querySelector('.ex-drive')?.addEventListener('dblclick', () => later('Disque local (C:)'));
   }
 
   /* =============================== Server Manager (Windows Server) =============================== */

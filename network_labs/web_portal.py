@@ -41,13 +41,14 @@ class WebPortal:
                         return self.respond(404,{'error':'Image absente.'})
                     return self.respond(200,(folder/name).read_bytes(),'image/png')
                 scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_vendor.js',
-                         '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_products_windows.js',
+                         '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_windows_icons.js','/native_products_windows.js',
                          '/native_desktop.js','/native_studio.js','/native_simple.js')
                 if native and parsed.path in scripts:
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':
                     return self.respond(200,Path(__file__).parent.joinpath('appliances/assets/InterVariable.ttf').read_bytes(),'font/ttf')
-                if native and parsed.path in ('/Selawik-Regular.woff2','/Selawik-Semibold.woff2','/Selawik-Semilight.woff2'):  # the Windows pages
+                if native and parsed.path in ('/Selawik-Regular.woff2','/Selawik-Semibold.woff2','/Selawik-Semilight.woff2',
+                                              '/CascadiaMono-Regular.woff2'):  # the Windows pages: their text and their terminal
                     return self.respond(200,Path(__file__).parent.joinpath('appliances/assets'+parsed.path).read_bytes(),'font/woff2')
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')
                 if parsed.path!='/api/state':return self.respond(404,{'error':'Page absente.'})

@@ -274,6 +274,10 @@ class RunningConfigTest(unittest.TestCase):
                         'Gestionnaire de serveur', 'Obtenir une adresse IP automatiquement', 'Taper ici pour rechercher'):
             self.assertIn(wording, win)
         self.assertNotIn('<img', win)
+        icons = SCRIPT.with_name('native_windows_icons.js').read_text(encoding='utf-8')
+        self.assertIn('MIT License', icons)  # Microsoft's Fluent UI System Icons, credited
+        for name in ('"settings:c"', '"wifi:c"', '"search"', '"chevron_up"'):
+            self.assertIn(name, icons)
         self.assertNotIn('<img', script + more + hosts)  # drawn by Network LABS: no vendor picture or logo
 
 
@@ -312,7 +316,8 @@ class PortalTest(unittest.TestCase):
             self.assertLess(page.index(b'/native_vendor.js'), page.index(b'/native_products.js'))
             self.assertLess(page.index(b'/native_products.js'), page.index(b'/native_products_more.js'))
             self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_products_hosts.js'))
-            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_products_windows.js'))
+            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_windows_icons.js'))
+            self.assertLess(page.index(b'/native_windows_icons.js'), page.index(b'/native_products_windows.js'))
             self.assertLess(page.index(b'/native_products_windows.js'), page.index(b'/native_desktop.js'))
             self.assertLess(page.index(b'/native_desktop.js'), page.index(b'/native_simple.js'))
             # The first state request waits for every script: a busy machine must not draw before a product registered.
