@@ -58,6 +58,24 @@ Segoe Fluent Icons glyphs Ethernet (U+E839) and NetworkOffline (U+F384) in Micro
 The Start button draws Windows 11's four squares and Windows 10's four panes, Microsoft's trademark, as the Windows pages
 show a Windows desktop; it is drawn in SVG, no image file is copied.
 
+# Linux desktops: icons, fonts and wallpapers (Linux PC pages)
+
+`assets/linux/` holds the files the Linux PCs' GNOME desktops draw with, copied unchanged by `tools/build_linux_assets.py`
+from the Ubuntu 24.04 (noble) packages that ship them; each folder keeps the packages' `COPYRIGHT*.txt` files:
+
+- `yaru/`: Ubuntu's Yaru icons (package `yaru-theme-icon` 24.04.2), © Sam Hewitt and Canonical, CC BY-SA 4.0: symbolic SVG
+  icons, and 96-pixel PNG app and folder icons; GNOME Settings' sidebar icons (`panel-*`), Yaru's own where it has them,
+  else `gnome-control-center-data`'s (GPL 2+).
+- `adwaita/`: GNOME's Adwaita icons (package `adwaita-icon-theme` 46.0), CC BY-SA 3.0 or LGPL 3; GNOME Settings' sidebar
+  icons (`gnome-control-center-data`, GPL 2+); the app icons of Files (`nautilus-data`, GPL 3+), Settings
+  (`gnome-control-center-data`), Console (`gnome-console`), Text Editor (`gnome-text-editor`) and Web
+  (`epiphany-browser-data`), under those packages' licences.
+- `fonts/`: Ubuntu Sans and Ubuntu Sans Mono (package `fonts-ubuntu` 0.869, Ubuntu Font Licence 1.0; renamed files only),
+  Cantarell Regular and Bold (package `fonts-cantarell` 0.303.1, SIL Open Font License 1.1).
+- `walls/`: Ubuntu 24.04's default wallpaper (`warty-final-ubuntu.png`, package `ubuntu-wallpapers`, © Canonical,
+  CC BY-SA 4.0) and GNOME's default wallpaper (`adwaita-l.jpg`, package `gnome-backgrounds` 45, CC BY-SA 3.0). Changed:
+  resized to 1920 pixels wide and saved as JPEG; these two resized images are shared under the same licences.
+
 # pfSense web interface stylesheets (pfSense device pages)
 
 From the pfSense repository (https://github.com/pfsense/pfsense, `master` at commit

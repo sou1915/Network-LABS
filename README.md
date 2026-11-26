@@ -246,6 +246,11 @@ marque de Microsoft) ; le fond d'écran officiel n'est pas copié.
 Ouverte sur un PC Windows, la page dessine les icônes système (boutons de fenêtre, zone de notification, menus, barres
 d'outils, Paramètres) avec la police d'icônes de ce PC : Segoe Fluent Icons (Windows 11) ou Segoe MDL2 Assets
 (Windows 10), les icônes mêmes de Windows ; la police n'est jamais copiée ni distribuée.
+Les PC Linux s'ouvrent sur leur bureau GNOME : Ubuntu 24.04 avec ses icônes Yaru, la police Ubuntu Sans, son dock et son
+fond d'écran ; Debian, Fedora et Rocky Linux avec le GNOME d'origine (icônes Adwaita, son fond d'écran, Cantarell). Ce sont
+les fichiers mêmes des distributions, repris de leurs paquets avec leurs licences (assets/linux). Barre du haut et réglages
+rapides, Paramètres › Réseau (connexion câblée : IPv4 automatique (DHCP) ou manuel, DNS) enregistrés dans le projet,
+Terminal dont chaque ligne s'exécute sur le PC (ip a, ip route, ping -c, traceroute, nslookup, curl), Fichiers et navigateur.
 Le menu Network LABS est dans la zone de notification ; clic droit sur Démarrer : le menu Win+X (Connexions réseau,
 Terminal, Exécuter…) ; « Exécuter » ouvre ncpa.cpl, cmd, control. Les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste

@@ -205,13 +205,18 @@ class NativeDeviceAPI:
                 'body':body}
 
     def host_command(self,spec,node,payload):
-        """A diagnostic typed in a PC's or a server's command prompt on its page (ping, tracert, nslookup, curl, arp): run on
-        the device as its terminal does, the running guest or the project. Read-only: nothing else is accepted."""
+        """A diagnostic typed in a PC's or a server's command prompt or terminal on its page (ping, tracert, nslookup, curl, arp;
+        on Linux also ip addr / route / neigh, ifconfig, hostname, wget -qO-): run on the device as its terminal does, the running
+        guest or the project. Read-only: nothing else is accepted (no « ip addr add », no « hostname NAME »)."""
         import re
         if set(payload)!={'node','line'} or not isinstance(payload['line'],str):raise ValueError('Commande invalide.')
         if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('Invite de commandes : un poste ou un serveur micro-VM.')
         line=' '.join(payload['line'].split())
-        if len(line)>120 or not re.fullmatch(r'(?i)(?:ping|tracert|traceroute|nslookup|curl|arp|logread)(?: [A-Za-z0-9_./:\-]+){0,4}',line):
+        word=r'[A-Za-z0-9_./:\-]+'
+        shown=(rf'(?:ping|tracert|traceroute|nslookup|curl|arp|logread)(?: {word}){{0,4}}'
+               r'|ip(?: -[46])? (?:a|addr|address|r|route|n|neigh|neighbor|l|link)(?: show)?(?: dev [a-z0-9.]+)?'
+               rf'|ifconfig(?: [a-z0-9.]+)?|hostname|wget -qO- {word}')
+        if len(line)>120 or not re.fullmatch(rf'(?i)(?:{shown})',line):
             raise ValueError('Commande non disponible ici.')
         return {'reply':_host_line(self.window,spec,node,line)}
 

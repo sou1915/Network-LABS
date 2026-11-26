@@ -13,7 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
-from network_labs.appliances import topology_edit
+from network_labs.appliances import guest_services, topology_edit
 from network_labs.appliances.spec import validate
 from network_labs.appliances.ui_quick import blank_project
 from network_labs.appliances.web_management import NativeDeviceAPI, running_config
@@ -257,6 +257,53 @@ def windows_lab():
     return validate(spec)
 
 
+LINUX_FLOWS = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const urls = JSON.parse(process.argv[1]);
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { console.log('NOBROWSER'); return; }
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errors = [], seen = {};
+  page.on('pageerror', error => errors.push(error.message));
+  const open = async name => { await page.goto(urls[name]); await page.waitForSelector('.px-app.gn'); };
+  // Ubuntu: Settings › Réseau › ⚙ › IPv4 › Manuel, then « Appliquer »; the terminal runs « ip a » on the PC.
+  await open('UB'); seen.UB = await page.evaluate(() => document.querySelector('.px-app').className);
+  seen.dock = await page.evaluate(() => [...document.querySelectorAll('.gn-dock [data-app]')].map(e => e.dataset.app));
+  seen.icons = await page.evaluate(() => [...document.images].map(i => i.naturalWidth > 0 && i.getAttribute('src')).filter(Boolean).length);
+  await page.click('[data-qs]'); seen.quick = await page.textContent('.gn-qs [data-net]');
+  await page.click('.gn-qs [data-net]'); await page.click('[data-conn="eth0"]'); await page.click('[data-tab="IPv4"]');
+  await page.check('[name=m][value=static]'); await page.fill('[name=ip]', '192.168.20.70'); await page.fill('[name=mask]', '255.255.255.0');
+  await page.fill('[name=gw]', '192.168.20.1'); await page.click('[data-apply]'); await page.waitForTimeout(500);
+  seen.manual = await page.evaluate(() => [state.node.interfaces.eth0, state.node.gateway, document.querySelectorAll('.gw-conn').length]);
+  await page.click('.gn-act'); await page.click('.gn-ov [data-app="terminal"]');
+  await page.keyboard.type('ip a'); await page.keyboard.press('Enter'); await page.waitForTimeout(700);
+  await page.keyboard.type('hostname evil'); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+  seen.terminal = await page.textContent('.gn-term .log');
+  // Debian: GNOME's own shell (no dock) and its connection editor back to DHCP.
+  await open('DEB'); seen.DEB = await page.evaluate(() => document.querySelector('.px-app').className);
+  seen.debDock = await page.evaluate(() => Boolean(document.querySelector('.gn-dock')));
+  await page.click('.gn-act'); await page.click('.gn-ov [data-app="settings"]'); await page.click('[data-conn="eth0"]'); await page.click('[data-tab="IPv4"]');
+  await page.check('[name=m][value=dhcp]'); await page.click('[data-apply]'); await page.waitForTimeout(500);
+  seen.dhcp = await page.evaluate(() => state.node.dhcp_clients);
+  await page.goto(urls.SRV); await page.waitForSelector('.pc-app'); seen.SRV = await page.evaluate(() => Boolean(document.querySelector('.px-app.gn')));
+  console.log('RESULT ' + JSON.stringify({errors, ...seen}));
+  await browser.close();
+})();
+"""
+
+
+def linux_lab():
+    spec = blank_project('linux')
+    add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
+    spec = add(spec, name='SW1', role='switch', ports=4, model='cisco-2960')
+    for i, (name, model) in enumerate((('UB', 'linux-ubuntu'), ('DEB', 'linux-debian'), ('SRV', 'linux-rocky'))):
+        spec = add(spec, name=name, role='host', ports=1, model=model, addresses=f'192.168.20.{10 + i}/24')
+        spec = topology_edit.connect(spec, (name, 'eth0'), ('SW1', f'eth{i + 1}'))
+    next(n for n in spec['nodes'] if n['name'] == 'SRV')['services'] = guest_services.default_services('SRV')  # a server: Services
+    return validate(spec)
+
+
 def more_lab():
     spec = blank_project('produits')
     add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
@@ -417,13 +464,19 @@ class PortalTest(unittest.TestCase):
                                        ('/ui/fontawesome/css/all.min.css', 'text/css', b'Font Awesome Free 6.5.1'),
                                        ('/ui/fontawesome/webfonts/fa-solid-900.woff2', 'font/woff2', b'wOF2'),
                                        ('/ui/pfsense/Roboto-Regular.woff2', 'font/woff2', b'wOF2'),
-                                       ('/ui/opnsense/SourceSansPro-Regular.woff2', 'font/woff2', b'wOF2')):
+                                       ('/ui/opnsense/SourceSansPro-Regular.woff2', 'font/woff2', b'wOF2'),
+                                       ('/ui/linux/yaru/org.gnome.Settings.png', 'image/png', b'\x89PNG'),
+                                       ('/ui/linux/adwaita/network-wired-symbolic.svg', 'image/svg+xml', b'<svg'),
+                                       ('/ui/linux/fonts/UbuntuSans.ttf', 'font/ttf', b'\x00\x01\x00\x00'),
+                                       ('/ui/linux/fonts/Cantarell-Regular.otf', 'font/otf', b'OTTO'),
+                                       ('/ui/linux/walls/ubuntu.jpg', 'image/jpeg', b'\xff\xd8')):
                 connection.request('GET', path, headers={'Host': portal.host})
                 response = connection.getresponse()
                 body = response.read()
                 self.assertEqual((response.status, response.getheader('Content-Type').split(';')[0]), (200, kind), path)
                 self.assertIn(marker, body, path)
-            for path in ('/ui/pfsense/../../web_portal.py', '/ui/pfsense/LICENSE', '/ui/other/x.css', '/ui/pfsense/missing.css', '/ui/opnsense/%2e%2e/x.css'):
+            for path in ('/ui/pfsense/../../web_portal.py', '/ui/pfsense/LICENSE', '/ui/other/x.css', '/ui/pfsense/missing.css', '/ui/opnsense/%2e%2e/x.css',
+                         '/ui/linux/yaru/COPYRIGHT.txt', '/ui/linux/yaru/../fonts/UbuntuSans.ttf', '/ui/linux/x/y.svg'):
                 connection.request('GET', path, headers={'Host': portal.host})
                 response = connection.getresponse()
                 response.read()
@@ -550,6 +603,24 @@ class ProductFormsTest(unittest.TestCase):
         nodes = {n['name']: n for n in app.spec['nodes']}
         self.assertEqual((nodes['W11']['interfaces']['eth0'], nodes['W11']['gateway']), ('192.168.20.60/24', '192.168.20.1'))
         self.assertEqual(nodes['W10']['dhcp_clients'], ['eth0'])
+
+    def test_linux_pcs_are_gnome_desktops_the_distributions_own(self):
+        app = Workbench()
+        app.spec = linux_lab()
+        app.view_lab = app.spec['name']
+        result = drive(app, LINUX_FLOWS, ('UB', 'DEB', 'SRV'))
+        self.assertEqual(result['errors'], [])
+        self.assertIn('yaru', result['UB'].split())
+        self.assertEqual(result['dock'], ['web', 'files', 'terminal', 'settings', 'editor'])  # the Ubuntu Dock
+        self.assertGreaterEqual(result['icons'], 6)  # Yaru's own icons, loaded
+        self.assertIn('Connecté', result['quick'])
+        self.assertEqual(result['manual'], ['192.168.20.70/24', '192.168.20.1', 0])  # « Appliquer » saved and closed the dialog
+        self.assertIn('inet 192.168.20.70/24', result['terminal'])  # « ip a » on the PC itself
+        self.assertIn('Commande non disponible ici.', result['terminal'])  # read-only: « hostname NAME » is refused
+        self.assertIn('adwaita', result['DEB'].split())
+        self.assertFalse(result['debDock'])  # GNOME's own shell: the overview's dash, no dock
+        self.assertEqual(result['dhcp'], ['eth0'])
+        self.assertFalse(result['SRV'])  # a machine that serves keeps the server desktop and its Services
 
     def test_windows_draws_its_glyphs_with_the_pcs_own_icon_font(self):
         app = Workbench()

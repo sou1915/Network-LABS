@@ -666,7 +666,8 @@ class Console:
         if words[0] == 'ping' and len(words) >= 2:
             address = words[-1]
             ipaddress.IPv4Address(address)
-            result = self.ping(address, count=4)
+            count = words[words.index('-c') + 1] if '-c' in words[1:-1] else '4'  # « ping -c 2 », as Linux's ping
+            result = self.ping(address, count=int(count) if count.isdigit() and 1 <= int(count) <= 20 else 4)
             lines = [f'PING {address} ({address}): 56 data bytes']
             for index, reply in enumerate(result['replies']):
                 lines.append(f'64 bytes from {address}: seq={index} ttl=64' if reply['ok'] else f'Request timeout for seq={index}')
@@ -690,7 +691,7 @@ class Console:
             return arp(self.query('neighbors'), self.query('addresses'))
         if words[:2] in (['ip', 'neigh'], ['ip', 'n'], ['ip', 'neighbor']):
             return self.query('neighbors').rstrip()
-        if words[:2] in (['ip', 'a'], ['ip', 'addr'], ['ip', 'address']) or words == ['ifconfig']:
+        if words[:2] in (['ip', 'a'], ['ip', 'addr'], ['ip', 'address']) or (words[0] == 'ifconfig' and len(words) <= 2):
             return self.query('addresses').rstrip()
         if words[:2] in (['ip', 'r'], ['ip', 'route']) or words == ['route']:
             return self.query('routes').rstrip()

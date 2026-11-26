@@ -4,7 +4,7 @@
  * user knows: Panneau de configuration › Centre Réseau et partage › Connexions réseau, État / Détails / Propriétés de
  * Ethernet and « Propriétés de : Protocole Internet version 4 (TCP/IPv4) ». Windows are moved by their title bar.
  * Every change goes to the project as on the other pages (/api/host_ip, /api/apply). Layout, words and workflows are
- * Windows'; icons and wallpaper are drawn here (no Microsoft logo, artwork or font). */
+ * Windows'; icons and wallpaper are drawn here, the Start button with Windows' logo (no Microsoft artwork file or font). */
 'use strict';
 (() => {
   const K = window.nlProductsKit;
