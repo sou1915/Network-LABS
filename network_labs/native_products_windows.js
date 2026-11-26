@@ -382,6 +382,101 @@
   .wn-run .row{display:flex;gap:14px;align-items:flex-start}.wn-run input{flex:1;padding:4px 6px;font:inherit;border:1px solid #7a7a7a}.wn-run .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.wn-lock .cad{position:absolute;left:0;right:0;bottom:22%;text-align:center;font-size:20px}
   `);
 
+  /* Windows 11's own design values (WinUI 3, microsoft-ui-xaml, MIT: Common_themeresources_any.xaml, CornerRadius_themeresources,
+   * Button / TextBox / ToggleSwitch / ContentDialog / NavigationView resources; the Settings cards: Windows Community Toolkit
+   * SettingsCard, MIT): the light theme's translucent layers over Mica, 4 px controls and 8 px overlays, the type ramp. */
+  skinCss(`
+  .px-app.win11{--wText:rgba(0,0,0,.894);--wText2:rgba(0,0,0,.62);--wText3:rgba(0,0,0,.447);--wTextOff:rgba(0,0,0,.361);
+    --wAccent:#005fb8;--wAccent2:rgba(0,95,184,.9);--wAccent3:rgba(0,95,184,.8);--wAccentText:#003e92;
+    --wCtl:rgba(255,255,255,.702);--wCtl2:rgba(249,249,249,.502);--wCtl3:rgba(249,249,249,.302);--wCtlOff:rgba(249,249,249,.302);
+    --wStroke:rgba(0,0,0,.0588);--wStroke2:rgba(0,0,0,.161);--wStrong:rgba(0,0,0,.447);--wAlt2:rgba(0,0,0,.0235);
+    --wCard:rgba(255,255,255,.702);--wCardStroke:rgba(0,0,0,.0588);--wSubtle2:rgba(0,0,0,.0353);--wSubtle3:rgba(0,0,0,.0235);
+    --wBase:#f3f3f3;--wMica:#eef2f6;--wLayerAlt:#fff;--wSmoke:rgba(0,0,0,.302);--wSurface:rgba(117,117,117,.4);--wFlyoutStroke:rgba(0,0,0,.0588);
+    --wAcrylic:rgba(252,252,252,.85);color:var(--wText)}
+  /* windows: no accent border (Windows' default), the 1 px surface stroke and the depth-32 shadow */
+  .px-app.win11 .wn-win{border:1px solid var(--wSurface);box-shadow:0 32px 64px rgba(0,0,0,.19),0 2px 21px rgba(0,0,0,.15);border-radius:8px}
+  .px-app.win11 .wn-win.back{box-shadow:0 16px 32px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.1)}
+  .px-app.win11 .wn-win.mica,.px-app.win11 .wn-win.mica .wn-tt{background:var(--wMica)}
+  .px-app.win11 .wn-tt .cap{color:var(--wText)}.px-app.win11 .wn-tt .cap:hover{background:var(--wSubtle2)}
+  .px-app.win11 .wn-tt .cap.x:hover{background:#c42b1c;color:#fff}.px-app.win11 .wn-win.back .wn-tt{color:var(--wText3)}
+  /* Settings: the NavigationView (36 px items, 3×16 accent indicator) and the content's cards */
+  .px-app.win11 .wn-set{background:transparent;color:var(--wText)}
+  .px-app.win11 .wn-set nav a{min-height:36px;padding:0 12px;gap:16px;margin:2px 0;border-radius:4px;color:var(--wText);font-size:14px;line-height:20px}
+  .px-app.win11 .wn-set nav a:hover{background:var(--wSubtle2)}.px-app.win11 .wn-set nav a:active{background:var(--wSubtle3);color:var(--wText2)}
+  .px-app.win11 .wn-set nav a.on{background:var(--wSubtle2)}.px-app.win11 .wn-set nav a.on:hover{background:var(--wSubtle3)}
+  .px-app.win11 .wn-set nav a.on::before{top:50%;bottom:auto;height:16px;margin-top:-8px;width:3px;border-radius:2px;background:var(--wAccent)}
+  .px-app.win11 .wn-set .me small{color:var(--wText2)}
+  .px-app.win11 .wn-set h1{font-size:28px;line-height:36px;font-weight:600;color:var(--wText)}
+  .px-app.win11 .wn-set h1 small,.px-app.win11 .wn-set h1 a{color:var(--wText2)}.px-app.win11 .wn-set h1 a:hover{color:var(--wText)}
+  .px-app.win11 .wn-sec{font-size:14px;line-height:20px;font-weight:600;margin:30px 0 6px 1px;color:var(--wText)}
+  .px-app.win11 .wn-card{box-sizing:border-box;min-height:68px;padding:16px;gap:20px;margin-bottom:4px;border-radius:4px;background:var(--wCard);
+    border:1px solid var(--wCardStroke);font-size:14px;line-height:20px;color:var(--wText)}
+  .px-app.win11 .wn-card small{font-size:12px;line-height:16px;color:var(--wText2);margin-top:0}
+  .px-app.win11 .wn-card.link:hover,.px-app.win11 .wn-card[data-eth]:hover{background:var(--wCtl2);border-color:var(--wStroke);border-bottom-color:var(--wStroke2)}
+  .px-app.win11 .wn-card.link:active{background:var(--wCtl3);color:var(--wText2)}
+  .px-app.win11 .wn-card .chev{color:var(--wText);margin-left:14px;font-size:13px}
+  .px-app.win11 .wn-props{font-size:14px;line-height:20px}.px-app.win11 .wn-props span{color:var(--wText2)}.px-app.win11 .wn-props b{color:var(--wText)}
+  /* buttons: 32 px, ControlFillColorDefault on the elevation border; accent buttons on AccentFillColorDefault */
+  .px-app.win11 .wn-mbtn{box-sizing:border-box;min-height:32px;height:auto;padding:5px 11px 6px;border-radius:4px;font-size:14px;line-height:20px;
+    background:var(--wCtl);color:var(--wText);border:1px solid var(--wStroke);border-bottom-color:var(--wStroke2)}
+  .px-app.win11 .wn-mbtn:hover{background:var(--wCtl2)}.px-app.win11 .wn-mbtn:active{background:var(--wCtl3);color:var(--wText2);border-bottom-color:var(--wStroke)}
+  .px-app.win11 .wn-mbtn:disabled{background:var(--wCtlOff);color:var(--wTextOff);border-color:var(--wStroke)}
+  .px-app.win11 .wn-mbtn.acc{background:var(--wAccent);color:#fff;border-color:rgba(255,255,255,.08);border-bottom-color:rgba(0,0,0,.4)}
+  .px-app.win11 .wn-mbtn.acc:hover{background:var(--wAccent2)}.px-app.win11 .wn-mbtn.acc:active{background:var(--wAccent3);color:rgba(255,255,255,.7);border-bottom-color:rgba(255,255,255,.08)}
+  /* ToggleSwitch: 40 × 20, a 12 px knob (14 px under the pointer) */
+  .px-app.win11 .wn-sw{width:40px;height:20px;border-radius:10px;border:1px solid var(--wStrong);background:var(--wAlt2)}
+  .px-app.win11 .wn-sw i{left:3px;top:3px;width:12px;height:12px;background:var(--wText2);transition:left .167s cubic-bezier(0,0,0,1),width .083s,height .083s,top .083s}
+  .px-app.win11 .wn-sw:hover i{width:14px;height:14px;top:2px;left:2px}
+  .px-app.win11 .wn-sw.on{background:var(--wAccent);border-color:var(--wAccent)}.px-app.win11 .wn-sw.on i{left:23px;background:#fff}
+  .px-app.win11 .wn-sw.on:hover{background:var(--wAccent2)}.px-app.win11 .wn-sw.on:hover i{left:22px}
+  /* ContentDialog: smoke over the window, 8 px corners, a white content area and the command bar on the base layer */
+  .px-app.win11 .wn-shade{background:var(--wSmoke)}
+  .px-app.win11 .wn-cd{min-width:320px;max-width:548px;border-radius:8px;border:1px solid var(--wSurface);background:var(--wBase);
+    box-shadow:0 32px 64px rgba(0,0,0,.19),0 2px 21px rgba(0,0,0,.15)}
+  .px-app.win11 .wn-cd .b{padding:24px;background:var(--wLayerAlt);font-size:14px;line-height:20px}
+  .px-app.win11 .wn-cd h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--wText)}
+  .px-app.win11 .wn-cd label{font-size:14px;line-height:20px;margin:12px 0 8px;color:var(--wText)}
+  .px-app.win11 .wn-cd .f{padding:24px;gap:8px;background:var(--wBase);border-top:1px solid var(--wCardStroke)}
+  /* TextBox and ComboBox: 32 px, the stronger bottom stroke, 2 px of accent when focused */
+  .px-app.win11 .wn-cd input[type=text],.px-app.win11 .wn-cd select,.px-app.win11 .wn-set input[type=text]{box-sizing:border-box;height:32px;border-radius:4px;
+    border:1px solid var(--wStroke);border-bottom-color:var(--wStrong);background:var(--wCtl);color:var(--wText);padding:5px 6px 6px 10px;font-size:14px;outline:0}
+  .px-app.win11 .wn-cd input[type=text]:hover,.px-app.win11 .wn-cd select:hover{background:var(--wCtl2)}
+  .px-app.win11 .wn-cd input[type=text]:focus,.px-app.win11 .wn-set input[type=text]:focus{background:#fff;border-bottom:2px solid var(--wAccent);padding-bottom:5px}
+  .px-app.win11 .wn-cd select{border-bottom-color:var(--wStroke2);padding:5px 30px 6px 11px;appearance:none;
+    background:var(--wCtl) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23000' stroke-opacity='.62' stroke-width='1.1'/%3E%3C/svg%3E") no-repeat right 11px center/12px}
+  /* the sign-in screen sees the wallpaper through acrylic: blurred (the lock screen's rule must not win over it) */
+  .wn-lock.wn-signin .wn-wall{filter:blur(28px) brightness(.85) saturate(120%);transform:scale(1.1)}
+  /* the dialog stays inside the window and scrolls its content, as a ContentDialog does */
+  .px-app.win11 .wn-cd{max-height:calc(100% - 48px);display:flex;flex-direction:column}.px-app.win11 .wn-cd .b{overflow:auto;min-height:0}
+  .px-app.win11 .wn-cd .f{flex:none}
+  /* WinUI RadioButton and CheckBox (Settings and its dialogs; the Control Panel's Win32 dialogs keep theirs): 20 px */
+  .px-app.win11 .wn-set input[type=radio],.px-app.win11 .wn-cd input[type=radio]{appearance:none;width:20px;height:20px;margin:0 8px 0 0;flex:none;
+    border-radius:50%;border:1px solid var(--wStrong);background:var(--wAlt2);box-sizing:border-box;vertical-align:middle;cursor:default}
+  .px-app.win11 .wn-set input[type=radio]:hover,.px-app.win11 .wn-cd input[type=radio]:hover{background:var(--wSubtle2)}
+  .px-app.win11 .wn-set input[type=radio]:checked,.px-app.win11 .wn-cd input[type=radio]:checked{border:0;
+    background:radial-gradient(circle,#fff 0 4px,var(--wAccent) 4.5px)}
+  .px-app.win11 .wn-set input[type=radio]:checked:hover,.px-app.win11 .wn-cd input[type=radio]:checked:hover{
+    background:radial-gradient(circle,#fff 0 5px,var(--wAccent2) 5.5px)}
+  .px-app.win11 .wn-set input[type=checkbox],.px-app.win11 .wn-cd input[type=checkbox]{appearance:none;width:20px;height:20px;margin:0 8px 0 0;flex:none;
+    border-radius:4px;border:1px solid var(--wStrong);background:var(--wAlt2);box-sizing:border-box;vertical-align:middle}
+  .px-app.win11 .wn-set input[type=checkbox]:checked,.px-app.win11 .wn-cd input[type=checkbox]:checked{border:0;background:var(--wAccent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.5 8.5 13.5 14.5 7' fill='none' stroke='white' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/20px}
+  /* flyouts (Start, quick settings, menus): acrylic, the flyout stroke, 8 px corners */
+  .px-app.win11 .wn-fly{background:var(--wAcrylic);backdrop-filter:blur(30px) saturate(125%);border:1px solid var(--wFlyoutStroke);border-radius:8px;
+    box-shadow:0 8px 16px rgba(0,0,0,.14)}
+  .px-app.win11 .wn-ctx.w11{background:var(--wAcrylic);backdrop-filter:blur(30px) saturate(125%);border:1px solid var(--wFlyoutStroke);border-radius:8px;
+    box-shadow:0 8px 16px rgba(0,0,0,.14);font-size:14px}
+  .px-app.win11 .wn-ctx.w11 a{min-height:32px;box-sizing:border-box;padding:6px 11px 7px;border-radius:4px;color:var(--wText)}
+  .px-app.win11 .wn-ctx.w11 a:hover{background:var(--wSubtle2)}.px-app.win11 .wn-ctx.w11 a:active{background:var(--wSubtle3);color:var(--wText2)}
+  .px-app.win11 .wn-ctx.w11 a em{color:var(--wText2);font-size:12px}.px-app.win11 .wn-ctx.w11 hr{border-top-color:var(--wDivider,rgba(0,0,0,.0588))}
+  .px-app.win11 .wn-quick .tile b{border-radius:4px;background:var(--wCtl);border:1px solid var(--wStroke);border-bottom-color:var(--wStroke2)}
+  .px-app.win11 .wn-quick .tile b:hover{background:var(--wCtl2)}
+  .px-app.win11 .wn-quick .tile.on b{background:var(--wAccent);border-color:rgba(255,255,255,.08);border-bottom-color:rgba(0,0,0,.4);color:#fff}
+  .px-app.win11 .wn-quick .tile.on b:hover{background:var(--wAccent2)}
+  /* taskbar: 48 px of acrylic, 40 px buttons */
+  .px-app.win11 .wn-bar{background:rgba(243,243,243,.85);backdrop-filter:blur(30px) saturate(125%);border-top:1px solid rgba(0,0,0,.0588)}
+  .px-app.win11 .wn-tb:hover{background:var(--wCtl)}.px-app.win11 .wn-tb:active{background:var(--wCtl3)}
+  `);
+
   /* =============================== the shell =============================== */
   const shell = id => ({
     get start() {  // read when the page opens: a server starts with Server Manager open, as Windows Server does

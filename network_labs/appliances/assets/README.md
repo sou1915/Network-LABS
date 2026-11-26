@@ -77,3 +77,11 @@ them in `src/usr/local/www/vendor/font-awesome/`. Icons CC BY 4.0, fonts SIL OFL
 SHA-256: `all.min.css` `c22cfb6520a7fdbb738632834019acf47c78b1279462c0eb4cb83bae83ecb5a7`,
 `fa-solid-900.woff2` `9fc85f3a4544ab0d570c7f8f9bbb88db8d92c359b2707580ea8b07c75673eae2`,
 `fa-regular-400.woff2` `2bccecf0bc7e96cd5ce4003abeb3ae9ee4a3d19158c4e6edfd2df32d2f0d5721`.
+
+# Windows 11 design values (Windows pages)
+
+`network_labs/native_products_windows.js` takes Windows 11's colours, strokes, corner radii, type ramp and control sizes
+from Microsoft's open-source WinUI 3 (https://github.com/microsoft/microsoft-ui-xaml, MIT License:
+`controls/dev/CommonStyles/Common_themeresources_any.xaml`, `CornerRadius_themeresources.xaml`, the Button, TextBox,
+ToggleSwitch, NavigationView and ContentDialog resources) and the Settings cards' metrics from the Windows Community
+Toolkit's SettingsCard (https://github.com/CommunityToolkit/Windows, MIT License). Values only; no file is copied.
