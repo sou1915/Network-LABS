@@ -202,6 +202,51 @@ const { chromium } = require('playwright');
 """
 
 
+WINDOWS_FONT_FLOWS = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const urls = JSON.parse(process.argv[1]);
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { console.log('NOBROWSER'); return; }
+  const errors = [], out = {};
+  // A PC with these fonts installed: text measured in them comes out wider than in the browser's own fallback fonts.
+  const pc = async fonts => {
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(names => {
+      const measure = CanvasRenderingContext2D.prototype.measureText;
+      CanvasRenderingContext2D.prototype.measureText = function (text) {
+        const metrics = measure.call(this, text);
+        return names.some(name => this.font.includes(name)) ? {width: metrics.width + 7} : metrics;
+      };
+    }, fonts);
+    return page;
+  };
+  const open = async (page, name) => { await page.goto(urls[name]); await page.waitForSelector('.px-app'); await page.click('.wn-lock'); await page.waitForTimeout(450);
+    await page.click('.wn-signin .go'); await page.waitForTimeout(800); };
+  const code = (page, selector) => page.evaluate(s => [...document.querySelectorAll(s)].map(e => e.textContent.codePointAt(0).toString(16).toUpperCase()), selector);
+  const family = (page, selector) => page.evaluate(s => getComputedStyle(document.querySelector(s)).fontFamily, selector);
+  let page = await pc([]);
+  await open(page, 'W11'); await page.click('.wn-bar [data-app="settings"]');
+  out.plain = await page.evaluate(() => document.querySelectorAll('nl-g').length);
+  page = await pc(['Segoe Fluent Icons', 'Segoe MDL2 Assets']);
+  await open(page, 'W11'); await page.click('.wn-bar [data-app="settings"]'); await page.click('[data-p="network"]');
+  out.caption = await code(page, '.wn-tt .cap nl-g');
+  out.search = await code(page, '.wn-spill nl-g');
+  out.rows = await code(page, '.wn-card .chev nl-g');
+  out.family11 = await family(page, 'nl-g');
+  await open(page, 'W10'); await page.click('.wn-bar [data-start]'); await page.click('.wn-start10 [data-app="settings"] >> nth=0');
+  out.home10 = await code(page, '.wn-home10 nl-g');
+  out.family10 = await family(page, '.wn-home10 nl-g');
+  page = await pc(['Segoe MDL2 Assets']);  // a Windows 10 PC: the Windows 11 page keeps the Fluent icons
+  await open(page, 'W11');
+  out.w11OnW10 = await page.evaluate(() => document.querySelectorAll('nl-g').length);
+  console.log('RESULT ' + JSON.stringify({errors, ...out}));
+  await browser.close();
+})();
+"""
+
+
 def windows_lab():
     spec = blank_project('windows')
     add = lambda spec, **k: topology_edit.add_microvm_node(spec, kernel='/k', disk='/d', memory_mib=64, **k)
@@ -505,6 +550,21 @@ class ProductFormsTest(unittest.TestCase):
         nodes = {n['name']: n for n in app.spec['nodes']}
         self.assertEqual((nodes['W11']['interfaces']['eth0'], nodes['W11']['gateway']), ('192.168.20.60/24', '192.168.20.1'))
         self.assertEqual(nodes['W10']['dhcp_clients'], ['eth0'])
+
+    def test_windows_draws_its_glyphs_with_the_pcs_own_icon_font(self):
+        app = Workbench()
+        app.spec = windows_lab()
+        app.view_lab = app.spec['name']
+        result = drive(app, WINDOWS_FONT_FLOWS, ('W11', 'W10'))
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['plain'], 0)  # no Segoe font on this PC: the Fluent UI System Icons stand in
+        self.assertEqual(result['caption'], ['E921', 'E922', 'E8BB'])  # ChromeMinimize, ChromeMaximize, ChromeClose
+        self.assertEqual(result['search'], ['E721'])
+        self.assertTrue(result['rows'] and set(result['rows']) == {'E974'}, result['rows'])  # SettingsCard's ChevronRightMed
+        self.assertTrue(result['family11'].startswith('"Segoe Fluent Icons"'), result['family11'])
+        self.assertEqual(result['home10'], ['E7F8', 'E772', 'E774', 'E771', 'E71D', 'E77B', 'E775', 'E776', 'E72E', 'E895'])
+        self.assertTrue(result['family10'].startswith('"Segoe MDL2 Assets"'), result['family10'])
+        self.assertEqual(result['w11OnW10'], 0)
 
 
 if __name__ == '__main__':

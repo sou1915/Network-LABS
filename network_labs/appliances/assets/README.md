@@ -36,6 +36,15 @@ License/copyright: [CASCADIA-LICENSE.txt](CASCADIA-LICENSE.txt), SIL Open Font L
 (https://github.com/microsoft/fluentui-system-icons).
 License/copyright: [FLUENT-ICONS-LICENSE.txt](FLUENT-ICONS-LICENSE.txt), MIT License.
 
+# Segoe Fluent Icons and Segoe MDL2 Assets (not shipped)
+
+Windows draws its system glyphs with these fonts, which come with Windows and which Microsoft does not allow to be shipped
+to another platform. Network LABS ships neither: when a Windows page is opened on a PC that has the font (Segoe Fluent
+Icons on Windows 11, Segoe MDL2 Assets on Windows 10), it draws those glyphs with that PC's own copy, by code point;
+elsewhere the Fluent UI System Icons above stand in. The code points in `network_labs/native_products_windows.js`
+(`SEGOE`, `GLYPH10`) come from Microsoft's « Segoe Fluent Icons font » table
+(https://github.com/MicrosoftDocs/windows-dev-docs, `hub/apps/design/iconography/segoe-fluent-icons-font.md`).
+
 # pfSense web interface stylesheets (pfSense device pages)
 
 From the pfSense repository (https://github.com/pfsense/pfsense, `master` at commit

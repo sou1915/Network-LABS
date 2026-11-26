@@ -242,6 +242,9 @@ serveur. Les PC et serveurs Windows s'ouvrent sur leur bureau Windows : écran d
 fenêtres déplaçables, agrandies ou réduites dans la barre des tâches, clic droit, notifications, Terminal et
 Explorateur à onglets. Polices et icônes libres publiées par Microsoft : Selawik (pour Segoe UI), Cascadia Mono (le
 Terminal) et les Fluent UI System Icons (licence MIT) ; le logo Windows et le fond d'écran officiel ne sont pas copiés.
+Ouverte sur un PC Windows, la page dessine les icônes système (boutons de fenêtre, zone de notification, menus, barres
+d'outils, Paramètres) avec la police d'icônes de ce PC : Segoe Fluent Icons (Windows 11) ou Segoe MDL2 Assets
+(Windows 10), les icônes mêmes de Windows ; la police n'est jamais copiée ni distribuée.
 Le menu Network LABS est dans la zone de notification ; clic droit sur Démarrer : le menu Win+X (Connexions réseau,
 Terminal, Exécuter…) ; « Exécuter » ouvre ncpa.cpl, cmd, control. Les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste

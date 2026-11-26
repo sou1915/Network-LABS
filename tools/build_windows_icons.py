@@ -14,13 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'network_labs' / 'native_windows_icons.js'
 
 COLOUR = ['settings', 'home', 'wifi', 'person', 'paint_brush', 'apps', 'clock', 'globe', 'game_chat', 'shield', 'arrow_sync',
-          'laptop', 'document', 'data_area']
+          'laptop', 'document', 'data_area', 'add_circle', 'image', 'video']
 OUTLINE = ['search', 'chevron_right', 'chevron_up', 'chevron_down', 'arrow_left', 'arrow_right', 'arrow_up', 'speaker_2', 'alert',
            'airplane', 'weather_moon', 'accessibility', 'copy', 'power', 'person', 'grid', 'arrow_sort', 'arrow_clockwise', 'add_circle',
            'paint_brush', 'settings', 'window_console', 'folder', 'document', 'hard_drive', 'delete', 'desktop', 'globe', 'info', 'key',
            'data_usage', 'shield_lock', 'shield', 'gauge', 'call', 'router', 'network_check', 'globe_prohibited', 'cut', 'clipboard_paste',
            'rename', 'share', 'more_horizontal', 'home', 'image', 'music_note_2', 'video', 'arrow_download', 'battery_saver',
-           'brightness_high', 'bluetooth', 'open', 'window_new', 'lock_closed', 'laptop', 'desktop_mac', 'panel_left', 'edit', 'star']
+           'brightness_high', 'bluetooth', 'open', 'window_new', 'lock_closed', 'laptop', 'desktop_mac', 'panel_left', 'edit', 'star',
+           'apps', 'clock', 'arrow_sync', 'keyboard']
 
 
 def inner(text):

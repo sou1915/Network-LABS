@@ -56,12 +56,50 @@
   }
   const later = what => toast(`${what} : pas relié au laboratoire.`, true);
 
+  // The PC's own icon font. Windows draws its system glyphs (window buttons, tray, menus, toolbars, Settings rows) with
+  // Segoe Fluent Icons on Windows 11 and Segoe MDL2 Assets on Windows 10. When this page is opened on such a PC, those
+  // glyphs come from the font installed there, so they are Windows' own; Network LABS never ships the font (Microsoft: « you
+  // may not ship it to another platform »). Code points from Microsoft's « Segoe Fluent Icons font » table, by the name of
+  // the Fluent UI System Icon that stands in elsewhere.
+  const SEGOE = {search: 'E721', chevron_right: 'E76C', chevron_up: 'E70E', chevron_down: 'E70D', arrow_left: 'E72B',
+    arrow_right: 'E72A', arrow_up: 'E74A', speaker_2: 'E995', alert: 'EA8F', airplane: 'E709', weather_moon: 'E708',
+    accessibility: 'E776', copy: 'E8C8', power: 'E7E8', person: 'E77B', arrow_sort: 'E8CB', arrow_clockwise: 'E72C', grid: 'E8A9',
+    add_circle: 'ECC8', paint_brush: 'E771', settings: 'E713', window_console: 'E756', folder: 'E8B7', document: 'E8A5',
+    hard_drive: 'EDA2', delete: 'E74D', desktop: 'E7F4', globe: 'E774', info: 'E946', key: 'E8D7', data_usage: 'E791',
+    shield_lock: 'E705', shield: 'EA18', gauge: 'EC4A', call: 'E83C', router: 'E774', network_check: 'EDA3', globe_prohibited: 'F384',
+    cut: 'E8C6', clipboard_paste: 'E77F', rename: 'E8AC', share: 'E72D', more_horizontal: 'E712', home: 'E80F', image: 'EB9F',
+    music_note_2: 'EC4F', video: 'E714', arrow_download: 'E896', battery_saver: 'F432', brightness_high: 'E706', bluetooth: 'E702',
+    open: 'E8A7', window_new: 'E78B', lock_closed: 'E72E', laptop: 'E7F8', desktop_mac: 'E7F4', panel_left: 'E90C', edit: 'E70F',
+    star: 'E734', wifi: 'E701', ethernet: 'E839',
+    min: 'E921', max: 'E922', restore: 'E923', close: 'E8BB', back: 'E72B'};
+  const fontFound = {};
+  const hasFont = family => {  // a glyph measured in FAMILY differs from the same glyph in the browser's fallback fonts
+    if (!(family in fontFound)) {
+      try {
+        const pen = document.createElement('canvas').getContext('2d'), probe = '\uE713\uE721\uE8BB\uE839';
+        fontFound[family] = ['monospace', 'serif'].every(base => {
+          pen.font = `32px ${base}`;
+          const plain = pen.measureText(probe).width;
+          pen.font = `32px '${family}', ${base}`;
+          return Math.abs(pen.measureText(probe).width - plain) > .5;
+        });
+      } catch (error) { fontFound[family] = false; }
+    }
+    return fontFound[family];
+  };
+  const segoeFamily = () => (W11() ? 'Segoe Fluent Icons' : 'Segoe MDL2 Assets');
+  // One of the PC's glyphs, or '' when its font is not there (MDL2 lacks the Windows 11 glyphs from U+F000 on). Its own
+  // element (nl-g), so the pages' rules for i, span or svg children never reshape it.
+  const SG = (code, size = 16, colour = '') => (!code || !hasFont(segoeFamily()) || (!W11() && code >= 'F000') ? ''
+    : `<nl-g class="wn-sg" aria-hidden="true" style="font-size:${size}px${colour ? `;color:${colour}` : ''}">&#x${code};</nl-g>`);
   // Fluent UI System Icons (Microsoft, MIT License; native_windows_icons.js): the icon family Windows 11 is drawn with.
-  const FX = (name, size = 20, colour = '') => {
+  const FS = (name, size = 20, colour = '') => {
     const [box, body] = (window.nlFluent || {})[name] || [20, ''];
     return `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" fill="${name.endsWith(':c') ? 'none' : 'currentColor'}"${colour ? ` style="color:${colour}"` : ''
     } aria-hidden="true">${body}</svg>`;
   };
+  // A system glyph: the PC's own font when it has it, else the Fluent icon of that name. Colour icons (name:c) stay Fluent's.
+  const FX = (name, size = 20, colour = '') => SG(SEGOE[name], size, colour) || FS(name, size, colour);
 
   // ---- drawn icons (no Microsoft artwork) ----
   const svg = (body, size = 24, box = 24) => `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
@@ -79,7 +117,7 @@
     pc: s => svg('<defs><linearGradient id="wnG4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="20" height="13.4" rx="1.4" fill="#c9d3dd"/><rect x="3.2" y="4.4" width="17.6" height="11" rx=".6" fill="url(#wnG4)"/><path d="M3.2 12.5 20.8 6.8V4.4H3.2z" fill="#fff" opacity=".12"/><path d="M9.5 16.6h5l.6 2.6h-6.2z" fill="#a9b4bf"/><rect x="6.6" y="19" width="10.8" height="1.6" rx=".8" fill="#8995a1"/>', s),
     bin: s => svg('<path d="M5.6 7.2h12.8l-1.3 13.1a1.6 1.6 0 0 1-1.6 1.4H8.5a1.6 1.6 0 0 1-1.6-1.4z" fill="#e9f1f8" fill-opacity=".85" stroke="#7d8d9e" stroke-width=".9"/><path d="M8.6 9.4l.6 10M12 9.4v10M15.4 9.4l-.6 10" stroke="#a8b6c4" stroke-width=".9"/><rect x="4.6" y="4.8" width="14.8" height="2.6" rx="1" fill="#dce5ee" stroke="#7d8d9e" stroke-width=".9"/>', s),
     network: s => svg('<defs><linearGradient id="wnG5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="16" height="11" rx="1.2" fill="#c9d3dd"/><rect x="3" y="4.2" width="14" height="9" rx=".5" fill="url(#wnG5)"/><path d="M8 14.2h4l.5 2h-5z" fill="#a9b4bf"/><circle cx="17" cy="16.4" r="5" fill="#2f9e5f"/><path d="M12 16.4h10M17 11.4c1.6 1.6 1.6 8.4 0 10M17 11.4c-1.6 1.6-1.6 8.4 0 10" fill="none" stroke="#d9f5e4" stroke-width=".8"/>', s),
-    ethernet: s => svg('<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 9h6v4H9z" fill="currentColor"/>', s),
+    ethernet: s => SG(SEGOE.ethernet, s) || svg('<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 9h6v4H9z" fill="currentColor"/>', s),
     offline: s => FX('globe_prohibited', s),
     speaker: s => FX('speaker_2', s),
     bell: s => FX('alert', s),
@@ -87,6 +125,10 @@
     adapter: (s, state) => svg(`<rect x="6" y="5" width="26" height="18" rx="1.5" fill="#3b87d6"/><rect x="8" y="7" width="22" height="14" fill="#8fd0ff"/><rect x="15" y="24" width="8" height="3" fill="#7a8796"/><rect x="11" y="27" width="16" height="2.5" rx="1" fill="#7a8796"/><path d="M19 30v6M14 36h10" stroke="#556372" stroke-width="2"/>${
       state === 'off' ? '<circle cx="33" cy="33" r="6.5" fill="#d13438"/><path d="M30 30l6 6M36 30l-6 6" stroke="#fff" stroke-width="2"/>'
         : state === 'disabled' ? '<rect x="0" y="0" width="40" height="40" fill="#fff" opacity=".55"/>' : '<circle cx="33" cy="33" r="6.5" fill="#16a34a"/><path d="M30 33.2l2.2 2.2 4-4.4" fill="none" stroke="#fff" stroke-width="2"/>'}`, s, 40),
+    desk: s => svg('<defs><linearGradient id="wnDk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4cc2ff"/><stop offset="1" stop-color="#0f6cbd"/></linearGradient></defs><rect x="2" y="3.5" width="16" height="11" rx="1.5" fill="url(#wnDk)"/><path d="M10 14.5V17M7.3 17.2h5.4" stroke="#5a6b7c" stroke-width="1.4" stroke-linecap="round"/>', s, 20),
+    downloads: s => svg('<defs><linearGradient id="wnDl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3ccf91"/><stop offset="1" stop-color="#0e8a5f"/></linearGradient></defs><path d="M8.6 2.5h2.8v7.3h3.1L10 14.6 5.5 9.8h3.1z" fill="url(#wnDl)"/><rect x="4" y="15.8" width="12" height="1.9" rx=".95" fill="#0e8a5f"/>', s, 20),
+    music: s => svg('<defs><linearGradient id="wnMu" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#e2412b"/></linearGradient></defs><path d="M8 4.2 16 2.5v10.3a2.4 2.4 0 1 1-1.6-2.3V6.1L9.6 7.2v7.6A2.4 2.4 0 1 1 8 12.5z" fill="url(#wnMu)"/>', s, 20),
+    drive: s => svg('<defs><linearGradient id="wnDr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f5f7"/><stop offset="1" stop-color="#c9d0d7"/></linearGradient></defs><rect x="2.5" y="8" width="19" height="9" rx="2" fill="url(#wnDr)" stroke="#8b97a3" stroke-width=".8"/><rect x="3.3" y="14.2" width="17.4" height="2" rx="1" fill="#aeb7c0"/><rect x="15.5" y="11" width="3.5" height="1.3" rx=".65" fill="#2fb66b"/>', s),
     server: s => svg('<rect x="4" y="2.5" width="16" height="6" rx="1" fill="#4b6584"/><rect x="4" y="9.5" width="16" height="6" rx="1" fill="#4b6584"/><rect x="4" y="16.5" width="16" height="5" rx="1" fill="#4b6584"/><circle cx="7" cy="5.5" r="1" fill="#7ee08a"/><circle cx="7" cy="12.5" r="1" fill="#7ee08a"/><circle cx="7" cy="19" r="1" fill="#7ee08a"/>', s),
     user: s => svg('<circle cx="12" cy="12" r="11" fill="#cfd8e3"/><circle cx="12" cy="9.5" r="4" fill="#fff"/><path d="M4.8 19.2a8 8 0 0 1 14.4 0" fill="#fff"/>', s),
   };
@@ -124,16 +166,22 @@
     accounts: 'person:c', time: 'globe:c', games: 'game_chat:c', access: ['accessibility', '#0067c0'], privacy: 'shield:c', update: 'arrow_sync:c',
     profile: 'shield', auth: 'key', metered: 'data_usage', ip: 'desktop', dns: 'globe', info: 'info', vpn: 'shield_lock', proxy: 'router', dial: 'call',
     advanced: 'network_check', usage: 'data_usage', rename: 'rename'};
+  // The categories keep their colour icons (images on Windows too); the rows' glyphs are the PC's own font when it has them.
   const fl = (name, size = 20) => {
     const fluent = FLUENT_OF[name];
-    if (!fluent || !window.nlFluent) return svg(FL[name] || FL.info, size, 20);
+    if (!fluent || !window.nlFluent) return SG(SEGOE[name], size) || svg(FL[name] || FL.info, size, 20);
     const [icon, colour] = Array.isArray(fluent) ? fluent : [fluent, ''];
-    return FX(icon, size, colour);
+    return colour || icon.endsWith(':c') ? FS(icon, size, colour) : FX(icon, size);
   };
+  // Settings' row chevron (SettingsCard: ChevronRightMed, 13 px), its « open elsewhere » arrow and the breadcrumb's chevron.
+  const chev = () => SG('E974', 13) || '›';
+  const away = () => SG('E8A7', 13) || '↗';
+  const crumb = () => SG('E76C', 16) || '›';
   const CAP = {min: '<path d="M0 5.5h10" stroke="currentColor"/>', max: '<rect x=".5" y=".5" width="9" height="9" rx="1" fill="none" stroke="currentColor"/>',
     restore: '<rect x=".5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor"/><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor"/>',
     close: '<path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" stroke-width="1.05"/>', back: '<path d="M10 5H1M4.5 1.5 1 5l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'};
-  const glyph = name => `<svg viewBox="0 0 10 10" width="10" height="10" style="overflow:visible">${CAP[name]}</svg>`;
+  // The caption buttons: ChromeMinimize, ChromeMaximize, ChromeRestore and ChromeClose at 10 px, as Windows draws them.
+  const glyph = name => SG(SEGOE[name], name === 'back' ? 16 : 10) || `<svg viewBox="0 0 10 10" width="10" height="10" style="overflow:visible">${CAP[name]}</svg>`;
   const toggle = on => `<span class="wn-sw${on ? ' on' : ''}"><i></i></span>`;
 
   /* =============================== styles =============================== */
@@ -141,6 +189,9 @@
   @font-face{font-family:'Selawik';src:url('/Selawik-Regular.woff2') format('woff2');font-weight:400}
   @font-face{font-family:'Selawik';src:url('/Selawik-Semibold.woff2') format('woff2');font-weight:600}
   @font-face{font-family:'Selawik';src:url('/Selawik-Semilight.woff2') format('woff2');font-weight:300}
+  .wn-sg{font-family:'Segoe Fluent Icons';font-style:normal;font-weight:400;line-height:1;display:inline-block;width:1em;height:1em;vertical-align:middle;
+    text-align:center;flex:none;speak:none;-webkit-font-smoothing:antialiased;user-select:none}.px-app.win10 .wn-sg{font-family:'Segoe MDL2 Assets'}
+  .px-app.win11 svg,.px-app.win10 svg{flex-shrink:0}
   .px-app.win11,.px-app.win10{position:fixed;inset:0;overflow:hidden;font:14px 'Segoe UI Variable Text','Segoe UI',Selawik,Inter,Arial,sans-serif;color:#1b1b1b;
     user-select:none;-webkit-font-smoothing:antialiased}
   @font-face{font-family:'Cascadia Mono';src:url('/CascadiaMono-Regular.woff2') format('woff2')}
@@ -614,7 +665,7 @@
     menu.style.left = event.clientX + 'px';
     menu.style.top = event.clientY + 'px';
     menu.innerHTML = items.map(([label, , more, icon]) => (label === '-' ? '<hr>' : `<a>${W11() ? `<span style="width:16px;display:grid">${icon ? FX(icon, 16) : ''}</span>` : ''}${h(label)}${
-      more ? `<em>${more}</em>` : ''}</a>`)).join('');
+      more ? `<em>${more === '›' && W11() ? SG('E974', 12) || more : more}</em>` : ''}</a>`)).join('');
     [...menu.querySelectorAll('a')].forEach((a, i) => { const item = items.filter(([l]) => l !== '-')[i]; a.onclick = () => { menu.remove(); (item[1] || (() => later(item[0])))(); }; });
     root.append(menu);
     setTimeout(() => document.addEventListener('click', () => menu.remove(), {once: true}));
@@ -817,7 +868,7 @@
     ['perso', '✎', 'Personnalisation'], ['apps', '▦', 'Applications'], ['accounts', '☺', 'Comptes'], ['time', '◷', 'Heure et langue'], ['games', '◉', 'Jeux'],
     ['access', '♿', 'Accessibilité'], ['privacy', '⛨', 'Confidentialité et sécurité'], ['update', '⟳', 'Windows Update']];
   const goPage = (win, page, extra = {}) => { win.history = [...(win.history || []), win.page || 'home'].slice(-20); Object.assign(win, extra, {page}); render(); };
-  const row = (icon, title, sub, right = '<span class="chev">›</span>', attrs = '') => `<div class="wn-card${right.includes('chev') ? ' link' : ''}" ${attrs}><span class="ic">${fl(icon)}</span>
+  const row = (icon, title, sub, right = `<span class="chev">${chev()}</span>`, attrs = '') => `<div class="wn-card${right.includes('chev') ? ' link' : ''}" ${attrs}><span class="ic">${fl(icon)}</span>
     <div class="grow">${title}${sub ? `<small>${sub}</small>` : ''}</div>${right}</div>`;
   function settings11(el, win) {
     const page = win.page || 'home', top = page === 'ethernet' || page === 'advanced' ? 'network' : page;
@@ -830,7 +881,7 @@
         ? 'Connecté' : 'Connecté · ' + h(access(port)) : disabled(port) ? 'Désactivé' : 'Non connecté'}</span></div><span style="flex:1"></span>
         <div style="display:flex;gap:8px"><button class="wn-mbtn" data-eth="${h(port)}">${fl('info', 16)} Propriétés</button><button class="wn-mbtn" data-usage="1">${fl('usage', 16)} Utilisation des données<br>
         <small style="color:#5b5b5b">${running() ? '12 Mo' : '0 Mo'}, 30 derniers jours</small></button></div></div>
-        ${ports().map(p => row('ethernet', h(nic(p)), 'Authentification, IP et paramètres DNS, réseaux limités', '<span class="chev">›</span>', `data-eth="${h(p)}"`)).join('')}
+        ${ports().map(p => row('ethernet', h(nic(p)), 'Authentification, IP et paramètres DNS, réseaux limités', `<span class="chev">${chev()}</span>`, `data-eth="${h(p)}"`)).join('')}
         ${row('vpn', 'VPN', 'Ajouter, se connecter, gérer', undefined, 'data-x="VPN"')}${row('proxy', 'Proxy', 'Serveur proxy pour les connexions Ethernet et Wi-Fi', undefined, 'data-x="Proxy"')}
         ${row('dial', 'Accès à distance', 'Configurer une connexion Internet à distance', undefined, 'data-x="Accès à distance"')}
         ${row('advanced', 'Paramètres réseau avancés', 'Afficher toutes les cartes réseau, réinitialisation du réseau', undefined, 'data-adv="1"')}`;
@@ -840,7 +891,7 @@
       main.querySelector('[data-adv]').onclick = () => goPage(win, 'advanced');
     } else if (page === 'ethernet') {
       const manual = !dhcp(port) && Boolean(address(port)), profile = win.profile || 'public';
-      main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>›</small>${h(nic(port))}</h1>
+      main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>${crumb()}</small>${h(nic(port))}</h1>
         <div class="wn-card exp"><div class="head"><span class="ic">${fl('profile')}</span><div class="grow">Type de profil réseau<small>${profile === 'public' ? 'Public (recommandé)' : 'Privé'}</small></div></div>
           <div class="rows"><label><input type="radio" name="prof" value="public"${profile === 'public' ? ' checked' : ''}><span>Public (recommandé)<small>Votre appareil n’est pas détectable sur le réseau.
           Utilisez ce paramètre dans la plupart des cas : à la maison, au travail ou dans un lieu public.</small></span></label><label><input type="radio" name="prof" value="private"${profile === 'private'
@@ -863,10 +914,10 @@
       main.querySelector('.copy').onclick = () => toast('Propriétés copiées dans le Presse-papiers.');
       main.querySelectorAll('.edit').forEach(b => { b.onclick = () => editIpModern(main, port, 'mask'); });  // IP and DNS: the same dialog, as Windows
     } else if (page === 'advanced') {
-      main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>›</small>Paramètres réseau avancés</h1><div class="wn-sec">Cartes réseau</div>
+      main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>${crumb()}</small>Paramètres réseau avancés</h1><div class="wn-sec">Cartes réseau</div>
         ${ports().map(p => row('ethernet', h(nic(p)), h(ADAPTER), `<button class="wn-mbtn" data-dis="${h(p)}">${disabled(p) ? 'Activer' : 'Désactiver'}</button>`)).join('')}
-        <div class="wn-sec">Paramètres associés</div>${row('advanced', 'Plus d’options de carte réseau', '', '<span class="chev">↗</span>', 'data-ncpa="1"')}
-        ${row('info', 'Centre Réseau et partage', '', '<span class="chev">↗</span>', 'data-net="1"')}`;
+        <div class="wn-sec">Paramètres associés</div>${row('advanced', 'Plus d’options de carte réseau', '', `<span class="chev">${away()}</span>`, 'data-ncpa="1"')}
+        ${row('info', 'Centre Réseau et partage', '', `<span class="chev">${away()}</span>`, 'data-net="1"')}`;
       main.querySelector('[data-back]').onclick = () => goPage(win, 'network');
       main.querySelector('[data-ncpa]').onclick = () => openWin('cpl', {page: 'ncpa'});
       main.querySelector('[data-net]').onclick = () => openWin('cpl', {page: 'net'});
@@ -931,20 +982,28 @@
     ['apps', 'Applications', 'Désinstaller, valeurs par défaut, fonctionnalités facultatives'], ['accounts', 'Comptes', 'Vos comptes, e-mail, synchronisation, travail, famille'],
     ['time', 'Heure et langue', 'Voix, région, date'], ['access', 'Options d’ergonomie', 'Narrateur, loupe, contraste élevé'],
     ['privacy', 'Confidentialité', 'Emplacement, caméra, microphone'], ['update', 'Mise à jour et sécurité', 'Windows Update, récupération, sauvegarde']];
+  // Windows 10 Settings draws its categories and menu items with Segoe MDL2 Assets glyphs (the home page's in the accent
+  // colour): the PC's own font when it has it, else the Fluent icon named after each.
+  const GLYPH10 = {home: ['E80F', 'home'], system: ['E7F8', 'laptop'], devices: ['E772', 'keyboard'], network: ['E774', 'globe'],
+    perso: ['E771', 'paint_brush'], apps: ['E71D', 'apps'], accounts: ['E77B', 'person'], time: ['E775', 'clock'], access: ['E776', 'accessibility'],
+    privacy: ['E72E', 'lock_closed'], update: ['E895', 'arrow_sync'], status: ['E774', 'globe'], ethernet: ['E839', 'desktop'], dial: ['E83C', 'call'],
+    vpn: ['E705', 'shield_lock'], proxy: ['E774', 'globe'], display: ['E7F4', 'desktop'], sound: ['E767', 'speaker_2'], power: ['E7E8', 'power'],
+    storage: ['EDA2', 'hard_drive'], about: ['E946', 'info']};
+  const g10 = (id, size = 16, colour = '') => SG(GLYPH10[id][0], size, colour) || FS(GLYPH10[id][1], size, colour);
   function settings10(el, win) {
     const page = win.page || 'home';
     if (page === 'home') {
       el.innerHTML = `<div style="text-align:center;padding:26px 0 0;font-size:28px;font-weight:300">Paramètres Windows</div><div style="text-align:center;margin:14px"><span class="wn-search10"
         style="display:inline-flex;width:360px;background:#fff;border:1px solid #999">Rechercher un paramètre ${ICON.search(14)}</span></div><div class="wn-home10">${HOME10.map(([id, t, s]) =>
-          `<a data-p="${id}">${ICON[id === 'network' ? 'network' : id === 'system' ? 'pc' : 'settings'](32)}<span><b>${t}</b><small>${s}</small></span></a>`).join('')}</div>`;
+          `<a data-p="${id}">${g10(id, 32, '#0078d7')}<span><b>${t}</b><small>${s}</small></span></a>`).join('')}</div>`;
       el.querySelectorAll('[data-p]').forEach(a => { a.onclick = () => { win.page = a.dataset.p === 'network' ? 'status' : a.dataset.p === 'system' ? 'about' : a.dataset.p; render(); }; });
       return;
     }
     const net = ['status', 'ethernet', 'eth'].includes(page), port = win.port || ports()[0];
     const nav = net ? [['status', 'État'], ['ethernet', 'Ethernet'], ['dial', 'Accès à distance'], ['vpn', 'VPN'], ['proxy', 'Proxy']]
       : page === 'about' ? [['display', 'Affichage'], ['sound', 'Son'], ['power', 'Alimentation et mise en veille'], ['storage', 'Stockage'], ['about', 'Informations système']] : [];
-    el.innerHTML = `<div class="wn-set"><nav><a data-home="1">⌂ Accueil</a><div class="find">Rechercher un paramètre ${ICON.search(14)}</div><div class="grp">${net ? 'Réseau et Internet'
-      : page === 'about' ? 'Système' : ''}</div>${nav.map(([id, t]) => `<a data-p="${id}" class="${id === page || (id === 'ethernet' && page === 'eth') ? 'on' : ''}">${t}</a>`).join('')}</nav><main></main></div>`;
+    el.innerHTML = `<div class="wn-set"><nav><a data-home="1">${g10('home')}Accueil</a><div class="find">Rechercher un paramètre ${ICON.search(14)}</div><div class="grp">${net ? 'Réseau et Internet'
+      : page === 'about' ? 'Système' : ''}</div>${nav.map(([id, t]) => `<a data-p="${id}" class="${id === page || (id === 'ethernet' && page === 'eth') ? 'on' : ''}">${g10(id)}${t}</a>`).join('')}</nav><main></main></div>`;
     el.querySelector('[data-home]').onclick = () => { win.page = 'home'; render(); };
     el.querySelectorAll('[data-p]').forEach(a => { a.onclick = () => { if (['status', 'ethernet', 'about'].includes(a.dataset.p)) { win.page = a.dataset.p; render(); } else later(a.textContent); }; });
     const main = el.querySelector('main');
@@ -1309,17 +1368,23 @@
   function explorer(el, win) {
     const page = win.page || 'pc', others = (state.equipment || []).filter(e => e.name !== N().name && e.role === 'host');
     const title = {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[page] || 'Ce PC';
-    const nav = [['home:c', 'Accueil', 'na'], ['image', 'Galerie', 'na'], ['-'], ['desktop', 'Bureau', 'na'], ['arrow_download', 'Téléchargements', 'na'], ['document', 'Documents', 'na'],
-      ['image', 'Images', 'na'], ['music_note_2', 'Musique', 'na'], ['video', 'Vidéos', 'na'], ['-'], ['laptop:c', 'Ce PC', 'pc'], ['globe', 'Réseau', 'network'], ['delete', 'Corbeille', 'bin']];
+    // The navigation pane in colour, as Windows 11's (its images are Microsoft's: these are the Fluent colour icons, or ours).
+    const colour = {home: s => FS('home:c', s), gallery: s => FS('image:c', s), desktop: ICON.desk, downloads: ICON.downloads,
+      documents: s => FS('document:c', s), pictures: s => FS('image:c', s), music: ICON.music, videos: s => FS('video:c', s), pc: ICON.pc,
+      network: ICON.network, bin: ICON.bin};
+    const nav = [['home', 'Accueil', 'na'], ['gallery', 'Galerie', 'na'], ['-'], ['desktop', 'Bureau', 'na'], ['downloads', 'Téléchargements', 'na'],
+      ['documents', 'Documents', 'na'], ['pictures', 'Images', 'na'], ['music', 'Musique', 'na'], ['videos', 'Vidéos', 'na'], ['-'], ['pc', 'Ce PC', 'pc'],
+      ['network', 'Réseau', 'network'], ['bin', 'Corbeille', 'bin']];
+    const sep = SG('E76C', 10) || '›';
     const tool = (icon, label, off = false) => `<a class="${off ? 'off' : ''}" title="${label}">${FX(icon, 18)}${label.includes('▾') ? ' ' + label : ''}</a>`;
     el.innerHTML = `<div class="ex-top"><span class="ex-nav">${FX('arrow_left', 16)}${FX('arrow_right', 16)}${FX('arrow_up', 16)}${FX('arrow_clockwise', 16)}</span>
-      <span class="ex-path">${page === 'network' ? FX('globe', 16) : page === 'bin' ? FX('delete', 16) : FX('laptop:c', 16)}<span>›</span>${title}<span>›</span></span>
+      <span class="ex-path">${colour[page](16)}<span>${sep}</span>${title}<span>${sep}</span></span>
       <span class="ex-find">Rechercher dans : ${title} ${FX('search', 14)}</span></div>
-      <div class="ex-cmd">${tool('add_circle', 'Nouveau ▾')}<i></i>${tool('cut', 'Couper', true)}${tool('copy', 'Copier', true)}${tool('clipboard_paste', 'Coller', true)}
+      <div class="ex-cmd"><a title="Nouveau ▾">${FS('add_circle:c', 18)} Nouveau ▾</a><i></i>${tool('cut', 'Couper', true)}${tool('copy', 'Copier', true)}${tool('clipboard_paste', 'Coller', true)}
         ${tool('rename', 'Renommer', true)}${tool('share', 'Partager', true)}${tool('delete', 'Supprimer', true)}<i></i>${tool('arrow_sort', 'Trier ▾')}${tool('grid', 'Afficher ▾')}<i></i>
         ${tool('more_horizontal', 'Voir plus')}<span style="flex:1"></span>${tool('panel_left', 'Détails')}</div>
-      <div class="ex-body"><nav>${nav.map(([icon, label, go]) => (icon === '-' ? '<hr>' : `<a data-ex="${go}" class="${go === page ? 'on' : ''}">${FX(icon, 16)}${label}</a>`)).join('')}</nav>
-      <main>${page === 'pc' ? `<div class="ex-sec">${FX('chevron_down', 12)} Périphériques et lecteurs</div><div class="ex-drive">${FX('hard_drive', 40)}<div>Disque local (C:)
+      <div class="ex-body"><nav>${nav.map(([icon, label, go]) => (icon === '-' ? '<hr>' : `<a data-ex="${go}" class="${go === page ? 'on' : ''}">${colour[icon](16)}${label}</a>`)).join('')}</nav>
+      <main>${page === 'pc' ? `<div class="ex-sec">${FX('chevron_down', 12)} Périphériques et lecteurs</div><div class="ex-drive">${ICON.drive(44)}<div>Disque local (C:)
         <div class="bar"><i style="width:38%"></i></div><small>39,6 Go disponibles sur 63,3 Go</small></div></div>` : page === 'network' ? `<div class="ex-sec">${FX('chevron_down', 12)}
         Ordinateur (${others.length})</div><div class="ex-hosts">${others.map(e => `<div>${ICON.pc(44)}<span>${h(e.name)}</span></div>`).join('') || '<p>Aucun.</p>'}</div>`
         : '<p class="ex-empty">Ce dossier est vide.</p>'}</main></div><div class="ex-status">${page === 'pc' ? '1 élément' : page === 'network' ? `${others.length} élément(s)` : '0 élément'}</div>`;
