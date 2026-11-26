@@ -45,6 +45,19 @@ elsewhere the Fluent UI System Icons above stand in. The code points in `network
 (`SEGOE`, `GLYPH10`) come from Microsoft's « Segoe Fluent Icons font » table
 (https://github.com/MicrosoftDocs/windows-dev-docs, `hub/apps/design/iconography/segoe-fluent-icons-font.md`).
 
+# Windows 11 network glyphs (Windows pages)
+
+`GLYPH_ETHERNET` and `GLYPH_OFFLINE` in `network_labs/native_products_windows.js` are SVG redraws of the pictures of the
+Segoe Fluent Icons glyphs Ethernet (U+E839) and NetworkOffline (U+F384) in Microsoft's « Segoe Fluent Icons font » article
+(https://github.com/MicrosoftDocs/windows-dev-docs, `hub/apps/design/iconography/images/segoe-fluent-icons/e839.png` and
+`f384.png`), © Microsoft, licensed under the Creative Commons Attribution 4.0 International License
+(https://creativecommons.org/licenses/by/4.0/). Changed: drawn as SVG paths on the pictures' 32-pixel grid.
+
+# Windows logo (Start button)
+
+The Start button draws Windows 11's four squares and Windows 10's four panes, Microsoft's trademark, as the Windows pages
+show a Windows desktop; it is drawn in SVG, no image file is copied.
+
 # pfSense web interface stylesheets (pfSense device pages)
 
 From the pfSense repository (https://github.com/pfsense/pfsense, `master` at commit

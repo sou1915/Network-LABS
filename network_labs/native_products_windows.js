@@ -101,10 +101,25 @@
   // A system glyph: the PC's own font when it has it, else the Fluent icon of that name. Colour icons (name:c) stay Fluent's.
   const FX = (name, size = 20, colour = '') => SG(SEGOE[name], size, colour) || FS(name, size, colour);
 
-  // ---- drawn icons (no Microsoft artwork) ----
+  // Windows 11's network glyphs, redrawn from the pictures of Segoe Fluent Icons' Ethernet (E839) and NetworkOffline (F384) in
+  // Microsoft's « Segoe Fluent Icons font » article (windows-dev-docs, Creative Commons Attribution 4.0; changed: drawn as
+  // SVG on their 32-pixel grid). Used where the PC has no Segoe font: the tray, quick settings, the Ethernet rows.
+  const GLYPH_ETHERNET = '<g fill="currentColor"><path d="M20 3H4a3 3 0 0 0-3 3v16a3 3 0 0 0 3 3h20" fill="none" stroke="currentColor" stroke-width="2"/>'
+    + '<path d="M10 26h2v4h-2zM20 26h2v4h-2zM6 30h18v2H6zM22 4h10v2H22zM26 14h2v18h-2z"/>'
+    + '<rect x="23" y="1" width="8" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/></g>';
+  const GLYPH_OFFLINE = '<defs><mask id="wnOffM"><rect width="32" height="32" fill="#fff"/><circle cx="23" cy="23" r="11"/></mask></defs>'
+    + '<g fill="none" stroke="currentColor" stroke-width="2"><g mask="url(#wnOffM)"><circle cx="16" cy="16" r="15"/><ellipse cx="16" cy="16" rx="7" ry="15"/>'
+    + '<path d="M1 11h30M1 21h30"/></g><circle cx="23" cy="23" r="8"/><path d="M28.66 17.34 17.34 28.66"/></g>';
+
+  // ---- drawn icons ----
   const svg = (body, size = 24, box = 24) => `<svg viewBox="0 0 ${box} ${box}" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
   const ICON = {
-    start: (s, c = '#2b88d8') => svg([3, 9.5, 16].map(y => [3, 9.5, 16].map(x => `<rect x="${x}" y="${y}" width="5" height="5" rx="1.3" fill="${c}"/>`).join('')).join(''), s),
+    // The Start button: Windows 11's four squares (one blue gradient across them), Windows 10's four white panes in
+    // perspective. The Windows logo is Microsoft's trademark.
+    start: (s, c = '') => (c ? svg(`<path d="M2 4.6 10.2 3.5v7.8H2zM11.2 3.36 22 1.9v9.4H11.2zM2 12.3h8.2v7.8L2 19zM11.2 12.3H22v9.4l-10.8-1.46z" fill="${c}"/>`, s)
+      : svg('<defs><linearGradient id="wnSt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ec4ff"/><stop offset="1" stop-color="#0063c4"/></linearGradient></defs>'
+        + [[1.5, 1.5], [12.75, 1.5], [1.5, 12.75], [12.75, 12.75]].map(([x, y]) => `<rect x="${x}" y="${y}" width="9.75" height="9.75" rx=".6"/>`).join('')
+          .replace(/<rect /g, '<rect fill="url(#wnSt)" '), s)),
     search: s => FX('search', s),
     settings: s => FX('settings:c', s),
     explorer: s => svg('<defs><linearGradient id="wnG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd86b"/><stop offset="1" stop-color="#f5b43a"/></linearGradient></defs><path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h5.2l2 2.2H20a1.5 1.5 0 0 1 1.5 1.5V10h-19z" fill="#e39f2b"/><rect x="2.5" y="8.6" width="19" height="11.4" rx="1.6" fill="url(#wnG2)"/><rect x="2.5" y="8.6" width="19" height="2" rx="1" fill="#3a8fe0"/>', s),
@@ -117,8 +132,8 @@
     pc: s => svg('<defs><linearGradient id="wnG4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="20" height="13.4" rx="1.4" fill="#c9d3dd"/><rect x="3.2" y="4.4" width="17.6" height="11" rx=".6" fill="url(#wnG4)"/><path d="M3.2 12.5 20.8 6.8V4.4H3.2z" fill="#fff" opacity=".12"/><path d="M9.5 16.6h5l.6 2.6h-6.2z" fill="#a9b4bf"/><rect x="6.6" y="19" width="10.8" height="1.6" rx=".8" fill="#8995a1"/>', s),
     bin: s => svg('<path d="M5.6 7.2h12.8l-1.3 13.1a1.6 1.6 0 0 1-1.6 1.4H8.5a1.6 1.6 0 0 1-1.6-1.4z" fill="#e9f1f8" fill-opacity=".85" stroke="#7d8d9e" stroke-width=".9"/><path d="M8.6 9.4l.6 10M12 9.4v10M15.4 9.4l-.6 10" stroke="#a8b6c4" stroke-width=".9"/><rect x="4.6" y="4.8" width="14.8" height="2.6" rx="1" fill="#dce5ee" stroke="#7d8d9e" stroke-width=".9"/>', s),
     network: s => svg('<defs><linearGradient id="wnG5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4fb3ff"/><stop offset="1" stop-color="#0b5cad"/></linearGradient></defs><rect x="2" y="3.2" width="16" height="11" rx="1.2" fill="#c9d3dd"/><rect x="3" y="4.2" width="14" height="9" rx=".5" fill="url(#wnG5)"/><path d="M8 14.2h4l.5 2h-5z" fill="#a9b4bf"/><circle cx="17" cy="16.4" r="5" fill="#2f9e5f"/><path d="M12 16.4h10M17 11.4c1.6 1.6 1.6 8.4 0 10M17 11.4c-1.6 1.6-1.6 8.4 0 10" fill="none" stroke="#d9f5e4" stroke-width=".8"/>', s),
-    ethernet: s => SG(SEGOE.ethernet, s) || svg('<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 9h6v4H9z" fill="currentColor"/>', s),
-    offline: s => FX('globe_prohibited', s),
+    ethernet: s => SG(SEGOE.ethernet, s) || svg(GLYPH_ETHERNET, s, 32),
+    offline: s => SG(SEGOE.globe_prohibited, s) || svg(GLYPH_OFFLINE, s, 32),
     speaker: s => FX('speaker_2', s),
     bell: s => FX('alert', s),
     power: s => FX('power', s),
@@ -169,6 +184,7 @@
   // The categories keep their colour icons (images on Windows too); the rows' glyphs are the PC's own font when it has them.
   const fl = (name, size = 20) => {
     const fluent = FLUENT_OF[name];
+    if (name === 'ethernet') return ICON.ethernet(size);
     if (!fluent || !window.nlFluent) return SG(SEGOE[name], size) || svg(FL[name] || FL.info, size, 20);
     const [icon, colour] = Array.isArray(fluent) ? fluent : [fluent, ''];
     return colour || icon.endsWith(':c') ? FS(icon, size, colour) : FX(icon, size);
@@ -555,7 +571,7 @@
     const v = V(), w11 = W11();
     root.classList.toggle('server', SERVER());
     const port = ports()[0];
-    const netIcon = cabled(port) ? ICON.ethernet(18) : ICON.offline(18);
+    const netIcon = cabled(port) ? ICON.ethernet(16) : ICON.offline(16);  // the tray's glyphs are 16 px, as Windows draws them
     const pinned = w11 ? ['explorer', 'web', 'settings', 'terminal', 'cpl'] : SERVER() ? ['servermgr', 'explorer', 'web', 'cmd', 'cpl'] : ['explorer', 'web', 'settings', 'cmd', 'cpl'];
     const kindOf = k => (k === 'terminal' ? 'cmd' : k);
     const open = v.wins.filter(x => !x.parent);
@@ -572,7 +588,7 @@
         ${pinned.map(k => { const win = open.find(x => x.kind === kindOf(k));
           return `<span class="wn-tb${win ? ' run' : ''}${win && win === top ? ' front' : ''}" data-app="${k}" title="${tip(k)}">${k === 'servermgr' ? ICON.server(24) : appIcon(k)}</span>`; }).join('')}</div>
         <div class="wn-tray"><span class="ic chev" title="Afficher les icônes cachées">${chevron}</span><span class="ic nl" title="Network LABS">${NL_TRAY}</span>${w11 ? '' : '<span class="ic lang">FRA</span>'}
-          <span class="ic" data-fly="net" title="${h(nic(port))}\n${cabled(port) ? access(port) : 'Câble réseau non connecté'}">${netIcon}${ICON.speaker(18)}</span>
+          <span class="ic" data-fly="net" title="${h(nic(port))}\n${cabled(port) ? access(port) : 'Câble réseau non connecté'}">${netIcon}${ICON.speaker(16)}</span>
           <span class="ic wn-clock" data-fly="cal">${clock()}</span>${w11 ? `<span class="ic">${ICON.bell(16)}</span>` : ''}</div></div>`;
     for (const win of v.wins) {
       const parent = win.parent && v.wins.find(x => x.id === win.parent);
@@ -750,8 +766,8 @@
   function quick11() {
     const port = ports()[0], fly = document.createElement('div');
     fly.className = 'wn-fly wn-quick';
-    const tile = (on, icon, label, more) => `<span class="tile${on ? ' on' : ''}"><b>${FX(icon, 18)}${more ? `<em>${FX('chevron_right', 12)}</em>` : ''}</b>${label}</span>`;
-    fly.innerHTML = `<div class="tiles">${tile(cabled(port), cabled(port) ? 'desktop' : 'globe_prohibited', cabled(port) ? 'Ethernet' : 'Non connecté', true)}
+    const tile = (on, icon, label, more) => `<span class="tile${on ? ' on' : ''}"><b>${icon.startsWith('<') ? icon : FX(icon, 18)}${more ? `<em>${FX('chevron_right', 12)}</em>` : ''}</b>${label}</span>`;
+    fly.innerHTML = `<div class="tiles">${tile(cabled(port), cabled(port) ? ICON.ethernet(18) : ICON.offline(18), cabled(port) ? 'Ethernet' : 'Non connecté', true)}
       ${tile(false, 'bluetooth', 'Bluetooth', true)}${tile(false, 'airplane', 'Mode avion')}${tile(false, 'battery_saver', 'Économiseur d’énergie')}
       ${tile(false, 'weather_moon', 'Éclairage nocturne')}${tile(false, 'accessibility', 'Accessibilité', true)}</div>
       <div class="slide">${FX('brightness_high', 18)}<i></i></div><div class="slide">${FX('speaker_2', 18)}<i></i>${FX('chevron_right', 14)}</div>

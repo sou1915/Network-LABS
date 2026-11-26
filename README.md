@@ -241,7 +241,8 @@ masque, passerelle) comme la « Configuration IP » d'un PC ; les cartes de gest
 serveur. Les PC et serveurs Windows s'ouvrent sur leur bureau Windows : écran de verrouillage (un clic ou une touche),
 fenêtres déplaçables, agrandies ou réduites dans la barre des tâches, clic droit, notifications, Terminal et
 Explorateur à onglets. Polices et icônes libres publiées par Microsoft : Selawik (pour Segoe UI), Cascadia Mono (le
-Terminal) et les Fluent UI System Icons (licence MIT) ; le logo Windows et le fond d'écran officiel ne sont pas copiés.
+Terminal) et les Fluent UI System Icons (licence MIT) ; le bouton Démarrer dessine le logo Windows (quatre carrés ;
+marque de Microsoft) ; le fond d'écran officiel n'est pas copié.
 Ouverte sur un PC Windows, la page dessine les icônes système (boutons de fenêtre, zone de notification, menus, barres
 d'outils, Paramètres) avec la police d'icônes de ce PC : Segoe Fluent Icons (Windows 11) ou Segoe MDL2 Assets
 (Windows 10), les icônes mêmes de Windows ; la police n'est jamais copiée ni distribuée.
