@@ -1,7 +1,7 @@
 """Server services on real guests: SRV serves DNS (www.lab.local, web.lab.local as an alias), its web pages, NTP and a
-syslog collector; R1, between PC1's LAN and the server's, has « ip name-server », « ntp server » and « logging host »
+syslog collector and TFTP; R1, between PC1's LAN and the server's, has « ip name-server », « ntp server » and « logging host »
 typed in its CLI. PC1 resolves the names and fetches the pages from the server across R1, R1 pings a name and
-synchronises its clock to SRV, and R1's log messages reach SRV's collector."""
+synchronises its clock to SRV, and R1's log messages reach SRV's collector; R1 backs its configuration up to SRV by TFTP."""
 import json
 import os
 from pathlib import Path
@@ -58,6 +58,8 @@ class ServicesGuestTests(unittest.TestCase):
                         consoles['R1'].line(line)
                     time.sleep(1)
                     seen['SRV logread'] = consoles['SRV'].line('logread')
+                    seen['R1 copy run tftp'] = '\n'.join(consoles['R1'].line(l) for l in ('copy running-config tftp:', '10.0.0.10', ''))
+                    seen['SRV tftpboot'] = consoles['SRV'].line('cat /tftpboot/r1-confg')
                 finally:
                     with manager.locked():
                         if manager.directory.exists():
@@ -75,4 +77,6 @@ class ServicesGuestTests(unittest.TestCase):
             self.assertTrue(seen['R1 ntp status'].startswith('Clock is synchronized, stratum 2, reference is 10.0.0.10'))
             self.assertIn('*~10.0.0.10', seen['R1 ntp associations'])
             self.assertFalse(seen['R1 clock'].startswith('*'))
+            self.assertRegex(seen['R1 copy run tftp'], r'!!\n\d+ bytes copied')
+            self.assertIn('ip name-server 10.0.0.10', seen['SRV tftpboot'])
             self.assertRegex(seen['SRV logread'], r'10\.0\.0\.1 <189>\d+: \*\w{3} +\d+ [\d:.]+: %SYS-5-CONFIG_I: Configured from console by console')

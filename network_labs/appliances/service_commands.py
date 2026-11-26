@@ -320,6 +320,18 @@ def host(console, command):
         return browse(console, url, curl=low[0] == 'curl', headers=headers)
     if low in (['logread'], ['cat', '/var/log/messages']):
         return logread(console)
+    if low in (['ls', '/tftpboot'], ['ls', '-l', '/tftpboot']):  # a server's TFTP files
+        listing = tftp_listing(console)
+        if low[1] == '-l':
+            return '\n'.join(f'-rw-r--r--    1 root     root     {size:>8} {name}' for name, size in sorted(listing.items()))
+        return '  '.join(sorted(listing))
+    if len(low) == 2 and low[0] == 'cat' and low[1].startswith('/tftpboot/'):
+        name = words[1][len('/tftpboot/'):]
+        reply = console.service('tftp-read', [name]) if re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}', name) else (1, '')
+        if reply is None:
+            files = guest_services.tftp_files(console.node())
+            reply = (0, files[name]) if name in files else (1, '')
+        return reply[1].rstrip('\n') if not reply[0] else f"cat: can't open '{words[1]}': No such file or directory"
     return None
 
 
@@ -405,3 +417,187 @@ def logread(console):
     rows = guest_services.parse_syslog(reply[1])
     return '\n'.join(f'{time.strftime("%b %d %H:%M:%S", time.gmtime(r["time"]))} {r["source"]} {r["message"]}' for r in rows) \
         or '(aucun message reçu)'
+
+
+# ---- TFTP: IOS « copy … tftp: » and « copy tftp: … », with IOS's questions ----
+
+PLACES = {'running-config': 'running', 'run': 'running', 'system:running-config': 'running', 'startup-config': 'startup',
+          'start': 'startup', 'nvram:startup-config': 'startup'}
+
+
+def _place(word):
+    """'running', 'startup', ('tftp', host, file) or None for a copy source or destination."""
+    low = word.lower()
+    if low in PLACES:
+        return PLACES[low]
+    match = re.fullmatch(r'tftp:(?://([A-Za-z0-9_.-]+)/([A-Za-z0-9._-]+))?', word, re.IGNORECASE) or re.fullmatch(r'tftp', low)
+    if match:
+        return ('tftp', match[1] if match.re.groups else None, match[2] if match.re.groups else None)
+    return None
+
+
+def ios_copy(console, command):
+    """« copy running-config tftp: » and the others through TFTP: their questions start (console.dialog), or None."""
+    words = command.split()
+    if len(words) != 3 or words[0].lower() != 'copy':
+        return None
+    source, target = _place(words[1]), _place(words[2])
+    if source is None or target is None or (not isinstance(source, tuple) and not isinstance(target, tuple)):
+        return None
+    if isinstance(source, tuple) and isinstance(target, tuple):
+        return "%Error: copy from tftp: to tftp: is not supported"
+    remote = source if isinstance(source, tuple) else target
+    console.dialog = {'source': source, 'target': target, 'host': remote[1], 'file': remote[2], 'steps': []}
+    if not remote[1]:
+        console.dialog['steps'].append(('host', 'Address or name of remote host []? '))
+    if isinstance(source, tuple):
+        if not remote[2]:
+            console.dialog['steps'].append(('file', 'Source filename []? '))
+        console.dialog['steps'].append(('destination', f'Destination filename [{target}-config]? '))
+    elif not remote[2]:
+        console.dialog['steps'].append(('file', f'Destination filename [{console.hostname.lower()}-confg]? '))
+    if not console.dialog['steps']:
+        return finish(console)
+    return ''
+
+
+def dialog_answer(console, text):
+    """One answer to the copy's current question; the transfer once the last one is given."""
+    dialog = console.dialog
+    key, _ = dialog['steps'].pop(0)
+    value = text.strip()
+    if key == 'host':
+        dialog['host'] = value
+    elif key == 'file':
+        dialog['file'] = value or (f'{console.hostname.lower()}-confg' if not isinstance(dialog['source'], tuple) else '')
+    if dialog['steps']:
+        return ''
+    return finish(console)
+
+
+def finish(console):
+    dialog, console.dialog = console.dialog, None
+    host, name = dialog['host'], dialog['file']
+    url = f'tftp://{host}/{name}'
+    if not host or not name or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}', name):
+        return '%Error parsing filename (Invalid argument)'
+    address = host if _ip(host) else ios_resolve(console, host)[0]
+    if address is None:
+        return f'%Error opening {url} (Unknown host)'
+    started = time.monotonic()
+    if isinstance(dialog['target'], tuple):  # this device's configuration to the server
+        text = _configuration(console, dialog['source'])
+        if text is None:
+            return '%Error opening nvram:startup-config (No such file or directory)'
+        error = _tftp_put(console, address, name, text)
+        if error:
+            return f'%Error opening {url} ({error})'
+        took = max(time.monotonic() - started, 0.001)
+        return f'!!\n{len(text.encode())} bytes copied in {took:.3f} secs ({int(len(text.encode()) / took)} bytes/sec)'
+    text, error = _tftp_get(console, address, name)
+    if error:
+        return f'Accessing {url}...\n%Error opening {url} ({error})'
+    took = max(time.monotonic() - started, 0.001)
+    size = len(text.encode())
+    shown = [f'Accessing {url}...', f'Loading {name} from {address}: !', f'[OK - {size} bytes]', '',
+             f'{size} bytes copied in {took:.3f} secs ({int(size / took)} bytes/sec)']
+    if dialog['target'] == 'startup':
+        console.store_startup(text)
+        return '\n'.join(shown)
+    applied = merge(console, text)  # copy tftp: running-config merges the lines, as IOS does
+    return '\n'.join(shown + ([applied] if applied else []) + [f'%SYS-5-CONFIG_I: Configured from {url} by console'])
+
+
+def _configuration(console, place):
+    from . import ios_store
+    if place == 'startup':
+        return ios_store.config(console.node()).get('startup')
+    text = console.ios_running()
+    return text.split('\n!\n', 1)[-1] if text.startswith('Building configuration') else text
+
+
+def _tftp_put(console, address, name, text):
+    """None once the server has the file, else IOS's reason (Timed out, Permission denied…)."""
+    data = text.encode()
+    if console.service('tftp-files', []) is None:  # the lab stopped: the server's file in the project
+        return _model_put(console, address, name, text)
+    try:
+        console.service('file-delete', ['out', name])
+        from .guest_control import PAGE_CHUNK
+        for i in range(0, len(data), PAGE_CHUNK):
+            code, output = console.service('file-put', ['out', name, data[i:i + PAGE_CHUNK]])
+            if code:
+                return output.strip() or 'Error'
+        code, output = console.service('tftp-put', [address, name])
+    except (OSError, ValueError) as error:
+        return str(error)
+    return None if not code else ('Timed out' if 'Timed out' in output else output.strip() or 'Error')
+
+
+def _tftp_get(console, address, name):
+    reply = console.service('tftp-get', [address, name])
+    if reply is None:
+        return _model_get(console, address, name)
+    code, output = reply
+    return (output, None) if not code else ('', 'Timed out' if 'Timed out' in output else output.strip() or 'Error')
+
+
+def _model_server(console, address, port=69):
+    from .network_model import Model
+    spec = console.spec_now()
+    target = guest_services.server_node(spec, address)
+    serving = target is not None and 'tftp' in guest_services.wanted(target)[0]
+    ok = Model(spec).ping(console.name, address, protocol='udp', dport=port)[0]
+    return (target if serving else None), ok
+
+
+def _model_put(console, address, name, text):
+    import copy
+    target, ok = _model_server(console, address)
+    if not ok or target is None:
+        return 'Timed out'
+    with console.manager().locked() as manager:
+        spec = manager.read()['spec']
+        server = copy.deepcopy(next(n for n in spec['nodes'] if n['name'] == target['name']))
+        files = server['services']['tftp'].setdefault('files', {})
+        if name not in files and len(files) >= guest_services.FILES:
+            return 'Disk full or allocation exceeded'
+        files[name] = text
+        manager.configure_routing(server['name'], server)
+    return None
+
+
+def _model_get(console, address, name):
+    target, ok = _model_server(console, address)
+    if not ok or target is None:
+        return '', 'Timed out'
+    files = guest_services.tftp_files(target)
+    return (files[name], None) if name in files else ('', 'No such file or directory')
+
+
+def merge(console, text):
+    """A configuration file's lines typed into configuration mode (comments, « end », banners of the file skipped)."""
+    skip = re.compile(r'(!.*|end|version .*|building configuration.*|current configuration.*|no service timestamps .*)', re.IGNORECASE)
+    lines = [l.rstrip() for l in text.splitlines() if l.strip() and not skip.fullmatch(l.strip())]
+    mode = console.mode
+    console.mode, console.pending, console.context = 'config', [], None
+    with console.manager().locked() as manager:
+        console.base = manager.read()['spec']
+    errors = []
+    for line in lines:
+        reply = console.ios_line(line)
+        if reply.startswith('%') and 'Invalid' in reply:
+            errors.append(f'{line}\n{reply}')
+    reply = console.ios_apply(final=True)
+    console.mode, console.context, console.pending, console.base = mode if mode != 'config' else 'enable', None, [], None
+    return '\n'.join(errors + ([reply] if reply and reply != 'Aucun changement.' else []))
+
+
+# ---- a server's TFTP files from its shell: ls /tftpboot, cat /tftpboot/NAME ----
+
+def tftp_listing(console):
+    reply = console.service('tftp-files', [])
+    if reply is None:
+        files = guest_services.tftp_files(console.node())
+        return {name: len(text.encode()) for name, text in files.items()}
+    return {line.split()[0]: int(line.split()[1]) for line in reply[1].splitlines() if len(line.split()) == 2}

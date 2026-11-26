@@ -219,8 +219,8 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 | HP, Brother | Embedded Web Server (Networking), Web Based Management (TCP/IP Wired) | Apply / Submit |
 | Axis, Yealink | AXIS OS (System › Network), page du téléphone (Network › Basic) | Save / Confirm |
 | Dell, HPE, Lenovo | iDRAC, iLO, XClarity Controller (tableau de bord, inventaire, journal) | Virtual / Remote Console |
-| Windows 11, Windows 10, Windows Server 2022 | bureau Windows : Paramètres › Réseau et Internet › Ethernet, Panneau de configuration › Connexions réseau › Propriétés TCP/IPv4, Invite de commandes (`ipconfig`), Gestionnaire de serveur | Enregistrer / OK |
-| PC, serveur Linux | bureau du poste (Packet Tracer) : Configuration IP (DHCP ou fixe, passerelle, serveur DNS), Invite de commandes, Navigateur web ; sur un serveur, Services : HTTP (pages), DNS (enregistrements A, CNAME), NTP, SYSLOG | Appliquer / Enregistrer |
+| Windows 11, Windows 10, Windows Server 2022 | bureau Windows : Paramètres › Réseau et Internet › Ethernet, Panneau de configuration › Connexions réseau › Propriétés TCP/IPv4, Invite de commandes (`ipconfig`, `ping`, `tracert`, `nslookup`, `curl`), Navigateur web, Gestionnaire de serveur | Enregistrer / OK |
+| PC, serveur Linux | bureau du poste (Packet Tracer) : Configuration IP (DHCP ou fixe, passerelle, serveur DNS), Invite de commandes, Navigateur web ; sur un serveur, Services : HTTP (pages), DNS (enregistrements A, CNAME), NTP, SYSLOG, TFTP | Appliquer / Enregistrer |
 
 **Services des serveurs (micro-VM).** Un serveur offre, comme celui de Packet Tracer, un site web, un serveur DNS
 (enregistrements A et CNAME, réponses inverses), l'heure (NTP) et un collecteur Syslog ; un routeur Cisco aussi, en IOS
@@ -228,6 +228,9 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 `ping www.lab.local`, `curl http://www.lab.local/` ou ouvre la page dans son navigateur ; un routeur avec `ip name-server`
 traduit les noms (`ping NOM`, `show hosts`), se synchronise avec `ntp server` (`show ntp status`, `show clock` sans « * ») et
 envoie ses messages au serveur avec `logging host` (`show logging` ; `logread` ou l'onglet SYSLOG du serveur les affiche).
+Le serveur a aussi un service TFTP : `copy running-config tftp:` sauvegarde la configuration d'un routeur (adresse puis nom du
+fichier, comme sur IOS) et `copy tftp: running-config` la reprend. Sur un PC Windows, l'invite de commandes répond à `ping`,
+`nslookup` et `curl` comme Windows.
 
 Chaque page s'ouvre d'abord sur la page de connexion du produit, une fois par équipement et par onglet, avec ses
 identifiants d'usine (admin / pfsense, root / calvin, ubnt / ubnt…) rappelés sous le formulaire.

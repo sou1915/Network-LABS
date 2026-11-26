@@ -396,13 +396,13 @@
     const now = new Date();
     return `${now.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}<br>${now.toLocaleDateString('fr-FR')}`;
   };
-  const APPS = [['settings', 'Paramètres'], ['explorer', 'Explorateur de fichiers'], ['terminal', 'Terminal'], ['cmd', 'Invite de commandes'],
+  const APPS = [['settings', 'Paramètres'], ['explorer', 'Explorateur de fichiers'], ['web', 'Navigateur web'], ['terminal', 'Terminal'], ['cmd', 'Invite de commandes'],
     ['cpl', 'Panneau de configuration'], ['notepad', 'Bloc-notes'], ['calc', 'Calculatrice'], ['taskmgr', 'Gestionnaire des tâches']];
   const OPEN = {settings: () => openWin('settings'), explorer: () => openWin('explorer', {page: 'pc'}), terminal: () => openWin('cmd'),
-    cmd: () => openWin('cmd'), cpl: () => openWin('cpl', {page: 'home'}), servermgr: () => openWin('servermgr', {page: 'dash'}),
+    cmd: () => openWin('cmd'), cpl: () => openWin('cpl', {page: 'home'}), servermgr: () => openWin('servermgr', {page: 'dash'}), web: () => openWin('web'),
     ncpa: () => openWin('cpl', {page: 'ncpa'}), notepad: () => later('Bloc-notes'), calc: () => later('Calculatrice'),
     taskmgr: () => later('Gestionnaire des tâches')};
-  const appIcon = (kind, size = 24) => (ICON[kind] || ICON.pc)(size);
+  const appIcon = (kind, size = 24) => (kind === 'web' ? FX('globe:c', size) : (ICON[kind] || ICON.pc)(size));
   const NL_TRAY = '<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.6" fill="currentColor"/></svg>';
 
   function drawShell(root) {
@@ -410,7 +410,7 @@
     root.classList.toggle('server', SERVER());
     const port = ports()[0];
     const netIcon = cabled(port) ? ICON.ethernet(18) : ICON.offline(18);
-    const pinned = w11 ? ['explorer', 'settings', 'terminal', 'cpl'] : SERVER() ? ['servermgr', 'explorer', 'cmd', 'cpl'] : ['explorer', 'settings', 'cmd', 'cpl'];
+    const pinned = w11 ? ['explorer', 'web', 'settings', 'terminal', 'cpl'] : SERVER() ? ['servermgr', 'explorer', 'web', 'cmd', 'cpl'] : ['explorer', 'web', 'settings', 'cmd', 'cpl'];
     const kindOf = k => (k === 'terminal' ? 'cmd' : k);
     const open = v.wins.filter(x => !x.parent);
     const top = open.filter(x => !x.min).slice(-1)[0];
@@ -628,7 +628,7 @@
 
   /* =============================== windows =============================== */
   const SIZES = {settings: [1000, 660], cpl: [940, 600], cmd: [780, 460], explorer: [860, 540], servermgr: [1060, 640], status: [372, 470],
-    details: [430, 420], props: [380, 540], ipv4: [412, 556], rename: [420, 260]};
+    details: [430, 420], props: [380, 540], ipv4: [412, 556], rename: [420, 260], web: [980, 640]};
   const SINGLE = new Set(['settings', 'cpl', 'cmd', 'servermgr', 'explorer']);
   function openWin(kind, data = {}) {
     const v = V();
@@ -668,6 +668,7 @@
     explorer: win => ({title: {pc: 'Ce PC', bin: 'Corbeille', network: 'Réseau'}[win.page] || 'Explorateur de fichiers', icon: win.page === 'bin' ? 'bin' : win.page === 'network' ? 'network' : 'pc',
       tab: W11() ? 'light' : null, body: el => explorer(el, win)}),
     servermgr: win => ({title: 'Gestionnaire de serveur', icon: 'server', body: el => serverManager(el, win)}),
+    web: win => ({title: win.pageTitle || 'Nouvel onglet', icon: 'web', tab: W11() ? 'light' : null, body: el => webBrowser(el, win)}),
     status: win => ({title: `État de ${nic(win.port)}`, icon: null, dialog: true, body: el => statusDlg(el, win)}),
     details: win => ({title: 'Détails de connexion réseau', icon: null, dialog: true, body: el => detailsDlg(el, win)}),
     props: win => ({title: `Propriétés de ${nic(win.port)}`, icon: null, dialog: true, body: el => propsDlg(el, win)}),
@@ -1144,6 +1145,69 @@
       input.value = '';
       term.scrollTop = term.scrollHeight;
     };
+  }
+
+  /* =============================== Web browser: the lab's web servers, fetched from this PC (/api/browse) =============================== */
+  skinCss(`
+  .wb{display:grid;grid-template-rows:auto 1fr auto;height:100%;background:#f7f7f7}
+  .wb-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f7f7f7;border-bottom:1px solid #e5e5e5}
+  .wb-bar button{width:32px;height:32px;border:0;border-radius:4px;background:none;cursor:pointer;display:grid;place-items:center;color:#1b1b1b}
+  .wb-bar button:hover{background:rgba(0,0,0,.06)}
+  .wb-bar input{flex:1;height:32px;border:1px solid #e0e0e0;border-radius:16px;padding:0 14px;font:inherit;font-size:13.5px;background:#fff;outline:0}
+  .wb-bar input:focus{border-color:#0067c0;box-shadow:inset 0 -1px #0067c0}
+  .wb-view{background:#fff;min-height:0;overflow:auto}.wb-view iframe{width:100%;height:100%;border:0;display:block}
+  .wb-home{padding:56px 40px;text-align:center;color:#5d5d5d}.wb-home h2{font-weight:600;color:#1b1b1b;font-size:24px;margin:0 0 10px}
+  .wb-err{padding:64px 72px;color:#1b1b1b}.wb-err h2{font-weight:600;font-size:26px;margin:0 0 12px}.wb-err p{color:#5d5d5d;margin:6px 0}
+  .wb-err code{font:12px "Cascadia Mono",Consolas,monospace;color:#5d5d5d}
+  .wb-status{height:22px;padding:2px 10px;font-size:12px;color:#5d5d5d;background:#f7f7f7;border-top:1px solid #e5e5e5}
+  `);
+  function webBrowser(el, win) {
+    win.history = win.history || [];
+    el.innerHTML = `<div class="wb"><div class="wb-bar"><button class="back" title="Précédent">${FX('arrow_left', 16)}</button><button class="reload" title="Actualiser">${FX('arrow_clockwise', 16)}</button>
+      <button class="home" title="Accueil">${FX('home', 16)}</button><input class="addr" spellcheck="false" placeholder="Rechercher ou entrer l’adresse Web" value="${h(win.url || '')}">
+      </div><div class="wb-view"><div class="wb-home"><h2>Navigateur web</h2>Entrez l’adresse d’un serveur du laboratoire : http://10.0.0.10 ou http://www.lab.local.<br>
+      La page vient du réseau du laboratoire, depuis ${h(N().name)}.</div></div><div class="wb-status"></div></div>`;
+    const view = el.querySelector('.wb-view'), addr = el.querySelector('.addr'), status = el.querySelector('.wb-status');
+    const title = text => { win.pageTitle = text; const t = el.closest('.wn-win')?.querySelector('.wt-tab span, .wn-tt .t'); if (t) t.textContent = text; };
+    const go = async (url, remember = true) => {
+      url = url.trim();
+      if (!url) return;
+      if (!/^https?:\/\//.test(url)) url = 'http://' + url;
+      addr.value = url;
+      win.url = url;
+      status.textContent = 'Connexion à ' + url.replace(/^http:\/\//, '') + '…';
+      let page;
+      try { page = await request('/api/browse', {node, url}); } catch (error) { status.textContent = error.message; return; }
+      if (remember) win.history.push(url);
+      if (page.error) {
+        const refused = /refused|Connection refused/.test(page.error), host = url.replace(/^http:\/\//, '').split('/')[0];
+        view.innerHTML = `<div class="wb-err"><h2>${refused ? 'Impossible d’accéder à cette page' : 'Cette page est inaccessible'}</h2>
+          <p>${refused ? `<b>${h(host)}</b> n’autorise pas la connexion.` : `<b>${h(host)}</b> a mis trop de temps à répondre.`}</p>
+          <p>Essayez de vérifier la connexion, le pare-feu et l’adresse du serveur.</p><p><code>${refused ? 'ERR_CONNECTION_REFUSED' : 'ERR_CONNECTION_TIMED_OUT'}</code></p></div>`;
+        title(host);
+        status.textContent = '';
+        return;
+      }
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-same-origin');  // the server's page, without its scripts
+      frame.srcdoc = page.body;
+      view.replaceChildren(frame);
+      status.textContent = '';
+      frame.onload = () => {
+        title(frame.contentDocument?.title || url.replace(/^http:\/\//, ''));
+        const base = url.replace(/^(http:\/\/[^/]+).*$/, '$1');
+        frame.contentDocument?.querySelectorAll('a[href]').forEach(a => a.addEventListener('click', event => {
+          event.preventDefault();
+          const href = a.getAttribute('href');
+          go(/^https?:\/\//.test(href) ? href : base + '/' + href.replace(/^\//, ''));
+        }));
+      };
+    };
+    addr.addEventListener('keydown', event => { if (event.key === 'Enter') go(addr.value); });
+    el.querySelector('.back').onclick = () => { if (win.history.length > 1) { win.history.pop(); go(win.history[win.history.length - 1], false); } };
+    el.querySelector('.reload').onclick = () => win.url && go(win.url, false);
+    el.querySelector('.home').onclick = () => { win.url = ''; webBrowser(el, win); };
+    if (win.url) go(win.url, false); else addr.focus();
   }
 
   /* =============================== Explorer (Ce PC, Corbeille, Réseau) =============================== */

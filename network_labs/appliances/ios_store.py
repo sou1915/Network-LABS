@@ -254,6 +254,14 @@ def _identity(line, words):
     return ' '.join(line.lower().split()[:words])
 
 
+def _same_identity(syntax, typed, words):
+    """TYPED's first WORDS words are the catalogue SYNTAX's, its placeholders (NOM, A.B.C.D, N…) standing for any word:
+    « no ip host printer » names the « ip host NOM A.B.C.D » line of printer."""
+    expected, given = syntax.split()[:words], typed.lower().split()[:words]
+    return len(given) == len(expected) and all(word == want.lower() or re.fullmatch(r'[A-ZÉ.|\[\]]+', want)
+                                               for want, word in zip(expected, given))
+
+
 def _find(mode, low):
     for entry in GRAMMAR:
         if entry[0] == mode and re.fullmatch(entry[2], low):
@@ -287,7 +295,7 @@ def store(node, mode, line, port=None, block=None):
         target[:] = [l for l in target if l.lower() != 'no ' + low]
     elif negative:  # « no enable secret », « no username admin »: the identity alone
         entry = next((e for e in GRAMMAR if e[0] == mode and not e[1].startswith('no ')
-                      and _identity(e[1], e[3]) == _identity(low[3:], e[3]) and len(low[3:].split()) >= e[3]), None)
+                      and _same_identity(e[1], low[3:], e[3]) and len(low[3:].split()) >= e[3]), None)
         if entry is None:
             return False
         key = _identity(low[3:], entry[3])

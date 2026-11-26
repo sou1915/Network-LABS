@@ -69,6 +69,7 @@ class NativeDeviceAPI:
         if action=='browse':return self.browse(spec,node,payload)
         if action=='syslog':return self.syslog(spec,node)
         if action=='host_command':return self.host_command(spec,node,payload)
+        if action=='tftp':return self.tftp(spec,node,payload)
         if action=='route':return self.route(node,payload,revision)
         if action=='open_cli':
             # The desktop's « Invite de commandes »: the device's terminal window in the application.
@@ -213,6 +214,28 @@ class NativeDeviceAPI:
         if len(line)>120 or not re.fullmatch(r'(?i)(?:ping|tracert|traceroute|nslookup|curl|arp|logread)(?: [A-Za-z0-9_./:\-]+){0,4}',line):
             raise ValueError('Commande non disponible ici.')
         return {'reply':_host_line(self.window,spec,node,line)}
+
+    def tftp(self,spec,node,payload):
+        """A server's TFTP files (Services › TFTP): the running guest's (what routers copied there) or the project's; with
+        a name, that file's text."""
+        import re
+        if set(payload)-{'name'}!={'node'}:raise ValueError('Champs TFTP invalides.')
+        if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('TFTP : un serveur micro-VM.')
+        running=self.window.view_lab==spec['name'] and self.window.states.get(node['name'],{}).get('status')=='running'
+        if 'name' in payload:
+            name=payload['name']
+            if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}',name):raise ValueError('Nom de fichier invalide.')
+            if not running:
+                from .guest_services import tftp_files
+                files=tftp_files(node)
+                if name not in files:raise ValueError('Fichier absent.')
+                return {'name':name,'text':files[name]}
+            return {'name':name,'text':_host_line(self.window,spec,node,'cat /tftpboot/'+name)}
+        rows=[]
+        for line in _host_line(self.window,spec,node,'ls -l /tftpboot').splitlines():
+            parts=line.split()
+            if len(parts)>=6 and parts[-2].isdigit():rows.append({'name':parts[-1],'size':int(parts[-2])})
+        return {'running':running,'files':rows}
 
     def syslog(self,spec,node):
         """The messages a syslog server has collected (its guest), for the Services › SYSLOG table."""

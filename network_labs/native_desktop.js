@@ -234,7 +234,7 @@
   }
 
   // ---- a server's services, as Packet Tracer's Services tab ----
-  const SERVICE_TABS = [['http', 'HTTP'], ['dns', 'DNS'], ['ntp', 'NTP'], ['syslog', 'SYSLOG']];
+  const SERVICE_TABS = [['http', 'HTTP'], ['dns', 'DNS'], ['ntp', 'NTP'], ['syslog', 'SYSLOG'], ['tftp', 'TFTP']];
   function services(tab = 'http') {
     const held = JSON.parse(JSON.stringify(state.node.services || {}));
     for (const [key] of SERVICE_TABS) held[key] = held[key] || {on: false};
@@ -305,6 +305,37 @@
           et switches s’y synchronisent avec « ntp server ${esc((Object.values(state.node.interfaces).find(Boolean) || 'A.B.C.D').split('/')[0])} »
           (show ntp status, show clock sans « * »).</p>`;
         wireOnoff('ntp');
+      } else if (key === 'tftp') {
+        held.tftp.files = held.tftp.files || {};
+        body.innerHTML = `<h3>TFTP</h3>${onoff('tftp')}<table class="sv-t"><thead><tr><th>Fichier</th><th>Taille</th></tr></thead>
+          <tbody class="files"><tr><td colspan="2">…</td></tr></tbody></table><div class="sv-btns"><button type="button" class="refresh">↻ Actualiser</button>
+          <button type="button" class="del">Supprimer</button></div><textarea id="svFile" readonly spellcheck="false" placeholder="Choisir un fichier"></textarea>
+          <p class="pc-note">Les routeurs et switches y copient leur configuration : « copy running-config tftp: » (et la reprennent avec
+          « copy tftp: running-config »).</p>`;
+        wireOnoff('tftp');
+        let chosen = null;
+        const fill = async () => {
+          const rows = body.querySelector('.files');
+          try {
+            const read = await request('/api/tftp', {node});
+            rows.innerHTML = read.files.map(f => `<tr data-f="${esc(f.name)}"><td>${esc(f.name)}</td><td>${f.size} o</td></tr>`).join('')
+              || '<tr><td colspan="2">Aucun fichier</td></tr>';
+            rows.querySelectorAll('tr[data-f]').forEach(row => { row.onclick = async () => {
+              chosen = row.dataset.f;
+              rows.querySelectorAll('tr').forEach(r => r.classList.toggle('sel', r === row));
+              try { body.querySelector('#svFile').value = (await request('/api/tftp', {node, name: chosen})).text; }
+              catch (error) { body.querySelector('#svFile').value = error.message; }
+            }; });
+          } catch (error) { rows.innerHTML = `<tr><td colspan="2">${esc(error.message)}</td></tr>`; }
+        };
+        body.querySelector('.refresh').onclick = fill;
+        body.querySelector('.del').onclick = () => {
+          if (!chosen || !(chosen in held.tftp.files)) { msg.textContent = 'Supprimer : un fichier du projet (lab arrêté).'; return; }
+          delete held.tftp.files[chosen];
+          msg.textContent = 'Supprimé ; Enregistrer pour le garder.';
+          body.querySelector(`tr[data-f="${CSS.escape(chosen)}"]`)?.remove();
+        };
+        fill();
       } else {
         body.innerHTML = `<h3>SYSLOG</h3>${onoff('syslog')}<table class="sv-t"><thead><tr><th>N°</th><th>Heure</th><th>Équipement</th><th>Message</th></tr></thead>
           <tbody class="logs"><tr><td colspan="4">…</td></tr></tbody></table><div class="sv-btns"><button type="button" class="refresh">↻ Actualiser</button></div>`;

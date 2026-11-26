@@ -71,7 +71,7 @@ class WebPortal:
                 parsed=urlsplit(self.path)
                 if parsed.path not in ('/api/apply','/api/native','/api/test','/api/cli','/api/observe','/api/host_ip','/api/open_cli',
                                    '/api/route','/api/services','/api/browse','/api/syslog',
-                                   '/api/host_command'):
+                                   '/api/host_command','/api/tftp'):
                     return self.respond(404,{'error':'Action absente.'})
                 try:
                     length=int(self.headers.get('Content-Length','0'))

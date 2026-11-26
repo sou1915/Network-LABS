@@ -36,6 +36,7 @@ def lab(kernel='/k', disk='/d'):
     server['services']['dns'] = {'on': True, 'records': [['www.lab.local', 'A', '10.0.0.10'], ['web.lab.local', 'CNAME', 'www.lab.local']]}
     server['services']['ntp'] = {'on': True}
     server['services']['syslog'] = {'on': True}
+    server['services']['tftp'] = {'on': True, 'files': {}}
     next(n for n in spec['nodes'] if n['name'] == 'PC1')['resolvers'] = ['10.0.0.10']
     spec = topology_edit.connect(spec, ('R1', 'eth0'), ('PC1', 'eth0'))
     spec = topology_edit.connect(spec, ('R1', 'eth1'), ('SRV', 'eth0'))
@@ -67,7 +68,7 @@ class ServicesModelTest(unittest.TestCase):
 
     def test_the_guests_get_their_services(self):
         tokens, pages = guest_services.wanted(self.node('SRV'))
-        self.assertEqual(tokens, ['dns', 'a:www.lab.local=10.0.0.10', 'cname:web.lab.local=www.lab.local', 'ntp:1', 'syslog'])
+        self.assertEqual(tokens, ['dns', 'a:www.lab.local=10.0.0.10', 'cname:web.lab.local=www.lab.local', 'ntp:1', 'syslog', 'tftp'])
         self.assertEqual(sorted(pages), ['hello.html', 'index.html'])
         self.assertEqual(guest_services.wanted(self.node('R1')), (['sync:10.0.0.10'], None))
         self.assertEqual(guest_services.log_hosts(self.node('R1')), ['10.0.0.10'])
@@ -143,6 +144,33 @@ class ServicesModelTest(unittest.TestCase):
         server['services']['http']['on'] = False
         self.box['spec'] = validate(self.box['spec'])
         self.assertIn('Connection refused', self.pc.line('curl http://www.lab.local/'))
+
+    def test_a_router_backs_its_configuration_up_to_tftp_and_restores_it(self):
+        self.assertEqual(self.router.line('copy running-config tftp:'), '')
+        self.assertEqual(self.router.prompt(), 'Address or name of remote host []? ')
+        self.assertEqual(self.router.line('10.0.0.10'), '')
+        self.assertEqual(self.router.prompt(), 'Destination filename [r1-confg]? ')
+        self.assertRegex(self.router.line(''), r'^!!\n\d+ bytes copied in [\d.]+ secs')
+        saved = guest_services.tftp_files(self.node('SRV'))['r1-confg']
+        self.assertIn('hostname R1', saved)
+        self.assertIn('ip host printer 192.168.1.50', saved)
+        server = guest_console.Console('svc', 'SRV', lambda _: self.draft)
+        self.assertIn('r1-confg', server.line('ls -l /tftpboot'))
+        self.assertIn('ip name-server 10.0.0.10', server.line('cat /tftpboot/r1-confg'))
+        for line in ('conf t', 'hostname CHANGED', 'no ip host printer', 'end'):
+            self.router.line(line)
+        self.assertNotIn('ip host printer', self.router.line('show running-config'))
+        for line in ('copy tftp: running-config', '10.0.0.10', 'r1-confg'):
+            self.assertEqual(self.router.line(line), '')
+        restored = self.router.line('')
+        self.assertIn('[OK - ', restored)
+        self.assertTrue(restored.endswith('%SYS-5-CONFIG_I: Configured from tftp://10.0.0.10/r1-confg by console'))
+        running = self.router.line('show running-config')
+        self.assertIn('hostname R1', running)  # merged back, as IOS does
+        self.assertIn('ip host printer 192.168.1.50', running)
+        self.assertEqual(self.router.line('copy tftp://10.0.0.99/x running-config'), '')  # Destination filename [running-config]?
+        self.assertIn('%Error opening tftp://10.0.0.99/x (Timed out)', self.router.line(''))
+        self.assertEqual(self.router.line('copy startup-config tftp://10.0.0.10/s.cfg'), '%Error opening nvram:startup-config (No such file or directory)')
 
     def test_services_are_checked(self):
         spec = lab()
@@ -257,8 +285,23 @@ class AgentServicesTest(unittest.TestCase):
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 www.lab.local'), (1, 'timeout'))
         self.assertEqual(self.ask('pc', 'HTTP_GET 10.9.0.1 80 /'), (1, 'connection refused'))
 
+    def test_tftp_for_real(self):
+        from network_labs.appliances.guest_control import service_command
+        self.assertEqual(self.ask('srv', service_command('services-start', ['tftp'])), (0, ''))
+        text = ''.join(f'interface GigabitEthernet0/0/{i}\n ip address 10.0.{i}.1 255.255.255.0\n!\n' for i in range(60))  # several blocks
+        data = text.encode()
+        for i in range(0, len(data), 1000):
+            self.assertEqual(self.ask('pc', service_command('file-put', ['out', 'r1-confg', data[i:i + 1000]])), (0, ''))
+        self.assertEqual(self.ask('pc', 'TFTP_PUT 10.9.0.1 r1-confg'), (0, str(len(data))))
+        self.assertEqual(self.ask('srv', 'TFTP_FILES'), (0, f'r1-confg {len(data)}\n'))
+        self.assertEqual(self.ask('pc', 'TFTP_GET 10.9.0.1 r1-confg'), (0, text))
+        self.assertEqual(self.ask('pc', 'TFTP_GET 10.9.0.1 missing'), (1, 'File not found'))
+        self.assertEqual(self.ask('srv', 'SERVICES_STOP'), (0, ''))
+        self.assertEqual(self.ask('pc', 'TFTP_GET 10.9.0.1 r1-confg'), (1, 'Timed out'))
+
     def test_bad_requests_are_refused(self):
         for request in ('SERVICES_START dns;id', 'SERVICES_START a:bad name=1.2.3.4', 'HTTP_PAGE ../x.html 41', 'HTTP_PAGE a.php 41',
+                        'FILE_PUT etc passwd 41', 'FILE_PUT out ../x 41', 'TFTP_GET 10.9.0.1 ../etc', 'TFTP_READ .hidden',
                         'HTTP_GET 10.9.0.1 80 /../etc/passwd', 'SYSLOG_SEND 10.9.0.1 zz', 'RESOLVE 10.9.0.1 -x'):
             with self.subTest(request=request):
                 self.assertEqual(self.ask('srv', request)[0], 2)

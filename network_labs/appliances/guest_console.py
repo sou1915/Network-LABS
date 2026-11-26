@@ -33,6 +33,7 @@ class Console:
         self.typed, self.clock_offset, self.started = [], 0.0, __import__('time').monotonic()
         self.attempts = 0
         self.remote = self.remote_address = self.login_state = None  # telnet / ssh into another device
+        self.dialog = None  # the questions of « copy running-config tftp: » (service_commands)
         self.vty = False  # this console is a telnet / ssh session (IOS's vty rules): {'user', 'from'} then
         # A console line with « login » and a password asks for it first, as IOS does.
         self.awaiting = 'login' if self.syntax in ('ios', 'eos') and ios_store.console_login(node) else None
@@ -161,7 +162,8 @@ class Console:
             return None
         if destination is None:
             return trace.unknown(syntax)
-        return trace.text(syntax, self.trace(destination), command)
+        from .service_commands import windows
+        return trace.text(syntax, self.trace(destination), command, french=syntax == 'host' and windows(self.node()))
 
     def service(self, operation, values=None):
         """(exit code, output) of a service request in the running guest (a DNS query, an HTTP GET, a syslog datagram…);
@@ -193,6 +195,8 @@ class Console:
         if self.syntax in ('ios', 'eos'):  # IOS types straight after the prompt, without a space
             if self.awaiting:
                 return 'Password: '
+            if self.dialog:
+                return self.dialog['steps'][0][1]
             name = self.hostname
             shown = {'config-rip': 'config-router', 'config-eigrp': 'config-router'}.get(self.context, self.context)
             config = f'{name}({shown or "config"})#'
@@ -316,6 +320,9 @@ class Console:
             self.typed.append(' '.join(text.split()))
         if text.rstrip().endswith('?'):
             return command_catalogue.ios_help(node, mode, text.rstrip()[:-1])
+        if self.dialog:  # an answer to « Address or name of remote host []? »…
+            from .service_commands import dialog_answer
+            return dialog_answer(self, text)
         command = ' '.join(text.split())
         low = command.lower()
         if not command:
@@ -388,10 +395,13 @@ class Console:
         extra = ios_exec.answer(self, low)
         if extra is not None:
             return extra
-        from .service_commands import ios_ping
+        from .service_commands import ios_copy, ios_ping
         named = ios_ping(self, command)  # « ping www.lab.local »: « ip host », then the name server
         if named is not None:
             return named
+        copied = ios_copy(self, command) if self.mode == 'enable' else None  # copy running-config tftp: …
+        if copied is not None:
+            return copied
         from .remote_login import parse as remote_command
         if remote_command(command):
             return self.remote_open(command)

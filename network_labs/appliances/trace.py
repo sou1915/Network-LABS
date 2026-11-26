@@ -122,9 +122,10 @@ def busybox_text(result):
     return '\n'.join(lines)
 
 
-def windows_text(result):
-    """tracert as a Packet Tracer (Windows) PC prints it."""
-    lines = [f'Tracing route to {result["destination"]} over a maximum of {MAX_HOPS} hops:', '']
+def windows_text(result, french=False):
+    """tracert as a Packet Tracer (Windows) PC prints it; a Windows PC of the laboratory (French Windows) in French."""
+    lines = [f'Détermination de l’itinéraire vers {result["destination"]} avec un maximum de {MAX_HOPS} sauts.' if french
+             else f'Tracing route to {result["destination"]} over a maximum of {MAX_HOPS} hops:', '']
     for hop in result['hops']:
         address = _first(hop)
         cells = []
@@ -133,18 +134,18 @@ def windows_text(result):
                 cells.append(f'{"*":>5}   ')
             else:
                 cells.append(f'{"<1" if p["time_ms"] < 1 else round(p["time_ms"]):>5} ms')
-        lines.append(f'{hop["ttl"]:>3} ' + ' '.join(cells) + '  ' + (address or 'Request timed out.'))
-    lines += ['', 'Trace complete.']
+        lines.append(f'{hop["ttl"]:>3} ' + ' '.join(cells) + '  ' + (address or ('Délai d’attente de la demande dépassé.' if french else 'Request timed out.')))
+    lines += ['', 'Itinéraire déterminé.' if french else 'Trace complete.']
     return '\n'.join(lines)
 
 
-def text(syntax, result, command=''):
+def text(syntax, result, command='', french=False):
     if syntax == 'ios':
         return ios_text(result)
     if syntax == 'vrp':
         return vrp_text(result)
     if syntax == 'host' and command.split()[0].lower() == 'tracert':
-        return windows_text(result)
+        return windows_text(result, french)
     return busybox_text(result)
 
 
