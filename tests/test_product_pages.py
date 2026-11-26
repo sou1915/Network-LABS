@@ -34,6 +34,7 @@ const { chromium } = require('playwright');
   // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
   const login = async (tab = page) => {
     if (!(await tab.$('.px-login'))) return;
+    if (await tab.$('.px-login .us') && !(await tab.inputValue('.px-login .us'))) await tab.fill('.px-login .us', await tab.getAttribute('.px-login', 'data-user'));
     await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
     await tab.click('.px-login .go');
     await tab.waitForFunction(() => !document.querySelector('.px-login'));
@@ -49,16 +50,19 @@ const { chromium } = require('playwright');
   await page.check('input[name=asAct][value=drop]'); await page.fill('#asSvc', 'tcp/23'); await page.fill('#asName', 'Bloquer Telnet LAN');
   await page.click('.px-dfoot button:text-is("OK")'); await page.click('.as-apply .apply'); await page.waitForSelector('.px-toast');
   await open('PFS'); seen.PFS = await product();
-  await page.click('.pf-nav .m a:has-text("Firewall")'); await page.click('.pf-drop a[data-go="rules"]'); await page.click('.pf-btns .add >> nth=0');
+  const look = {pfSense: await page.evaluate(() => [getComputedStyle(document.querySelector('#topmenu')).backgroundColor,
+    getComputedStyle(document.body).fontFamily.split(',')[0].replace(/["']/g, ''), [...document.querySelectorAll('link[data-px-sheet]')].map(l => l.getAttribute('href'))])};
+  await page.click('#topmenu .dropdown-toggle:has-text("Firewall")'); await page.click('#topmenu .dropdown-menu a[data-go="rules"]'); await page.click('.action-buttons .add >> nth=0');
   await page.selectOption('#pfAct', 'accept'); await page.selectOption('#pfProto', 'tcp'); await page.fill('#pfPort', '443'); await page.fill('#pfName', 'Allow HTTPS');
-  await page.click('.pf-page .save'); await page.click('.pf-alert .apply'); await page.waitForSelector('.px-toast');
+  await page.click('form.nl-form .save'); await page.click('.alert-warning .apply'); await page.waitForSelector('.alert-success');
   await open('PAN'); seen.PAN = await product();
   await page.click('.pa-top [data-t="Policies"]'); await page.click('.pa-bar .add'); await page.fill('#paName', 'web-in');
   await page.click('.pa-dtabs [data-p="4"]'); await page.fill('#paSvc', 'service-https'); await page.click('.px-dfoot button.pri');
   await page.click('.pa-commit'); await page.click('.px-dfoot button:text-is("Commit")'); await page.waitForSelector('text=Configuration committed successfully');
   await page.goto(urls.FW1); await page.waitForSelector('.px-login'); await login(); await page.waitForTimeout(1500);  // then the FortiGate's own face
   seen.FW1 = await page.evaluate(() => (document.querySelector('.px-app') ? 'px' : 'own face'));
-  console.log('RESULT ' + JSON.stringify({seen, errors}));
+  look.after = await page.evaluate(() => document.querySelectorAll('link[data-px-sheet]').length);  // another product: the stylesheets are gone
+  console.log('RESULT ' + JSON.stringify({seen, errors, look}));
   await browser.close();
 })();
 """
@@ -76,6 +80,7 @@ const { chromium } = require('playwright');
   // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
   const login = async (tab = page) => {
     if (!(await tab.$('.px-login'))) return;
+    if (await tab.$('.px-login .us') && !(await tab.inputValue('.px-login .us'))) await tab.fill('.px-login .us', await tab.getAttribute('.px-login', 'data-user'));
     await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
     await tab.click('.px-login .go');
     await tab.waitForFunction(() => !document.querySelector('.px-login'));
@@ -98,10 +103,12 @@ const { chromium } = require('playwright');
   await page.click('[data-go="dot1q"]'); await page.fill('#tpVid', '10'); await page.check('input[name="m-eth1"][value="U"]'); await page.check('input[name="m-eth0"][value="T"]');
   await page.click('.tp-main .add'); await page.waitForTimeout(500);
   await open('OPN'); seen.OPN = await page.evaluate(() => document.querySelector('.px-app').className);
-  await page.click('[data-g="Firewall"]'); await page.click('[data-go="nat:Port Forward"]'); await page.click('.pf-btns .add >> nth=0'); await page.selectOption('#nxIn', 'eth0');
-  await page.fill('#nxSvc', 'tcp/443'); await page.fill('#nxDst', '10.73.0.1'); await page.fill('#nxTo', '10.73.1.10'); await page.fill('#nxName', 'web publish');
-  await page.click('.pf-page .save'); await page.click('.pf-alert .apply'); await page.waitForTimeout(500);
-  console.log('RESULT ' + JSON.stringify({seen, errors}));
+  const look = await page.evaluate(() => [getComputedStyle(document.querySelector('.page-side')).position, getComputedStyle(document.body).fontFamily.split(',')[0].replace(/["']/g, '')]);
+  await page.click('[data-g="Firewall"]'); await page.click('[data-g="Firewall/NAT"]'); await page.click('[data-go="nat:Port Forward"]'); await page.click('[data-add]');
+  await page.selectOption('#nxIn', 'eth0'); await page.selectOption('#nxProto', 'tcp'); await page.fill('#nxPort', '443');  // destination: the WAN address
+  await page.fill('#nxTo', '10.73.1.10'); await page.fill('#nxName', 'web publish');
+  await page.click('form.nl-form .save'); await page.click('.alert .apply'); await page.waitForTimeout(500);
+  console.log('RESULT ' + JSON.stringify({seen, errors, look}));
   await browser.close();
 })();
 """
@@ -119,6 +126,7 @@ const { chromium } = require('playwright');
   // Each product opens on its sign-in page (once per device and tab): its factory credentials let the flow in.
   const login = async (tab = page) => {
     if (!(await tab.$('.px-login'))) return;
+    if (await tab.$('.px-login .us') && !(await tab.inputValue('.px-login .us'))) await tab.fill('.px-login .us', await tab.getAttribute('.px-login', 'data-user'));
     await tab.fill('.px-login .pw', await tab.getAttribute('.px-login', 'data-pass'));
     await tab.click('.px-login .go');
     await tab.waitForFunction(() => !document.querySelector('.px-login'));
@@ -136,9 +144,10 @@ const { chromium } = require('playwright');
   await open('CAM'); seen.CAM = await page.evaluate(() => document.querySelector('.px-app').className);
   await page.click('.ax-nav [data-go="network"]'); await page.fill('#axIp', '192.168.10.124'); await page.fill('#axName', 'CAM-HALL'); await page.click('.ax-main .save');
   await page.waitForTimeout(600); const stayed = await page.evaluate(() => Boolean(document.querySelector('#axName')));
-  await open('PFS'); await page.click('.pf-nav .m a:has-text("System")'); await page.click('.pf-drop a[data-go="routing"]'); await page.click('.pf-tabs [data-t="Static Routes"]');
-  await page.click('.pf-btns .add'); await page.fill('#pfNet', '172.16.0.0'); await page.selectOption('#pfNetLen', '16'); await page.fill('#pfGw', '10.74.0.254');
-  await page.click('.pf-page .save'); await page.click('.pf-alert .apply'); await page.waitForTimeout(500);
+  await open('PFS'); await page.click('#topmenu .dropdown-toggle:has-text("System")'); await page.click('#topmenu .dropdown-menu a[data-go="routing"]');
+  await page.click('.nav-pills [data-t="Static Routes"]');
+  await page.click('.action-buttons .add'); await page.fill('#pfNet', '172.16.0.0'); await page.selectOption('#pfNetLen', '16'); await page.fill('#pfGw', '10.74.0.254');
+  await page.click('form.nl-form .save'); await page.click('.alert-warning .apply'); await page.waitForTimeout(500);
   await open('SOPH'); await page.click('[data-go="routing"]'); await page.click('.so-bar .add'); await page.fill('#soNet', '172.17.0.0'); await page.fill('#soMask', '255.255.0.0');
   await page.fill('#soGw', '192.168.99.1'); await ok(); const refused = await page.textContent('.px-shade .px-err');
   await page.fill('#soGw', '10.71.0.254'); await page.press('#soGw', 'Enter'); await page.waitForTimeout(500);  // Enter confirms the window
@@ -341,7 +350,8 @@ class PortalTest(unittest.TestCase):
             self.assertLess(page.index(b'/native_vendor.js'), page.index(b'/native_products.js'))
             self.assertLess(page.index(b'/native_products.js'), page.index(b'/native_products_more.js'))
             self.assertLess(page.index(b'/native_products_more.js'), page.index(b'/native_products_hosts.js'))
-            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_windows_icons.js'))
+            self.assertLess(page.index(b'/native_products_hosts.js'), page.index(b'/native_products_bsd.js'))
+            self.assertLess(page.index(b'/native_products_bsd.js'), page.index(b'/native_windows_icons.js'))
             self.assertLess(page.index(b'/native_windows_icons.js'), page.index(b'/native_products_windows.js'))
             self.assertLess(page.index(b'/native_products_windows.js'), page.index(b'/native_desktop.js'))
             self.assertLess(page.index(b'/native_desktop.js'), page.index(b'/native_simple.js'))
@@ -355,6 +365,24 @@ class PortalTest(unittest.TestCase):
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             self.assertIn(b'window.nlProduct', response.read())
+            # pfSense's and OPNsense's own stylesheets, their fonts and Font Awesome; nothing else under /ui/.
+            for path, kind, marker in (('/ui/pfsense/pfSense.css', 'text/css', b'@import url("bootstrap.min.css")'),
+                                       ('/ui/pfsense/bootstrap.min.css', 'text/css', b'Bootstrap v3.4.1'),
+                                       ('/ui/pfsense/login.css', 'text/css', b'form.login'), ('/ui/opnsense/main.css', 'text/css', b'.page-side'),
+                                       ('/ui/fontawesome/css/all.min.css', 'text/css', b'Font Awesome Free 6.5.1'),
+                                       ('/ui/fontawesome/webfonts/fa-solid-900.woff2', 'font/woff2', b'wOF2'),
+                                       ('/ui/pfsense/Roboto-Regular.woff2', 'font/woff2', b'wOF2'),
+                                       ('/ui/opnsense/SourceSansPro-Regular.woff2', 'font/woff2', b'wOF2')):
+                connection.request('GET', path, headers={'Host': portal.host})
+                response = connection.getresponse()
+                body = response.read()
+                self.assertEqual((response.status, response.getheader('Content-Type').split(';')[0]), (200, kind), path)
+                self.assertIn(marker, body, path)
+            for path in ('/ui/pfsense/../../web_portal.py', '/ui/pfsense/LICENSE', '/ui/other/x.css', '/ui/pfsense/missing.css', '/ui/opnsense/%2e%2e/x.css'):
+                connection.request('GET', path, headers={'Host': portal.host})
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 404, path)
         finally:
             portal.close()
 
@@ -385,6 +413,9 @@ class ProductFormsTest(unittest.TestCase):
         result = json.loads(line[7:])
         self.assertEqual(result['errors'], [])
         self.assertEqual(result['seen'], {'R1': 'px-app iosxe', 'ASA': 'px-app asdm', 'PFS': 'px-app pfsense', 'PAN': 'px-app panos', 'FW1': 'own face'})
+        # pfSense drawn with pfSense's own stylesheet (its #212121 navbar, Roboto), dropped again on the next product's page
+        self.assertEqual(result['look']['pfSense'], ['rgb(33, 33, 33)', 'Roboto', ['/ui/fontawesome/css/all.min.css', '/ui/pfsense/pfSense.css']])
+        self.assertEqual(result['look']['after'], 0)
         nodes = {n['name']: n for n in app.spec['nodes']}
         self.assertEqual(nodes['R1']['interfaces']['eth1'], '198.51.100.2/24')
         asa = {r['name']: r for r in nodes['ASA']['firewall']['rules']}
@@ -421,6 +452,7 @@ class ProductFormsTest(unittest.TestCase):
         result = json.loads(line[7:])
         self.assertEqual(result['errors'], [])
         self.assertEqual(result['seen'], {'SOPH': 'px-app sophos', 'CP': 'px-app gaia', 'HW': 'px-app huawei', 'TPL': 'px-app tplink', 'OPN': 'px-app opnsense'})
+        self.assertEqual(result['look'], ['fixed', 'SourceSansProRegular'])  # OPNsense's theme: its fixed side menu, Source Sans Pro
         nodes = {n['name']: n for n in app.spec['nodes']}
         sophos = nodes['SOPH']['firewall']
         self.assertEqual([(r['name'], r['in'], r['dport']) for r in sophos['rules']], [('LAN-to-web', 'eth1', 443)])

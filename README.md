@@ -202,7 +202,7 @@ ses tableaux, ses fenêtres d'édition et sa façon d'enregistrer :
 | Cisco ASA | ASDM (Access Rules, NAT Rules, interfaces nommées) | Apply |
 | Cisco ISR 4331, Catalyst 9200L | WebUI IOS-XE | « Update & Apply to Device » (commandes IOS) |
 | Cisco Catalyst 2960 | Device Manager (Port Settings, VLANs, Port Membership) | Submit (commandes IOS) |
-| pfSense, OPNsense | menus, Rules par interface, NAT Port Forward / Outbound, Static Routes | « Apply Changes » |
+| pfSense, OPNsense | leur interface web avec leurs propres feuilles de style publiées (pfSense : Bootstrap 3 + pfSense.css, Apache 2.0 ; OPNsense : son thème, BSD) : tableau de bord, Rules par interface, NAT Port Forward / Outbound, Assignments, Routing (Gateways, Static Routes), DHCP Server, General Setup | « Apply Changes » |
 | Palo Alto | PAN-OS (Security, NAT Policy Rule, interfaces, zones) | Commit |
 | Juniper SRX, EX, MX | J-Web (politiques, Source / Destination NAT, VLAN) | Commit |
 | Sophos | Control center, Rules and policies, NAT rules, Network, Routing | Save |

@@ -41,7 +41,8 @@ class WebPortal:
                         return self.respond(404,{'error':'Image absente.'})
                     return self.respond(200,(folder/name).read_bytes(),'image/png')
                 scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_vendor.js',
-                         '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_windows_icons.js','/native_products_windows.js',
+                         '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_products_bsd.js',
+                         '/native_windows_icons.js','/native_products_windows.js',
                          '/native_desktop.js','/native_studio.js','/native_simple.js')
                 if native and parsed.path in scripts:
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
@@ -50,6 +51,14 @@ class WebPortal:
                 if native and parsed.path in ('/Selawik-Regular.woff2','/Selawik-Semibold.woff2','/Selawik-Semilight.woff2',
                                               '/CascadiaMono-Regular.woff2'):  # the Windows pages: their text and their terminal
                     return self.respond(200,Path(__file__).parent.joinpath('appliances/assets'+parsed.path).read_bytes(),'font/woff2')
+                if native and parsed.path.startswith('/ui/'):
+                    # pfSense's and OPNsense's own stylesheets, their fonts and Font Awesome: names are checked, never joined blindly.
+                    found=re.fullmatch(r'/ui/(pfsense|opnsense|fontawesome)/((?:css/|webfonts/)?[A-Za-z0-9_.-]+\.(css|woff2|png))',parsed.path)
+                    folder=Path(__file__).parent.joinpath('appliances/assets')
+                    if not found or '..' in parsed.path or not (folder/found.group(1)/found.group(2)).is_file():
+                        return self.respond(404,{'error':'Fichier absent.'})
+                    kind={'css':'text/css; charset=utf-8','woff2':'font/woff2','png':'image/png'}[found.group(3)]
+                    return self.respond(200,(folder/found.group(1)/found.group(2)).read_bytes(),kind)
                 if parsed.path=='/favicon.ico':return self.respond(204,b'','image/x-icon')
                 if parsed.path!='/api/state':return self.respond(404,{'error':'Page absente.'})
                 if not self.authenticated():return self.respond(401,{'error':'Session locale absente ou expirée.'})

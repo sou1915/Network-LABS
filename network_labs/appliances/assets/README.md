@@ -35,3 +35,45 @@ License/copyright: [CASCADIA-LICENSE.txt](CASCADIA-LICENSE.txt), SIL Open Font L
 `tools/build_windows_icons.py` from Microsoft's `@fluentui/svg-icons` package 1.1.347
 (https://github.com/microsoft/fluentui-system-icons).
 License/copyright: [FLUENT-ICONS-LICENSE.txt](FLUENT-ICONS-LICENSE.txt), MIT License.
+
+# pfSense web interface stylesheets (pfSense device pages)
+
+From the pfSense repository (https://github.com/pfsense/pfsense, `master` at commit
+`9363ac5b8651a1c7a333180425ce7719070f95f9`), Apache License 2.0 ([pfsense/LICENSE](pfsense/LICENSE)):
+
+- `pfsense/pfSense.css` from `src/usr/local/www/css/pfSense.css`. Changed: its three `@import` lines point to the
+  copies served beside it (`bootstrap.min.css`, `roboto.css`); jQuery UI is not imported.
+- `pfsense/login.css` from `src/usr/local/www/css/login.css`. Changed: the logo stylesheet import is removed (the
+  pages write the product's name instead of drawing its logo).
+- `pfsense/roboto.css` from `src/usr/local/www/css/fonts/roboto.css`. Changed: only the four upright weights
+  pfSense.css uses are kept.
+- `pfsense/Roboto-{Light,Regular,Medium,Bold}.woff2` from `src/usr/local/www/css/fonts/`, the Roboto typeface by
+  Google (Apache License 2.0), subset to Latin with fontTools `pyftsubset` (glyphs and features unchanged).
+- `pfsense/bootstrap.min.css` from `src/usr/local/www/vendor/bootstrap/css/`, unmodified Bootstrap 3.4.1 (MIT
+  License, notice in the file). SHA-256: `c28eb8900abce3c478234e62390838556d839c10b7073b2ba42bcbae20d6e2fc`.
+
+The pfSense name and logo are trademarks of Electric Sheep Fencing LLC / Netgate; the logo is not included.
+
+# OPNsense theme (OPNsense device pages)
+
+From the OPNsense repository (https://github.com/opnsense/core, `master` at commit
+`a4b837e2a3fca50b3425c5c99bddb0489da64199`), BSD 2-Clause License ([opnsense/LICENSE](opnsense/LICENSE)):
+
+- `opnsense/main.css` from `src/opnsense/www/themes/opnsense/build/css/main.css`. Changed: its font and image
+  paths point to the copies served beside it.
+- `opnsense/caret.png` from `src/opnsense/www/themes/opnsense/build/images/`, unmodified.
+  SHA-256: `e796f30c881676176ad6ef5c5538b84efab2ae60cf721d600061ae9fdb738ac5`.
+- `opnsense/SourceSansPro-{Regular,Semibold,Bold}.woff2`: the theme's `SourceSansPro-*.woff` files (Source Sans Pro
+  by Adobe, SIL Open Font License 1.1, [opnsense/SOURCE-SANS-LICENSE.md](opnsense/SOURCE-SANS-LICENSE.md)),
+  converted to WOFF2 and subset to Latin with fontTools.
+
+The OPNsense name and logo are trademarks of Deciso B.V.; the logo is not included.
+
+# Font Awesome Free 6.5.1 (pfSense and OPNsense pages)
+
+Unmodified `css/all.min.css`, `webfonts/fa-solid-900.woff2` and `webfonts/fa-regular-400.woff2`, as pfSense ships
+them in `src/usr/local/www/vendor/font-awesome/`. Icons CC BY 4.0, fonts SIL OFL 1.1, code MIT
+([fontawesome/LICENSE.txt](fontawesome/LICENSE.txt)).
+SHA-256: `all.min.css` `c22cfb6520a7fdbb738632834019acf47c78b1279462c0eb4cb83bae83ecb5a7`,
+`fa-solid-900.woff2` `9fc85f3a4544ab0d570c7f8f9bbb88db8d92c359b2707580ea8b07c75673eae2`,
+`fa-regular-400.woff2` `2bccecf0bc7e96cd5ce4003abeb3ae9ee4a3d19158c4e6edfd2df32d2f0d5721`.

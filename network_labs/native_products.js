@@ -298,6 +298,7 @@
   .px-login.lg-dialog .lg-box{width:430px;padding:0;border-radius:0;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.3)}
   .px-login .lg-tt{background:var(--lg-accent);color:#fff;padding:7px 12px;font-size:13px}.px-login .lg-in{padding:16px 20px 20px;font-size:13px}.px-login .lg-in p{margin:0 0 4px;font-weight:600}
   .px-login.lg-dialog .go{width:auto;padding:5px 26px;border-radius:2px}
+  .px-app.px-login.lg-own{display:block;place-items:normal;background:transparent;color:inherit;font:inherit;overflow:auto}body.px-wait .px-app{visibility:hidden}
   .px-pill-main{background:rgba(23,40,58,.88);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;cursor:pointer;
     box-shadow:0 6px 18px rgba(0,0,0,.25)}
   .px-pill-menu{display:none;position:absolute;right:0;bottom:40px;background:#17283a;border-radius:10px;padding:6px;min-width:230px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
@@ -1076,313 +1077,7 @@
       : naBox('Connections', 'Lab en marche : relever l’état réel (◉ Network LABS › Vue Network LABS › relevé).');
   }
 
-  /* =============================== pfSense =============================== */
-  skinCss(`
-  .px-app.pfsense{background:#fff;color:#212121;font:14px 'Roboto','Helvetica Neue',Arial,sans-serif}
-  .pf-nav{display:flex;align-items:stretch;background:#212121;color:#fff;height:52px;padding:0 16px;position:relative}
-  .pf-brand{display:flex;align-items:center;gap:6px;font-weight:bold;font-size:18px;margin-right:22px;letter-spacing:.2px}.pf-brand small{font-weight:normal;font-size:11px;color:#9e9e9e}
-  .pf-nav>div.m{position:relative}.pf-nav>div.m>a{display:flex;align-items:center;height:100%;padding:0 13px;color:#e0e0e0;cursor:pointer}
-  .pf-nav>div.m>a:hover,.pf-nav>div.m.open>a{background:#424242;color:#fff}.pf-nav .grow{flex:1}
-  .pf-drop{display:none;position:absolute;top:52px;left:0;min-width:190px;background:#fff;box-shadow:0 6px 16px rgba(0,0,0,.25);z-index:8;padding:5px 0}
-  .pf-nav>div.m.open .pf-drop{display:block}.pf-drop a{display:block;padding:6px 18px;color:#212121;cursor:pointer;white-space:nowrap}.pf-drop a:hover{background:#eee}
-  .pf-drop a.na{color:#9e9e9e}
-  .pf-page{padding:14px 22px}.pf-h1{font-size:26px;margin:4px 0 14px;font-weight:300}.pf-h1 b{font-weight:300;color:#555}
-  .pf-tabs{display:flex;gap:2px;border-bottom:1px solid #ddd;margin-bottom:12px}.pf-tabs a{padding:8px 14px;color:#1e88e5;cursor:pointer;border:1px solid transparent;border-bottom:0}
-  .pf-tabs a.on{color:#555;border-color:#ddd;background:#fff;position:relative;top:1px}
-  .pf-panel{border:1px solid #ddd;margin-bottom:16px}.pf-panel>h2{margin:0;padding:8px 12px;background:#424242;color:#fff;font-size:15px;font-weight:normal}
-  .pf-panel .b{padding:10px 12px}.pf-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .pf-t{width:100%;border-collapse:collapse}.pf-t th{text-align:left;padding:8px;border-bottom:2px solid #ddd;font-size:13px;white-space:nowrap}
-  .pf-t td{padding:7px 8px;border-top:1px solid #ddd;font-size:13px;white-space:nowrap}.pf-t tbody tr:nth-child(odd) td{background:#f9f9f9}
-  .pf-t tbody tr:hover td{background:#f0f0f0}.pf-t .k{width:180px;font-weight:bold}
-  .pf-ok{color:#43a047}.pf-no{color:#e53935}.pf-ic{cursor:pointer;color:#1e88e5;margin-right:8px}
-  .pf-btns{display:flex;gap:6px;justify-content:flex-end;margin:10px 0}
-  .pf-btn{border:0;border-radius:3px;padding:7px 12px;color:#fff;cursor:pointer;font:inherit;font-size:13px}
-  .pf-btn.ok{background:#43a047}.pf-btn.pri{background:#1e88e5}.pf-btn.del{background:#e53935}.pf-btn.info{background:#00acc1}.pf-btn.def{background:#fff;color:#212121;border:1px solid #ccc}
-  .pf-alert{background:#fff8e1;border:1px solid #ffe082;color:#6d4c00;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:14px}
-  .pf-alert .grow{flex:1}
-  .pf-form .row{display:grid;grid-template-columns:220px 1fr;gap:12px;align-items:center;padding:9px 12px;border-top:1px solid #eee}
-  .pf-form .row>span{text-align:right;font-weight:bold;font-size:13px}.pf-form input,.pf-form select{font:inherit;font-size:13px;padding:6px 8px;border:1px solid #ccc;border-radius:3px}
-  .pf-form small{display:block;color:#757575;font-size:12px;margin-top:3px}
-  .px-nat .px-f{grid-template-columns:220px 1fr;padding:6px 12px;border-top:1px solid #eee;margin:0}.px-nat .px-f>span{text-align:right;font-weight:bold;font-size:13px}.pf-bar{height:14px;background:#eee;border-radius:2px;overflow:hidden;width:220px;display:inline-block;vertical-align:middle}
-  .pf-bar i{display:block;height:100%;background:#43a047}
-  `);
-  const pfName = (port, i) => (i === 0 ? 'WAN' : i === 1 ? 'LAN' : `OPT${i - 1}`);
-  const pfIface = port => { const i = Object.keys(N().interfaces).indexOf(port); return i < 0 ? port : pfName(port, i); };
-  const PF_MENU = () => [['System', [['Advanced', 'na'], ['General Setup', 'general'], ['High Avail. Sync', 'na'], ['Package Manager', 'na'], ['Routing', 'routing'],
-    ['Cert. Manager', 'na'], ['User Manager', 'na']]], ['Interfaces', [['Assignments', 'assign'], ...Object.keys(N().interfaces).map((p, i) => [pfName(p, i), 'if:' + p])]],
-    ['Firewall', [['Aliases', 'na'], ['NAT', 'nat'], ['Rules', 'rules'], ['Schedules', 'na'], ['Traffic Shaper', 'na'], ['Virtual IPs', 'na']]],
-    ['Services', [['DHCP Server', 'dhcp'], ['DNS Resolver', 'na'], ['NTP', 'na'], ['SNMP', 'na'], ['UPnP & NAT-PMP', 'na']]],
-    ['VPN', [['IPsec', 'vpn'], ['L2TP', 'vpn'], ['OpenVPN', 'vpn'], ['WireGuard', 'vpn']]],
-    ['Status', [['Dashboard', 'dashboard'], ['DHCP Leases', 'na'], ['Gateways', 'routing'], ['Interfaces', 'status-if'], ['System Logs', 'na']]],
-    ['Diagnostics', [['ARP Table', 'na'], ['Command Prompt', 'terminal'], ['Packet Capture', 'na'], ['Ping', 'terminal'], ['Routes', 'diag-routes'], ['States', 'na']]],
-    ['Help', [['About this Page', 'na']]]];
-  SKINS.pfsense = {
-    start: {page: 'dashboard'},
-    draw(root) {
-      const menu = PF_MENU();
-      root.innerHTML = `<div class="pf-nav"><span class="pf-brand">pfSense <small>COMMUNITY EDITION · Network LABS</small></span>${menu.map(([m, items]) => `<div class="m"><a>${h(m)} ▾</a>
-        <div class="pf-drop">${items.map(([label, go]) => `<a data-go="${go}" data-title="${h(m + ' / ' + label)}" class="${go === 'na' || go === 'vpn' ? 'na' : ''}">${h(label)}</a>`).join('')}</div></div>`).join('')}
-        <span class="grow"></span><div class="m"><a class="out" title="Logout">⏻</a></div></div><div class="pf-page"></div>`;
-      root.querySelectorAll('.pf-nav>div.m>a').forEach(a => { a.onclick = () => { const holder = a.parentElement, open = holder.classList.contains('open');
-        root.querySelectorAll('.m.open').forEach(x => x.classList.remove('open')); if (!open) holder.classList.add('open'); }; });
-      root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => { view.page = a.dataset.go; view.title = a.dataset.title; view.edit = null; render(); }; });
-      const main = root.querySelector('.pf-page');
-      pfDispatch(main);
-    },
-  };
-  function pfDispatch(main) {
-    pfApplyBar(main);
-    const go = view.page || 'dashboard';
-    const pages = {dashboard: pfDashboard, rules: pfRules, nat: pfNat, assign: pfAssign, routing: pfRouting, dhcp: pfDhcp, general: pfGeneral, 'status-if': pfStatusIf,
-      'diag-routes': pfDiagRoutes, terminal: m => { openTerminal(); pfDashboard(m); }, vpn: m => pfTitle(m, view.title, naBox(view.title, NA.vpn))};
-    if (go.startsWith('if:')) return pfInterface(main, go.slice(3));
-    (pages[go] || (m => pfTitle(m, view.title || '', naBox(view.title || '', NA.later))))(main);
-  }
-  function pfApplyBar(main) {
-    if (!pending()) return;
-    const opn = view.skin === 'opnsense';
-    main.innerHTML = `<div class="pf-alert"><span class="grow">${opn ? 'The firewall rule configuration has been changed.<br>You must apply the changes in order for them to take effect.'
-      : 'The firewall configuration has been changed. The changes must be applied for them to take effect.'}</span>
-      <button class="pf-btn ok apply">${opn ? 'Apply changes' : '✔ Apply Changes'}</button><button class="pf-btn def undo">Discard</button></div>`;
-    main.querySelector('.apply').onclick = () => attempt(() => commit(null), opn ? 'The changes have been applied successfully.' : 'The changes have been applied successfully.');
-    main.querySelector('.undo').onclick = discard;
-  }
-  const pfTitle = (main, title, html) => {
-    const shown = view.skin === 'opnsense' ? title.replace(/ \/ /g, ': ') : title, sep = view.skin === 'opnsense' ? ': ' : ' / ';
-    main.insertAdjacentHTML('beforeend', `<div class="pf-h1">${h(shown).replace(sep, sep + '<b>')}${shown.includes(sep) ? '</b>' : ''}</div>${html}`);
-  };
-  function pfDashboard(main) {
-    const n = N(), d = D();
-    const bar = v => `<span class="pf-bar"><i style="width:${v}%"></i></span> ${v}%`;
-    pfTitle(main, 'Status / Dashboard', `<div class="pf-cols"><div class="pf-panel"><h2>System Information</h2><table class="pf-t"><tbody>
-      ${[['Name', h(n.name) + '.home.arpa'], ['User', 'admin@192.168.1.100 (Local Database)'], ['System', h(`${d.brand} ${d.model}`)], ['Version', 'sous-ensemble Network LABS (système Linux)'],
-        ['Platform', 'Network LABS micro-VM'], ['CPU Type', `${h(n.vcpus || 1)} CPU(s)`], ['Uptime', running() ? 'en marche' : 'lab arrêté'], ['DNS server(s)', '127.0.0.1'],
-        ['State table size', `${bar(0)} (0/${(n.memory_mib || 128) * 800})`], ['Load average', '0.00, 0.00, 0.00'], ['CPU usage', bar(running() ? 1 : 0)],
-        ['Memory usage', bar(running() ? 35 : 0) + ` of ${h(n.memory_mib || 128)} MiB`], ['Disk usage ( / )', bar(12)]].map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join('')}
-      </tbody></table></div><div><div class="pf-panel"><h2>Interfaces</h2><table class="pf-t"><tbody>${d.ports.map((p, i) => `<tr><td class="k">${h(pfName(p.port, i))}</td>
-        <td>${p.peer && !p.down ? '<span class="pf-ok">▲</span>' : '<span class="pf-no">▼</span>'}</td><td>${p.peer && !p.down ? '1000baseT &lt;full-duplex&gt;' : 'no carrier'}</td>
-        <td>${h(ipOf(p.address))}</td></tr>`).join('')}</tbody></table></div>
-      <div class="pf-panel"><h2>Gateways</h2><table class="pf-t"><thead><tr><th>Name</th><th>RTT</th><th>Loss</th><th>Status</th></tr></thead><tbody>${n.gateway
-        ? `<tr><td>WAN_GW<br><small>${h(n.gateway)}</small></td><td>—</td><td>—</td><td class="pf-ok">${running() ? 'Online' : 'Unknown'}</td></tr>` : '<tr class="px-none"><td colspan="4">No gateways</td></tr>'}</tbody></table></div>
-      <div class="pf-panel"><h2>Firewall Rules</h2><div class="b">${candidateFw().rules.length} rules · ${(candidateFw().nat || []).length} NAT</div></div></div></div>`);
-  }
-  function pfRules(main) {
-    const ports = Object.keys(N().interfaces), f = candidateFw();
-    const tab = view.tab || ports[1] || ports[0];
-    const list = f.rules.map((r, i) => [r, i]).filter(([r]) => (tab === 'floating' ? !r.in : r.in === tab));
-    const proto = r => (!r.protocol || r.protocol === 'any' ? 'IPv4 *' : 'IPv4 ' + r.protocol.toUpperCase());
-    pfTitle(main, 'Firewall / Rules / ' + (tab === 'floating' ? 'Floating' : pfIface(tab)), `<div class="pf-tabs"><a data-t="floating" class="${tab === 'floating' ? 'on' : ''}">Floating</a>${
-      ports.map(p => `<a data-t="${p}" class="${p === tab ? 'on' : ''}">${h(pfIface(p))}</a>`).join('')}</div><div class="pf-panel"><h2>Rules (Drag to Change Order)</h2>
-      <table class="pf-t"><thead><tr><th></th><th></th><th>States</th><th>Protocol</th><th>Source</th><th>Port</th><th>Destination</th><th>Port</th><th>Gateway</th><th>Queue</th>
-      <th>Schedule</th><th>Description</th><th>Actions</th></tr></thead><tbody>${list.length ? list.map(([r, i]) => `<tr><td><input type="checkbox" data-c="${i}"></td>
-        <td>${r.action === 'accept' ? '<span class="pf-ok">✔</span>' : '<span class="pf-no">✖</span>'}</td><td>0/0 B</td><td>${h(proto(r))}</td><td>${h(r.source || '*')}</td><td>*</td>
-        <td>${h(r.destination || '*')}${r.out ? ` <small>(${h(pfIface(r.out))})</small>` : ''}</td><td>${h(r.dport || '*')}</td><td>*</td><td>none</td><td></td><td>${h(r.name)}</td>
-        <td><span class="pf-ic" data-e="${i}" title="Edit">✎</span><span class="pf-ic" data-x="${i}" title="Delete">🗑</span></td></tr>`).join('')
-        : '<tr class="px-none"><td colspan="13">No rules are currently defined for this interface. All incoming connections on this interface will be blocked until pass rules are added.</td></tr>'}
-      </tbody></table></div><div class="pf-btns"><button class="pf-btn ok add">↑ Add</button><button class="pf-btn ok add">↓ Add</button><button class="pf-btn del dels">🗑 Delete</button>
-      <button class="pf-btn pri save">💾 Save</button><button class="pf-btn info">＋ Separator</button></div>`);
-    main.querySelectorAll('[data-t]').forEach(a => { a.onclick = () => { view.tab = a.dataset.t; render(); }; });
-    main.querySelectorAll('.add').forEach(b => { b.onclick = () => pfEditRule(null, tab === 'floating' ? '' : tab); });
-    main.querySelectorAll('[data-e]').forEach(b => { b.onclick = () => pfEditRule(Number(b.dataset.e)); });
-    main.querySelectorAll('[data-x]').forEach(b => { b.onclick = () => { editFw().rules.splice(Number(b.dataset.x), 1); render(); }; });
-    main.querySelector('.dels').onclick = () => { const out = [...main.querySelectorAll('[data-c]:checked')].map(c => Number(c.dataset.c)).sort((a, b) => b - a);
-      if (!out.length) return toast('Cocher les règles à supprimer.', true); out.forEach(i => editFw().rules.splice(i, 1)); render(); };
-    main.querySelector('.save').onclick = () => toast(pending() ? 'Saved. Apply Changes to load them.' : 'Nothing to save.');
-  }
-  function pfEditRule(index, iface) {
-    const f = candidateFw(), r = index === null ? {action: 'accept', in: iface} : f.rules[index], ports = Object.keys(N().interfaces);
-    const page = document.querySelector('.pf-page');
-    page.innerHTML = `<div class="pf-h1">Firewall / Rules / <b>Edit</b></div><div class="pf-panel pf-form"><h2>Edit Firewall Rule</h2>
-      <div class="row"><span>Action</span><div>${select('pfAct', [['accept', 'Pass'], ['drop', 'Block']], r.action)}<small>Choose what to do with packets that match the criteria specified below.</small></div></div>
-      <div class="row"><span>Interface</span><div>${select('pfIn', [['', '(Floating)'], ...ports.map(p => [p, pfIface(p)])], r.in || '')}</div></div>
-      <div class="row"><span>Address Family</span><div>${select('af', ['IPv4'], 'IPv4')}</div></div>
-      <div class="row"><span>Protocol</span><div>${select('pfProto', [['any', 'Any'], ['tcp', 'TCP'], ['udp', 'UDP'], ['icmp', 'ICMP']], r.protocol || 'any')}</div></div></div>
-      <div class="pf-panel pf-form"><h2>Source</h2><div class="row"><span>Source</span><div>${input('pfSrc', r.source || 'any')}<small>any, single host a.b.c.d or network a.b.c.d/nn</small></div></div></div>
-      <div class="pf-panel pf-form"><h2>Destination</h2><div class="row"><span>Destination</span><div>${input('pfDst', r.destination || 'any')}</div></div>
-      <div class="row"><span>Destination Port Range</span><div>${input('pfPort', r.dport || '', 'placeholder="(other) / any"')}<small>Specify the destination port for this rule (TCP/UDP).</small></div></div>
-      <div class="row"><span>Egress interface</span><div>${select('pfOut', [['', 'any'], ...ports.map(p => [p, pfIface(p)])], r.out || '')}<small>Network LABS : sortie de la règle (facultatif).</small></div></div></div>
-      <div class="pf-panel pf-form"><h2>Extra Options</h2><div class="row"><span>Log</span><div>☐ Log packets that are handled by this rule</div></div>
-      <div class="row"><span>Description</span><div>${input('pfName', r.name || '')}<small>A description may be entered here for administrative reference.</small></div></div></div>
-      <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`;
-    page.querySelector('.save').onclick = () => {
-      try {
-        const protocol = val(page, '#pfProto'), port = val(page, '#pfPort');
-        const rule = ruleFrom(index === null ? {} : r, {name: val(page, '#pfName') || `rule-${f.rules.length + 1}`, action: val(page, '#pfAct'), in: val(page, '#pfIn'),
-          out: val(page, '#pfOut'), source: checkNet(val(page, '#pfSrc'), 'Source'), destination: checkNet(val(page, '#pfDst'), 'Destination'),
-          service: protocol === 'any' ? 'any' : protocol === 'icmp' ? 'icmp' : `${protocol}/${port}`.replace(/\/$/, '')});
-        const list = editFw().rules;
-        if (index === null) list.push(rule); else list[index] = rule;
-        view.page = 'rules'; view.tab = rule.in || 'floating'; render();
-      } catch (error) { page.querySelector('.px-err').textContent = error.message; }
-    };
-  }
-  function pfNat(main) {
-    const nat = candidateFw().nat || [], tab = view.tab === 'Outbound' || view.tab === 'Port Forward' ? view.tab : 'Port Forward';
-    const forwards = nat.map((r, i) => [r, i]).filter(([r]) => r.type === 'dnat'), outbound = nat.map((r, i) => [r, i]).filter(([r]) => r.type !== 'dnat');
-    const acts = i => `<span class="pf-ic" data-e="${i}" title="Edit">✎</span><span class="pf-ic" data-x="${i}" title="Delete">🗑</span>`;
-    pfTitle(main, 'Firewall / NAT / ' + tab, `<div class="pf-tabs">${['Port Forward', '1:1', 'Outbound', 'NPt'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${t}</a>`).join('')}</div>
-      ${tab === 'Outbound' ? `<div class="pf-panel"><h2>Outbound NAT Mode</h2><div class="b">( ) Automatic outbound NAT rule generation &nbsp; (•) Hybrid Outbound NAT rule generation
-        &nbsp; ( ) Manual Outbound NAT rule generation &nbsp; ( ) Disable Outbound NAT</div></div><div class="pf-panel"><h2>Mappings</h2>${table('pf-t', ['Interface', 'Source', 'Source Port',
-        'Destination', 'Destination Port', 'NAT Address', 'NAT Port', 'Static Port', 'Description', 'Actions'], outbound.map(([r, i]) => tr([h(r.out ? pfIface(r.out) : 'WAN'), h(r.source || 'any'), '*',
-        h(r.destination || '*'), h(r.dport || '*'), h(r.type === 'masquerade' ? (r.out ? pfIface(r.out) : 'WAN') + ' address' : r.to), '*', '✖', h(r.name), acts(i)])), 'No outbound mappings.')}</div>`
-      : `<div class="pf-panel"><h2>Rules</h2>${table('pf-t', ['Interface', 'Protocol', 'Source Address', 'Source Ports', 'Dest. Address', 'Dest. Ports', 'NAT IP', 'NAT Ports', 'Description', 'Actions'],
-        forwards.map(([r, i]) => tr([h(r.in ? pfIface(r.in) : 'WAN'), h((r.protocol || 'any').toUpperCase()), h(r.source || '*'), '*', h(r.destination || 'WAN address'), h(r.dport || '*'),
-        h(r.to || ''), h(r.to_port || r.dport || '*'), h(r.name), acts(i)])), 'No port forward rules.')}</div>`}
-      <div class="pf-btns"><button class="pf-btn ok add">↑ Add</button><button class="pf-btn ok add">↓ Add</button><button class="pf-btn pri save">💾 Save</button></div>`);
-    main.querySelectorAll('[data-t]').forEach(a => { a.onclick = () => { view.tab = a.dataset.t; render(); }; });
-    main.querySelectorAll('.add').forEach(b => { b.onclick = () => pfEditNat(null, tab === 'Outbound' ? 'masquerade' : 'dnat'); });
-    main.querySelectorAll('[data-e]').forEach(b => { b.onclick = () => pfEditNat(Number(b.dataset.e)); });
-    main.querySelectorAll('[data-x]').forEach(b => { b.onclick = () => dropEntry('nat', Number(b.dataset.x), true).then(render); });
-    main.querySelector('.save').onclick = () => toast(pending() ? 'Saved. Apply Changes to load them.' : 'Nothing to save.');
-  }
-  function pfEditNat(index, kind) {
-    const r = index === null ? {type: kind, in: wanPort(), out: wanPort()} : candidateFw().nat[index], forward = r.type === 'dnat';
-    const x = natPieces(r, {name: 'Description', in: 'Interface', out: 'Interface', source: 'Source', destination: forward ? 'Destination' : 'Destination',
-      service: forward ? 'Protocol / Destination port' : 'Protocol / port', type: 'Translation', to: 'Redirect target IP', to_port: 'Redirect target port',
-      types: forward ? [['dnat', 'Port forward (redirect)']] : [['masquerade', 'Interface Address'], ['snat', 'Interface Address (static)']]}, pfIface);
-    const page = document.querySelector('.pf-page'), title = forward ? 'Port Forward' : 'Outbound';
-    page.innerHTML = '';
-    pfTitle(page, `Firewall / NAT / ${title} / Edit`, `<div class="pf-panel pf-form px-nat"><h2>${forward ? 'Edit Redirect Entry' : 'Edit Advanced Outbound NAT Entry'}</h2>
-      ${forward ? x.in + x.service + x.source + x.destination + x.to + x.to_port + '<input type="hidden" id="nxType" value="dnat">' : x.out + x.service + x.source + x.destination + x.type}${x.name}</div>
-      <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
-    page.querySelector('.save').onclick = async () => {
-      try { await putEntry('nat', index, natRead(page), true); view.page = 'nat'; view.tab = title; render(); } catch (error) { page.querySelector('.px-err').textContent = error.message; }
-    };
-  }
-  function pfAssign(main) {
-    pfTitle(main, 'Interfaces / Interface Assignments', `<div class="pf-tabs">${['Interface Assignments', 'Interface Groups', 'Wireless', 'VLANs', 'QinQs', 'PPPs', 'GREs', 'GIFs', 'Bridges', 'LAGGs']
-      .map((t, i) => `<a class="${i ? '' : 'on'}">${t}</a>`).join('')}</div><div class="pf-panel"><h2>Interface Assignments</h2>${table('pf-t', ['Interface', 'Network port'],
-      D().ports.map((p, i) => tr([`<a class="pf-ic" data-go="if:${h(p.port)}">${h(pfName(p.port, i))}</a>`, `${h(p.name)} <small>(${h(p.peer ? 'câble vers ' + p.peer : 'libre')})</small>`])))}</div>
-      <div class="pf-btns"><button class="pf-btn pri">💾 Save</button></div>`);
-    main.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => { view.page = a.dataset.go; render(); }; });
-  }
-  function pfInterface(main, port) {
-    const a = addressOf(port), i = Object.keys(N().interfaces).indexOf(port);
-    pfTitle(main, `Interfaces / ${pfName(port, i)} (${portName(port)})`, `<div class="pf-panel pf-form"><h2>General Configuration</h2>
-      <div class="row"><span>Enable</span><div>☑ Enable interface</div></div><div class="row"><span>Description</span><div>${input('d', pfName(port, i), 'disabled')}</div></div>
-      <div class="row"><span>IPv4 Configuration Type</span><div>${select('pfType', [['static', 'Static IPv4'], ['none', 'None']], a ? 'static' : 'none')}</div></div>
-      <div class="row"><span>IPv6 Configuration Type</span><div>${select('v6', ['None'], 'None')}</div></div><div class="row"><span>MTU</span><div>${input('mtu', '', 'disabled')}</div></div></div>
-      <div class="pf-panel pf-form"><h2>Static IPv4 Configuration</h2><div class="row"><span>IPv4 Address</span><div>${input('pfIp', ipOf(a))} / ${select('pfLen',
-        Array.from({length: 31}, (_, k) => 32 - k), lenOf(a))}</div></div><div class="row"><span>IPv4 Upstream gateway</span><div>${input('gw', i === 0 ? N().gateway || 'None' : 'None', 'disabled')}
-        <small>Network LABS : la passerelle par défaut se règle dans System / Routing.</small></div></div></div>
-      <div class="pf-panel pf-form"><h2>Reserved Networks</h2><div class="row"><span>Block private networks</span><div>☐</div></div><div class="row"><span>Block bogon networks</span><div>☐</div></div></div>
-      <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
-    main.querySelector('.save').onclick = () => {
-      const ip = val(main, '#pfIp');
-      if (val(main, '#pfType') === 'static' && !validIp(ip)) { main.querySelector('.px-err').textContent = 'IPv4 Address invalide.'; return; }
-      stage().ifaces[port] = val(main, '#pfType') === 'static' ? `${ip}/${val(main, '#pfLen')}` : '';
-      render();
-    };
-  }
-  function pfRouting(main) {
-    const n = N(), tab = view.tab === 'Static Routes' ? 'Static Routes' : 'Gateways';
-    pfTitle(main, 'System / Routing / ' + tab, `<div class="pf-tabs">${['Gateways', 'Static Routes', 'Gateway Groups'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${t}</a>`).join('')}</div>
-      ${tab === 'Gateways' ? `<div class="pf-panel"><h2>Gateways</h2>${table('pf-t', ['Name', 'Default', 'Interface', 'Gateway', 'Monitor IP', 'Description'], n.gateway
-        ? [tr(['WAN_GW', '<span class="pf-ok">✔</span> Default (IPv4)', 'WAN', h(n.gateway), h(n.gateway), 'Interface WAN Gateway'])] : [])}</div>`
-      : `<div class="pf-panel"><h2>Static Routes</h2>${table('pf-t', ['Network', 'Gateway', 'Interface', 'Description', 'Actions'], staticRoutes().map((r, i) => tr([h(r.network),
-        h(r.gateway), h(r.port || ''), '', `<span class="pf-ic" data-x="${i}" title="Delete">🗑</span>`])), 'No routes')}</div>
-        <div class="pf-btns"><button class="pf-btn ok add">＋ Add</button></div>`}`);
-    main.querySelectorAll('[data-t]').forEach(a => { a.onclick = () => { view.tab = a.dataset.t; render(); }; });
-    main.querySelectorAll('[data-x]').forEach(b => { b.onclick = () => { const r = staticRoutes()[Number(b.dataset.x)], st = stage();
-      if (st.routes.add.includes(r)) st.routes.add.splice(st.routes.add.indexOf(r), 1); else st.routes.del.push(r.network); render(); }; });
-    const add = main.querySelector('.add');
-    if (add) add.onclick = () => {
-      const page = document.querySelector('.pf-page');
-      page.innerHTML = '';
-      pfTitle(page, 'System / Routing / Static Routes / Edit', `<div class="pf-panel pf-form"><h2>Edit Route Entry</h2><div class="row"><span>Destination network</span>
-        <div>${input('pfNet', '', 'placeholder="192.168.50.0"')} / ${select('pfNetLen', Array.from({length: 33}, (_, k) => 32 - k), 24)}<small>Destination network for this static route</small></div></div>
-        <div class="row"><span>Gateway</span><div>${input('pfGw', '', 'placeholder="a.b.c.d"')}<small>The gateway, on the network of one of the interfaces</small></div></div>
-        <div class="row"><span>Disabled</span><div>☐ Disable this static route</div></div><div class="row"><span>Description</span><div>${input('d')}</div></div></div>
-        <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
-      page.querySelector('.save').onclick = () => {
-        const net = val(page, '#pfNet'), gw = val(page, '#pfGw');
-        if (!validIp(net) || !validIp(gw)) { page.querySelector('.px-err').textContent = 'Destination network et Gateway : a.b.c.d'; return; }
-        stage().routes.add.push({network: networkOf(`${net}/${val(page, '#pfNetLen')}`), gateway: gw, port: ''});
-        view.page = 'routing'; view.tab = 'Static Routes'; render();
-      };
-    };
-  }
-  function pfDhcp(main) {
-    const ports = D().ports.filter(p => p.address && p !== D().ports[0]);
-    const s = view.stage && view.stage.dhcp !== undefined ? view.stage.dhcp : dhcpServer();
-    const tab = view.tab && ports.some(p => p.port === view.tab) ? view.tab : (s ? s.interface : ports[0]?.port);
-    const on = s && s.interface === tab, a = N().interfaces[tab] || '';
-    pfTitle(main, `Services / DHCP Server / ${pfIface(tab)}`, `<div class="pf-tabs">${ports.map(p => `<a data-t="${p.port}" class="${p.port === tab ? 'on' : ''}">${h(pfIface(p.port))}</a>`).join('')}</div>
-      <div class="pf-panel pf-form"><h2>General Options</h2><div class="row"><span>Enable</span><div><label><input type="checkbox" id="pfOn" ${on ? 'checked' : ''}> Enable DHCP server on ${h(pfIface(tab))} interface</label></div></div>
-      <div class="row"><span>Subnet</span><div>${h(networkOf(a))}</div></div><div class="row"><span>Address Pool Range</span><div>From ${input('pfFrom', on ? s.start : '')} To ${input('pfTo', on ? s.end : '')}</div></div></div>
-      <div class="pf-panel pf-form"><h2>Server Options</h2><div class="row"><span>DNS Servers</span><div>${input('pfDns', on ? (s.dns || []).join(', ') : '')}</div></div></div>
-      <div class="pf-panel pf-form"><h2>Other DHCP Options</h2><div class="row"><span>Gateway</span><div>${input('pfGw', on ? s.router || '' : ipOf(a))}<small>The default is to use the IP on this interface of the firewall as the gateway.</small></div></div>
-      <div class="row"><span>Default Lease Time</span><div>${input('pfLease', on ? s.lease_seconds : 7200)}<small>seconds</small></div></div></div>
-      <div class="px-err"></div><button class="pf-btn pri save">💾 Save</button>`);
-    main.querySelectorAll('[data-t]').forEach(x => { x.onclick = () => { view.tab = x.dataset.t; render(); }; });
-    main.querySelector('.save').onclick = () => {
-      if (!main.querySelector('#pfOn').checked) { if (on) stage().dhcp = null; return render(); }
-      stage().dhcp = {interface: tab, start: val(main, '#pfFrom'), end: val(main, '#pfTo'), router: val(main, '#pfGw'),
-        dns: val(main, '#pfDns') ? val(main, '#pfDns').split(/[ ,]+/) : [], lease_seconds: Number(val(main, '#pfLease')) || 7200, reservations: []};
-      render();
-    };
-  }
-  function pfGeneral(main) {
-    pfTitle(main, 'System / General Setup', `<div class="pf-panel pf-form"><h2>System</h2><div class="row"><span>Hostname</span><div>${input('pfHost', (view.stage && view.stage.name) || N().name)}
-      <small>Name of the firewall host, without domain part.</small></div></div><div class="row"><span>Domain</span><div>${input('dm', 'home.arpa', 'disabled')}</div></div></div>
-      <button class="pf-btn pri save">💾 Save</button>`);
-    main.querySelector('.save').onclick = () => { const name = val(main, '#pfHost'); stage().name = name !== N().name ? name : null; render(); };
-  }
-  function pfStatusIf(main) {
-    pfTitle(main, 'Status / Interfaces', D().ports.map((p, i) => `<div class="pf-panel"><h2>${h(pfName(p.port, i))} Interface (${h(p.name)})</h2><table class="pf-t"><tbody>
-      ${[['Status', p.peer && !p.down ? 'up' : 'no carrier'], ['IPv4 Address', ipOf(p.address) || '—'], ['Subnet mask IPv4', p.address ? maskOf(lenOf(p.address)) : '—'],
-        ['Media', p.peer ? '1000baseT <full-duplex>' : '—'], ['Peer', p.peer || '—']].map(([k, v]) => `<tr><td class="k">${k}</td><td>${h(v)}</td></tr>`).join('')}</tbody></table></div>`).join(''));
-  }
-  function pfDiagRoutes(main) {
-    pfTitle(main, 'Diagnostics / Routes', `<div class="pf-panel"><h2>IPv4 Routes</h2>${table('pf-t', ['Destination', 'Gateway', 'Flags', 'Uses', 'Mtu', 'Netif'],
-      [...D().connected.map(r => tr([h(r.network), 'link#', 'U', '0', '1500', h(r.port)])), ...D().static.map(r => tr([h(r.network), h(r.gateway), 'UGS', '0', '1500', h(r.port)]))])}</div>`);
-  }
-
-  /* =============================== OPNsense (pfSense's pages in OPNsense's frame) =============================== */
-  skinCss(`
-  .px-app.opnsense{background:#f7f7f7;color:#333;font:14px 'SourceSansPro','Helvetica Neue',Arial,sans-serif;display:grid;grid-template-columns:240px 1fr;min-height:100vh}
-  .op-side{background:#3a3a3a;color:#ddd;align-self:stretch;border-radius:0;padding:0;margin:0}.op-brand{height:56px;display:flex;align-items:center;padding:0 18px;font-size:21px;color:#fff;background:#2c2c2c;letter-spacing:.3px}
-  .op-brand b{color:#e76f24;font-weight:600}.op-group>a{display:flex;align-items:center;gap:10px;padding:10px 18px;color:#e2e2e2;cursor:pointer}
-  .op-group>a:hover{background:#474747}.op-group.open>a{background:#2f2f2f;color:#fff}.op-group>a i{font-style:normal;width:16px;text-align:center;color:#bbb}
-  .op-group>a .c{margin-left:auto;color:#999}.op-items{background:#2f2f2f}.op-items a{display:block;padding:7px 18px 7px 44px;color:#c8c8c8;cursor:pointer;font-size:13px}
-  .op-items a:hover{color:#fff}.op-items a.on{color:#fff;border-left:3px solid #e76f24;padding-left:41px;background:#292929}.op-items a.na{color:#8a8a8a}
-  .op-top{height:56px;background:#fff;border-bottom:1px solid #e3e3e3;display:flex;align-items:center;gap:14px;padding:0 20px}
-  .op-top input{border:1px solid #ddd;border-radius:3px;padding:6px 10px;width:240px}.op-top .grow{flex:1}.op-top span{color:#666}
-  .px-app.opnsense .pf-page{padding:18px 22px}.px-app.opnsense .pf-h1{font-size:20px;font-weight:600}.px-app.opnsense .pf-h1 b{font-weight:600;color:#333}
-  .px-app.opnsense .pf-panel{background:#fff;border:1px solid #e3e3e3}.px-app.opnsense .pf-panel>h2{background:#fff;color:#333;border-bottom:1px solid #e3e3e3;font-weight:600}
-  .px-app.opnsense .pf-btn.ok,.px-app.opnsense .pf-btn.pri{background:#e76f24}.px-app.opnsense .pf-tabs a{color:#e76f24}.px-app.opnsense .pf-ic{color:#e76f24}
-  .px-app.opnsense .pf-alert{background:#dff0d8;border-color:#c6e1b8;color:#2f5f22}
-  `);
-  const OPN_MENU = () => {
-    const ports = Object.keys(N().interfaces);
-    return [['Lobby', '⌂', [['Dashboard', 'dashboard'], ['License', 'na'], ['Password', 'na']]], ['Reporting', '▤', [['Health', 'na'], ['Insight', 'na'], ['Traffic', 'na']]],
-      ['System', '⚙', [['Access', 'na'], ['Configuration', 'na'], ['Firmware', 'na'], ['Gateways', 'routing:Gateways'], ['High Availability', 'na'], ['Routes', 'routing:Static Routes'],
-        ['Settings', 'general'], ['Trust', 'na'], ['Diagnostics', 'na']]],
-      ['Interfaces', '⇆', [...ports.map((p, i) => [`[${pfName(p, i)}]`, 'if:' + p]), ['Assignments', 'assign'], ['Overview', 'status-if'], ['Diagnostics', 'diag-routes']]],
-      ['Firewall', '⛨', [['Aliases', 'na'], ['Rules: Floating', 'rules:floating'], ...ports.map((p, i) => [`Rules: ${pfName(p, i)}`, 'rules:' + p]),
-        ['NAT: Port Forward', 'nat:Port Forward'], ['NAT: Outbound', 'nat:Outbound'], ['Shaper', 'na'], ['Settings', 'na'], ['Log Files', 'na']]],
-      ['VPN', '⚿', [['IPsec', 'vpn'], ['OpenVPN', 'vpn'], ['WireGuard', 'vpn']]], ['Services', '☰', [['DHCPv4', 'dhcp'], ['Unbound DNS', 'na'], ['Network Time', 'na']]],
-      ['Power', '⏻', [['Reboot', 'na'], ['Power Off', 'na']]], ['Help', '?', [['Documentation', 'na']]]];
-  };
-  SKINS.opnsense = {
-    start: {page: 'dashboard', group: 'Lobby', item: 'Dashboard'},
-    draw(root) {
-      const menu = OPN_MENU();
-      root.innerHTML = `<aside class="op-side"><div class="op-brand"><b>OPN</b>sense</div>${menu.map(([group, icon, items]) => `<div class="op-group${group === view.group ? ' open' : ''}">
-        <a data-g="${h(group)}"><i>${icon}</i>${h(group)}<span class="c">${group === view.group ? '▾' : '▸'}</span></a>${group === view.group ? `<div class="op-items">${items.map(([label, go]) =>
-          `<a data-go="${go}" data-l="${h(label)}" class="${['na', 'vpn'].includes(go) ? 'na' : ''}${label === view.item ? ' on' : ''}">${h(label)}</a>`).join('')}</div>` : ''}</div>`).join('')}</aside>
-        <div><div class="op-top"><input placeholder="Search…"><span class="grow"></span><span>root@${h(N().name)}.localdomain · Network LABS</span><span>⏻</span></div>
-        <div class="pf-page"></div></div>`;
-      root.querySelectorAll('[data-g]').forEach(a => { a.onclick = () => { view.group = view.group === a.dataset.g ? '' : a.dataset.g; render(); }; });
-      root.querySelectorAll('[data-go]').forEach(a => { a.onclick = () => {
-        const [go, tab] = a.dataset.go.split(':');
-        view.item = a.dataset.l; view.title = `${view.group} / ${a.dataset.l}`; view.edit = null;
-        if (go === 'if') { view.page = a.dataset.go; view.tab = null; } else { view.page = go; view.tab = tab || null; }
-        render();
-      }; });
-      pfDispatch(root.querySelector('.pf-page'));
-    },
-  };
+  /* pfSense and OPNsense: native_products_bsd.js, on the stylesheets the two projects publish. */
 
   /* =============================== Palo Alto PAN-OS =============================== */
   skinCss(`
@@ -1923,13 +1618,32 @@ ${h(cliText())}
   window.nlProductsKit = {SKINS, MATCH: [], get view() { return view; }, D, N, h, maskOf, prefixOf, ipOf, lenOf, networkOf, validIp, fw, portByName, portName, peerName,
     running, svc, parseService, toast, send, cli, section, setAddress, rename, attempt, openTerminal, stage, pending, candidateFw, editFw, addressOf, staticRoutes, commit,
     discard, dialog, val, field, input, select, table, tr, NA, naBox, ruleFrom, ruleName, checkNet, dhcpServer, skinCss, natBuild, natPieces, natRead, putEntry, dropEntry,
-    moveEntry, wanPort, zoneNames, cleanRule, route, openStandard: target => { standard = true; page = target; render(); }};
+    moveEntry, wanPort, zoneNames, cleanRule, route, openStandard: target => { standard = true; page = target; render(); },
+    logout: () => { signedIn.delete(loginKey()); try { sessionStorage.removeItem(loginKey()); } catch (error) { /* only in this page */ } render(); }};
 
   // ---- drawing ----
   let typed = false;  // a field changed since the last drawing: the page does not refresh itself over it
+  // The stylesheets a product page brings (pfSense's and OPNsense's own): loaded with it, dropped when another face shows.
+  // The page waits for them, so it never shows unstyled.
+  function useSheets(list) {
+    const have = [...document.querySelectorAll('link[data-px-sheet]')];
+    have.forEach(link => { if (!list.includes(link.getAttribute('href'))) link.remove(); });
+    const waiting = list.filter(href => !have.some(link => link.isConnected && link.getAttribute('href') === href)).map(href => new Promise(done => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.pxSheet = '';
+      link.onload = link.onerror = done;
+      document.head.append(link);
+    }));
+    if (!waiting.length) return;
+    document.body.classList.add('px-wait');
+    Promise.all(waiting).then(() => document.body.classList.remove('px-wait'));
+  }
   function draw(id) {
     typed = false;
     if (view.node !== N().name || view.skin !== id) view = {node: N().name, skin: id, ...JSON.parse(JSON.stringify(SKINS[id].start)), edit: null};
+    useSheets(SKINS[id].sheets || []);
     app.className = 'px-app ' + id;
     SKINS[id].draw(app);
     pill.querySelector('[data-a="std"]').textContent = '☰ Vue Network LABS';
@@ -1941,8 +1655,8 @@ ${h(cliText())}
     iosxe: ['Cisco IOS XE', 'Web User Interface', 'admin', 'cisco', 'split', ['#0d274d', '#ffffff', '#049fd9', '#39424e'], 'Log In'],
     asdm: ['Cisco ASDM-IDM Launcher', 'Cisco ASDM 7', 'admin', 'cisco', 'dialog', ['#d4d8dd', '#f0f0f0', '#2d6db5', '#222'], 'OK'],
     webfig: ['RouterOS', 'WebFig', 'admin', '', 'card', ['#eef0f2', '#ffffff', '#2d7fc1', '#333'], 'Login'],
-    pfsense: ['pfSense', 'COMMUNITY EDITION', 'admin', 'pfsense', 'card', ['#f2f2f2', '#ffffff', '#1e3f75', '#333'], 'SIGN IN'],
-    opnsense: ['OPNsense', '', 'root', 'opnsense', 'card', ['#f7f7f7', '#ffffff', '#d94f00', '#333'], 'Login'],
+    pfsense: ['pfSense', 'COMMUNITY EDITION', 'admin', 'pfsense', 'own', ['#1e3f75', '#ffffff', '#43a047', '#fff'], 'SIGN IN'],
+    opnsense: ['OPNsense', '', 'root', 'opnsense', 'own', ['#f7f7f7', '#ffffff', '#d94f00', '#333'], 'Login'],
     panos: ['PAN-OS', '', 'admin', 'admin', 'dark', ['#1c2a35', '#25333f', '#fa582d', '#e8edf1'], 'Log In'],
     jweb: ['J-Web', 'Junos OS', 'root', 'Juniper', 'split', ['#2b3a4a', '#ffffff', '#84b135', '#333'], 'Log In'],
     sophos: ['Sophos Firewall', 'Web admin console', 'admin', 'admin', 'split', ['#13283f', '#ffffff', '#0f6bce', '#1f2d3d'], 'Login'],
@@ -1974,14 +1688,20 @@ ${h(cliText())}
     const [product, second, user, password, layout, [pageBg, panel, accent, ink], button, french] = LOGIN[id];
     const labels = french ? ['Nom d’utilisateur', 'Mot de passe', 'Nom d’utilisateur ou mot de passe incorrect.']
       : ['Username', 'Password', user ? 'Invalid username or password.' : 'Invalid password.'];
-    app.className = `px-app px-login lg-${layout}`;
+    // pfSense and OPNsense draw their own sign-in page (the product's markup and stylesheet); the others share the layouts below.
+    const own = SKINS[id] && SKINS[id].login;
+    app.className = `px-app px-login lg-${layout}${own ? ` ${id}-login` : ''}`;
     app.dataset.pass = password;
+    app.dataset.user = user;
     app.style.cssText = `--lg-page:${pageBg};--lg-panel:${panel};--lg-accent:${accent};--lg-ink:${ink}`;
+    useSheets(own ? own.sheets : []);
+    if (own) labels[2] = own.error;
     const form = `<form class="lg-form" autocomplete="off">${layout === 'dialog' ? `<label>Device IP Address / Name:<input value="${h(ipOf(Object.values(N().interfaces).find(Boolean) || '') || N().name)}" disabled></label>` : ''}
       ${user ? `<label>${labels[0]}<input class="us" value="${h(user)}"></label>` : ''}<label>${labels[1]}<input class="pw" type="password" autofocus></label>
       <div class="lg-err"></div><button class="go" type="submit">${h(button)}</button>
       <small class="lg-hint">Laboratoire Network LABS · identifiants d’usine : ${user ? h(user) + ' / ' : ''}${password ? h(password) : '(mot de passe vide)'}</small></form>`;
-    app.innerHTML = layout === 'split' ? `<div class="lg-side"><b>${h(product)}</b><span>${h(second)}</span></div><div class="lg-main"><h2>Log In</h2>${form}</div>`
+    const hint = `Laboratoire Network LABS · identifiants d’usine : ${user ? h(user) + ' / ' : ''}${password ? h(password) : '(mot de passe vide)'}`;
+    app.innerHTML = own ? own.draw({hint}) : layout === 'split' ? `<div class="lg-side"><b>${h(product)}</b><span>${h(second)}</span></div><div class="lg-main"><h2>Log In</h2>${form}</div>`
       : layout === 'banner' ? `<div class="lg-band"><b>${h(product)}</b><span>${h(N().name)}</span></div><div class="lg-box"><h2>${h(second || product)}</h2>${form}</div>`
       : layout === 'dialog' ? `<div class="lg-box"><div class="lg-tt">${h(product)}</div><div class="lg-in"><p>${h(second)}</p>${form}</div></div>`
       : `<div class="lg-box"><b class="lg-name">${h(product)}</b>${second ? `<span class="lg-sub">${h(second)}</span>` : ''}${form}</div>`;
@@ -1992,6 +1712,7 @@ ${h(cliText())}
       const typedUser = (app.querySelector('.us') || {value: user}).value.trim();
       if (typedUser.toLowerCase() !== user.toLowerCase() || app.querySelector('.pw').value !== password) {
         app.querySelector('.lg-err').textContent = labels[2];
+        app.querySelector('.lg-errbox')?.classList.remove('hidden');
         return;
       }
       signedIn.add(loginKey());
@@ -2017,6 +1738,7 @@ ${h(cliText())}
     }
     document.body.classList.remove('px-locked');
     if (!id || standard) {
+      useSheets([]);
       app.remove();
       pill.remove();
       document.body.classList.remove('px');
@@ -2048,7 +1770,7 @@ ${h(cliText())}
   });
   // The project changes elsewhere (the application, another page, the lab starting or stopping): the page follows by
   // itself, but never while something is being done here (a window open, a field typed in, changes staged, a save running).
-  const busy = () => typed || sending || pending() || document.querySelector('.px-shade, .ix-slide, .jw-slide, .uf-panel, .ix-fly, .pf-nav .m.open, .jw-commit.open, .px-pill.open') ||
+  const busy = () => typed || sending || pending() || document.querySelector('.px-shade, .ix-slide, .jw-slide, .uf-panel, .ix-fly, #topmenu li.open, .modal.in, .jw-commit.open, .px-pill.open') ||
     (app.contains(document.activeElement) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName));
   setInterval(async () => {
     if (document.hidden || !document.body.classList.contains('px') || !state || busy()) return;
@@ -2064,7 +1786,6 @@ ${h(cliText())}
   });
   document.addEventListener('click', event => {
     if (!event.target.closest('.ix-fly,[data-m]')) document.querySelector('.ix-fly')?.remove();
-    if (!event.target.closest('.pf-nav .m')) document.querySelectorAll('.pf-nav .m.open').forEach(x => x.classList.remove('open'));
     if (!event.target.closest('.px-pill')) pill.classList.remove('open');
   });
 })();
