@@ -91,8 +91,8 @@ def features(node):
             add('Relais DHCP', f"vers {found_relay['server']} · " + ', '.join(name(p) for p in found_relay['clients']))
 
     def dhcp():
-        server = node.get('dhcp_server')
-        if server:
+        from .dhcp import pools
+        for server in pools(node):  # one row per pool (a router guest serves one per LAN or VLAN)
             add('Serveur DHCP', f"{server.get('start', '?')} – {server.get('end', '?')} · {name(server.get('interface', ''))}")
 
     def acl():

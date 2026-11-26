@@ -278,15 +278,16 @@ class Model:
         self.rip = rip_routes(spec, self.seg)
         self.eigrp = eigrp_routes(spec, self.seg)
         self.leases = {}  # (node, port) -> (address, gateway): DHCP clients take the first free pool address
-        servers = [(n, n['dhcp_server']) for n in spec['nodes'] if n.get('dhcp_server')]
+        from .dhcp import pool_network, pools, with_pool
+        servers = [(n, pool) for n in spec['nodes'] for pool in pools(n)]  # a router guest may serve one pool per LAN or VLAN
         for node in spec['nodes']:
             for port in node.get('dhcp_clients') or []:
                 for server_node, server in servers:
                     if 'network' in server:
                         continue  # a relayed pool serves the remote LAN only, through its relay (below)
                     if self.seg.get((server_node['name'], server['interface'])) == self.seg.get((node['name'], port)):
-                        prefix = ipaddress.IPv4Interface(server_node['interfaces'][server['interface']]).network.prefixlen
-                        offered = ipaddress.IPv4Address(server['start']) + sum(1 for _ in self.leases)
+                        prefix = pool_network(with_pool(server_node, server)).prefixlen  # a port's or a subinterface's network
+                        offered = self._next_free(server, pool_network(with_pool(server_node, server)))
                         router = ipaddress.IPv4Address(server['router']) if server.get('router') else None
                         self.leases[(node['name'], port)] = (ipaddress.IPv4Interface(f'{offered}/{prefix}'), router)
                         break
@@ -337,12 +338,16 @@ class Model:
             if not any(a.ip == server_address for a in addresses(server_node).values()):
                 continue
             there, back = self.route(relay, server_address)[0], self.route(server_node['name'], giaddr)[0]
-            if there is None or back is None or _port_of(back) != server['interface']:
+            if there is None or back is None or _port_of(back) != _port_of(server['interface']):
                 return None
-            offered = ipaddress.IPv4Address(server['start']) + sum(1 for _ in self.leases)
+            offered = self._next_free(server, ipaddress.IPv4Network(server['network']))
             router = ipaddress.IPv4Address(server['router']) if server.get('router') else None
             return ipaddress.IPv4Interface(f'{offered}/{ipaddress.IPv4Network(server["network"]).prefixlen}'), router
         return None
+
+    def _next_free(self, server, network):
+        """The address a pool offers next: its start, after the leases it already gave (each pool counts its own)."""
+        return ipaddress.IPv4Address(server['start']) + sum(1 for lease, _ in self.leases.values() if lease.ip in network)
 
     def held(self, name):
         found = addresses(self.nodes[name])

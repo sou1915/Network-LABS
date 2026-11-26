@@ -1059,13 +1059,10 @@ class Manager:
         def addresses(node):
             profile = node.get('guest_network') or {}
             return profile.get('addresses', []), profile.get('port_addresses', {})
-        server = previous.get('dhcp_server') or {}
         if (same(wanted) != same(previous) or addresses(wanted) != addresses(previous)
-                or set(wanted['interfaces']) != set(previous['interfaces'])
-                or (server and wanted['interfaces'][server['interface']] != previous['interfaces'][server['interface']])):
-            raise ValueError('Only port addresses, shut ports, static routes, the gateway, OSPF, RIP, BGP, access lists and, '
-                             'on a switch, VLANs and switchports change on a running lab (not the DHCP server\'s port); '
-                             'restart it for the rest.')
+                or set(wanted['interfaces']) != set(previous['interfaces'])):
+            raise ValueError('Only port addresses, shut ports, static routes, the gateway, OSPF, RIP, BGP, access lists, DHCP pools '
+                             'and, on a switch, VLANs and switchports change on a running lab; restart it for the rest.')
         socket = self.directory / name / 'guest.vsock'
         state['phase'] = 'configuring'
         state['pending_spec'] = candidate

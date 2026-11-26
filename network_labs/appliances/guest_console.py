@@ -75,17 +75,20 @@ class Console:
 
     def dhcp_bindings(self):
         """[{'address', 'mac'}] this node's DHCP server has given: the guest's lease file, or the model's leases."""
+        from .dhcp import pool_network, pools, with_pool
         node = self.node()
-        if not node.get('dhcp_server'):
+        if not pools(node):
             return []
+        networks = [pool_network(with_pool(node, pool)) for pool in pools(node)]  # every pool: one per LAN or VLAN
         with self.manager().locked() as manager:
             if hasattr(manager, 'query_node'):  # the lab is stopped: the leases the network model gives
                 from . import network_model
-                from .dhcp import pool_network
                 model = network_model.Model(manager.read()['spec'])
-                return [{'address': str(lease.ip), 'mac': ''} for lease, _ in model.leases.values() if lease.ip in pool_network(node)]
+                return [{'address': str(lease.ip), 'mac': ''} for lease, _ in model.leases.values()
+                        if any(lease.ip in network for network in networks)]
             from .guest_startup import leases
-            return leases(manager.directory / self.name / 'guest.vsock', node['dhcp_server']['interface'])
+            socket = manager.directory / self.name / 'guest.vsock'
+            return [row for pool in pools(node) for row in leases(socket, pool['interface'])]
 
     # ---- telnet / ssh into another device ----
 

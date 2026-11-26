@@ -121,11 +121,12 @@ def check_forwarding(socket, node):
         raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
 
 
-def dhcp_pool(node):
-    from .dhcp import pool_network  # the port's network, or the remote LAN of a relayed pool
-    server = node['dhcp_server']
+def dhcp_pool(node, server=None):
+    """The agent's pool request for SERVER (node['dhcp_server'] by default; or one of node['dhcp_extra'])."""
+    from .dhcp import pool_network, with_pool  # the port's network, or the remote LAN of a relayed pool
+    server = server or node['dhcp_server']
     return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
-            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(node).prefixlen,
+            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(with_pool(node, server)).prefixlen,
             **({'relayed': True} if 'network' in server else {})}  # a remote LAN's pool: no ARP check (see the agent)
 
 
@@ -336,8 +337,9 @@ def observe(socket, node):
         from .acl import policy
         from .guest_firewall import check
         check(socket, {'firewall': policy(node)})
-    if node.get('dhcp_server'):
-        leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
+    from .dhcp import pools
+    for pool in pools(node):
+        leases(socket, pool['interface'])  # Fails closed if a declared server is not running.
     if node.get('ospf'):
         check_ospf(socket, node)
     if node.get('bgp'):
@@ -608,7 +610,38 @@ def change_switch(socket, old, new):
     check_switch(socket, new)
 
 
-LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'resolvers')
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'resolvers',
+                'dhcp_server', 'dhcp_extra')
+
+
+def _wait_server(socket, port):
+    """The daemon writes its pid file just after the request returns: wait for it before reading back."""
+    started = time.monotonic() + 5
+    while True:
+        try:
+            return leases(socket, port)
+        except ValueError:
+            if time.monotonic() >= started:
+                raise
+            time.sleep(.1)
+
+
+def _dhcp_servers(socket, old, new):
+    """« ip dhcp pool » typed on a running router: a removed or changed pool's udhcpd stops, a new or changed one starts.
+    A pool also restarts when its port's address changes (udhcpd takes its server identifier from it as it starts)."""
+    from .dhcp import pools
+    from .lan import addresses
+    def served(node):
+        held = addresses(node)
+        return {p['interface']: (dhcp_pool(node, p), held.get(p['interface'])) for p in pools(node)}
+    before, after = served(old), served(new)
+    for port in sorted(before):
+        if after.get(port) != before[port]:
+            query(socket, 'dhcp-stop', interface=port)
+    for port in sorted(after):
+        if before.get(port) != after[port]:
+            query(socket, 'dhcp-serve', interface=port, dhcp=after[port][0])
+            _wait_server(socket, port)
 
 
 def _route(socket, node, operation, network, gateway):
@@ -720,6 +753,7 @@ def change_routing(socket, old, new):
     from .hsrp import arguments as hsrp_groups
     if hsrp_groups(old) != hsrp_groups(new):  # a standby line typed or removed: the speaker takes its groups back as they were
         query(socket, 'hsrp-start', hsrp=hsrp_groups(new)) if hsrp_groups(new) else query(socket, 'hsrp-stop')
+    _dhcp_servers(socket, old, new)  # « ip dhcp pool » blocks: one udhcpd per pool
     from .guest_services import change as change_services
     change_services(socket, old, new)  # DNS, NTP, Syslog and web services, IOS « ip dns server », « ntp … »
     from .acl import policy
@@ -863,16 +897,10 @@ def apply(socket, node, timeout=40, alive=None):
         apply_firewall(socket, {'firewall': policy(node)})
     if node.get('role') in ('router', 'firewall'):
         query(socket, 'forward', state='on')
-    if node.get('dhcp_server'):
-        port = node['dhcp_server']['interface']
-        query(socket, 'dhcp-serve', interface=port, dhcp=dhcp_pool(node))
-        # The daemon writes its pid file just after the request returns: wait for it before reading back.
-        started = time.monotonic() + 5
-        while True:
-            try: leases(socket, port); break
-            except ValueError:
-                if time.monotonic() >= started: raise
-                time.sleep(.1)
+    from .dhcp import pools
+    for pool in pools(node):  # one udhcpd per pool, each on its own port or subinterface
+        query(socket, 'dhcp-serve', interface=pool['interface'], dhcp=dhcp_pool(node, pool))
+        _wait_server(socket, pool['interface'])
     if node.get('ospf'):
         start_ospf(socket, node)
     if node.get('bgp'):

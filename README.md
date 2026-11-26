@@ -114,7 +114,8 @@ trunks, listes d'accès nommées et numérotées, `show version`, `show cdp neig
 (`show vlan brief`, `show interfaces status`), et `traceroute`
 (routeurs) / `tracert` (PC, comme dans Packet Tracer), `ipconfig` / `arp -a` sur les PC, `show arp` / `show mac address-table`, `telnet` / `ssh -l` vers un routeur ou un switch
 (`line vty`, `login local`, `username`, `crypto key generate rsa`, `access-class`), et le relais DHCP `ip helper-address` (avec un pool pour un LAN
-distant, `show ip dhcp binding`), qui agissent pour de vrai.
+distant, `show ip dhcp binding`), qui agissent pour de vrai. Un routeur sert un pool DHCP par LAN ou par VLAN (plusieurs
+`ip dhcp pool`, par exemple un par sous-interface d'un router-on-a-stick), modifiables à chaud.
 EIGRP (`router eigrp`, routes `D`, `show ip eigrp neighbors`) agit aussi pour de vrai, comme le spanning tree des
 switchs : un second câble entre deux switchs ferme une boucle et allume le STP 802.1D du noyau de chaque switch (un port
 passe en `BLK`, orange sur le schéma ; un port `shutdown` y est rouge), `spanning-tree vlan 1 root primary` / `priority N`, `spanning-tree cost` / `port-priority` changent

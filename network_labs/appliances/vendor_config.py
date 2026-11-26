@@ -193,6 +193,32 @@ def _mask_of_wildcard(wildcard):
     return str(ipaddress.IPv4Address(0xffffffff ^ value))
 
 
+def _ios_pools(node):
+    """« ip dhcp excluded-address » lines (global on IOS, printed first), then one « ip dhcp pool » block per pool."""
+    from .dhcp import pools
+    from .lan import addresses
+    held, excluded, blocks = addresses(node), [], []
+    for server in pools(node):
+        if not held.get(server['interface']):
+            continue
+        relayed = 'network' in server  # a remote LAN's pool: its own network, no router address inside it
+        own = None if relayed else ipaddress.IPv4Interface(held[server['interface']]).ip
+        network = ipaddress.IPv4Network(server['network']) if relayed else ipaddress.IPv4Interface(held[server['interface']]).network
+        start, end = ipaddress.IPv4Address(server['start']), ipaddress.IPv4Address(server['end'])
+        first, last = network.network_address + 1, network.broadcast_address - 1
+        for low, high in ((first, start - 1), (end + 1, last)):
+            if low <= high and not (low == high == own):
+                excluded.append(f'ip dhcp excluded-address {low}' + (f' {high}' if high != low else ''))
+        lease = int(server.get('lease_seconds', 86400))
+        blocks += [f'ip dhcp pool {server.get("name", "LAN")}', f' network {network.network_address} {network.netmask}']
+        if server.get('router'):
+            blocks.append(f' default-router {server["router"]}')
+        if server.get('dns'):
+            blocks.append(' dns-server ' + ' '.join(server['dns']))
+        blocks += [f' lease {lease // 86400} {lease % 86400 // 3600} {lease % 3600 // 60}', '!']
+    return excluded + (['!'] if excluded else []) + blocks
+
+
 def _acl_address(prefix):
     network = ipaddress.IPv4Network(prefix)
     if network.prefixlen == 0:
@@ -396,23 +422,7 @@ def _render_ios(node, eos=False):
         if name in (node.get('shutdown') or []):
             lines.append(' shutdown')
         lines.append('!')
-    server = node.get('dhcp_server')
-    if server and not eos and node['interfaces'].get(server['interface']):
-        relayed = 'network' in server  # a remote LAN's pool: its own network, no router address inside it
-        network = ipaddress.IPv4Network(server['network']) if relayed else ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network
-        own = None if relayed else ipaddress.IPv4Interface(node['interfaces'][server['interface']]).ip
-        start, end = ipaddress.IPv4Address(server['start']), ipaddress.IPv4Address(server['end'])
-        first, last = network.network_address + 1, network.broadcast_address - 1
-        for low, high in ((first, start - 1), (end + 1, last)):
-            if low <= high and not (low == high == own):
-                lines.append(f'ip dhcp excluded-address {low}' + (f' {high}' if high != low else ''))
-        lease = int(server.get('lease_seconds', 86400))
-        lines += [f'ip dhcp pool {server.get("name", "LAN")}', f' network {network.network_address} {network.netmask}']
-        if server.get('router'):
-            lines.append(f' default-router {server["router"]}')
-        if server.get('dns'):
-            lines.append(' dns-server ' + ' '.join(server['dns']))
-        lines += [f' lease {lease // 86400} {lease % 86400 // 3600} {lease % 3600 // 60}', '!']
+    lines += [] if eos else _ios_pools(node)
     for name, entries in sorted((node.get('acls') or {}).items()) if not eos else []:
         if name.isdigit():  # a numbered list: « access-list N … » lines
             standard = int(name) < 100 or 1300 <= int(name) <= 1999
@@ -689,12 +699,22 @@ def apply(spec, name, text):
     return validate(draft)
 
 
+def _set_pools(node, every):
+    """The first pool in node['dhcp_server'], the others in node['dhcp_extra'] (a router micro-VM's other LANs)."""
+    node['dhcp_server'] = every[0] if every else None
+    if every[1:]:
+        node['dhcp_extra'] = every[1:]
+    else:
+        node.pop('dhcp_extra', None)
+
+
 class IOS:
     comment = '!'
 
     def __init__(self, node):
         self.node, self.port = node, None
         self.pool = None  # 'ip dhcp pool' being configured: {'network', 'router', 'dns', 'lease'}
+        self.pools = {}  # every « ip dhcp pool NAME » block of the text, by name
         self.excluded = None  # 'ip dhcp excluded-address' ranges, when the block sets any
         self.ospf = False  # inside 'router ospf'
         self.acl = None  # inside 'ip access-list extended NAME'
@@ -1240,11 +1260,11 @@ class IOS:
             self.excluded = (self.excluded or []) + [(first, last)]
             return
         if low.startswith('no ip dhcp pool'):
-            node['dhcp_server'] = None
-            self.pool = None
+            self._drop_pool(words[4] if len(words) > 4 else None)
             return
         if low.startswith('ip dhcp pool '):
-            self.pool = {'open': True, 'name': words[3]}  # IOS shows the pool under the name typed
+            self.pool = self.pools.setdefault(words[3], {'name': words[3]})  # IOS shows the pool under the name typed
+            self.pool['open'] = True
             return
         if self.pool is None or not self.pool.get('open'):
             raise ValueError('ip dhcp pool <nom> d’abord.')
@@ -1260,21 +1280,48 @@ class IOS:
         else:
             raise ValueError('ip dhcp pool : network, default-router, dns-server, lease.')
 
+    def _several(self):
+        """A router micro-VM serves one pool per LAN or VLAN; other nodes keep one pool, as before."""
+        return self.node.get('runtime') == 'firecracker' and self.node.get('role') == 'router'
+
+    def _drop_pool(self, name):
+        """« no ip dhcp pool NAME »: that pool goes (on a node with one pool, the pool)."""
+        from .dhcp import pools
+        self.pool = None
+        if name:
+            self.pools.pop(name, None)
+        if not self._several() or name is None:
+            self.node['dhcp_server'] = None
+            self.node.pop('dhcp_extra', None)
+            return
+        _set_pools(self.node, [p for p in pools(self.node) if p.get('name', 'LAN') != name])
+
     def finish(self):
         _ospf_finish(self.node, self.ospf_ports)
         _bgp_finish(self.node)
-        if self.pool is None:
-            return
-        node, pool = self.node, self.pool
-        current = node.get('dhcp_server') or {}
+        for pool in self.pools.values():
+            self._finish_pool(pool)
+
+    def _finish_pool(self, pool):
+        from .dhcp import pools
+        from .lan import addresses
+        node, several, every = self.node, self._several(), pools(self.node)
+        named = next((p for p in every if p.get('name', 'LAN') == pool['name']), None)
+        if named is not None:
+            current = named  # « ip dhcp pool NAME » again: that pool, edited
+        elif not several or ('network' not in pool and len(every) == 1):
+            current = node.get('dhcp_server') or {}  # one pool: the block edits it (and may rename it)
+        else:
+            current = {}  # a router micro-VM's new pool, for another LAN or VLAN
+        held = {p: a for p, a in addresses(node).items() if a}  # ports and router-on-a-stick subinterfaces
         network = ipaddress.IPv4Network(pool['network']) if 'network' in pool else None
         if network is None and current.get('network'):
             network = ipaddress.IPv4Network(current['network'])  # editing the existing relayed pool
-        if network is None and node['interfaces'].get(current.get('interface')):
-            network = ipaddress.IPv4Interface(node['interfaces'][current['interface']]).network  # editing the existing pool
+        if network is None and held.get(current.get('interface')):
+            network = ipaddress.IPv4Interface(held[current['interface']]).network  # editing the existing pool
         if network is None:
             raise ValueError('ip dhcp pool : « network » d’abord.')
-        port = next((p for p, a in node['interfaces'].items() if a and ipaddress.IPv4Interface(a).network == network), None)
+        port = next((p for p, a in held.items() if ipaddress.IPv4Interface(a).network == network), None)
         relayed = port is None
         if relayed:  # a remote LAN (ip helper-address on its router): served on the port the relayed requests arrive by
             from .ios_relay import toward
@@ -1283,7 +1330,7 @@ class IOS:
                 raise ValueError('ip dhcp pool : donnez d’abord une adresse à un port du routeur.')
         router = pool.get('router', current.get('router'))
         # Never offered: the router's own address, or for a relayed pool its LAN's default router (IOS pings it first).
-        own = (ipaddress.IPv4Address(router) if router else None) if relayed else ipaddress.IPv4Interface(node['interfaces'][port]).ip
+        own = (ipaddress.IPv4Address(router) if router else None) if relayed else ipaddress.IPv4Interface(held[port]).ip
         excluded = self.excluded if self.excluded is not None else []
         free = (h for h in network.hosts() if h != own and not any(a <= h <= b for a, b in excluded))  # lazy: a /8 is 16M hosts
         start = end = next(free, None)
@@ -1293,7 +1340,8 @@ class IOS:
             if int(host) != int(end) + 1:
                 break
             end = host
-        if self.excluded is None and current.get('interface') == port and current.get('network') == (str(network) if relayed else None):
+        if not any(int(network.network_address) <= int(b) and int(a) <= int(network.broadcast_address) for a, b in excluded) \
+                and current.get('interface') == port and current.get('network') == (str(network) if relayed else None):
             # A block that edits the pool without restating exclusions keeps the existing range.
             start, end = current['start'], current['end']
         server = {'interface': port, 'start': str(start), 'end': str(end), 'router': pool.get('router', current.get('router', '')),
@@ -1304,7 +1352,18 @@ class IOS:
             server['name'] = name
         if node['runtime'] == 'firecracker':
             server['lease_seconds'] = min(server['lease_seconds'], 604800)
-        node['dhcp_server'] = server
+        if not several:
+            node['dhcp_server'] = server
+            return
+        target = next((p for p in every if p is current), None)
+        clash = next((p for p in every if p is not target and p['interface'] == port), None)
+        if clash is not None and (target is not None or clash.get('name', 'LAN') in self.pools):
+            raise ValueError(f'ip dhcp pool : {server.get("name", "LAN")} serait servi sur la même interface que le pool '
+                             f'{clash.get("name", "LAN")} ; un pool par interface ou sous-interface.')
+        target = target if clash is None else clash  # a new name for a LAN that has a pool: it replaces that pool
+        place = next((i for i, p in enumerate(every) if p is target), None)
+        _set_pools(node, every[:place] + [server] + every[place + 1:] if place is not None else every + [server])
+
 
     def _vlan(self, vid, remove):
         if self.node['role'] != 'switch':

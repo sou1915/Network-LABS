@@ -66,7 +66,8 @@ def validate(data):
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
         keys(node, ('name', 'runtime', 'role', 'model', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command',
-                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', *LAN_FIELDS), 'Node')
+                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'dhcp_extra',
+                    *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -107,6 +108,8 @@ def validate(data):
         validate_relay(node)
         from .eigrp import validate as validate_eigrp
         validate_eigrp(node)
+        from .dhcp import validate_extra
+        validate_extra(node)  # a router micro-VM's other DHCP pools
         from .guest_services import validate as validate_services
         validate_services(node)  # a server micro-VM's DNS, HTTP, NTP and Syslog services
         if node.get('gateway'):
@@ -160,8 +163,8 @@ def validate(data):
             # (live, from the node's terminal). DHCP client ports and subinterface parents are unnumbered too.
             if dynamic and role != 'host':
                 raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
-            server = node.get('dhcp_server')
-            if server and server['reservations']:
+            from .dhcp import pools
+            if any(server['reservations'] for server in pools(node)):
                 raise ValueError('Firecracker DHCP server: no reservations on guests yet.')  # a remote (relayed) network is fine
             subinterfaces = node['subinterfaces']
             if any(sub['vlan'] is None or not sub['address'] for sub in subinterfaces.values()):
@@ -169,8 +172,8 @@ def validate(data):
             if role in ('router', 'firewall') and len(interfaces) + len(subinterfaces) < 2:
                 raise ValueError('Firecracker router or firewall requires at least two interfaces (ports or subinterfaces); '
                                  'a single-port guest is a host.')
-            server = node.get('dhcp_server')
-            if server and not interfaces.get(server['interface']):
+            if any(not (interfaces.get(server['interface']) or subinterfaces.get(server['interface'], {}).get('address'))
+                   for server in pools(node)):  # a pool per LAN: on a numbered port or a router-on-a-stick subinterface
                 raise ValueError('DHCP server: give its port an IPv4 address first.')
             if role == 'firewall' and node.get('firewall') is None:
                 raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')

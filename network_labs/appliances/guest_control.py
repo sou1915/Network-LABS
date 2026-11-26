@@ -15,7 +15,7 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
               'vlan-add': 'VLAN_ADD', 'vlan-delete': 'VLAN_DEL',
               'bridge-vlans': 'BRIDGE_VLANS', 'bridge-vlan-filtering': 'BRIDGE_VLAN_FILTERING',
               'bridge-vlan-add': 'BRIDGE_VLAN_ADD', 'bridge-vlan-delete': 'BRIDGE_VLAN_DEL',
-              'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES',
+              'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES', 'dhcp-stop': 'DHCP_STOP',
               'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
               'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
               'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
@@ -271,8 +271,9 @@ def nat_to(value, kind):
 
 
 def _dhcp_command(operation, interface, server):
-    if interface not in GUEST_PORTS:
-        raise ValueError('Guest DHCP requires interface eth0..eth15.')
+    sub = isinstance(interface, str) and re.fullmatch(r'eth(?:1[0-5]|[0-9])\.([1-9]\d{0,3})', interface)
+    if interface not in GUEST_PORTS and not (operation != 'dhcp-client' and sub and int(sub[1]) <= 4094):
+        raise ValueError('Guest DHCP requires interface eth0..eth15 (a server also eth0.1 .. eth15.4094).')
     command = OPERATIONS[operation] + ' ' + interface
     if operation != 'dhcp-serve':
         if server is not None:

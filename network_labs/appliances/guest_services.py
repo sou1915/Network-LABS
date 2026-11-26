@@ -330,10 +330,11 @@ def resolver(spec, node):
         model = Model(spec)
         for port in node['dhcp_clients']:
             lease = model.leases.get((node['name'], port))
+            from .dhcp import pools, with_pool
             for server in spec['nodes']:
-                pool = server.get('dhcp_server')
-                if lease and pool and pool.get('dns') and lease[0].ip in _pool_network(server):
-                    return pool['dns'][0]
+                for pool in pools(server):
+                    if lease and pool.get('dns') and lease[0].ip in _pool_network(with_pool(server, pool)):
+                        return pool['dns'][0]
     resolvers = node.get('resolvers') or []
     return resolvers[0] if resolvers else None
 

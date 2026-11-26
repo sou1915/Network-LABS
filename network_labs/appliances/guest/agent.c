@@ -2105,18 +2105,19 @@ static void serve(int input, int output, int mutations) {
         reply(output, 0, line, (size_t)n); return;
     }
     /* DHCP with BusyBox: one server or client per port, configured only from typed fields. */
-    char dhcp_port[PORT_SIZE], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
+    char dhcp_port[IFACE_SIZE], dhcp_start[16], dhcp_end[16], dhcp_mask[16], dhcp_router[16], dhcp_lease[7], dhcp_dns[48], dhcp_extra;
     char dhcp_conf[40], dhcp_pid[40], dhcp_leases[40];
     /* An optional 8th field « relayed »: the pool serves a remote LAN through a relay. udhcpd then skips its ARP check of
      * each address (-a 0): on the port toward the relay, the relay router answers ARP for that LAN by proxy (IOS's
      * default), so every address would look taken; an IOS server checks with a ping through the routes instead. */
     char dhcp_flag[8] = "";
-    int dhcp_fields = sscanf(request, "NL1 DHCP_SERVE %5s %15s %15s %15s %15s %6s %47s %7s %c", dhcp_port, dhcp_start, dhcp_end,
+    int dhcp_fields = sscanf(request, "NL1 DHCP_SERVE %10s %15s %15s %15s %15s %6s %47s %7s %c", dhcp_port, dhcp_start, dhcp_end,
                              dhcp_mask, dhcp_router, dhcp_lease, dhcp_dns, dhcp_flag, &dhcp_extra);
     int dhcp_relayed = dhcp_fields == 8 && !strcmp(dhcp_flag, "relayed");
     if (mutations && !strncmp(request, "NL1 DHCP_SERVE ", 15) && (dhcp_fields == 7 || dhcp_relayed)) {
         struct in_addr first, last;
-        int ok = valid_port(dhcp_port) && inet_pton(AF_INET, dhcp_start, &first) == 1 && inet_pton(AF_INET, dhcp_end, &last) == 1 &&
+        /* a port or a router-on-a-stick subinterface (eth0.10): one pool, one udhcpd, per interface */
+        int ok = valid_interface(dhcp_port) && strcmp(dhcp_port, "br0") && inet_pton(AF_INET, dhcp_start, &first) == 1 && inet_pton(AF_INET, dhcp_end, &last) == 1 &&
                  ntohl(first.s_addr) <= ntohl(last.s_addr) && ntohl(last.s_addr) - ntohl(first.s_addr) < 256 &&
                  valid_ipv4(dhcp_mask) && (!strcmp(dhcp_router, "-") || valid_ipv4(dhcp_router)) &&
                  strspn(dhcp_lease, "0123456789") == strlen(dhcp_lease) && atol(dhcp_lease) >= 60 && atol(dhcp_lease) <= 604800;
@@ -2158,9 +2159,21 @@ static void serve(int input, int output, int mutations) {
         if (spawn_detached("/bin/busybox", client)) { reply(output, 3, "dhcp client start failed", 24); return; }
         reply(output, 0, "", 0); return;
     }
+    /* « no ip dhcp pool » or a changed pool on a running router: its udhcpd stops (writing its leases first); the lease
+     * file stays, as IOS keeps its bindings, so a restarted pool gives the same clients their addresses back. */
+    if (mutations && sscanf(request, "NL1 DHCP_STOP %10s %c", dhcp_port, &dhcp_extra) == 1 && valid_interface(dhcp_port) && strcmp(dhcp_port, "br0")) {
+        snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
+        pid_t server = pidfile_alive(dhcp_pid);
+        if (server) {
+            kill(server, SIGTERM);
+            for (int t = 0; t < 40 && kill(server, 0) == 0; t++) { struct timespec pause = {0, 50000000}; nanosleep(&pause, NULL); }
+        }
+        unlink(dhcp_pid);
+        reply(output, 0, "", 0); return;
+    }
     char *const lease_list[] = {"busybox", "dumpleases", "-f", dhcp_leases, NULL};
     char *const *lease_args = NULL;
-    if (sscanf(request, "NL1 DHCP_LEASES %5s %c", dhcp_port, &dhcp_extra) == 1 && valid_port(dhcp_port)) {
+    if (sscanf(request, "NL1 DHCP_LEASES %10s %c", dhcp_port, &dhcp_extra) == 1 && valid_interface(dhcp_port) && strcmp(dhcp_port, "br0")) {
         snprintf(dhcp_pid, sizeof(dhcp_pid), "/run/udhcpd.%s.pid", dhcp_port);
         snprintf(dhcp_leases, sizeof(dhcp_leases), "/run/udhcpd.%s.leases", dhcp_port);
         pid_t server = pidfile_alive(dhcp_pid);
