@@ -49,7 +49,11 @@ class CatalogueTest(unittest.TestCase):
             for entry in catalogue.entries(node):
                 if entry['mode'] in EXEC_MODES and 'ping' in entry['syntax']:
                     with self.subTest(syntax=syntax, line=entry['example'][0]):
-                        self.assertEqual(vendor_show.ping_destination(node, entry['example'][0]), entry['example'][0].split()[-1])
+                        target = entry['example'][0].split()[-1]
+                        if target[0].isalpha():  # « ping NOM »: the name is translated first (service_commands), never taken for an address
+                            self.assertIsNone(vendor_show.ping_destination(node, entry['example'][0]))
+                        else:
+                            self.assertEqual(vendor_show.ping_destination(node, entry['example'][0]), target)
                 if entry['mode'] in EXEC_MODES and entry['syntax'].startswith(('traceroute', 'tracert')):
                     with self.subTest(syntax=syntax, line=entry['example'][0]):
                         dialect = 'host' if node['role'] == 'host' else syntax

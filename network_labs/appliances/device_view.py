@@ -175,6 +175,8 @@ def summary(spec, node):
     syntax = dialect(node)
     return {
         'title': label(node, short=True) if model else label(node),
+        # a server (Packet Tracer's Server: its Services tab), or a generic Linux node that can serve
+        'server': node['role'] == 'host' and node.get('runtime') == 'firecracker' and (not model or model.get('presentation') == 'server'),
         'brand': model['brand'] if model else 'Linux', 'model': model['model'] if model else 'Nœud Linux générique',
         'role_name': ROLE_NAMES.get(node['role'], node['role']), 'art': art(node, spec), 'ports': ports,
         'port_names': shown, 'connected': connected, 'static': static, 'spare': spare, 'subinterfaces': subinterfaces,

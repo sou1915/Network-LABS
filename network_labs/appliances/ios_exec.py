@@ -17,7 +17,7 @@ SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', '
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
          'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree',
          'show etherchannel summary', 'show port-security', 'show port-security interface {p0}', 'show port-security address',
-         'show standby', 'show standby brief']
+         'show standby', 'show standby brief', 'show hosts', 'show ntp status', 'show ntp associations', 'show logging']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -29,6 +29,10 @@ def answer(console, low):
         return ''
     if full == 'show version':
         return version(console)
+    from .service_commands import show as service_show
+    served = service_show(console, full)  # show hosts, show ntp status|associations, show logging
+    if served is not None:
+        return served
     if full in ('show cdp neighbors', 'show cdp neighbors detail'):
         return cdp(console, detail=full.endswith('detail'))
     if full == 'show interfaces status':
@@ -108,7 +112,9 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan', 'eth': 'etherchannel', 'ether': 'etherchannel',
          'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary',
          'port-sec': 'port-security', 'port-security': 'port-security', 'addr': 'address', 'address': 'address',
-         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'br': 'brief', 'bri': 'brief', 'brief': 'brief'}
+         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'br': 'brief', 'bri': 'brief', 'brief': 'brief',
+         'host': 'hosts', 'hosts': 'hosts', 'ntp': 'ntp', 'assoc': 'associations', 'associations': 'associations',
+         'logg': 'logging', 'logging': 'logging', 'log': 'logging'}
 
 
 def _expand(words):
@@ -411,6 +417,12 @@ def running_interface(console, wanted):
 
 
 def clock(console):
+    """« * »: the clock is not authoritative; synchronised by NTP (« ntp server », « ntp master ») it has no mark and
+    the real time."""
+    from .service_commands import clock_synced
+    if clock_synced(console):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        return now.strftime('%H:%M:%S.%f')[:-3] + now.strftime(' UTC %a %b %d %Y')
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=console.clock_offset)
     return now.strftime('*%H:%M:%S.%f')[:-3] + now.strftime(' UTC %a %b %d %Y')
 

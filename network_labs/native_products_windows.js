@@ -28,6 +28,7 @@
   const ip = port => address(port).split('/')[0];
   const mask = port => (address(port) ? maskOf(lenOf(address(port))) : '');
   const gateway = () => N().gateway || '';
+  const dnsServer = () => (N().resolvers || [])[0] || '';  // the PC's DNS server (nslookup, ping NAME, the browser)
   const mac = port => {
     let hash = 0;
     for (const c of N().name + port) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
@@ -36,16 +37,18 @@
   const ADAPTER = 'Carte Ethernet VirtIO';
   const access = port => (!cabled(port) ? 'Pas d’accès réseau' : gateway() || dhcp(port) ? 'Internet' : 'Pas d’accès Internet');
 
-  async function saveIp(port, mode, ipText, maskText, gw) {
+  async function saveIp(port, mode, ipText, maskText, gw, dnsText = null) {
     let cidr = '';
     if (mode === 'static') {
       const prefix = String(maskText).includes('.') ? prefixOf(maskText) : Number(maskText);
       if (!validIp(ipText)) throw new Error('L’adresse IP entrée n’est pas valide.');
       if (prefix === null || !(prefix >= 1 && prefix <= 32)) throw new Error('Le masque de sous-réseau entré n’est pas valide.');
       if (gw && !validIp(gw)) throw new Error('La passerelle par défaut entrée n’est pas valide.');
+      if (dnsText && !validIp(dnsText)) throw new Error('L’adresse du serveur DNS entrée n’est pas valide.');
       cidr = `${ipText}/${prefix}`;
     }
-    await send('/api/host_ip', {port, mode, address: cidr, gateway: mode === 'static' ? gw : ''});
+    const dnsField = dnsText === null || N().runtime !== 'firecracker' ? {} : {dns: mode === 'static' ? dnsText : ''};
+    await send('/api/host_ip', {port, mode, address: cidr, gateway: mode === 'static' ? gw : '', ...dnsField});
     toast(`${nic(port)} : ${mode === 'dhcp' ? 'DHCP' : cidr} enregistré` + (typeof state.ip_live === 'string' ? ` · poste en marche : ${state.ip_live}.` : '.'));
   }
   async function setEnabled(port, enabled) {
@@ -751,18 +754,18 @@
         ${row('metered', 'Connexion limitée', 'Certaines applications peuvent fonctionner différemment pour réduire l’utilisation des données lorsque vous êtes connecté à ce réseau',
           `<span class="val">${win.metered ? 'Activé' : 'Désactivé'}</span>${toggle(win.metered)}`, 'data-metered="1"')}
         ${row('ip', 'Attribution d’adresse IP :', '', `<span class="val">${manual ? 'Manuel' : 'Automatique (DHCP)'}</span><button class="wn-mbtn edit">Modifier</button>`)}
-        ${row('dns', 'Attribution du serveur DNS :', '', '<span class="val">Automatique (DHCP)</span><button class="wn-mbtn" data-na="DNS">Modifier</button>')}
+        ${row('dns', 'Attribution du serveur DNS :', '', `<span class="val">${dnsServer() && manual ? 'Manuel' : 'Automatique (DHCP)'}</span><button class="wn-mbtn edit">Modifier</button>`)}
         <div class="wn-card exp wn-props-card"><button class="wn-mbtn copy">Copier</button><div class="wn-props" style="grid-template-columns:330px 1fr;padding:16px 18px">${[
           ['Vitesse de liaison (réception/transmission) :', cabled(port) ? '1000/1000 (Mbits/s)' : '—'],
           ...(manual ? [['Adresse IPv4 :', ip(port)], ['Masque de sous-réseau IPv4 :', mask(port)], ['Passerelle IPv4 :', gateway() || '—']] : [['Adresse IPv4 :', dhcp(port) && cabled(port) ? '(bail DHCP)' : '—']]),
-          ['Serveurs DNS IPv4 :', '—'], ['Fabricant :', 'Network LABS'], ['Description :', ADAPTER], ['Version du pilote :', '100.94.104.26100'], ['Adresse physique (MAC) :', mac(port)]]
+          ['Serveurs DNS IPv4 :', dnsServer() || '—'], ['Fabricant :', 'Network LABS'], ['Description :', ADAPTER], ['Version du pilote :', '100.94.104.26100'], ['Adresse physique (MAC) :', mac(port)]]
           .map(([k, val]) => `<span>${k}</span><b>${h(val)}</b>`).join('')}</div></div>`;
       main.querySelector('[data-back]').onclick = () => goPage(win, 'network');
       main.querySelectorAll('input[name=prof]').forEach(r => { r.onchange = () => { win.profile = r.value; render(); }; });
       main.querySelectorAll('[data-na]').forEach(b => { b.onclick = () => later(b.dataset.na); });
       main.querySelector('[data-metered]').onclick = () => { win.metered = !win.metered; render(); };
       main.querySelector('.copy').onclick = () => toast('Propriétés copiées dans le Presse-papiers.');
-      main.querySelector('.edit').onclick = () => editIpModern(main, port, 'mask');
+      main.querySelectorAll('.edit').forEach(b => { b.onclick = () => editIpModern(main, port, 'mask'); });  // IP and DNS: the same dialog, as Windows
     } else if (page === 'advanced') {
       main.innerHTML = `<h1><a data-back="1">Réseau et Internet</a><small>›</small>Paramètres réseau avancés</h1><div class="wn-sec">Cartes réseau</div>
         ${ports().map(p => row('ethernet', h(nic(p)), h(ADAPTER), `<button class="wn-mbtn" data-dis="${h(p)}">${disabled(p) ? 'Activer' : 'Désactiver'}</button>`)).join('')}
@@ -795,7 +798,7 @@
       <option value="static"${manual ? ' selected' : ''}>Manuel</option></select><div class="man"><div class="tg"><b style="font-weight:600">IPv4</b></div><div class="tg">${toggle(true)}Activé</div>
       <label>Adresse IP</label><input type="text" class="a" value="${h(ip(port))}"><label>${kind === 'mask' ? 'Masque de sous-réseau' : 'Longueur du préfixe de sous-réseau'}</label>
       <input type="text" class="m" value="${h(kind === 'mask' ? mask(port) : address(port) ? String(lenOf(address(port))) : '')}"><label>Passerelle</label><input type="text" class="g" value="${h(gateway())}">
-      <label>DNS préféré</label><input type="text" disabled placeholder="non géré par le laboratoire"><div class="tg" style="margin-top:18px"><b style="font-weight:600">IPv6</b></div>
+      <label>DNS préféré</label><input type="text" class="d" value="${h(dnsServer())}"><div class="tg" style="margin-top:18px"><b style="font-weight:600">IPv6</b></div>
       <div class="tg">${toggle(false)}Désactivé</div></div><div class="wn-err"></div></div>
       <div class="f"><button class="wn-mbtn acc save">Enregistrer</button><button class="wn-mbtn cancel">Annuler</button></div></div>`;
     const sync = () => { shade.querySelector('.man').style.display = shade.querySelector('.mode').value === 'static' ? '' : 'none'; };
@@ -805,7 +808,8 @@
     shade.querySelector('.save').onclick = async () => {
       const b = shade.querySelector('.save');
       b.disabled = true;
-      try { await saveIp(port, shade.querySelector('.mode').value, shade.querySelector('.a').value.trim(), shade.querySelector('.m').value.trim(), shade.querySelector('.g').value.trim()); render(); }
+      try { await saveIp(port, shade.querySelector('.mode').value, shade.querySelector('.a').value.trim(), shade.querySelector('.m').value.trim(), shade.querySelector('.g').value.trim(),
+        shade.querySelector('.d').value.trim()); render(); }
       catch (error) { shade.querySelector('.wn-err').textContent = error.message; b.disabled = false; }
     };
     main.closest('.wn-body').append(shade);
@@ -868,7 +872,7 @@
     } else if (page === 'eth') {
       main.innerHTML = `<h1>${h(nic(port))}</h1><div class="wn-sec">Paramètres IP</div><p>Attribution d’adresse IP :<br><b style="font-weight:normal">${dhcp(port) || !address(port) ? 'Automatique (DHCP)' : 'Manuel'}</b></p>
         <button class="wn-mbtn edit">Modifier</button><div class="wn-sec">Propriétés</div><div class="wn-props" style="padding:0">${[['Vitesse de liaison (réception/transmission) :',
-          cabled(port) ? '1000/1000 (Mbits/s)' : '—'], ['Adresse IPv4 :', dhcp(port) ? '(attribuée par le serveur DHCP)' : ip(port) || '—'], ['Serveurs DNS IPv4 :', '—'],
+          cabled(port) ? '1000/1000 (Mbits/s)' : '—'], ['Adresse IPv4 :', dhcp(port) ? '(attribuée par le serveur DHCP)' : ip(port) || '—'], ['Serveurs DNS IPv4 :', dnsServer() || '—'],
           ['Fabricant :', 'Network LABS'], ['Description :', ADAPTER], ['Adresse physique (MAC) :', mac(port)]].map(([k, val]) => `<span>${k}</span><b>${h(val)}</b>`).join('')}</div>
         <p><button class="wn-mbtn copy">Copier</button></p>`;
       main.querySelector('.edit').onclick = () => editIpModern(main, port, 'prefix');
@@ -959,7 +963,7 @@
     const p = win.port;
     const rows = [['Suffixe DNS propre à la connexion', ''], ['Description', ADAPTER], ['Adresse physique', mac(p)], ['DHCP activé', dhcp(p) ? 'Oui' : 'Non'],
       ...(dhcp(p) ? [['Adresse IPv4', '(bail DHCP au démarrage)']] : address(p) ? [['Adresse IPv4', ip(p)], ['Masque de sous-réseau IPv4', mask(p)]] : []),
-      ['Passerelle par défaut IPv4', dhcp(p) ? '' : gateway()], ['Serveurs DNS IPv4', ''], ['Serveur WINS IPv4', ''], ['NetBIOS sur Tcpip activé', 'Oui']];
+      ['Passerelle par défaut IPv4', dhcp(p) ? '' : gateway()], ['Serveurs DNS IPv4', dhcp(p) ? '' : dnsServer()], ['Serveur WINS IPv4', ''], ['NetBIOS sur Tcpip activé', 'Oui']];
     el.innerHTML = `<div>Détails de la connexion réseau :</div><table class="wn-kv" style="margin-top:6px"><tr><th>Propriété</th><th>Valeur</th></tr>${rows.map(([k, val]) =>
       `<tr><td>${h(k)}</td><td>${h(val)}</td></tr>`).join('')}</table><div class="wn-btns"><button class="wn-btn def close">Fermer</button></div>`;
     el.querySelector('.close').onclick = () => closeWin(win.id);
@@ -989,7 +993,7 @@
       if (!win.pending) return closeWin(win.id);
       const x = win.pending, ok = el.querySelector('.ok');
       ok.disabled = true;
-      try { await saveIp(p, x.mode, x.ip, x.mask, x.gw); closeWin(win.id); }
+      try { await saveIp(p, x.mode, x.ip, x.mask, x.gw, x.dns || ''); closeWin(win.id); }
       catch (error) { el.querySelector('.wn-err').textContent = error.message; ok.disabled = false; }
     };
   }
@@ -1015,7 +1019,7 @@
   function ipv4Dlg(el, win) {
     const parent = V().wins.find(x => x.id === win.parent) || {}, p = win.port, held = parent.pending;
     const manual = held ? held.mode === 'static' : !dhcp(p) && Boolean(address(p));
-    const values = held || {ip: ip(p), mask: mask(p), gw: gateway()};
+    const values = held || {ip: ip(p), mask: mask(p), gw: gateway(), dns: dnsServer()};
     el.innerHTML = `<div class="wn-tabs"><a class="on">Général</a>${manual ? '' : '<a>Configuration alternative</a>'}</div><div class="wn-page">
       <div>Les paramètres IP peuvent être déterminés automatiquement si votre réseau le permet. Sinon, vous devez demander les paramètres IP appropriés à votre administrateur réseau.</div>
       <label class="wn-rad" style="margin-top:12px"><input type="radio" name="v4" value="dhcp"${manual ? '' : ' checked'}>Obtenir une adresse IP automatiquement</label>
@@ -1024,7 +1028,7 @@
         <div class="wn-fld m"><span>Passerelle par défaut :</span>${ipBox('g', values.gw)}</div></div>
       <label class="wn-rad" style="margin-top:12px"><input type="radio" name="d4" ${manual ? 'disabled' : 'checked'}>Obtenir les adresses des serveurs DNS automatiquement</label>
       <div class="wn-grp" style="margin-top:6px;padding-top:2px"><label class="wn-rad lg" style="top:-10px;margin:0"><input type="radio" name="d4" ${manual ? 'checked' : ''}>Utiliser l’adresse de serveur DNS suivante :</label>
-        <div class="wn-fld off" style="margin-top:14px"><span>Serveur DNS préféré :</span>${ipBox('d1', '')}</div><div class="wn-fld off"><span>Serveur DNS auxiliaire :</span>${ipBox('d2', '')}</div></div>
+        <div class="wn-fld dn" style="margin-top:14px"><span>Serveur DNS préféré :</span>${ipBox('d1', values.dns || '')}</div><div class="wn-fld off"><span>Serveur DNS auxiliaire :</span>${ipBox('d2', '')}</div></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><label class="wn-chk"><input type="checkbox">Valider les paramètres en quittant</label>
         <button class="wn-btn" data-na="1">Avancé...</button></div><div class="wn-err"></div></div>
       <div class="wn-btns"><button class="wn-btn def ok">OK</button><button class="wn-btn cancel">Annuler</button></div>`;
@@ -1032,7 +1036,9 @@
     el.querySelectorAll('.wn-fld.off input').forEach(i => { i.disabled = true; });
     const sync = () => {
       const on = el.querySelector('input[name=v4]:checked').value === 'static';
-      el.querySelectorAll('.wn-fld.m').forEach(f => { f.classList.toggle('off', !on); f.querySelectorAll('input').forEach(i => { i.disabled = !on; }); });
+      el.querySelectorAll('.wn-fld.m,.wn-fld.dn').forEach(f => { f.classList.toggle('off', !on); f.querySelectorAll('input').forEach(i => { i.disabled = !on; }); });
+      // A manual address takes manual DNS servers, as in Windows.
+      el.querySelectorAll('input[name=d4]').forEach((r, i) => { r.disabled = on && i === 0; if (on && i === 1) r.checked = true; if (!on && i === 0) r.checked = true; });
     };
     el.querySelectorAll('input[name=v4]').forEach(r => { r.onchange = sync; });
     sync();
@@ -1046,12 +1052,14 @@
     el.querySelector('[data-na]').onclick = () => later('Paramètres TCP/IP avancés');
     el.querySelector('.cancel').onclick = () => closeWin(win.id);
     el.querySelector('.ok').onclick = () => {
-      const mode = el.querySelector('input[name=v4]:checked').value, x = {mode, ip: ipValue(el.querySelector('.a')), mask: ipValue(el.querySelector('.k')), gw: ipValue(el.querySelector('.g'))};
+      const mode = el.querySelector('input[name=v4]:checked').value, x = {mode, ip: ipValue(el.querySelector('.a')), mask: ipValue(el.querySelector('.k')), gw: ipValue(el.querySelector('.g')),
+        dns: ipValue(el.querySelector('.d1'))};
       const err = el.querySelector('.wn-err');
       if (mode === 'static') {
         if (!validIp(x.ip)) return void (err.textContent = 'L’adresse IP entrée n’est pas valide.');
         if (prefixOf(x.mask) === null) return void (err.textContent = 'Le masque de sous-réseau entré n’est pas valide.');
         if (x.gw && !validIp(x.gw)) return void (err.textContent = 'La passerelle par défaut entrée n’est pas valide.');
+        if (x.dns && !validIp(x.dns)) return void (err.textContent = 'L’adresse du serveur DNS préféré n’est pas valide.');
       }
       parent.pending = x;
       closeWin(win.id);
@@ -1080,7 +1088,9 @@
         `${PAD('Configuration automatique activée', 42)}: Oui`);
       if (dhcp(p)) out.push(`${PAD('Adresse IPv4', 42)}: (bail DHCP : démarrer le lab, puis la console du poste)`);
       else if (address(p)) out.push(`${PAD('Adresse IPv4', 42)}: ${ip(p)}${all ? '(préféré)' : ''}`, `${PAD('Masque de sous-réseau', 42)}: ${mask(p)}`);
-      out.push(`${PAD('Passerelle par défaut', 42)}: ${dhcp(p) ? '' : gateway()}`, '');
+      out.push(`${PAD('Passerelle par défaut', 42)}: ${dhcp(p) ? '' : gateway()}`);
+      if (all && !dhcp(p) && dnsServer()) out.push(`${PAD('Serveurs DNS', 42)}: ${dnsServer()}`);
+      out.push('');
     }
     return out.join('\n');
   }
@@ -1108,10 +1118,24 @@
       else if (word === 'ver') answer = '\n' + banner.split('\n')[0];
       else if (word === 'whoami') answer = `${N().name.toLowerCase()}\\${SERVER() ? 'administrateur' : 'utilisateur'}`;
       else if (word === 'help') answer = 'Pour plus d’informations sur une commande spécifique, entrez HELP suivi de la commande.\nCLS      Efface l’écran.\nEXIT     Quitte l’interpréteur de commandes.\n'
-        + 'HOSTNAME Affiche le nom de l’ordinateur.\nIPCONFIG Affiche la configuration IP.\nPING, TRACERT, ARP, NSLOOKUP : console du poste (lab en marche).';
+        + 'HOSTNAME Affiche le nom de l’ordinateur.\nIPCONFIG Affiche la configuration IP.\nPING, TRACERT, NSLOOKUP, CURL, ARP -A : sur le poste.';
       else if (word === 'ncpa.cpl') { openWin('cpl', {page: 'ncpa'}); }
       else if (word === 'control') { openWin('cpl', {page: 'home'}); }
-      else if (['ping', 'tracert', 'arp', 'nslookup', 'netsh', 'route', 'netstat', 'pathping'].includes(word)) {
+      else if (['ping', 'tracert', 'nslookup', 'curl'].includes(word) || args === 'arp -a') {
+        // Run on the device itself (/api/host_command): the running PC sends the packets, a stopped lab answers from the project.
+        win.log += `${promptText}${line}\n`;
+        log.textContent = win.log;
+        input.value = '';
+        input.disabled = true;
+        request('/api/host_command', {node, line: line.trim()}).then(r => r.reply, e => e.message).then(text => {
+          win.log += `${text}\n\n`;
+          log.textContent = win.log;
+          input.disabled = false;
+          input.focus();
+          term.scrollTop = term.scrollHeight;
+        });
+        return;
+      } else if (['netsh', 'route', 'netstat', 'pathping'].includes(word)) {
         if (running()) { answer = `[${word} s’exécute sur le poste réel : la console de ${N().name} s’ouvre dans Network LABS]`; openTerminal(); }
         else answer = `Le poste est éteint : démarrez le lab (▶ Démarrer dans Network LABS) pour envoyer des paquets.`;
       } else answer = `'${line.trim().split(/\s+/)[0]}' n’est pas reconnu en tant que commande interne\nou externe, un programme exécutable ou un fichier de commandes.`;

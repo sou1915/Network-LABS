@@ -51,9 +51,25 @@ GRAMMAR = [
     ('config', 'lldp run', r'lldp run', 2, 'Activer LLDP.', ['lldp run'], STORED, 'RSF'),
     ('config', 'clock timezone NOM HEURES', r'clock timezone \S+ -?\d+(?: \d+)?', 2, 'Fuseau horaire.', ['clock timezone CET 1'],
      STORED, 'RSF'),
-    ('config', 'ntp server A.B.C.D', rf'ntp server {IP}', 3, 'Serveur NTP.', ['ntp server 192.0.2.123'], STORED, 'RSF'),
-    ('config', 'logging host A.B.C.D', rf'logging (?:host )?{IP}', 3, 'Serveur syslog.', ['logging host 192.0.2.50'], STORED, 'RSF'),
+    ('config', 'ntp server A.B.C.D', rf'ntp server {IP}', 3,
+     'Serveur NTP : l’équipement s’y synchronise (show ntp associations, show ntp status).', ['ntp server 192.0.2.123'], EFFECT, 'RSF'),
+    ('config', 'ntp master [STRATE]', r'ntp master(?: (?:1[0-5]|[1-9]))?', 2,
+     'L’équipement devient serveur NTP (strate 8 par défaut) : les autres s’y synchronisent.', ['ntp master 3'], EFFECT, 'RSF'),
+    ('config', 'logging host A.B.C.D', rf'logging (?:host )?{IP}', 3,
+     'Serveur syslog : les messages (%SYS, %LINK…) y partent en UDP 514.', ['logging host 192.0.2.50'], EFFECT, 'RSF'),
+    ('config', 'logging trap NIVEAU', r'logging trap (?:[0-7]|emergencies|alerts|critical|errors|warnings|notifications|informational'
+     r'|debugging)', 2, 'Gravité la plus faible envoyée au serveur syslog (informational par défaut).', ['logging trap warnings'], EFFECT, 'RSF'),
     ('config', 'logging buffered N', r'logging buffered \d+', 2, 'Journal en mémoire.', ['logging buffered 8192'], STORED, 'RSF'),
+    ('config', 'service timestamps log datetime msec', r'service timestamps (?:log|debug) (?:datetime(?: msec)?(?: localtime)?(?: show-timezone)?'
+     r'|uptime)', 3, 'Horodatage des messages.', ['service timestamps log datetime msec'], STORED, 'RSF'),
+    ('config', 'ip host NOM A.B.C.D', rf'ip host [a-z0-9_][a-z0-9_.-]{{0,89}}(?: {IP}){{1,8}}', 3,
+     'Table d’hôtes : le nom se résout sans DNS (ping NOM) ; servie aux autres avec « ip dns server ».', ['ip host www.lab.local 192.0.2.80'],
+     EFFECT, 'RSF'),
+    ('config', 'ip name-server A.B.C.D', rf'ip name-server {IP}(?: {IP}){{0,5}}', 3,
+     'Serveur DNS de l’équipement (ping, telnet vers un nom).', ['ip name-server 192.0.2.53'], EFFECT, 'RSF'),
+    ('config', 'ip dns server', r'ip dns server', 3, 'L’équipement répond aux requêtes DNS avec sa table « ip host ».',
+     ['ip host www.lab.local 192.0.2.80', 'ip dns server'], EFFECT, 'R'),
+    ('config', 'ip http server', r'ip http server', 3, 'Serveur web de l’équipement (port 80).', ['ip http server'], EFFECT, 'RSF'),
     ('config', 'snmp-server community NOM ro|rw', r'snmp-server community \S+ (?:ro|rw)', 3, 'Communauté SNMP.',
      ['snmp-server community public ro'], STORED, 'RSF'),
     ('config', 'ip default-gateway A.B.C.D', rf'ip default-gateway {IP}', 2,
@@ -410,7 +426,8 @@ def render_global(node):
     current = config(node)
     encrypt = any(l.lower() == 'service password-encryption' for l in current['global'])
     tail = ('banner ', 'ntp ', 'logging ', 'snmp-server ', 'ip nat ', 'crypto key ', 'ip route ')  # ip route: with the others
-    order = ('service ', 'enable ', 'username ', 'no ip domain-lookup', 'ip domain-name', 'ip ssh', 'clock ', 'spanning-tree ',
+    order = ('service ', 'enable ', 'username ', 'no ip domain-lookup', 'ip domain-name', 'ip host ', 'ip name-server', 'ip dns ',
+             'ip ssh', 'clock ', 'spanning-tree ',
              'vtp ', 'no cdp', 'lldp', 'ip default-gateway', 'ipv6 ')
     rank = lambda line: next((i for i, p in enumerate(order) if line.lower().startswith(p)), len(order))
     return [_shown(l, encrypt) for l in sorted(current['global'], key=rank) if not l.lower().startswith(tail)]

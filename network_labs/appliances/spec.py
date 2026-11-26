@@ -66,7 +66,7 @@ def validate(data):
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
         keys(node, ('name', 'runtime', 'role', 'model', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command',
-                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', *LAN_FIELDS), 'Node')
+                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -107,6 +107,8 @@ def validate(data):
         validate_relay(node)
         from .eigrp import validate as validate_eigrp
         validate_eigrp(node)
+        from .guest_services import validate as validate_services
+        validate_services(node)  # a server micro-VM's DNS, HTTP, NTP and Syslog services
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):

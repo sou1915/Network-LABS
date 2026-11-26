@@ -163,6 +163,16 @@ class Console:
             return trace.unknown(syntax)
         return trace.text(syntax, self.trace(destination), command)
 
+    def service(self, operation, values=None):
+        """(exit code, output) of a service request in the running guest (a DNS query, an HTTP GET, a syslog datagram…);
+        None while the lab is stopped, the caller then answers from the project."""
+        with self.manager().locked() as manager:
+            if hasattr(manager, 'query_node'):
+                return None
+            from .guest_control import request
+            result = request(manager.directory / self.name / 'guest.vsock', operation, service=values, timeout=8)
+            return result['exit_code'], result['output']
+
     def query(self, operation):
         from .guest_startup import query
         with self.manager().locked() as manager:
@@ -206,7 +216,10 @@ class Console:
         if self.login_state is not None:
             return self.remote_login(text)
         if self.syntax in ('ios', 'eos'):
-            return self.ios_line(text)
+            reply = self.ios_line(text)
+            from .service_commands import logged
+            logged(self, reply)  # the log messages: in the buffer, and to the « logging host » collectors
+            return reply
         command = ' '.join(text.split())
         low = command.lower()
         if not command:
@@ -375,6 +388,10 @@ class Console:
         extra = ios_exec.answer(self, low)
         if extra is not None:
             return extra
+        from .service_commands import ios_ping
+        named = ios_ping(self, command)  # « ping www.lab.local »: « ip host », then the name server
+        if named is not None:
+            return named
         from .remote_login import parse as remote_command
         if remote_command(command):
             return self.remote_open(command)
@@ -625,6 +642,10 @@ class Console:
     # ---- host shell ----
 
     def host(self, command, low):
+        from .service_commands import host as service_command
+        served = service_command(self, command)  # nslookup, ping NAME, curl, wget -qO-, logread
+        if served is not None:
+            return served
         words = low.split()
         if words[:3] in (['ip', 'addr', 'add'], ['ip', 'address', 'add'], ['ip', 'addr', 'del'], ['ip', 'address', 'del'],
                          ['ip', 'route', 'add'], ['ip', 'route', 'del']):
@@ -663,7 +684,7 @@ class Console:
         if words == ['hostname']:
             return self.name
         raise ValueError(f'{words[0]}: commande non disponible (ping, traceroute, tracert, ipconfig, arp -a, ip addr, ip route, '
-                         'ip neigh, hostname, exit).')
+                         'ip neigh, nslookup, curl, wget -qO-, logread, hostname, exit).')
 
     def host_change(self, words):
         """ip addr add|del A.B.C.D/N dev ethX, ip route add|del default|NET/N via A.B.C.D: applied to the running host."""

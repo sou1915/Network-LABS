@@ -603,10 +603,12 @@ def change_switch(socket, old, new):
         query(socket, 'port-guard-start', guard=guarded_after) if guarded_after else query(socket, 'port-guard-stop')
     if (old.get('spanning_tree') or {}) != (new.get('spanning_tree') or {}):
         _stp(socket, new)  # spanning-tree vlan 1 priority …, or a loop closed by a new cable after a restart
+    from .guest_services import change as change_services
+    change_services(socket, old, new)  # « ntp server », « ip dns server »… typed on the switch
     check_switch(socket, new)
 
 
-LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config')
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'resolvers')
 
 
 def _route(socket, node, operation, network, gateway):
@@ -718,6 +720,8 @@ def change_routing(socket, old, new):
     from .hsrp import arguments as hsrp_groups
     if hsrp_groups(old) != hsrp_groups(new):  # a standby line typed or removed: the speaker takes its groups back as they were
         query(socket, 'hsrp-start', hsrp=hsrp_groups(new)) if hsrp_groups(new) else query(socket, 'hsrp-stop')
+    from .guest_services import change as change_services
+    change_services(socket, old, new)  # DNS, NTP, Syslog and web services, IOS « ip dns server », « ntp … »
     from .acl import policy
     if old.get('role') == 'router' and policy(old) != policy(new):  # access lists or IOS NAT changed
         from .guest_firewall import apply as apply_firewall
@@ -814,6 +818,8 @@ def apply(socket, node, timeout=40, alive=None):
             query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
         if routing(node):
             query(socket, 'forward', state='on')
+        from .guest_services import start as start_services
+        start_services(socket, node)  # « ntp server », « ip dns server »… on the switch's management address
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():
@@ -882,6 +888,8 @@ def apply(socket, node, timeout=40, alive=None):
     from .hsrp import arguments as hsrp_groups
     if hsrp_groups(node):  # « standby »: the agent speaks HSRP on those ports and holds the address once active
         query(socket, 'hsrp-start', hsrp=hsrp_groups(node))
+    from .guest_services import start as start_services
+    start_services(socket, node)  # a server's DNS, HTTP, NTP and Syslog; a router's « ip dns server », « ntp master »…
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)

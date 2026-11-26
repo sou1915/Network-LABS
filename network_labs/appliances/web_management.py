@@ -27,7 +27,7 @@ class NativeDeviceAPI:
         revision=draft_revision(spec)
         if action=='state':
             fields=('name','role','runtime','interfaces','gateway','shutdown','routes','subinterfaces','firewall','dhcp_clients','svis',
-                    'switch_backend',*PUBLIC_FIELDS)
+                    'switch_backend','services','resolvers',*PUBLIC_FIELDS)
             switch=node['role']=='switch'
             observed=window.states.get(name,{}).get('status','non observé') if window.view_lab==spec['name'] else 'non observé'
             observing=bool(window.pending and (window.pending.get('request') or {}).get('action')=='show')
@@ -65,6 +65,10 @@ class NativeDeviceAPI:
             window.record_event('web','Bloc CLI constructeur appliqué : '+name)
             return self.dispatch('state',{'node':name})
         if action=='host_ip':return self.host_ip(spec,node,payload,revision)
+        if action=='services':return self.services(spec,node,payload,revision)
+        if action=='browse':return self.browse(spec,node,payload)
+        if action=='syslog':return self.syslog(spec,node)
+        if action=='host_command':return self.host_command(spec,node,payload)
         if action=='route':return self.route(node,payload,revision)
         if action=='open_cli':
             # The desktop's « Invite de commandes »: the device's terminal window in the application.
@@ -125,7 +129,7 @@ class NativeDeviceAPI:
         import ipaddress
         from .vendor_config import _set_routes,routes
         window=self.window
-        if set(payload)!={'node','revision','port','mode','address','gateway'}:raise ValueError('Champs de configuration IP invalides.')
+        if set(payload)-{'dns'}!={'node','revision','port','mode','address','gateway'}:raise ValueError('Champs de configuration IP invalides.')
         if payload['revision']!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
         if node['role']!='host':raise ValueError('Configuration IP : un poste ou un serveur.')
         if window.pending:raise ValueError('Une opération est déjà en cours : attendre sa fin.')
@@ -155,11 +159,71 @@ class NativeDeviceAPI:
             _set_routes(target,others+([('0.0.0.0/0',gateway)] if gateway else []))
         if clients:target['dhcp_clients']=clients
         else:target.pop('dhcp_clients',None)
+        if 'dns' in payload and target['runtime']=='firecracker':  # the PC's DNS server (nslookup, ping NAME, the browser)
+            if not isinstance(payload['dns'],str):raise ValueError('Serveur DNS : une adresse IPv4.')
+            dns=payload['dns'].strip()
+            if dns:
+                try:dns=str(ipaddress.IPv4Address(dns))
+                except ValueError:raise ValueError('Serveur DNS : une adresse IPv4.') from None
+            target['resolvers']=[dns] if dns else []
+        draft=validate(draft)
         running=window.view_lab==spec['name'] and window.states.get(node['name'],{}).get('status')=='running'
         live=self.host_ip_live(spec['name'],node,target,port,mode) if running else None
         window.config_key=None;window.commit_edit(draft);window.choose_node(node['name']);window.load_config(force=True)
         window.record_event('web','Configuration IP : '+node['name']+('' if live is None else ' · en direct : '+live))
         return dict(self.dispatch('state',{'node':node['name']}),ip_live=live)  # None: the lab is not running
+
+    def services(self,spec,node,payload,revision):
+        """A server's services (Packet Tracer's « Services » tab: HTTP, DNS, NTP, SYSLOG) set in the project; the lab running,
+        ⚡ Appliquer au lab en marche (or a restart) brings them to the server."""
+        window=self.window
+        if set(payload)!={'node','revision','services'}:raise ValueError('Champs de services invalides.')
+        if payload['revision']!=revision:raise Conflict('Le projet a changé. Actualiser avant d’appliquer.')
+        if window.pending:raise ValueError('Une opération est déjà en cours : attendre sa fin.')
+        if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('Services : un serveur micro-VM.')
+        draft=window.editing_spec();target=next(n for n in draft['nodes'] if n['name']==node['name'])
+        target['services']=payload['services']
+        draft=validate(draft)
+        window.config_key=None;window.commit_edit(draft);window.choose_node(node['name']);window.load_config(force=True)
+        window.record_event('web','Services du serveur : '+node['name'])
+        return self.dispatch('state',{'node':node['name']})
+
+    def browse(self,spec,node,payload):
+        """The PC's web browser: an HTTP GET from the device (curl -i), through the lab's real network when it runs."""
+        import re
+        if set(payload)!={'node','url'} or not isinstance(payload['url'],str):raise ValueError('Adresse invalide.')
+        if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('Navigateur : un poste ou un serveur micro-VM.')
+        url=payload['url'].strip()
+        if not re.fullmatch(r'(?:http://)?[A-Za-z0-9_.-]{1,90}(?::\d{1,5})?(?:/[A-Za-z0-9/._-]{0,99})?',url):
+            raise ValueError('Adresse : http://NOM ou ADRESSE[/page.html].')
+        text=_host_line(self.window,spec,node,'curl -i '+url)
+        if not text.startswith('HTTP/'):return {'url':url,'error':text}
+        head,_,body=text.partition('\r\n\r\n')
+        status=head.splitlines()[0].split(None,2)
+        return {'url':url,'status':int(status[1]) if len(status)>1 and status[1].isdigit() else None,'reason':status[2] if len(status)>2 else '',
+                'body':body}
+
+    def host_command(self,spec,node,payload):
+        """A diagnostic typed in a PC's or a server's command prompt on its page (ping, tracert, nslookup, curl, arp): run on
+        the device as its terminal does, the running guest or the project. Read-only: nothing else is accepted."""
+        import re
+        if set(payload)!={'node','line'} or not isinstance(payload['line'],str):raise ValueError('Commande invalide.')
+        if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('Invite de commandes : un poste ou un serveur micro-VM.')
+        line=' '.join(payload['line'].split())
+        if len(line)>120 or not re.fullmatch(r'(?i)(?:ping|tracert|traceroute|nslookup|curl|arp|logread)(?: [A-Za-z0-9_./:\-]+){0,4}',line):
+            raise ValueError('Commande non disponible ici.')
+        return {'reply':_host_line(self.window,spec,node,line)}
+
+    def syslog(self,spec,node):
+        """The messages a syslog server has collected (its guest), for the Services › SYSLOG table."""
+        if node['role']!='host' or node['runtime']!='firecracker':raise ValueError('Syslog : un serveur micro-VM.')
+        running=self.window.view_lab==spec['name'] and self.window.states.get(node['name'],{}).get('status')=='running'
+        if not running:return {'running':False,'messages':[]}
+        rows=[]
+        for line in _host_line(self.window,spec,node,'logread').splitlines():  # « Nov 26 10:13:24 SOURCE MESSAGE »
+            parts=line.split(' ',4)
+            if len(parts)==5 and parts[2].count(':')==2:rows.append({'time':' '.join(parts[:3]),'source':parts[3],'message':parts[4]})
+        return {'running':True,'messages':rows}
 
     def host_ip_live(self,lab,before,after,port,mode):
         """The same change on the running PC, typed in its console as a user would (ip addr / ip route): 'appliqué', or why
@@ -187,6 +251,28 @@ class NativeDeviceAPI:
         except (OSError,ValueError) as error:
             return f'consoles du lab injoignables ({error})'
         return 'appliqué'
+
+
+def _host_line(window,spec,node,line):
+    """One line typed in a PC's or a server's shell, as its terminal does: in the running guest (the lab's console server,
+    root), or on the project while the lab is stopped."""
+    import secrets
+    running=window.view_lab==spec['name'] and window.states.get(node['name'],{}).get('status')=='running'
+    if running:
+        from . import console_server
+        session=secrets.token_hex(8)
+        console_server.request(spec['name'],{'op':'open','session':session,'node':node['name']},timeout=6)
+        try:
+            reply=console_server.request(spec['name'],{'op':'line','session':session,'node':node['name'],'text':line},timeout=12)
+        finally:
+            console_server.request(spec['name'],{'op':'close','session':session,'node':node['name']},timeout=6)
+        if not reply.get('ok'):raise ValueError(str(reply.get('error') or reply.get('reply') or 'console du lab injoignable'))
+        return str(reply.get('reply',''))
+    from .draft_lab import DraftLab
+    from .guest_console import Console
+    def refuse(_):raise ValueError('Lecture seule.')
+    draft=DraftLab(lambda:window.editing_spec(),refuse)
+    return Console(spec['name'],node['name'],lambda _:draft).line(line)
 
 
 def running_config(spec,node):

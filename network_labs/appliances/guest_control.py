@@ -34,6 +34,91 @@ HSRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\
 HSRP_GROUPS = 16
 OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
                    'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
+# Server services (guest_services): the agent's --services daemon (DNS, NTP, Syslog collector, NTP client), its web
+# server, and the clients toward them. Each takes its arguments as a list (service=[...]); the agent checks them again.
+SERVICE_OPERATIONS = {'services-start': 'SERVICES_START', 'services-stop': 'SERVICES_STOP', 'services-show': 'SERVICES_SHOW',
+                      'syslog-read': 'SYSLOG_READ', 'syslog-send': 'SYSLOG_SEND', 'resolve': 'RESOLVE', 'ntp-query': 'NTP_QUERY',
+                      'http-start': 'HTTP_START', 'http-stop': 'HTTP_STOP', 'http-pages': 'HTTP_PAGES', 'http-page': 'HTTP_PAGE',
+                      'http-page-add': 'HTTP_PAGE_ADD', 'http-page-delete': 'HTTP_PAGE_DEL', 'http-get': 'HTTP_GET',
+                      'file-put': 'FILE_PUT', 'file-delete': 'FILE_DEL', 'tftp-files': 'TFTP_FILES', 'tftp-read': 'TFTP_READ',
+                      'tftp-put': 'TFTP_PUT', 'tftp-get': 'TFTP_GET'}
+OPERATIONS.update(SERVICE_OPERATIONS)
+DNS_NAME = r'[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*'  # at most 90 long
+SERVICE_TOKEN = re.compile(rf'dns|syslog|tftp|ntp:(?:1[0-5]|[1-9])|sync:\d{{1,3}}(?:\.\d{{1,3}}){{3}}|a:{DNS_NAME}=\d{{1,3}}(?:\.\d{{1,3}}){{3}}|cname:{DNS_NAME}={DNS_NAME}')
+WEB_PAGE = re.compile(r'[a-z0-9_-]{1,35}\.(?:html|htm|txt|css)')
+WEB_PATH = re.compile(r'/[A-Za-z0-9/._-]{0,99}')
+TFTP_FILE = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}')
+PAGE_CHUNK = 1000  # bytes per request: hex-encoded, within the agent's request line
+
+
+def _ipv4(value, what):
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except (ipaddress.AddressValueError, TypeError, ValueError):
+        raise ValueError(f'Guest {what}: an IPv4 address.') from None
+
+
+def service_command(operation, values):
+    """The agent request line for one service operation, its arguments checked."""
+    values = list(values or [])
+    command = SERVICE_OPERATIONS[operation]
+    if operation in ('file-put', 'file-delete'):  # a file staged for TFTP: « out » (to send) or « tftp » (the server's)
+        if len(values) != (3 if operation == 'file-put' else 2) or values[0] not in ('out', 'tftp') or not isinstance(values[1], str) \
+                or not TFTP_FILE.fullmatch(values[1]) or (operation == 'file-put' and (not isinstance(values[2], bytes) or len(values[2]) > PAGE_CHUNK)):
+            raise ValueError(f'Guest {operation}: out|tftp, a file name, and at most {PAGE_CHUNK} bytes.')
+        return f'{command} {values[0]} {values[1]}' + (f' {values[2].hex()}' if operation == 'file-put' else '')
+    if operation in ('tftp-read', 'tftp-put', 'tftp-get'):
+        expected = 1 if operation == 'tftp-read' else 2
+        if len(values) != expected or not isinstance(values[-1], str) or not TFTP_FILE.fullmatch(values[-1]):
+            raise ValueError(f'Guest {operation}: ' + ('a file name.' if expected == 1 else 'a TFTP server and a file name.'))
+        return f'{command} {values[0]}' if expected == 1 else f'{command} {_ipv4(values[0], "TFTP server")} {values[1]}'
+    if operation in ('services-stop', 'services-show', 'syslog-read', 'http-start', 'http-stop', 'http-pages', 'tftp-files'):
+        if values:
+            raise ValueError(f'Guest {operation} takes no argument.')
+        return command
+    if operation == 'services-start':
+        if not 1 <= len(values) <= 70 or not all(isinstance(v, str) and SERVICE_TOKEN.fullmatch(v) for v in values):
+            raise ValueError('Guest services-start: dns, syslog, tftp, ntp:N, sync:A.B.C.D, a:NAME=A.B.C.D, cname:NAME=NAME.')
+        for value in values:
+            if value.startswith(('sync:', 'a:')):
+                _ipv4(value.rsplit('=', 1)[-1].split(':', 1)[-1], 'service address')
+            if value.startswith(('a:', 'cname:')) and any(len(part) > 90 for part in value.split(':', 1)[1].split('=')):
+                raise ValueError('Guest services-start: a DNS name is at most 90 characters.')
+        line = command + ' ' + ' '.join(values)
+        if len(line) > 3900:
+            raise ValueError('Guest services-start: too many records.')
+        return line
+    if operation == 'resolve':
+        if len(values) != 2 or not isinstance(values[1], str) or len(values[1]) > 90 \
+                or not (re.fullmatch(DNS_NAME, values[1]) or re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', values[1])):
+            raise ValueError('Guest resolve: a DNS server and a name.')
+        return f'{command} {_ipv4(values[0], "DNS server")} {values[1]}'
+    if operation == 'ntp-query':
+        if len(values) != 1:
+            raise ValueError('Guest ntp-query: one server.')
+        return f'{command} {_ipv4(values[0], "NTP server")}'
+    if operation == 'syslog-send':
+        if len(values) != 2 or not isinstance(values[1], str):
+            raise ValueError('Guest syslog-send: a collector and a message.')
+        data = values[1].encode('utf-8', errors='replace')
+        if not data.startswith(b'<') or not 4 <= len(data) <= 1024:
+            raise ValueError('Guest syslog-send: <PRI>message, at most 1024 bytes.')
+        return f'{command} {_ipv4(values[0], "syslog collector")} {data.hex()}'
+    if operation == 'http-get':
+        if len(values) != 3 or type(values[1]) is not int or not 1 <= values[1] <= 65535 or not isinstance(values[2], str) \
+                or not WEB_PATH.fullmatch(values[2]) or '..' in values[2]:
+            raise ValueError('Guest http-get: a server, a port and a path.')
+        return f'{command} {_ipv4(values[0], "web server")} {values[1]} {values[2]}'
+    if operation in ('http-page', 'http-page-add'):
+        if len(values) != 2 or not isinstance(values[0], str) or not WEB_PAGE.fullmatch(values[0]) or not isinstance(values[1], bytes) \
+                or len(values[1]) > PAGE_CHUNK:
+            raise ValueError(f'Guest {operation}: a page name (index.html) and at most {PAGE_CHUNK} bytes.')
+        return f'{command} {values[0]} {values[1].hex()}'
+    if len(values) != 1 or not isinstance(values[0], str) or not WEB_PAGE.fullmatch(values[0]):  # http-page-delete
+        raise ValueError('Guest http-page-delete: a page name.')
+    return f'{command} {values[0]}'
+
+
 EIGRP_SHOW = ('config', 'neighbors', 'topology')
 RIP_SHOW = ('config', 'routes')
 
@@ -238,9 +323,17 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
-            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, hsrp=None, timeout=6):
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, hsrp=None, service=None,
+            timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation in SERVICE_OPERATIONS:  # server services and their clients: arguments in « service » only
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard, hsrp)
+        if any(v is not None for v in others):
+            raise ValueError('Guest service operations accept only their service arguments.')
+        return _exchange(path, operation, service_command(operation, service), timeout)
+    if service is not None:
+        raise ValueError('Only service operations accept service arguments.')
     if operation.startswith('hsrp-'):  # the agent's HSRP speaker: one argument per group
         others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard)
         if any(v is not None for v in others):

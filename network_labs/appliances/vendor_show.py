@@ -634,7 +634,9 @@ def ping_destination(node, command):
     """The IPv4 destination of a vendor ping command, None when the command is not a ping."""
     syntax = dialect(node)
     match = re.fullmatch(PING_SYNTAX.get(syntax, r'(?!)'), ' '.join(command.split()), re.IGNORECASE)
-    return str(ipaddress.IPv4Address(match[1])) if match else None
+    if not match or re.match(r'[A-Za-z_]', match[1]):  # a host name: service_commands translates it first (« ping www.lab.local »)
+        return None
+    return str(ipaddress.IPv4Address(match[1]))
 
 
 def echo_reply(code, output):

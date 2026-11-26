@@ -6,7 +6,7 @@ as any feature change. The dated development log is kept unchanged in
 [PROJECT_STATUS.md](PROJECT_STATUS.md). The first-release scope is
 [RELEASE_1.md](RELEASE_1.md).
 
-Last updated: 2026-11-20.
+Last updated: 2026-11-26.
 
 ## Target
 
@@ -70,6 +70,7 @@ the direct launch.
 | Switch changes on a running lab | — (switch terminal: `vlan N` / `name`, `switchport …`, `shutdown`) | Typed IOS lines change the running bridge: VLAN filtering turns on with the first VLAN, ports move untagged, shut ports go link-down; `show vlan brief`, `show interfaces status` as on a Catalyst. Real-KVM test `test_native_microvm_switch_live` (Network LABS kernel). `no vlan N` while ports still use N keeps the VLAN (IOS would make those ports inactive) |
 | Router-on-a-stick: 802.1Q subinterfaces on router/firewall guests | `--router-on-a-stick` | Unnumbered trunk port with `ethN.VID` subinterfaces; needs the Network LABS kernel |
 | DHCP server and client in guests | `--dhcp` | Local pool only; leases via `microvm-dhcp-leases` |
+| Server services: DNS, web (HTTP), NTP, Syslog | — (server desktop › « Services » tab: HTTP pages, DNS A/CNAME records, NTP, SYSLOG; PC « Configuration IP » DNS server, « Navigateur web »; IOS `ip host`, `ip dns server`, `ip name-server`, `ntp master [N]`, `ntp server`, `logging host`, `logging trap`, `ip http server`) | The agent's `--services` daemon answers DNS (A, CNAME, PTR from the A records), NTP (SNTP at the given stratum; a server is stratum 1) and collects syslog datagrams; its NTP client keeps the association (`show ntp status|associations`, `show clock` without « * »; the guest clock itself is never set); BusyBox httpd serves the pages. Clients for real: PC `nslookup` (A, CNAME, reverse, NXDOMAIN), `ping NAME`, `curl [-i]`, `wget -qO-`, `logread`; IOS `ping NAME` (« Translating … [OK] »), `show hosts`, `show logging` (buffer and collectors; log messages leave as IOS syslog datagrams, local7, filtered by `logging trap`). Boot and live changes; a stopped lab answers through the network model (UDP 53 / TCP 80 / UDP 123 checked through ACLs and firewalls). Agent daemon checked in network namespaces (BusyBox nslookup against it); real-KVM test `test_native_microvm_services` |
 | OSPFv2 area 0 on router guests (BIRD 2 in the guest) | `--ospf` | Image built `microvm-rootfs --with-routing`; no static routes on OSPF routers; process-wide hello/dead; learned routes are never saved |
 | Capture on a guest port | — (`capture LAB NODE ethN`) | Recorded on the host-side TAP |
 | Isolation and limits | — | Jailer chroot, per-lab uid block, cgroup memory/CPU caps, vCPU and memory budgets |
@@ -79,8 +80,8 @@ the direct launch.
 - Routed SVIs on switch guests (a management SVI works), and firewall rules on subinterfaces (guest firewall
   rules name physical ports only). Static routes through a subinterface are unit-tested only.
 - STP, LACP and switch security features on guests.
-- OSPF areas other than 0, OSPF on subinterfaces or switch guests, iBGP and route policies beyond announced networks, OSPF and BGP on one router (OSPF moves to FRR next), other routing protocols; DNS, RADIUS, SNMP, Syslog, NTP, TFTP and HTTPS inside guests
-  (these exist on containers only).
+- OSPF areas other than 0, OSPF on subinterfaces or switch guests, iBGP and route policies beyond announced networks, OSPF and BGP on one router (OSPF moves to FRR next), other routing protocols; RADIUS, SNMP, TFTP and HTTPS inside guests
+  (these exist on containers only; DNS, HTTP, NTP and Syslog now run in guests too).
 - DHCP remote pools and reservations on guests.
 - IPv6 on guests.
 - Device-style CLI/web management on guests (only resources and firewall pages today).

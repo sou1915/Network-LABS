@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define LIMIT 32768
 #define MAX_PORTS 16   /* eth0..eth15: Firecracker's MMIO interrupts hold 16 network devices beside the disk and vsock */
@@ -973,6 +974,528 @@ static int hsrp(int count, char **specs) {
             if (groups[i].fd >= 0 && (waits[i].revents & POLLIN)) hsrp_receive(&groups[i], hsrp_now());
     }
 }
+/* Server services of a host or router guest (one --services daemon): an authoritative DNS server for the lab's own
+ * names (A and CNAME records, PTR from the A records), an NTP server (SNTP replies at a given stratum, as IOS « ntp
+ * master » or a server's NTP service), a Syslog collector (UDP 514, the last messages kept), and an NTP client that
+ * keeps the offset to one server (IOS « ntp server »). The guest clock is never set: the guest already runs the host's
+ * time; the client measures and reports the association. State in /run/services.state, messages in /run/syslog.log. */
+#ifndef SERVICES_RUN
+#define SERVICES_RUN "/run"  /* tests build the agent with their own folder */
+#endif
+#ifndef AGENT_PROGRAM
+#define AGENT_PROGRAM "/sbin/network-labs-agent"
+#endif
+#define SERVICE_RECORDS 64
+#define SYSLOG_KEEP 100
+struct service_record { char name[96], value[96]; int cname; };
+struct services { int dns, ntp, syslog, tftp, records; struct service_record record[SERVICE_RECORDS]; struct in_addr sync; };
+static volatile sig_atomic_t services_signal;
+static void services_caught(int number) { services_signal = number; }
+static int valid_dns_name(const char *name) {
+    size_t length = strlen(name), label = 0;
+    if (!length || length > 90 || name[0] == '.' || name[0] == '-' || name[length - 1] == '.' || name[length - 1] == '-') return 0;
+    for (size_t i = 0; i < length; i++) {
+        char c = name[i];
+        if (c == '.') { if (!label) return 0; label = 0; continue; }
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0;
+        if (++label > 63) return 0;
+    }
+    return 1;
+}
+/* Tokens: dns, a:NAME=IPV4, cname:ALIAS=NAME, ntp:STRATUM (1..15), syslog, sync:IPV4 (the NTP client's server). */
+static int services_parse(int count, char **tokens, struct services *s) {
+    memset(s, 0, sizeof(*s));
+    for (int i = 0; i < count; i++) {
+        const char *t = tokens[i];
+        if (!strcmp(t, "dns")) { s->dns = 1; continue; }
+        if (!strcmp(t, "syslog")) { s->syslog = 1; continue; }
+        if (!strcmp(t, "tftp")) { s->tftp = 1; continue; }
+        if (!strncmp(t, "ntp:", 4)) {
+            const char *v = t + 4;
+            if (!v[0] || strspn(v, "0123456789") != strlen(v) || strlen(v) > 2 || atoi(v) < 1 || atoi(v) > 15) return 0;
+            s->ntp = atoi(v); continue;
+        }
+        if (!strncmp(t, "sync:", 5)) { if (inet_pton(AF_INET, t + 5, &s->sync) != 1) return 0; continue; }
+        int cname = !strncmp(t, "cname:", 6);
+        if (!cname && strncmp(t, "a:", 2)) return 0;
+        const char *body = t + (cname ? 6 : 2), *equals = strchr(body, '=');
+        if (!equals || s->records >= SERVICE_RECORDS || (size_t)(equals - body) >= sizeof(s->record[0].name)
+            || strlen(equals + 1) >= sizeof(s->record[0].value)) return 0;
+        struct service_record *r = &s->record[s->records];
+        memcpy(r->name, body, (size_t)(equals - body)); r->name[equals - body] = 0;
+        snprintf(r->value, sizeof(r->value), "%s", equals + 1);
+        struct in_addr check;
+        if (!valid_dns_name(r->name) || (cname ? !valid_dns_name(r->value) : inet_pton(AF_INET, r->value, &check) != 1)) return 0;
+        r->cname = cname; s->records++;
+    }
+    return s->dns || s->ntp || s->syslog || s->tftp || s->sync.s_addr;
+}
+/* TFTP (RFC 1350): files of SERVICES_RUN/tftp, 64 KiB at most, plain names; one child per transfer, as tftpd does. */
+#define TFTP_LIMIT 65536
+static int valid_file(const char *name) {
+    size_t length = strlen(name);
+    return length >= 1 && length <= 64 && name[0] != '.' && strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == length;
+}
+static void tftp_error(int fd, int code, const char *text) {
+    unsigned char packet[128] = {0, 5, 0, (unsigned char)code}; size_t length = strlen(text) < 100 ? strlen(text) : 100;
+    memcpy(packet + 4, text, length); packet[4 + length] = 0;
+    (void)send(fd, packet, 5 + length, 0);
+}
+/* Wait for a packet of OPCODE (and block) on a connected socket: its length, or -1 after the retries. */
+static ssize_t tftp_wait(int fd, unsigned char *in, size_t room, int opcode, unsigned block, const unsigned char *resend, size_t resend_size) {
+    for (int attempt = 0; attempt < 5; attempt++) {
+        struct pollfd wait = {fd, POLLIN, 0};
+        while (poll(&wait, 1, 1000) > 0) {
+            ssize_t n = recv(fd, in, room, 0);
+            if (n >= 4 && in[1] == 5) return -1;  /* the peer's ERROR */
+            if (n >= 4 && in[0] == 0 && in[1] == opcode && ((unsigned)in[2] << 8 | in[3]) == (block & 0xffff)) return n;
+        }
+        if (resend && send(fd, resend, resend_size, 0) < 0) return -1;
+    }
+    return -1;
+}
+static void tftp_serve(const unsigned char *request, size_t size, struct sockaddr_in peer) {
+    if (fork() != 0) return;
+    char name[80] = {0}, mode[16] = {0}; size_t at = 2, used = 0;
+    while (at < size && request[at] && used < sizeof(name) - 1) name[used++] = (char)request[at++];
+    at++; used = 0;
+    while (at < size && request[at] && used < sizeof(mode) - 1) mode[used++] = (char)tolower(request[at++]);
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0 || connect(fd, (struct sockaddr *)&peer, sizeof(peer))) _exit(1);
+    if (!valid_file(name) || (strcmp(mode, "octet") && strcmp(mode, "netascii"))) { tftp_error(fd, 2, "Access violation"); _exit(0); }
+    char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/tftp/%.64s", name);
+    unsigned char in[600], out[516];
+    if (request[1] == 1) {  /* RRQ: the file, 512 bytes a block */
+        int file = open(path, O_RDONLY | O_CLOEXEC);
+        if (file < 0) { tftp_error(fd, 1, "File not found"); _exit(0); }
+        for (unsigned block = 1;; block++) {
+            ssize_t n = read(file, out + 4, 512);
+            if (n < 0) { tftp_error(fd, 0, "Read error"); _exit(1); }
+            out[0] = 0; out[1] = 3; out[2] = (unsigned char)(block >> 8); out[3] = (unsigned char)block;
+            if (send(fd, out, (size_t)n + 4, 0) < 0 || tftp_wait(fd, in, sizeof(in), 4, block, out, (size_t)n + 4) < 0) _exit(1);
+            if (n < 512) _exit(0);
+        }
+    }
+    /* WRQ: ACK 0, then the blocks into NAME.part, renamed once complete */
+    char part[320]; snprintf(part, sizeof(part), "%s.part", path);
+    int file = open(part, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (file < 0) { tftp_error(fd, 2, "Access violation"); _exit(0); }
+    unsigned char ack[4] = {0, 4, 0, 0}; size_t total = 0;
+    if (send(fd, ack, 4, 0) < 0) _exit(1);
+    for (unsigned block = 1;; block++) {
+        ssize_t n = tftp_wait(fd, in, sizeof(in), 3, block, ack, 4);
+        if (n < 0) { unlink(part); _exit(1); }
+        total += (size_t)n - 4;
+        if (total > TFTP_LIMIT) { tftp_error(fd, 3, "Disk full or allocation exceeded"); unlink(part); _exit(0); }
+        if (write(file, in + 4, (size_t)n - 4) != n - 4) { tftp_error(fd, 3, "Disk full or allocation exceeded"); unlink(part); _exit(0); }
+        ack[2] = (unsigned char)(block >> 8); ack[3] = (unsigned char)block;
+        if (send(fd, ack, 4, 0) < 0) _exit(1);
+        if (n - 4 < 512) { close(file); rename(part, path); _exit(0); }
+    }
+}
+static double ntp_unix(const unsigned char *p) {  /* an NTP timestamp (seconds since 1900) as Unix seconds */
+    unsigned long seconds = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | p[3];
+    unsigned long fraction = ((unsigned long)p[4] << 24) | ((unsigned long)p[5] << 16) | ((unsigned long)p[6] << 8) | p[7];
+    return (double)seconds - 2208988800.0 + (double)fraction / 4294967296.0;
+}
+static void ntp_stamp(unsigned char *p, double unix_seconds) {
+    double ntp = unix_seconds + 2208988800.0;
+    unsigned long seconds = (unsigned long)ntp, fraction = (unsigned long)((ntp - (double)seconds) * 4294967296.0);
+    for (int i = 0; i < 4; i++) { p[i] = (unsigned char)(seconds >> (24 - 8 * i)); p[4 + i] = (unsigned char)(fraction >> (24 - 8 * i)); }
+}
+static double wall_now(void) { struct timespec t; clock_gettime(CLOCK_REALTIME, &t); return (double)t.tv_sec + (double)t.tv_nsec / 1e9; }
+static int udp_bound(unsigned short port) {
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), on = 1;
+    struct sockaddr_in local = {.sin_family = AF_INET, .sin_port = htons(port), .sin_addr.s_addr = htonl(INADDR_ANY)};
+    if (fd < 0) return -1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    if (bind(fd, (struct sockaddr *)&local, sizeof(local))) { close(fd); return -1; }
+    return fd;
+}
+/* A query name read from a DNS message (labels, no compression in a question), lower case, dotted. */
+static int dns_qname(const unsigned char *m, size_t size, size_t *at, char *out, size_t room) {
+    size_t used = 0;
+    while (*at < size) {
+        unsigned length = m[(*at)++];
+        if (!length) { out[used] = 0; return used > 0; }
+        if (length > 63 || *at + length > size || used + length + 2 > room) return 0;
+        if (used) out[used++] = '.';
+        for (unsigned i = 0; i < length; i++) { char c = (char)m[(*at)++]; out[used++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+    }
+    return 0;
+}
+static size_t dns_put_name(unsigned char *out, size_t used, size_t room, const char *name) {
+    const char *label = name;
+    while (*label) {
+        const char *dot = strchr(label, '.'); size_t length = dot ? (size_t)(dot - label) : strlen(label);
+        if (used + length + 2 > room) return 0;
+        out[used++] = (unsigned char)length; memcpy(out + used, label, length); used += length;
+        label += length + (dot ? 1 : 0);
+    }
+    out[used++] = 0; return used;
+}
+static int same_name(const char *a, const char *b) { return !strcasecmp(a, b); }
+static size_t dns_answer(const struct services *s, const unsigned char *query, size_t size, unsigned char *out, size_t room) {
+    if (size < 17 || (query[2] & 0x80) || (query[2] & 0x78) || query[4] || query[5] != 1) return 0;
+    size_t at = 12; char name[256];
+    if (!dns_qname(query, size, &at, name, sizeof(name)) || at + 4 > size) return 0;
+    unsigned qtype = ((unsigned)query[at] << 8) | query[at + 1], qclass = ((unsigned)query[at + 2] << 8) | query[at + 3];
+    at += 4;
+    memcpy(out, query, at); memset(out + 4, 0, 8); out[5] = 1;
+    out[2] = 0x84 | (query[2] & 0x01); out[3] = 0;  /* response, authoritative, recursion desired copied; no recursion */
+    size_t used = at; int answers = 0, known = 0;
+    char target[256]; snprintf(target, sizeof(target), "%s", name);
+    /* An alias first: its CNAME, then the target's addresses when they are local. */
+    for (int i = 0; i < s->records; i++) if (s->record[i].cname && same_name(s->record[i].name, name)) {
+        known = 1;
+        if (qtype == 5 || qtype == 1 || qtype == 255) {
+            unsigned char head[10] = {0, 5, 0, 1, 0, 0, 0x0e, 0x10, 0, 0};
+            if (used + 12 + 100 > room) break;
+            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
+            size_t start = used; used = dns_put_name(out, used, room, s->record[i].value);
+            if (!used) return 0;
+            out[start - 2] = (unsigned char)((used - start) >> 8); out[start - 1] = (unsigned char)(used - start);
+            answers++;
+        }
+        snprintf(target, sizeof(target), "%s", s->record[i].value);
+        break;
+    }
+    for (int i = 0; i < s->records; i++) if (!s->record[i].cname && same_name(s->record[i].name, target)) {
+        known = 1;
+        if ((qtype == 1 || qtype == 255) && qclass == 1 && used + 16 <= room) {
+            unsigned char head[10] = {0, 1, 0, 1, 0, 0, 0x0e, 0x10, 0, 4};
+            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
+            struct in_addr address; inet_pton(AF_INET, s->record[i].value, &address);
+            memcpy(out + used, &address, 4); used += 4; answers++;
+        }
+    }
+    /* d.c.b.a.in-addr.arpa: the names whose A record holds a.b.c.d. */
+    unsigned a, b, c, d; char tail[32];
+    if (!known && sscanf(name, "%u.%u.%u.%u.%31s", &d, &c, &b, &a, tail) == 5 && !strcmp(tail, "in-addr.arpa") && a < 256 && b < 256 && c < 256 && d < 256) {
+        char address[16]; snprintf(address, sizeof(address), "%u.%u.%u.%u", a, b, c, d);
+        for (int i = 0; i < s->records; i++) if (!s->record[i].cname && !strcmp(s->record[i].value, address)) {
+            known = 1;
+            if (qtype != 12 && qtype != 255) continue;
+            unsigned char head[10] = {0, 12, 0, 1, 0, 0, 0x0e, 0x10, 0, 0};
+            if (used + 12 + 100 > room) break;
+            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
+            size_t start = used; used = dns_put_name(out, used, room, s->record[i].name);
+            if (!used) return 0;
+            out[start - 2] = (unsigned char)((used - start) >> 8); out[start - 1] = (unsigned char)(used - start);
+            answers++;
+        }
+    }
+    if (!known) out[3] = 3;  /* NXDOMAIN */
+    out[6] = (unsigned char)(answers >> 8); out[7] = (unsigned char)answers;
+    return used;
+}
+struct service_counts { unsigned long dns, ntp, syslog, tftp; int synced, sync_stratum; double offset, delay, synced_at; char refid[16]; };
+static char syslog_ring[SYSLOG_KEEP][300]; static int syslog_next, syslog_kept;
+static void services_save(const struct services *s, const struct service_counts *k) {
+    char text[1024]; int n = snprintf(text, sizeof(text), "dns %d records %d queries %lu\nntp %d requests %lu\nsyslog %d messages %lu\ntftp %d transfers %lu\n",
+                                      s->dns, s->records, k->dns, s->ntp, k->ntp, s->syslog, k->syslog, s->tftp, k->tftp);
+    if (s->sync.s_addr) {
+        char server[16]; inet_ntop(AF_INET, &s->sync, server, sizeof(server));
+        n += snprintf(text + n, sizeof(text) - (size_t)n, "sync %s synced %d stratum %d offset %.6f delay %.6f refid %s age %.0f\n", server,
+                      k->synced, k->sync_stratum, k->offset, k->delay, k->refid[0] ? k->refid : "-", k->synced ? wall_now() - k->synced_at : -1.0);
+    }
+    int fd = open(SERVICES_RUN "/services.state.new", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    if (write(fd, text, (size_t)n) == n) { close(fd); rename(SERVICES_RUN "/services.state.new", SERVICES_RUN "/services.state"); } else close(fd);
+}
+static void syslog_keep(const char *source, const unsigned char *data, size_t size) {
+    char message[240]; size_t used = 0;
+    for (size_t i = 0; i < size && used < sizeof(message) - 1; i++) {
+        unsigned char c = data[i];
+        if (c == '\n' || c == '\r' || c == 0) continue;
+        message[used++] = (c < 32 || c > 126) ? '?' : (char)c;
+    }
+    message[used] = 0;
+    snprintf(syslog_ring[syslog_next], sizeof(syslog_ring[0]), "%.0f %s %s", wall_now(), source, message);
+    syslog_next = (syslog_next + 1) % SYSLOG_KEEP; if (syslog_kept < SYSLOG_KEEP) syslog_kept++;
+    int fd = open(SERVICES_RUN "/syslog.log.new", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    for (int i = 0; i < syslog_kept; i++) {
+        const char *line = syslog_ring[(syslog_next - syslog_kept + i + SYSLOG_KEEP) % SYSLOG_KEEP];
+        if (write(fd, line, strlen(line)) < 0 || write(fd, "\n", 1) < 0) break;
+    }
+    close(fd); rename(SERVICES_RUN "/syslog.log.new", SERVICES_RUN "/syslog.log");
+}
+static void ntp_request(int fd, struct in_addr server, double *sent, unsigned char *stamp) {
+    unsigned char packet[48] = {0x23};  /* version 4, mode 3 (client) */
+    *sent = wall_now(); ntp_stamp(packet + 40, *sent); memcpy(stamp, packet + 40, 8);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(123), .sin_addr = server};
+    (void)sendto(fd, packet, sizeof(packet), 0, (struct sockaddr *)&to, sizeof(to));
+}
+static int services(int count, char **tokens) {
+    static struct services s; struct service_counts k; memset(&k, 0, sizeof(k));
+    if (!services_parse(count, tokens, &s)) return 2;
+    struct sigaction caught; memset(&caught, 0, sizeof(caught)); caught.sa_handler = services_caught;
+    sigaction(SIGTERM, &caught, NULL);
+    int dns = s.dns ? udp_bound(53) : -1, ntp = s.ntp ? udp_bound(123) : -1, logs = s.syslog ? udp_bound(514) : -1;
+    int tftp = s.tftp ? udp_bound(69) : -1;
+    if (s.tftp) { mkdir(SERVICES_RUN "/tftp", 0755); signal(SIGCHLD, SIG_IGN); }  /* transfers: children, reaped by the kernel */
+    int client = s.sync.s_addr ? socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0) : -1;
+    if ((s.dns && dns < 0) || (s.ntp && ntp < 0) || (s.syslog && logs < 0) || (s.tftp && tftp < 0)) return 1;
+    unlink(SERVICES_RUN "/syslog.log");
+    double next_poll = wall_now() + 1, sent = 0, last_reply = 0, saved = 0; unsigned char stamp[8] = {0};
+    for (;;) {
+        if (services_signal == SIGTERM) { unlink(SERVICES_RUN "/services.state"); return 0; }
+        double now = wall_now();
+        if (client >= 0 && now >= next_poll) {
+            ntp_request(client, s.sync, &sent, stamp);
+            next_poll = now + (k.synced ? 16 : 4);
+            if (k.synced && now - last_reply > 64) k.synced = 0;
+        }
+        if (now - saved >= 1) { services_save(&s, &k); saved = now; }
+        struct pollfd waits[5] = {{dns, POLLIN, 0}, {ntp, POLLIN, 0}, {logs, POLLIN, 0}, {client, POLLIN, 0}, {tftp, POLLIN, 0}};
+        if (poll(waits, 5, 200) < 0) { if (errno == EINTR) continue; return 1; }
+        unsigned char in[1500], out[1500]; struct sockaddr_in from; socklen_t size = sizeof(from);
+        if (waits[0].revents & POLLIN) {
+            ssize_t n = recvfrom(dns, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
+            size_t length = n > 0 ? dns_answer(&s, in, (size_t)n, out, sizeof(out)) : 0;
+            if (length) { (void)sendto(dns, out, length, 0, (struct sockaddr *)&from, size); k.dns++; }
+        }
+        size = sizeof(from);
+        if (waits[1].revents & POLLIN) {
+            double received = wall_now();
+            ssize_t n = recvfrom(ntp, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
+            if (n >= 48 && (in[0] & 7) == 3) {
+                memset(out, 0, 48);
+                out[0] = (unsigned char)((in[0] & 0x38) | 4); out[1] = (unsigned char)s.ntp; out[2] = in[2]; out[3] = (unsigned char)-20;
+                out[9] = 1;  /* root dispersion: 1/65536 s */
+                if (s.ntp == 1) memcpy(out + 12, "LOCL", 4); else { out[12] = 127; out[13] = 127; out[14] = 1; out[15] = 0; }
+                ntp_stamp(out + 16, received); memcpy(out + 24, in + 40, 8); ntp_stamp(out + 32, received); ntp_stamp(out + 40, wall_now());
+                (void)sendto(ntp, out, 48, 0, (struct sockaddr *)&from, size); k.ntp++;
+            }
+        }
+        size = sizeof(from);
+        if (waits[2].revents & POLLIN) {
+            ssize_t n = recvfrom(logs, in, sizeof(in) - 1, 0, (struct sockaddr *)&from, &size);
+            if (n > 0) { char source[16]; inet_ntop(AF_INET, &from.sin_addr, source, sizeof(source)); syslog_keep(source, in, (size_t)n); k.syslog++; }
+        }
+        size = sizeof(from);
+        if (waits[4].revents & POLLIN) {
+            ssize_t n = recvfrom(tftp, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
+            if (n >= 4 && in[0] == 0 && (in[1] == 1 || in[1] == 2)) { tftp_serve(in, (size_t)n, from); k.tftp++; }
+        }
+        size = sizeof(from);
+        if (waits[3].revents & POLLIN) {
+            double arrived = wall_now();
+            ssize_t n = recvfrom(client, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
+            if (n >= 48 && from.sin_addr.s_addr == s.sync.s_addr && (in[0] & 7) == 4 && in[1] >= 1 && in[1] <= 15
+                && !memcmp(in + 24, stamp, 8)) {
+                double t1 = sent, t2 = ntp_unix(in + 32), t3 = ntp_unix(in + 40), t4 = arrived;
+                k.offset = ((t2 - t1) + (t3 - t4)) / 2; k.delay = (t4 - t1) - (t3 - t2); k.sync_stratum = in[1];
+                if (in[1] == 1) snprintf(k.refid, sizeof(k.refid), "%.4s", (const char *)in + 12);
+                else inet_ntop(AF_INET, in + 12, k.refid, sizeof(k.refid));
+                k.synced = 1; k.synced_at = last_reply = arrived; next_poll = arrived + 16;
+            }
+        }
+    }
+}
+/* One DNS query from this guest (A, or PTR for an address), as nslookup asks: "A a.b.c.d" / "CNAME name" / "PTR name"
+ * lines, or code 1 with "NXDOMAIN", "SERVFAIL"... or "timeout". */
+static void resolve(int output, const char *server_text, const char *name) {
+    struct in_addr server, as_address; char qname[128];
+    if (inet_pton(AF_INET, name, &as_address) == 1) {
+        unsigned char *o = (unsigned char *)&as_address;
+        snprintf(qname, sizeof(qname), "%u.%u.%u.%u.in-addr.arpa", o[3], o[2], o[1], o[0]);
+    } else snprintf(qname, sizeof(qname), "%s", name);
+    if (inet_pton(AF_INET, server_text, &server) != 1 || !valid_dns_name(qname)) { reply(output, 2, "invalid resolve", 15); return; }
+    int ptr = strstr(qname, ".in-addr.arpa") != NULL;
+    unsigned char query[300] = {0}; unsigned short id = (unsigned short)(getpid() ^ (int)(wall_now() * 1000));
+    query[0] = (unsigned char)(id >> 8); query[1] = (unsigned char)id; query[2] = 1; query[5] = 1;
+    size_t used = dns_put_name(query, 12, sizeof(query) - 4, qname);
+    query[used++] = 0; query[used++] = ptr ? 12 : 1; query[used++] = 0; query[used++] = 1;
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(53), .sin_addr = server};
+    if (fd < 0 || connect(fd, (struct sockaddr *)&to, sizeof(to))) { if (fd >= 0) close(fd); reply(output, 1, "unreachable", 11); return; }
+    unsigned char answer[1500]; ssize_t n = -1;
+    for (int attempt = 0; attempt < 2 && n < 12; attempt++) {
+        if (send(fd, query, used, 0) < 0) break;
+        struct pollfd wait = {fd, POLLIN, 0};
+        while (poll(&wait, 1, 1500) > 0) {
+            n = recv(fd, answer, sizeof(answer), 0);
+            if (n >= 12 && answer[0] == query[0] && answer[1] == query[1]) break;
+            n = -1;
+        }
+    }
+    close(fd);
+    if (n < 12) { reply(output, 1, "timeout", 7); return; }
+    int rcode = answer[3] & 15;
+    if (rcode) { const char *names[] = {"NOERROR", "FORMERR", "SERVFAIL", "NXDOMAIN", "NOTIMP", "REFUSED"};
+        const char *text = rcode < 6 ? names[rcode] : "ERROR"; reply(output, 1, text, strlen(text)); return; }
+    size_t at = 12; char skip[256];
+    for (int q = 0; q < ((answer[4] << 8) | answer[5]); q++) { if (!dns_qname(answer, (size_t)n, &at, skip, sizeof(skip))) { reply(output, 1, "FORMERR", 7); return; } at += 4; }
+    char text[2048]; size_t length = 0; int count = (answer[6] << 8) | answer[7];
+    for (int i = 0; i < count && at + 12 <= (size_t)n; i++) {
+        if ((answer[at] & 0xc0) == 0xc0) at += 2; else if (!dns_qname(answer, (size_t)n, &at, skip, sizeof(skip))) break;
+        if (at + 10 > (size_t)n) break;
+        unsigned type = ((unsigned)answer[at] << 8) | answer[at + 1], rdlength = ((unsigned)answer[at + 8] << 8) | answer[at + 9];
+        at += 10;
+        if (at + rdlength > (size_t)n) break;
+        if (type == 1 && rdlength == 4) {
+            char address[16]; inet_ntop(AF_INET, answer + at, address, sizeof(address));
+            length += (size_t)snprintf(text + length, sizeof(text) - length, "A %s\n", address);
+        } else if (type == 5 || type == 12) {
+            size_t inner = at; char target[256] = {0}, part[256];
+            /* a name in the record data: labels, possibly ending with a pointer into the message */
+            size_t used_name = 0;
+            for (int guard = 0; guard < 32 && inner < (size_t)n; guard++) {
+                unsigned label = answer[inner];
+                if (!label) break;
+                if ((label & 0xc0) == 0xc0) { inner = ((label & 0x3f) << 8) | answer[inner + 1]; continue; }
+                if (label > 63 || inner + 1 + label > (size_t)n || used_name + label + 2 >= sizeof(target)) break;
+                memcpy(part, answer + inner + 1, label); part[label] = 0;
+                used_name += (size_t)snprintf(target + used_name, sizeof(target) - used_name, "%s%s", used_name ? "." : "", part);
+                inner += 1 + label;
+            }
+            length += (size_t)snprintf(text + length, sizeof(text) - length, "%s %s\n", type == 5 ? "CNAME" : "PTR", target);
+        }
+        at += rdlength;
+        if (length > sizeof(text) - 300) break;
+    }
+    if (!length) { reply(output, 1, "NODATA", 6); return; }
+    reply(output, 0, text, length);
+}
+/* One SNTP exchange with a server: "stratum N offset S delay S refid R". */
+static void ntp_query(int output, const char *server_text) {
+    struct in_addr server;
+    if (inet_pton(AF_INET, server_text, &server) != 1) { reply(output, 2, "invalid ntp query", 17); return; }
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(123), .sin_addr = server};
+    if (fd < 0 || connect(fd, (struct sockaddr *)&to, sizeof(to))) { if (fd >= 0) close(fd); reply(output, 1, "unreachable", 11); return; }
+    unsigned char in[128]; double sent = 0; ssize_t n = -1; double arrived = 0;
+    for (int attempt = 0; attempt < 2 && n < 48; attempt++) {
+        unsigned char packet[48] = {0x23}; sent = wall_now(); ntp_stamp(packet + 40, sent);
+        if (send(fd, packet, sizeof(packet), 0) < 0) break;
+        struct pollfd wait = {fd, POLLIN, 0};
+        if (poll(&wait, 1, 1500) > 0) { n = recv(fd, in, sizeof(in), 0); arrived = wall_now(); }
+    }
+    close(fd);
+    if (n < 48 || (in[0] & 7) != 4) { reply(output, 1, "timeout", 7); return; }
+    double t2 = ntp_unix(in + 32), t3 = ntp_unix(in + 40);
+    char refid[16]; if (in[1] == 1) snprintf(refid, sizeof(refid), "%.4s", (const char *)in + 12); else inet_ntop(AF_INET, in + 12, refid, sizeof(refid));
+    char text[160]; int length = snprintf(text, sizeof(text), "stratum %u offset %.6f delay %.6f refid %s\n", in[1],
+                                          ((t2 - sent) + (t3 - arrived)) / 2, (arrived - sent) - (t3 - t2), refid);
+    reply(output, 0, text, (size_t)length);
+}
+static int hex_bytes(const char *hex, unsigned char *out, size_t room) {  /* length, or -1 */
+    size_t length = strlen(hex);
+    if (length % 2 || length / 2 > room) return -1;
+    for (size_t i = 0; i < length / 2; i++) {
+        unsigned value; if (sscanf(hex + 2 * i, "%2x", &value) != 1 || !strchr("0123456789abcdefABCDEF", hex[2 * i + 1])) return -1;
+        out[i] = (unsigned char)value;
+    }
+    return (int)(length / 2);
+}
+/* One syslog datagram from this guest to a collector (the text, with its <PRI>, made by the router's CLI). */
+static void syslog_send(int output, const char *server_text, const char *hex) {
+    struct in_addr server; unsigned char message[1024]; int length = hex_bytes(hex, message, sizeof(message));
+    if (inet_pton(AF_INET, server_text, &server) != 1 || length < 4 || message[0] != '<') { reply(output, 2, "invalid syslog", 14); return; }
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(514), .sin_addr = server};
+    ssize_t n = fd < 0 ? -1 : sendto(fd, message, (size_t)length, 0, (struct sockaddr *)&to, sizeof(to));
+    if (fd >= 0) close(fd);
+    if (n != length) { reply(output, 1, "send failed", 11); return; }
+    reply(output, 0, "", 0);
+}
+/* An HTTP/1.0 GET from this guest, as a browser would: the status line, the headers and up to 24 KiB of body. */
+static void http_get(int output, const char *server_text, const char *port_text, const char *path) {
+    struct in_addr server;
+    if (inet_pton(AF_INET, server_text, &server) != 1 || !valid_port_number(port_text) || path[0] != '/' || strlen(path) > 100
+        || strspn(path, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-") != strlen(path) || strstr(path, "..")) {
+        reply(output, 2, "invalid http get", 16); return;
+    }
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons((unsigned short)atoi(port_text)), .sin_addr = server};
+    if (fd < 0) { reply(output, 3, "socket failed", 13); return; }
+    if (connect(fd, (struct sockaddr *)&to, sizeof(to)) && errno != EINPROGRESS) { close(fd); reply(output, 1, "connection refused", 18); return; }
+    struct pollfd wait = {fd, POLLOUT, 0}; int problem = 0; socklen_t size = sizeof(problem);
+    if (poll(&wait, 1, 2500) <= 0) { close(fd); reply(output, 1, "timeout", 7); return; }
+    getsockopt(fd, SOL_SOCKET, SO_ERROR, &problem, &size);
+    if (problem) { close(fd); const char *text = problem == ECONNREFUSED ? "connection refused" : "unreachable"; reply(output, 1, text, strlen(text)); return; }
+    char request[256]; int length = snprintf(request, sizeof(request), "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: Network-LABS\r\n\r\n", path, server_text);
+    if (send_all(fd, request, (size_t)length)) { close(fd); reply(output, 1, "send failed", 11); return; }
+    static char body[24576]; size_t used = 0;
+    while (used < sizeof(body)) {
+        struct pollfd more = {fd, POLLIN, 0};
+        if (poll(&more, 1, 2500) <= 0) break;
+        ssize_t n = read(fd, body + used, sizeof(body) - used);
+        if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        if (n <= 0) break;
+        used += (size_t)n;
+    }
+    close(fd);
+    if (!used) { reply(output, 1, "empty reply", 11); return; }
+    reply(output, 0, body, used);
+}
+/* TFTP client: put a staged file (SERVICES_RUN/out/NAME) to a server, or get one (its content as the reply). */
+static int tftp_client(const char *server_text, int write_mode, const char *name, char *reply_text, size_t *reply_size, size_t room) {
+    struct in_addr server;
+    if (inet_pton(AF_INET, server_text, &server) != 1 || !valid_file(name)) return 2;
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(69), .sin_addr = server}, from; socklen_t size = sizeof(from);
+    if (fd < 0) return 3;
+    unsigned char request[100] = {0, (unsigned char)(write_mode ? 2 : 1)}; size_t length = 2;
+    length += (size_t)snprintf((char *)request + 2, sizeof(request) - 2, "%s", name) + 1;
+    length += (size_t)snprintf((char *)request + length, sizeof(request) - length, "octet") + 1;
+    unsigned char in[600], out[516]; int file = -1; *reply_size = 0;
+    if (write_mode) {
+        char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/out/%.64s", name);
+        if ((file = open(path, O_RDONLY | O_CLOEXEC)) < 0) { close(fd); return 2; }
+    }
+    /* the first answer comes from the server's transfer port: connect to it */
+    ssize_t n = -1;
+    for (int attempt = 0; attempt < 3 && n < 4; attempt++) {
+        if (sendto(fd, request, length, 0, (struct sockaddr *)&to, sizeof(to)) < 0) break;
+        struct pollfd wait = {fd, POLLIN, 0};
+        if (poll(&wait, 1, 1000) > 0) n = recvfrom(fd, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
+    }
+    if (n < 4 || from.sin_addr.s_addr != server.s_addr || connect(fd, (struct sockaddr *)&from, sizeof(from))) {
+        if (file >= 0) close(file);
+        close(fd); *reply_size = (size_t)snprintf(reply_text, room, "Timed out"); return 1;
+    }
+    if (in[1] == 5) {
+        if (file >= 0) close(file);
+        close(fd); *reply_size = (size_t)snprintf(reply_text, room, "%.*s", (int)(n > 4 ? n - 5 : 0), (char *)in + 4); return 1;
+    }
+    if (write_mode) {  /* got ACK 0: send the blocks */
+        if (in[1] != 4 || in[2] || in[3]) { close(file); close(fd); *reply_size = (size_t)snprintf(reply_text, room, "Illegal TFTP operation"); return 1; }
+        size_t total = 0;
+        for (unsigned block = 1;; block++) {
+            ssize_t got = read(file, out + 4, 512);
+            if (got < 0) break;
+            out[0] = 0; out[1] = 3; out[2] = (unsigned char)(block >> 8); out[3] = (unsigned char)block;
+            if (send(fd, out, (size_t)got + 4, 0) < 0 || tftp_wait(fd, in, sizeof(in), 4, block, out, (size_t)got + 4) < 0) {
+                close(file); close(fd); *reply_size = (size_t)snprintf(reply_text, room, "Timed out"); return 1;
+            }
+            total += (size_t)got;
+            if (got < 512) break;
+        }
+        close(file); close(fd);
+        *reply_size = (size_t)snprintf(reply_text, room, "%zu", total); return 0;
+    }
+    for (unsigned block = 1;; block++) {  /* RRQ: the first DATA is in hand */
+        if (block > 1 && (n = tftp_wait(fd, in, sizeof(in), 3, block, out, 4)) < 0) {
+            close(fd); *reply_size = (size_t)snprintf(reply_text, room, "Timed out"); return 1;
+        }
+        if (in[1] != 3 || ((unsigned)in[2] << 8 | in[3]) != (block & 0xffff)) { close(fd); *reply_size = (size_t)snprintf(reply_text, room, "Illegal TFTP operation"); return 1; }
+        size_t got = (size_t)n - 4;
+        if (*reply_size + got > room) { tftp_error(fd, 3, "Disk full or allocation exceeded"); close(fd); *reply_size = (size_t)snprintf(reply_text, room, "File too large"); return 1; }
+        memcpy(reply_text + *reply_size, in + 4, got); *reply_size += got;
+        out[0] = 0; out[1] = 4; out[2] = in[2]; out[3] = in[3];
+        if (send(fd, out, 4, 0) < 0) break;
+        if (got < 512) break;
+    }
+    close(fd); return 0;
+}
+static int valid_page(const char *name) {  /* a page of the web server: name.html, .htm, .txt or .css */
+    size_t length = strlen(name); const char *dot = strrchr(name, '.');
+    if (!length || length > 40 || !dot || dot == name || strspn(name, "abcdefghijklmnopqrstuvwxyz0123456789_.-") != length || strchr(name, '.') != dot) return 0;
+    return !strcmp(dot, ".html") || !strcmp(dot, ".htm") || !strcmp(dot, ".txt") || !strcmp(dot, ".css");
+}
 static void serve(int input, int output, int mutations) {
     char request[4096]; size_t used = 0;
     alarm(5); /* Includes partial requests, child execution and slow readers. */
@@ -1658,6 +2181,143 @@ static void serve(int input, int output, int mutations) {
     char *const *args = lease_args;
     char *const ping[] = {"busybox", "ping", "-c", "1", "-W", "1", request + 9, NULL};
     struct in_addr destination;
+    /* Server services (--services: DNS, NTP, Syslog collector, NTP client), the web server (BusyBox httpd on /run/www) and
+     * the clients a PC or a router uses toward them (a DNS query, an SNTP exchange, a syslog datagram, an HTTP GET). */
+    if (mutations && !strncmp(request, "NL1 SERVICES_START ", 19)) {
+        static char copy[4096]; char *specs[SERVICE_RECORDS + 12]; int count = 0; static struct services check;
+        snprintf(copy, sizeof(copy), "%s", request + 19);
+        specs[count++] = "network-labs-agent"; specs[count++] = "--services";
+        for (char *item = strtok(copy, " "); item; item = strtok(NULL, " ")) {
+            if (count >= SERVICE_RECORDS + 10) { reply(output, 2, "invalid services", 16); return; }
+            specs[count++] = item;
+        }
+        specs[count] = NULL;
+        if (!services_parse(count - 2, specs + 2, &check)) { reply(output, 2, "invalid services", 16); return; }
+        pid_t running = pidfile_alive(SERVICES_RUN "/services.pid");
+        if (running) {
+            kill(running, SIGTERM);
+            for (int t = 0; t < 40 && kill(running, 0) == 0; t++) { struct timespec pause = {0, 50000000}; nanosleep(&pause, NULL); }
+        }
+        unlink(SERVICES_RUN "/services.state");
+        if (spawn_detached_pid(AGENT_PROGRAM, specs, SERVICES_RUN "/services.pid")) { reply(output, 3, "services start failed", 21); return; }
+        for (int t = 0; t < 40 && access(SERVICES_RUN "/services.state", F_OK); t++) { struct timespec pause = {0, 50000000}; nanosleep(&pause, NULL); }
+        if (access(SERVICES_RUN "/services.state", F_OK)) { reply(output, 1, "services did not start (port in use?)", 37); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 SERVICES_STOP")) {
+        pid_t running = pidfile_alive(SERVICES_RUN "/services.pid");
+        if (running) {
+            kill(running, SIGTERM);
+            for (int t = 0; t < 40 && kill(running, 0) == 0; t++) { struct timespec pause = {0, 50000000}; nanosleep(&pause, NULL); }
+        }
+        unlink(SERVICES_RUN "/services.pid"); unlink(SERVICES_RUN "/services.state");
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 SERVICES_SHOW") || !strcmp(request, "NL1 SYSLOG_READ")) {
+        static char listing[LIMIT]; size_t used = 0;
+        int fd = open(request[4] == 'S' && request[5] == 'E' ? SERVICES_RUN "/services.state" : SERVICES_RUN "/syslog.log", O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) { ssize_t n = read(fd, listing, sizeof(listing) - 1); close(fd); if (n > 0) used = (size_t)n; }
+        if (pidfile_alive(SERVICES_RUN "/httpd.pid") && request[5] == 'E') used += (size_t)snprintf(listing + used, sizeof(listing) - used, "http 1\n");
+        reply(output, 0, listing, used); return;
+    }
+    char service_a[128], service_b[2100], service_c[128], service_extra;
+    if (sscanf(request, "NL1 RESOLVE %15s %127s %c", service_a, service_b, &service_extra) == 2) { resolve(output, service_a, service_b); return; }
+    if (sscanf(request, "NL1 NTP_QUERY %15s %c", service_a, &service_extra) == 1) { ntp_query(output, service_a); return; }
+    if (sscanf(request, "NL1 SYSLOG_SEND %15s %2048s %c", service_a, service_b, &service_extra) == 2) { syslog_send(output, service_a, service_b); return; }
+    if (sscanf(request, "NL1 HTTP_GET %15s %5s %100s %c", service_a, service_c, service_b, &service_extra) == 3) {
+        http_get(output, service_a, service_c, service_b); return;
+    }
+    char file_area[8], file_name[80];
+    if (mutations && sscanf(request, "NL1 FILE_PUT %7s %79s %2048s %c", file_area, file_name, service_b, &service_extra) == 3) {
+        /* a file staged for TFTP: « out » (what this device sends) or « tftp » (what its TFTP server holds); appended */
+        static unsigned char content[1024]; int length = hex_bytes(service_b, content, sizeof(content));
+        if ((strcmp(file_area, "out") && strcmp(file_area, "tftp")) || !valid_file(file_name) || length < 0) { reply(output, 2, "invalid file", 12); return; }
+        char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/%.7s", file_area); mkdir(path, 0755);
+        snprintf(path, sizeof(path), SERVICES_RUN "/%.7s/%.64s", file_area, file_name);
+        struct stat before;
+        if (!stat(path, &before) && before.st_size + length > TFTP_LIMIT) { reply(output, 1, "file too large", 14); return; }
+        int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        if (fd < 0 || (length && write(fd, content, (size_t)length) != length)) { if (fd >= 0) close(fd); reply(output, 1, "file write failed", 17); return; }
+        close(fd); reply(output, 0, "", 0); return;
+    }
+    if (mutations && sscanf(request, "NL1 FILE_DEL %7s %79s %c", file_area, file_name, &service_extra) == 2) {
+        if ((strcmp(file_area, "out") && strcmp(file_area, "tftp")) || !valid_file(file_name)) { reply(output, 2, "invalid file", 12); return; }
+        char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/%.7s/%.64s", file_area, file_name);
+        if (unlink(path) && errno != ENOENT) { reply(output, 1, "file delete failed", 18); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 TFTP_FILES")) {  /* "NAME SIZE" lines: what the TFTP server holds */
+        static char listing[4096]; size_t used = 0;
+        DIR *folder = opendir(SERVICES_RUN "/tftp"); struct dirent *entry;
+        while (folder && (entry = readdir(folder)) && used < sizeof(listing) - 100) {
+            if (!valid_file(entry->d_name) || strstr(entry->d_name, ".part")) continue;
+            char path[300]; struct stat info; snprintf(path, sizeof(path), SERVICES_RUN "/tftp/%.200s", entry->d_name);
+            if (!stat(path, &info)) used += (size_t)snprintf(listing + used, sizeof(listing) - used, "%s %ld\n", entry->d_name, (long)info.st_size);
+        }
+        if (folder) closedir(folder);
+        reply(output, 0, listing, used); return;
+    }
+    if (sscanf(request, "NL1 TFTP_READ %79s %c", file_name, &service_extra) == 1) {
+        if (!valid_file(file_name)) { reply(output, 2, "invalid file", 12); return; }
+        static char content[TFTP_LIMIT]; char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/tftp/%.64s", file_name);
+        int fd = open(path, O_RDONLY | O_CLOEXEC); ssize_t n = fd < 0 ? -1 : read(fd, content, sizeof(content));
+        if (fd >= 0) close(fd);
+        if (n < 0) { reply(output, 1, "no such file", 12); return; }
+        reply(output, 0, content, n > 32768 ? 32768 : (size_t)n); return;
+    }
+    int tftp_put = !strncmp(request, "NL1 TFTP_PUT ", 13);
+    if ((tftp_put || !strncmp(request, "NL1 TFTP_GET ", 13)) && sscanf(request + 13, "%15s %79s %c", service_a, file_name, &service_extra) == 2) {
+        static char received[32768]; size_t length = 0;
+        int code = tftp_client(service_a, tftp_put, file_name, received, &length, sizeof(received));
+        if (code == 2) { reply(output, 2, "invalid tftp transfer", 21); return; }
+        reply(output, code, received, length); return;
+    }
+    if (mutations && !strcmp(request, "NL1 HTTP_START")) {
+        mkdir(SERVICES_RUN "/www", 0755);
+        if (!pidfile_alive(SERVICES_RUN "/httpd.pid")) {
+            char *const httpd[] = {"busybox", "httpd", "-f", "-p", "80", "-h", SERVICES_RUN "/www", NULL};
+            if (spawn_detached_pid("/bin/busybox", httpd, SERVICES_RUN "/httpd.pid")) { reply(output, 3, "http start failed", 17); return; }
+        }
+        reply(output, 0, "", 0); return;
+    }
+    if (mutations && !strcmp(request, "NL1 HTTP_STOP")) {
+        pid_t running = pidfile_alive(SERVICES_RUN "/httpd.pid");
+        if (running) {
+            kill(running, SIGTERM);
+            for (int t = 0; t < 40 && kill(running, 0) == 0; t++) { struct timespec pause = {0, 50000000}; nanosleep(&pause, NULL); }
+        }
+        unlink(SERVICES_RUN "/httpd.pid");
+        reply(output, 0, "", 0); return;
+    }
+    int page_append = !strncmp(request, "NL1 HTTP_PAGE_ADD ", 18);
+    if (mutations && (page_append || !strncmp(request, "NL1 HTTP_PAGE ", 14)) && sscanf(request + (page_append ? 18 : 14), "%40s %2048s %c", service_c, service_b, &service_extra) == 2) {
+        static unsigned char content[1024]; int length = hex_bytes(service_b, content, sizeof(content));
+        if (!valid_page(service_c) || length < 0) { reply(output, 2, "invalid page", 12); return; }
+        char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/www/%.40s", service_c);
+        mkdir(SERVICES_RUN "/www", 0755);
+        struct stat before;
+        if (page_append && !stat(path, &before) && before.st_size + length > 65536) { reply(output, 1, "page too large", 14); return; }
+        int fd = open(path, O_WRONLY | O_CREAT | O_CLOEXEC | (page_append ? O_APPEND : O_TRUNC), 0644);
+        if (fd < 0 || (length && write(fd, content, (size_t)length) != length)) { if (fd >= 0) close(fd); reply(output, 1, "page write failed", 17); return; }
+        close(fd); reply(output, 0, "", 0); return;
+    }
+    if (mutations && sscanf(request, "NL1 HTTP_PAGE_DEL %40s %c", service_c, &service_extra) == 1) {
+        if (!valid_page(service_c)) { reply(output, 2, "invalid page", 12); return; }
+        char path[300]; snprintf(path, sizeof(path), SERVICES_RUN "/www/%.40s", service_c);
+        if (unlink(path) && errno != ENOENT) { reply(output, 1, "page delete failed", 18); return; }
+        reply(output, 0, "", 0); return;
+    }
+    if (!strcmp(request, "NL1 HTTP_PAGES")) {  /* "NAME SIZE" lines */
+        static char listing[4096]; size_t used = 0;
+        DIR *folder = opendir(SERVICES_RUN "/www"); struct dirent *entry;
+        while (folder && (entry = readdir(folder)) && used < sizeof(listing) - 80) {
+            if (!valid_page(entry->d_name)) continue;
+            char path[300]; struct stat info; snprintf(path, sizeof(path), SERVICES_RUN "/www/%.200s", entry->d_name);
+            if (!stat(path, &info)) used += (size_t)snprintf(listing + used, sizeof(listing) - used, "%s %ld\n", entry->d_name, (long)info.st_size);
+        }
+        if (folder) closedir(folder);
+        reply(output, 0, listing, used); return;
+    }
     if (!strncmp(request, "NL1 PING ", 9) && inet_pton(AF_INET, request + 9, &destination) == 1)
         args = ping;
     if (!strcmp(request, "NL1 ADDRESSES")) args = addresses;
@@ -1929,6 +2589,7 @@ int main(int argc, char **argv) {
     if (argc == 4 && !strcmp(argv[1], "--dhcp-relay")) return dhcp_relay(argv[2], argv[3]);
     if (argc >= 3 && !strcmp(argv[1], "--port-guard")) return port_guard(argc - 2, argv + 2);
     if (argc >= 3 && !strcmp(argv[1], "--hsrp")) return hsrp(argc - 2, argv + 2);
+    if (argc >= 3 && !strcmp(argv[1], "--services")) return services(argc - 2, argv + 2);
     if (argc != 1) return 2;
     int server = socket(AF_VSOCK, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_vm address = {.svm_family=AF_VSOCK, .svm_cid=VMADDR_CID_ANY, .svm_port=19001};
