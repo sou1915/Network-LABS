@@ -1,10 +1,16 @@
-/* Network LABS guest agent: the --services mode: DNS, NTP, Syslog and TFTP servers, and the NTP client.
- * Part of agent.c, which includes it: the agent is one compilation unit. */
-/* Server services of a host or router guest (one --services daemon): an authoritative DNS server for the lab's own
- * names (A and CNAME records, PTR from the A records), an NTP server (SNTP replies at a given stratum, as IOS « ntp
- * master » or a server's NTP service), a Syslog collector (UDP 514, the last messages kept), and an NTP client that
- * keeps the offset to one server (IOS « ntp server »). The guest clock is never set: the guest already runs the host's
- * time; the client measures and reports the association. State in /run/services.state, messages in /run/syslog.log. */
+/* Network LABS guest agent: the --services mode: DNS by dnsmasq, NTP by chrony, and the Syslog collector and TFTP server
+ * the agent keeps itself. Part of agent.c, which includes it: the agent is one compilation unit. */
+/* Server services of a host or router guest, one --services process (this agent) for all of them:
+ * - DNS: dnsmasq, an authoritative server for the lab's own names (A and CNAME records, PTR from the A records; any
+ *   other name NXDOMAIN, no upstream server); the agent counts the queries dnsmasq logs.
+ * - NTP: chrony. « ntp master N » or a server's NTP service: its local reference at stratum N; « ntp server A.B.C.D »:
+ *   chrony keeps the association, read back with chronyc. The guest clock is never set (chronyd -x): the guest already
+ *   runs the host's time; the association is measured and reported, as IOS's « show ntp » shows it.
+ * - Syslog: the agent's collector (UDP 514, the last messages kept): it parses nothing, it keeps the printable text.
+ * - TFTP: the agent's server (RFC 1350, reads and writes of plain names, 64 KiB at most): the standard servers either
+ *   take no writes (dnsmasq) or come as a service of the host machine (tftpd-hpa), and the lab copies configurations up.
+ * State in SERVICES_RUN/services.state, messages in SERVICES_RUN/syslog.log, dnsmasq's configuration beside them and
+ * chrony's files in SERVICES_RUN/chrony (chronyd wants its command socket's folder private). */
 #ifndef SERVICES_RUN
 #define SERVICES_RUN "/run"  /* tests build the agent with their own folder */
 #endif
@@ -135,7 +141,6 @@ static void ntp_stamp(unsigned char *p, double unix_seconds) {
     unsigned long seconds = (unsigned long)ntp, fraction = (unsigned long)((ntp - (double)seconds) * 4294967296.0);
     for (int i = 0; i < 4; i++) { p[i] = (unsigned char)(seconds >> (24 - 8 * i)); p[4 + i] = (unsigned char)(fraction >> (24 - 8 * i)); }
 }
-static double wall_now(void) { struct timespec t; clock_gettime(CLOCK_REALTIME, &t); return (double)t.tv_sec + (double)t.tv_nsec / 1e9; }
 static int udp_bound(unsigned short port) {
     int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0), on = 1;
     struct sockaddr_in local = {.sin_family = AF_INET, .sin_port = htons(port), .sin_addr.s_addr = htonl(INADDR_ANY)};
@@ -165,61 +170,6 @@ static size_t dns_put_name(unsigned char *out, size_t used, size_t room, const c
         label += length + (dot ? 1 : 0);
     }
     out[used++] = 0; return used;
-}
-static int same_name(const char *a, const char *b) { return !strcasecmp(a, b); }
-static size_t dns_answer(const struct services *s, const unsigned char *query, size_t size, unsigned char *out, size_t room) {
-    if (size < 17 || (query[2] & 0x80) || (query[2] & 0x78) || query[4] || query[5] != 1) return 0;
-    size_t at = 12; char name[256];
-    if (!dns_qname(query, size, &at, name, sizeof(name)) || at + 4 > size) return 0;
-    unsigned qtype = ((unsigned)query[at] << 8) | query[at + 1], qclass = ((unsigned)query[at + 2] << 8) | query[at + 3];
-    at += 4;
-    memcpy(out, query, at); memset(out + 4, 0, 8); out[5] = 1;
-    out[2] = 0x84 | (query[2] & 0x01); out[3] = 0;  /* response, authoritative, recursion desired copied; no recursion */
-    size_t used = at; int answers = 0, known = 0;
-    char target[256]; snprintf(target, sizeof(target), "%s", name);
-    /* An alias first: its CNAME, then the target's addresses when they are local. */
-    for (int i = 0; i < s->records; i++) if (s->record[i].cname && same_name(s->record[i].name, name)) {
-        known = 1;
-        if (qtype == 5 || qtype == 1 || qtype == 255) {
-            unsigned char head[10] = {0, 5, 0, 1, 0, 0, 0x0e, 0x10, 0, 0};
-            if (used + 12 + 100 > room) break;
-            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
-            size_t start = used; used = dns_put_name(out, used, room, s->record[i].value);
-            if (!used) return 0;
-            out[start - 2] = (unsigned char)((used - start) >> 8); out[start - 1] = (unsigned char)(used - start);
-            answers++;
-        }
-        snprintf(target, sizeof(target), "%s", s->record[i].value);
-        break;
-    }
-    for (int i = 0; i < s->records; i++) if (!s->record[i].cname && same_name(s->record[i].name, target)) {
-        known = 1;
-        if ((qtype == 1 || qtype == 255) && qclass == 1 && used + 16 <= room) {
-            unsigned char head[10] = {0, 1, 0, 1, 0, 0, 0x0e, 0x10, 0, 4};
-            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
-            struct in_addr address; inet_pton(AF_INET, s->record[i].value, &address);
-            memcpy(out + used, &address, 4); used += 4; answers++;
-        }
-    }
-    /* d.c.b.a.in-addr.arpa: the names whose A record holds a.b.c.d. */
-    unsigned a, b, c, d; char tail[32];
-    if (!known && sscanf(name, "%u.%u.%u.%u.%31s", &d, &c, &b, &a, tail) == 5 && !strcmp(tail, "in-addr.arpa") && a < 256 && b < 256 && c < 256 && d < 256) {
-        char address[16]; snprintf(address, sizeof(address), "%u.%u.%u.%u", a, b, c, d);
-        for (int i = 0; i < s->records; i++) if (!s->record[i].cname && !strcmp(s->record[i].value, address)) {
-            known = 1;
-            if (qtype != 12 && qtype != 255) continue;
-            unsigned char head[10] = {0, 12, 0, 1, 0, 0, 0x0e, 0x10, 0, 0};
-            if (used + 12 + 100 > room) break;
-            out[used++] = 0xc0; out[used++] = 12; memcpy(out + used, head, 10); used += 10;
-            size_t start = used; used = dns_put_name(out, used, room, s->record[i].name);
-            if (!used) return 0;
-            out[start - 2] = (unsigned char)((used - start) >> 8); out[start - 1] = (unsigned char)(used - start);
-            answers++;
-        }
-    }
-    if (!known) out[3] = 3;  /* NXDOMAIN */
-    out[6] = (unsigned char)(answers >> 8); out[7] = (unsigned char)answers;
-    return used;
 }
 struct service_counts { unsigned long dns, ntp, syslog, tftp; int synced, sync_stratum; double offset, delay, synced_at; char refid[16]; };
 static char syslog_ring[SYSLOG_KEEP][300]; static int syslog_next, syslog_kept;
@@ -253,75 +203,287 @@ static void syslog_keep(const char *source, const unsigned char *data, size_t si
     }
     close(fd); rename(SERVICES_RUN "/syslog.log.new", SERVICES_RUN "/syslog.log");
 }
-static void ntp_request(int fd, struct in_addr server, double *sent, unsigned char *stamp) {
-    unsigned char packet[48] = {0x23};  /* version 4, mode 3 (client) */
-    *sent = wall_now(); ntp_stamp(packet + 40, *sent); memcpy(stamp, packet + 40, 8);
-    struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(123), .sin_addr = server};
-    (void)sendto(fd, packet, sizeof(packet), 0, (struct sockaddr *)&to, sizeof(to));
+/* dnsmasq's configuration for the DNS service: the lab's names only, answered with authority; any other name NXDOMAIN
+ * (local=/#/: no upstream server); every query logged to standard error, where the agent counts them. The names and
+ * addresses were checked by services_parse (valid_dns_name, inet_pton): nothing else reaches the file. */
+static void dnsmasq_config(const struct services *s, char *out, size_t room) {
+    size_t used = (size_t)snprintf(out, room, "port=53\nno-resolv\nno-hosts\nno-poll\nlocal=/#/\nlog-queries\nlog-facility=-\n"
+                                   "user=root\ngroup=root\npid-file=\n");
+    for (int i = 0; i < s->records && used < room; i++) {
+        const struct service_record *r = &s->record[i];
+        used += (size_t)snprintf(out + used, room - used, "%s=%s,%s\n", r->cname ? "cname" : "host-record", r->name, r->value);
+    }
+}
+/* The lines dnsmasq wrote on FD (non-blocking): its queries counted into QUERIES, STARTED set once it says so. 0 at the
+ * end of its output (dnsmasq has ended), else 1. */
+static int dnsmasq_read(int fd, unsigned long *queries, int *started) {
+    static char line[512];
+    static size_t used;
+    char chunk[1024];
+    ssize_t n;
+    while ((n = read(fd, chunk, sizeof(chunk))) > 0) {
+        for (ssize_t i = 0; i < n; i++) {
+            if (chunk[i] != '\n') {
+                if (used < sizeof(line) - 1) {
+                    line[used++] = chunk[i];
+                }
+                continue;
+            }
+            line[used] = 0;
+            if (strstr(line, ": query[")) {
+                (*queries)++;
+            }
+            if (strstr(line, ": started, version")) {
+                *started = 1;
+            }
+            used = 0;
+        }
+    }
+    return n != 0;
+}
+/* dnsmasq started for S, its output on *OUTPUT: its pid once it has started, or -1 (a port in use, a daemon missing). */
+static pid_t dnsmasq_start(const struct services *s, int *output, unsigned long *queries) {
+    static char config[16384];
+    dnsmasq_config(s, config, sizeof(config));
+    int pipes[2];
+    if (write_file(SERVICES_RUN "/dnsmasq.conf", config, 0644) || pipe2(pipes, O_CLOEXEC)) {
+        return -1;
+    }
+    char *const argv[] = {"dnsmasq", "--keep-in-foreground", "--conf-file=" SERVICES_RUN "/dnsmasq.conf", NULL};
+    pid_t pid = spawn_child(DNSMASQ_PROGRAM, argv, pipes[1], NULL);
+    close(pipes[1]);
+    fcntl(pipes[0], F_SETFL, O_NONBLOCK);
+    int started = 0;
+    double deadline = monotonic_now() + 3;
+    while (pid > 0 && !started && monotonic_now() < deadline) {
+        struct pollfd wait = {pipes[0], POLLIN, 0};
+        poll(&wait, 1, 100);
+        if (!dnsmasq_read(pipes[0], queries, &started) && !started) {
+            break;  /* dnsmasq ended before it started */
+        }
+    }
+    if (!started) {
+        stop_child(pid, 1);
+        close(pipes[0]);
+        return -1;
+    }
+    *output = pipes[0];
+    return pid;
+}
+#define CHRONY_RUN SERVICES_RUN "/chrony"
+/* chrony's configuration: « ntp master N »: its local reference at stratum N, served to everyone; « ntp server »: that
+ * server, polled at once (iburst). Its command socket in CHRONY_RUN; no command port on the network. */
+static void chrony_config(const struct services *s, char *out, size_t room) {
+    size_t used = (size_t)snprintf(out, room, "bindcmdaddress " CHRONY_RUN "/chronyd.sock\npidfile " CHRONY_RUN "/chronyd.pid\n"
+                                   "cmdport 0\n");
+    if (s->ntp) {
+        used += (size_t)snprintf(out + used, room - used, "local stratum %d\nallow\n", s->ntp);
+    }
+    if (s->sync.s_addr) {
+        char server[16];
+        inet_ntop(AF_INET, &s->sync, server, sizeof(server));
+        snprintf(out + used, room - used, "server %s iburst\n", server);
+    }
+}
+/* chronyd started for S, never setting the clock (-x): its pid once its command socket is there, or -1. */
+static pid_t chronyd_start(const struct services *s) {
+    char config[256];
+    chrony_config(s, config, sizeof(config));
+    mkdir(CHRONY_RUN, 0700);
+    chmod(CHRONY_RUN, 0700);
+    unlink(CHRONY_RUN "/chronyd.sock");
+    if (write_file(CHRONY_RUN "/chrony.conf", config, 0600)) {
+        return -1;
+    }
+    char *const argv[] = {"chronyd", "-x", "-d", "-u", "root", "-f", CHRONY_RUN "/chrony.conf", NULL};
+    pid_t pid = spawn_child(CHRONYD_PROGRAM, argv, -1, NULL);
+    double deadline = monotonic_now() + 3;
+    while (child_running(pid) && access(CHRONY_RUN "/chronyd.sock", F_OK) && monotonic_now() < deadline) {
+        pause_for(.05);
+    }
+    if (access(CHRONY_RUN "/chronyd.sock", F_OK)) {
+        stop_child(pid, 1);
+        return -1;
+    }
+    return pid;
+}
+/* A reference id of chronyc (8 hex digits) as IOS shows it: the four letters of a stratum 1 server (LOCL for chrony's
+ * local reference, 7F7F0101), else an address. */
+static void refid_text(const char *hex, int stratum, char *out, size_t room) {
+    unsigned long value = strtoul(hex, NULL, 16);
+    unsigned char bytes[4] = {(unsigned char)(value >> 24), (unsigned char)(value >> 16), (unsigned char)(value >> 8), (unsigned char)value};
+    if (stratum == 1 && value == 0x7F7F0101UL) {
+        snprintf(out, room, "LOCL");
+    } else if (stratum == 1) {
+        size_t used = 0;
+        for (int i = 0; i < 4 && used < room - 1; i++) {
+            if (bytes[i] > 32 && bytes[i] < 127) {
+                out[used++] = (char)bytes[i];
+            }
+        }
+        out[used] = 0;
+        if (!used) {
+            snprintf(out, room, "-");
+        }
+    } else {
+        snprintf(out, room, "%u.%u.%u.%u", bytes[0], bytes[1], bytes[2], bytes[3]);
+    }
+}
+/* What chronyc says now: the requests served (serverstats) and the association with « ntp server » (tracking, sources,
+ * ntpdata), into K. Unchanged when chronyc does not answer. */
+static void chrony_read(const struct services *s, struct service_counts *k) {
+    char server[16] = "", ntpdata[32] = "", out[4096], field[64];
+    char *argv[10] = {"chronyc", "-h", CHRONY_RUN "/chronyd.sock", "-c", "-n", "-m"};
+    int count = 6;
+    if (s->ntp) {
+        argv[count++] = "serverstats";
+    }
+    if (s->sync.s_addr) {
+        inet_ntop(AF_INET, &s->sync, server, sizeof(server));
+        snprintf(ntpdata, sizeof(ntpdata), "ntpdata %s", server);
+        argv[count++] = "tracking";
+        argv[count++] = "sources";
+        argv[count++] = ntpdata;
+    }
+    argv[count] = NULL;
+    if (run_capture(CHRONYC_PROGRAM, argv, out, sizeof(out), 2) < 0) {
+        return;
+    }
+    for (const char *line = out; *line; line = strchr(line, '\n') ? strchr(line, '\n') + 1 : line + strlen(line)) {
+        if (s->ntp && strcspn(line, "\n") == strspn(line, "0123456789,") && csv_field(line, 16, field, sizeof(field))) {
+            csv_field(line, 0, field, sizeof(field));  /* serverstats: NTP packets received first */
+            k->ntp = strtoul(field, NULL, 10);
+        }
+    }
+    if (!s->sync.s_addr) {
+        return;
+    }
+    char name[32] = "", leap[32] = "";
+    const char *tracking = NULL, *data = csv_line(out, server), *source = NULL;
+    for (const char *line = out; *line; line = strchr(line, '\n') ? strchr(line, '\n') + 1 : line + strlen(line)) {
+        if (csv_field(line, 13, leap, sizeof(leap)) && !csv_field(line, 14, field, sizeof(field)) && strlen(line) > 8
+            && strspn(line, "0123456789ABCDEF") == 8 && line[8] == ',') {
+            tracking = line;
+        }
+        if (strchr("^=#", line[0]) && line[1] == ',' && csv_field(line, 2, field, sizeof(field)) && !strcmp(field, server)) {
+            source = line;
+        }
+    }
+    k->synced = 0;
+    if (tracking) {
+        csv_field(tracking, 1, name, sizeof(name));
+        csv_field(tracking, 13, leap, sizeof(leap));
+        k->synced = !strcmp(name, server) && strcmp(leap, "Not synchronised") != 0;
+    }
+    if (data && csv_field(data, 19, field, sizeof(field))) {  /* ntpdata: stratum 8, reference 15, offset 18, delay 19 */
+        csv_field(data, 8, field, sizeof(field));
+        k->sync_stratum = atoi(field);
+        csv_field(data, 15, field, sizeof(field));
+        refid_text(field, k->sync_stratum, k->refid, sizeof(k->refid));
+        csv_field(data, 18, field, sizeof(field));
+        k->offset = atof(field);
+        csv_field(data, 19, field, sizeof(field));
+        k->delay = atof(field);
+    }
+    if (source && csv_field(source, 6, field, sizeof(field))) {
+        k->synced_at = wall_now() - atof(field);
+    }
 }
 static int services(int count, char **tokens) {
-    static struct services s; struct service_counts k; memset(&k, 0, sizeof(k));
-    if (!services_parse(count, tokens, &s)) return 2;
-    struct sigaction caught; memset(&caught, 0, sizeof(caught)); caught.sa_handler = services_caught;
+    static struct services s;
+    struct service_counts k;
+    memset(&k, 0, sizeof(k));
+    if (!services_parse(count, tokens, &s)) {
+        return 2;
+    }
+    struct sigaction caught;
+    memset(&caught, 0, sizeof(caught));
+    caught.sa_handler = services_caught;
     sigaction(SIGTERM, &caught, NULL);
-    int dns = s.dns ? udp_bound(53) : -1, ntp = s.ntp ? udp_bound(123) : -1, logs = s.syslog ? udp_bound(514) : -1;
+    int logs = s.syslog ? udp_bound(514) : -1;
     int tftp = s.tftp ? udp_bound(69) : -1;
-    if (s.tftp) { mkdir(SERVICES_RUN "/tftp", 0755); signal(SIGCHLD, SIG_IGN); }  /* transfers: children, reaped by the kernel */
-    int client = s.sync.s_addr ? socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0) : -1;
-    if ((s.dns && dns < 0) || (s.ntp && ntp < 0) || (s.syslog && logs < 0) || (s.tftp && tftp < 0)) return 1;
+    if ((s.syslog && logs < 0) || (s.tftp && tftp < 0)) {
+        return 1;
+    }
+    if (s.tftp) {
+        mkdir(SERVICES_RUN "/tftp", 0755);
+    }
+    int dns_output = -1, timekeeping = s.ntp || s.sync.s_addr;
+    pid_t dns = s.dns ? dnsmasq_start(&s, &dns_output, &k.dns) : 0;
+    pid_t chrony = timekeeping ? chronyd_start(&s) : 0;
+    if (dns < 0 || chrony < 0) {
+        stop_child(dns, 2);
+        stop_child(chrony, 2);
+        return 1;
+    }
     unlink(SERVICES_RUN "/syslog.log");
-    double next_poll = wall_now() + 1, sent = 0, last_reply = 0, saved = 0; unsigned char stamp[8] = {0};
+    double saved = 0;
     for (;;) {
-        if (services_signal == SIGTERM) { unlink(SERVICES_RUN "/services.state"); return 0; }
+        if (services_signal == SIGTERM) {
+            stop_child(dns, 2);
+            stop_child(chrony, 2);
+            unlink(SERVICES_RUN "/services.state");
+            return 0;
+        }
+        pid_t ended;
+        while ((ended = waitpid(-1, NULL, WNOHANG)) > 0) {  /* the TFTP transfers, and a daemon that ended */
+            if (ended == dns) {
+                dns = 0;
+            }
+            if (ended == chrony) {
+                chrony = 0;
+            }
+        }
         double now = wall_now();
-        if (client >= 0 && now >= next_poll) {
-            ntp_request(client, s.sync, &sent, stamp);
-            next_poll = now + (k.synced ? 16 : 4);
-            if (k.synced && now - last_reply > 64) k.synced = 0;
+        if (now - saved >= 1) {
+            if (s.dns && dns <= 0) {  /* a daemon that ended starts again */
+                if (dns_output >= 0) {
+                    close(dns_output);
+                }
+                dns_output = -1;
+                dns = dnsmasq_start(&s, &dns_output, &k.dns);
+            }
+            if (timekeeping && chrony <= 0) {
+                chrony = chronyd_start(&s);
+            }
+            if (chrony > 0) {
+                chrony_read(&s, &k);
+            }
+            services_save(&s, &k);
+            saved = now;
         }
-        if (now - saved >= 1) { services_save(&s, &k); saved = now; }
-        struct pollfd waits[5] = {{dns, POLLIN, 0}, {ntp, POLLIN, 0}, {logs, POLLIN, 0}, {client, POLLIN, 0}, {tftp, POLLIN, 0}};
-        if (poll(waits, 5, 200) < 0) { if (errno == EINTR) continue; return 1; }
-        unsigned char in[1500], out[1500]; struct sockaddr_in from; socklen_t size = sizeof(from);
+        struct pollfd waits[3] = {{logs, POLLIN, 0}, {tftp, POLLIN, 0}, {dns_output, POLLIN, 0}};
+        if (poll(waits, 3, 200) < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return 1;
+        }
+        unsigned char in[1500];
+        struct sockaddr_in from;
+        socklen_t size = sizeof(from);
         if (waits[0].revents & POLLIN) {
-            ssize_t n = recvfrom(dns, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
-            size_t length = n > 0 ? dns_answer(&s, in, (size_t)n, out, sizeof(out)) : 0;
-            if (length) { (void)sendto(dns, out, length, 0, (struct sockaddr *)&from, size); k.dns++; }
-        }
-        size = sizeof(from);
-        if (waits[1].revents & POLLIN) {
-            double received = wall_now();
-            ssize_t n = recvfrom(ntp, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
-            if (n >= 48 && (in[0] & 7) == 3) {
-                memset(out, 0, 48);
-                out[0] = (unsigned char)((in[0] & 0x38) | 4); out[1] = (unsigned char)s.ntp; out[2] = in[2]; out[3] = (unsigned char)-20;
-                out[9] = 1;  /* root dispersion: 1/65536 s */
-                if (s.ntp == 1) memcpy(out + 12, "LOCL", 4); else { out[12] = 127; out[13] = 127; out[14] = 1; out[15] = 0; }
-                ntp_stamp(out + 16, received); memcpy(out + 24, in + 40, 8); ntp_stamp(out + 32, received); ntp_stamp(out + 40, wall_now());
-                (void)sendto(ntp, out, 48, 0, (struct sockaddr *)&from, size); k.ntp++;
+            ssize_t n = recvfrom(logs, in, sizeof(in) - 1, 0, (struct sockaddr *)&from, &size);
+            if (n > 0) {
+                char source[16];
+                inet_ntop(AF_INET, &from.sin_addr, source, sizeof(source));
+                syslog_keep(source, in, (size_t)n);
+                k.syslog++;
             }
         }
         size = sizeof(from);
-        if (waits[2].revents & POLLIN) {
-            ssize_t n = recvfrom(logs, in, sizeof(in) - 1, 0, (struct sockaddr *)&from, &size);
-            if (n > 0) { char source[16]; inet_ntop(AF_INET, &from.sin_addr, source, sizeof(source)); syslog_keep(source, in, (size_t)n); k.syslog++; }
-        }
-        size = sizeof(from);
-        if (waits[4].revents & POLLIN) {
+        if (waits[1].revents & POLLIN) {
             ssize_t n = recvfrom(tftp, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
-            if (n >= 4 && in[0] == 0 && (in[1] == 1 || in[1] == 2)) { tftp_serve(in, (size_t)n, from); k.tftp++; }
+            if (n >= 4 && in[0] == 0 && (in[1] == 1 || in[1] == 2)) {
+                tftp_serve(in, (size_t)n, from);
+                k.tftp++;
+            }
         }
-        size = sizeof(from);
-        if (waits[3].revents & POLLIN) {
-            double arrived = wall_now();
-            ssize_t n = recvfrom(client, in, sizeof(in), 0, (struct sockaddr *)&from, &size);
-            if (n >= 48 && from.sin_addr.s_addr == s.sync.s_addr && (in[0] & 7) == 4 && in[1] >= 1 && in[1] <= 15
-                && !memcmp(in + 24, stamp, 8)) {
-                double t1 = sent, t2 = ntp_unix(in + 32), t3 = ntp_unix(in + 40), t4 = arrived;
-                k.offset = ((t2 - t1) + (t3 - t4)) / 2; k.delay = (t4 - t1) - (t3 - t2); k.sync_stratum = in[1];
-                if (in[1] == 1) snprintf(k.refid, sizeof(k.refid), "%.4s", (const char *)in + 12);
-                else inet_ntop(AF_INET, in + 12, k.refid, sizeof(k.refid));
-                k.synced = 1; k.synced_at = last_reply = arrived; next_poll = arrived + 16;
+        if (waits[2].revents & (POLLIN | POLLHUP)) {
+            int started = 1;
+            if (!dnsmasq_read(dns_output, &k.dns, &started)) {
+                close(dns_output);
+                dns_output = -1;
             }
         }
     }

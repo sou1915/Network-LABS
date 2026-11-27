@@ -41,7 +41,7 @@ class IosRelayGuestTests(unittest.TestCase):
         evidence.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='nlrelay-') as temporary:
             root = Path(temporary)
-            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True)
+            build(shutil.which('busybox'), root / 'base.ext4', with_agent=True, with_services=True)
             spec = configured(str(kernel), str(root / 'base.ext4'))
             transcript, seen = [], {}
             with patch('network_labs.appliances.runtime.STATE_ROOT', root / 'state'), \

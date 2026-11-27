@@ -2,9 +2,16 @@ name: Guest kernel release
 # Pushing a tag guest-kernel-* builds the pinned guest kernel (tools/guest_kernel/build.sh), boots it on KVM with the
 # VLAN, switch and router guests, and publishes it as a release with its corresponding source (GPL 2.0). setup
 # downloads the kernel from that release and checks the SHA-256 pinned in network_labs/appliances/setup.py.
+# Without git: Actions › Guest kernel release › Run workflow, on main, does the same and creates the tag with the release.
 on:
   push:
     tags: ['guest-kernel-*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag created on this commit (guest-kernel-VERSION-nlN, the one setup.py names)'
+        required: true
+        default: 'guest-kernel-5.10.223-nl1'
 permissions:
   contents: write
 jobs:
@@ -24,7 +31,7 @@ jobs:
       - name: Require real KVM
         run: test -c /dev/kvm
       - name: Install guest and fabric tools
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2 frr
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2 frr keepalived dnsmasq-base chrony
       - name: Fetch pinned official Firecracker
         run: |
           curl -fL --retry 3 https://github.com/firecracker-microvm/firecracker/releases/download/v1.10.1/firecracker-v1.10.1-x86_64.tgz -o /tmp/firecracker.tgz
@@ -37,8 +44,12 @@ jobs:
           kernel="$(ls /tmp/guest-kernel/vmlinux-*-network-labs)"
           sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_GUEST_VLAN=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm_switch_vlans tests.test_native_microvm_router_on_a_stick tests.test_native_microvm_hsrp tests.test_native_microvm -v
       - name: Publish the release
+        # From a tag push, or from the button on main (a dispatch elsewhere builds and boots, and publishes nothing).
+        if: github.event_name == 'push' || github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" /tmp/guest-kernel/* --repo "$GITHUB_REPOSITORY" \
-            --title "Guest kernel ${GITHUB_REF_NAME#guest-kernel-}" --notes-file tools/guest_kernel/RELEASE_NOTES.md
+          case "$TAG" in guest-kernel-*) ;; *) echo "The release tag must start with guest-kernel-." >&2; exit 1 ;; esac
+          gh release create "$TAG" /tmp/guest-kernel/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Guest kernel ${TAG#guest-kernel-}" --notes-file tools/guest_kernel/RELEASE_NOTES.md

@@ -63,6 +63,9 @@ def main(arguments=None):
     guest.add_argument('--with-firewall', action='store_true', help='Add legacy iptables for firewall guests; requires the iptables package and --with-agent.')
     guest.add_argument('--with-routing', action='store_true',
                        help='Add BIRD 2 for OSPF on router guests; requires the bird2 package and --with-agent.')
+    guest.add_argument('--with-services', action='store_true',
+                       help='Add keepalived (VRRP), dnsmasq (DNS, DHCP relay) and chrony (NTP); requires the keepalived, '
+                            'dnsmasq-base and chrony packages and --with-agent.')
     vm_leases = commands.add_parser('microvm-dhcp-leases', help="List a guest DHCP server's current leases via its private Firecracker socket.")
     vm_leases.add_argument('--socket', type=Path, required=True)
     vm_leases.add_argument('--interface', choices=[f'eth{i}' for i in range(16)], required=True)
@@ -430,7 +433,7 @@ def main(arguments=None):
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
             result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall,
-                           with_routing=args.with_routing)
+                           with_routing=args.with_routing, with_services=args.with_services)
         elif args.command == 'microvm-example':
             from . import microvm
             # One reference lab per flag; without a flag, the two-host pair.

@@ -31,10 +31,15 @@ GUEST_KERNEL = {'name': 'vmlinux-5.10.223-network-labs',
                 'sha256': None}
 IMAGE = 'guest-full.ext4'
 IMAGE_MIB = 128
-PACKAGES = 'busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr'
+IMAGE_LABEL = 'Disque des micro-VM (agent, iptables, BIRD, FRR, keepalived, dnsmasq, chrony)'
+# chrony also becomes this machine's own NTP client (in place of systemd-timesyncd, as on Ubuntu 25.10); keepalived's
+# service starts only with a configuration of its own; dnsmasq-base is the program alone, without a service.
+PACKAGES = 'busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr keepalived dnsmasq-base chrony'
 TOOLS = {'busybox': 'busybox', 'mke2fs': 'mke2fs', 'debugfs': 'debugfs', 'gcc': 'gcc',
          'iptables (legacy)': ('xtables-legacy-multi', 'iptables-legacy'), 'bird': 'bird', 'birdc': 'birdc',
-         'FRR zebra': '/usr/lib/frr/zebra', 'FRR bgpd': '/usr/lib/frr/bgpd', 'vtysh': 'vtysh'}
+         'FRR zebra': '/usr/lib/frr/zebra', 'FRR bgpd': '/usr/lib/frr/bgpd', 'vtysh': 'vtysh',
+         'keepalived': '/usr/sbin/keepalived', 'dnsmasq': '/usr/sbin/dnsmasq', 'chronyd': '/usr/sbin/chronyd',
+         'chronyc': '/usr/bin/chronyc'}
 
 
 def data_dir():
@@ -110,7 +115,8 @@ def image_stamp():
 
 
 def build_image(folder, tools):
-    """One guest disk with the agent, iptables and BIRD, replaced atomically when the agent changed."""
+    """One guest disk with the agent, iptables, BIRD, FRR, keepalived, dnsmasq and chrony, replaced atomically when the
+    agent changed."""
     from .guest_image import build
     folder = Path(folder)
     target, stamp = folder / IMAGE, folder / (IMAGE + '.stamp')
@@ -121,7 +127,8 @@ def build_image(folder, tools):
         fresh = Path(work) / IMAGE
         build(tools['busybox'], fresh, size_mib=IMAGE_MIB, mke2fs=tools['mke2fs'], debugfs=tools['debugfs'], with_agent=True,
               cc=tools['gcc'], with_firewall=True, iptables=tools['iptables (legacy)'], with_routing=True, bird=tools['bird'],
-              birdc=tools['birdc'])
+              birdc=tools['birdc'], with_services=True,
+              services={name: tools[name] for name in ('keepalived', 'dnsmasq', 'chronyd', 'chronyc')})
         os.replace(fresh, target)
     stamp.write_text(image_stamp() + '\n')
     return target, True
@@ -182,11 +189,11 @@ def prepare(download=False, kernel=None, rebuild=False, folder=None, fetch=_down
             if rebuild and disk.is_file():
                 (folder / (IMAGE + '.stamp')).unlink(missing_ok=True)
             disk, built = build_image(folder, tools)
-            step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', True, f'{disk} ({"construit" if built else "à jour"})')
+            step('image', IMAGE_LABEL, True, f'{disk} ({"construit" if built else "à jour"})')
         except (OSError, ValueError) as error:
-            step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', False, str(error), f'sudo apt install {PACKAGES}')
+            step('image', IMAGE_LABEL, False, str(error), f'sudo apt install {PACKAGES}')
     else:
-        step('image', 'Disque des micro-VM (agent, iptables, BIRD, FRR)', False, 'outils manquants', f'sudo apt install {PACKAGES}')
+        step('image', IMAGE_LABEL, False, 'outils manquants', f'sudo apt install {PACKAGES}')
 
     ready = all(s['ok'] for s in steps)
     if kernel.is_file() and disk.is_file():

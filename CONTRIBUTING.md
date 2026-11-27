@@ -57,8 +57,10 @@ gcc -Wall -Wextra -Werror -o /tmp/agent network_labs/appliances/guest/agent.c
 - The device pages build HTML in JavaScript: pass every value that comes from the project through `esc()` (the
   configuration a student types, or a shared project file, can hold any text). `test_page_smoke` opens every model's
   page with hostile text in its configuration and fails if any of it runs.
-- The guest agent parses what other machines send, as root. A new protocol or field read from the network gets a
-  handler in `tests/fuzz/agent_fuzz.c` and a well-formed seed in `tests/fuzz/seeds.py`.
+- The guest agent runs as root. A protocol a proven daemon speaks goes to that daemon (keepalived, dnsmasq, chrony,
+  BIRD, FRR), the agent writing its configuration from checked fields; what the agent still parses from the network
+  (HSRP, port-guard frames, Syslog, TFTP), and any new field it reads, gets a handler in `tests/fuzz/agent_fuzz.c` and a
+  well-formed seed in `tests/fuzz/seeds.py`.
 - No vendor logo or proprietary picture in the pages (the one exception, the Windows logo on the Start button, is
   listed in `THIRD_PARTY_NOTICES.md`). A file taken from another project keeps its licence file and gets a note in
   `network_labs/appliances/assets/README.md` and a row in `THIRD_PARTY_NOTICES.md`.
