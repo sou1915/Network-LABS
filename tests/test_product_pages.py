@@ -6,7 +6,6 @@ host devices' own products: Synology DSM, QNAP QTS, HP and Brother printer pages
 server management controllers (iDRAC, iLO, XClarity); and Windows PCs and servers as Windows shows them (Settings,
 Control Panel, the TCP/IPv4 properties dialog, Server Manager)."""
 import json
-import os
 import subprocess
 import tempfile
 import time

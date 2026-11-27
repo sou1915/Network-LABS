@@ -4,12 +4,12 @@
 (() => {
   const css = document.createElement('style');
   css.textContent = `
-  :root{--accent:#2f9be0}
+  :root{--accent:#111111}
   .brand{display:none}
   .device-hero{position:relative;overflow:hidden;border-radius:20px;padding:22px 26px;display:grid;grid-template-columns:190px 1fr auto;
-    gap:24px;align-items:center;color:#fff;background:linear-gradient(120deg,var(--hero-a),var(--hero-b));box-shadow:0 10px 30px rgba(15,35,55,.18)}
+    gap:24px;align-items:center;color:#ffffff;background:linear-gradient(120deg,var(--hero-a),var(--hero-b));box-shadow:0 10px 30px rgba(17,17,17,.18)}
   .device-hero:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 85% -20%,rgba(255,255,255,.22),transparent 55%);pointer-events:none}
-  .device-hero img{width:190px;height:auto;filter:drop-shadow(0 8px 14px rgba(0,0,0,.35))}
+  .device-hero img{width:190px;height:auto;filter:grayscale(1) drop-shadow(0 8px 14px rgba(0,0,0,.35))}
   .device-hero h1{margin:0;font-size:28px;letter-spacing:-.4px}
   .device-hero .model{margin-top:4px;font-size:15px;color:rgba(255,255,255,.86)}
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
@@ -17,57 +17,57 @@
     border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(4px)}
   .status{justify-self:end;text-align:right}
   .status .pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 14px;font-weight:600;background:rgba(0,0,0,.22)}
-  .dot{width:9px;height:9px;border-radius:50%;background:#9aa9b8;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
-  .dot.on{background:#3ddc84;box-shadow:0 0 10px #3ddc84}
+  .dot{width:9px;height:9px;border-radius:50%;background:#a6a6a6;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+  .dot.on{background:#111111;box-shadow:0 0 10px #111111}
   .status small{display:block;margin-top:8px;color:rgba(255,255,255,.75)}
-  .panel{margin-top:16px;border-radius:18px;background:#fff;border:1px solid #e0e8f2;padding:18px 22px}
+  .panel{margin-top:16px;border-radius:18px;background:#ffffff;border:1px solid #e7e7e7;padding:18px 22px}
   .panel-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
   .panel-head h2{margin:0;font-size:15px}
-  .faceplate{display:flex;flex-wrap:wrap;gap:10px;padding:14px;border-radius:14px;background:linear-gradient(#24323f,#141d26);
+  .faceplate{display:flex;flex-wrap:wrap;gap:10px;padding:14px;border-radius:14px;background:linear-gradient(#2f2f2f,#111111);
     box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 -2px 6px rgba(0,0,0,.4)}
-  .port{width:92px;border-radius:10px;padding:8px 8px 7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#dbe6f0;
+  .port{width:92px;border-radius:10px;padding:8px 8px 7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#b6b6b6;
     font-size:11px;text-align:center;position:relative}
-  .port .jack{height:26px;margin:4px auto 6px;width:34px;border-radius:4px;background:#0a1016;border:1px solid #4a5a68;position:relative}
-  .port .jack:after{content:"";position:absolute;left:9px;right:9px;bottom:-1px;height:7px;background:#0a1016;border:1px solid #4a5a68;border-top:0}
-  .port .led{position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:#55606a}
-  .port.up .led{background:#3ddc84;box-shadow:0 0 8px #3ddc84}
-  .port.down .led{background:#ff5d5d;box-shadow:0 0 8px #ff5d5d}
-  .port b{display:block;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .port .detail{color:#9fb2c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .port .peer{margin-top:3px;color:#7fc4ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .port .jack{height:26px;margin:4px auto 6px;width:34px;border-radius:4px;background:#111111;border:1px solid #575757;position:relative}
+  .port .jack:after{content:"";position:absolute;left:9px;right:9px;bottom:-1px;height:7px;background:#111111;border:1px solid #575757;border-top:0}
+  .port .led{position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:#4a4a4a}
+  .port.up .led{background:#ffffff;box-shadow:0 0 8px rgba(255,255,255,.7)}
+  .port.down .led{background:transparent;border:1.5px solid #ffffff;box-sizing:border-box}
+  .port b{display:block;font-size:12px;color:#ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .port .detail{color:#a8a8a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .port .peer{margin-top:3px;color:#d9d9d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .port.spare{width:74px;opacity:.4;padding-top:6px}.port.spare b{font-size:10.5px;font-weight:500}.port.spare .jack{height:18px;width:24px;margin:4px auto 2px}
   .port .vlanbar{position:absolute;left:0;right:0;bottom:0;height:4px;border-radius:0 0 10px 10px}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#5f7389}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#595959}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .panel + .kpis{margin-top:16px}
-  .kpi{border-radius:16px;padding:16px 18px;background:#fff;border:1px solid #e0e8f2;position:relative;overflow:hidden}
+  .kpi{border-radius:16px;padding:16px 18px;background:#ffffff;border:1px solid #e7e7e7;position:relative;overflow:hidden}
   .kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
-  .kpi span{color:#66788f;font-size:12px}.kpi strong{display:block;font-size:26px;margin-top:6px;letter-spacing:-.5px}
-  .kpi em{font-style:normal;font-size:12px;color:#66788f}
+  .kpi span{color:#5e5e5e;font-size:12px}.kpi strong{display:block;font-size:26px;margin-top:6px;letter-spacing:-.5px}
+  .kpi em{font-style:normal;font-size:12px;color:#5e5e5e}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .tag{display:inline-block;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
-  .tag.allow{background:#e3f7ec;color:#137a43}.tag.deny{background:#fde8e8;color:#b42323}
-  .tag.c{background:#e8f1fb;color:#1f5f9c}.tag.s{background:#fff3dd;color:#8a5a00}.tag.t{background:#efe9fb;color:#5b3aa6}
-  .flow{white-space:nowrap}.flow b{font-weight:600}.flow i{font-style:normal;color:#8a9bb0;margin:0 6px}
-  .empty{padding:18px;border-radius:12px;background:#f6f9fc;color:#66788f;text-align:center}
-  .vchip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+  .tag.allow{background:#111111;color:#ffffff}.tag.deny{background:#ffffff;color:#111111;box-shadow:inset 0 0 0 1.5px #111111}
+  .tag.c{background:#e6e6e6;color:#111111}.tag.s{background:#ffffff;color:#111111;box-shadow:inset 0 0 0 1px #9a9a9a}.tag.t{background:#111111;color:#ffffff}
+  .flow{white-space:nowrap}.flow b{font-weight:600}.flow i{font-style:normal;color:#7a7a7a;margin:0 6px}
+  .empty{padding:18px;border-radius:12px;background:#f8f8f8;color:#5e5e5e;text-align:center}
+  .vchip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:-1px;box-shadow:inset 0 0 0 1px #111111}
   .live-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .live-head .verdict{font-weight:600}.verdict.ok{color:#137a43}.verdict.bad{color:#b42323}
-  .tag.ok{background:#e3f7ec;color:#137a43}.tag.bad{background:#fde8e8;color:#b42323}.tag.extra{background:#fff3dd;color:#8a5a00}
-  .observe{background:var(--accent);color:#fff;border:0;font-weight:600}
-  .observe:disabled{background:#9fb0c0}
+  .live-head .verdict{font-weight:600}.verdict.ok{color:#111111}.verdict.bad{color:#5f5f5f}
+  .tag.ok{background:#111111;color:#ffffff}.tag.bad{background:#ffffff;color:#111111;box-shadow:inset 0 0 0 1.5px #111111}.tag.extra{background:#f4f4f4;color:#5f5f5f}
+  .observe{background:var(--accent);color:#ffffff;border:0;font-weight:600}
+  .observe:disabled{background:#e2e2e2;color:#4a4a4a}
   @media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.device-hero{grid-template-columns:120px 1fr}
     .device-hero img{width:120px}.status{grid-column:1/-1;justify-self:start;text-align:left}}
   `;
   document.head.appendChild(css);
 
   const THEMES = {
-    router: ['#0d2638', '#1f5a85', '#2f9be0'], switch: ['#123049', '#2b6f9f', '#3aa0e8'],
-    firewall: ['#2a0f12', '#8a2b1f', '#ff6a3d'], host: ['#16263a', '#34536f', '#4aa3df'],
+    router: ['#111111', '#111111', '#111111'], switch: ['#111111', '#111111', '#111111'],
+    firewall: ['#5f5f5f', '#5f5f5f', '#5f5f5f'], host: ['#111111', '#111111', '#111111'],
   };
-  const VLAN_COLOURS = ['#3aa0e8', '#35c47c', '#f2a93b', '#b06ee8', '#e85d75', '#2ec4c4', '#8f9c2b', '#e07b39'];
-  const vlanColour = vid => vid === 1 ? '#8a9bb0' : VLAN_COLOURS[vid % VLAN_COLOURS.length];
+  const VLAN_COLOURS = ['#e6e6e6', '#9a9a9a', '#cfcfcf', '#7a7a7a', '#f5f5f5', '#b5b5b5', '#8a8a8a', '#dadada'];
+  const vlanColour = vid => vid === 1 ? '#5c5c5c' : VLAN_COLOURS[vid % VLAN_COLOURS.length];
   const hero = document.createElement('section');
   hero.className = 'device-hero';
   const front = document.createElement('section');
@@ -105,14 +105,14 @@
     const d = state.device, n = state.node;
     const tiles = d.ports.map(p => {
       const cls = p.down ? 'down' : p.peer ? 'up' : '';
-      const bar = n.role === 'switch' ? `<span class="vlanbar" style="background:${p.trunk ? 'repeating-linear-gradient(90deg,#3aa0e8 0 8px,#35c47c 8px 16px,#f2a93b 16px 24px)' : vlanColour(p.vlan)}"></span>` : '';
+      const bar = n.role === 'switch' ? `<span class="vlanbar" style="background:${p.trunk ? 'repeating-linear-gradient(90deg,#ffffff 0 8px,#7a7a7a 8px 16px)' : vlanColour(p.vlan)}"></span>` : '';
       return `<div class="port ${cls}" title="${esc(p.port)} · ${esc(p.detail)}"><span class="led"></span><b>${esc(p.name)}</b><div class="jack"></div>
         <div class="detail">${esc(p.detail)}</div><div class="peer">${esc(p.peer || 'non câblé')}</div>${bar}</div>`;
     }).join('') + d.spare.map(name => `<div class="port spare" title="Port du modèle non déclaré dans ce laboratoire"><b>${esc(name)}</b><div class="jack"></div></div>`).join('');
     const legend = n.role === 'switch'
-      ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)}"></i>VLAN ${v}</span>`).join('') + '<span><i style="background:linear-gradient(90deg,#3aa0e8,#35c47c,#f2a93b)"></i>Trunk 802.1Q</span>'
-      : '<span><i style="background:#3ddc84"></i>Câblé</span><span><i style="background:#55606a"></i>Libre</span><span><i style="background:#ff5d5d"></i>Arrêté</span>';
-    const spare = d.spare.length ? '<span><i style="background:#3a4652"></i>Port du modèle non déclaré</span>' : '';
+      ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)};box-shadow:inset 0 0 0 1px #111111"></i>VLAN ${v}</span>`).join('') + '<span><i style="background:repeating-linear-gradient(90deg,#111111 0 3px,#cfcfcf 3px 6px);box-shadow:inset 0 0 0 1px #111111"></i>Trunk 802.1Q</span>'
+      : '<span><i style="background:#111111;border-radius:50%"></i>Câblé</span><span><i style="background:#cfcfcf;border-radius:50%"></i>Libre</span><span><i style="border:1.5px solid #111111;border-radius:50%;box-sizing:border-box"></i>Arrêté</span>';
+    const spare = d.spare.length ? '<span><i style="background:#444444"></i>Port du modèle non déclaré</span>' : '';
     front.innerHTML = `<div class="panel-head"><h2>Face avant</h2><span class="muted">Noms de ports ${esc(d.brand)} · interface Linux en info-bulle</span></div>
       <div class="faceplate">${tiles}</div><div class="legend">${legend}${spare}</div>`;
   }

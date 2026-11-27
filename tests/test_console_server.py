@@ -1,7 +1,6 @@
 """The in-app terminals: the lab's console server (socket, sessions, typed lines only) and the CLI window."""
 import json
 import os
-from pathlib import Path
 import socket
 import stat
 import tempfile

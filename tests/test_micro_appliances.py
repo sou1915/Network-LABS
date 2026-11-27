@@ -8,7 +8,7 @@ import struct
 import tempfile
 import unittest
 from unittest.mock import patch
-from network_labs.micro_appliances.runtime import Fabric,make_lab,ApplianceFault,MEMORY_LIMIT,Frame
+from network_labs.micro_appliances.runtime import make_lab, ApplianceFault, MEMORY_LIMIT, Frame
 from network_labs.micro_appliances.experiment import functional_demo,echo_ping,isolation_demo
 from network_labs.micro_appliances.packets import describe
 

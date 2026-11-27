@@ -1,7 +1,6 @@
 """Packet Tracer style on real guests: unconfigured devices added as the workbench adds them, started, then configured
 only from their terminals, through the console server the workbench's CLI windows use (IOS abbreviations on the router,
 ip addr / ip route on the PCs), live; the PCs then ping, and PC2 telnets into R1."""
-import json
 import os
 from pathlib import Path
 import shutil

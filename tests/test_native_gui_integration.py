@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 import pwd
 import shutil
-import subprocess
 import tempfile
 import unittest
 from network_labs.appliances.runtime import Manager,run,static_busybox_rootfs

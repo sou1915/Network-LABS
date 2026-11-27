@@ -259,14 +259,13 @@
   // ---- the Network LABS pill: the laboratory's controls, kept out of the product's screens ----
   pill.className = 'px-pill';
   pill.innerHTML = `<div class="px-pill-menu"><button data-a="load">↻ Actualiser depuis le projet</button><button data-a="cli">⌨ Terminal de l’équipement</button>
-    <button data-a="studio">◐ Design Studio</button><button data-a="simple">◧ Design Simple</button><button data-a="std">☰ Vue Network LABS</button></div>
+    <button data-a="simple">◧ Design Simple</button><button data-a="std">☰ Vue Network LABS</button></div>
     <button class="px-pill-main" type="button">◉ Network LABS</button>`;
   pill.querySelector('.px-pill-main').onclick = () => pill.classList.toggle('open');
   pill.querySelectorAll('[data-a]').forEach(button => {
     button.onclick = () => {
       pill.classList.remove('open');
-      ({load: () => load(), cli: openTerminal, studio: () => window.nlSetDesign && window.nlSetDesign('studio'),
-        simple: () => window.nlSetDesign && window.nlSetDesign('simple'), std: () => { standard = true; page = 'dashboard'; render(); }})[button.dataset.a]();
+      ({load: () => load(), cli: openTerminal, simple: () => window.nlSetDesign && window.nlSetDesign('simple'), std: () => { standard = true; page = 'dashboard'; render(); }})[button.dataset.a]();
     };
   });
 
@@ -299,12 +298,12 @@
   .px-login .lg-tt{background:var(--lg-accent);color:#fff;padding:7px 12px;font-size:13px}.px-login .lg-in{padding:16px 20px 20px;font-size:13px}.px-login .lg-in p{margin:0 0 4px;font-weight:600}
   .px-login.lg-dialog .go{width:auto;padding:5px 26px;border-radius:2px}
   .px-app.px-login.lg-own{display:block;place-items:normal;background:transparent;color:inherit;font:inherit;overflow:auto}body.px-wait .px-app{visibility:hidden}
-  .px-pill-main{background:rgba(23,40,58,.88);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;cursor:pointer;
+  .px-pill-main{background:rgba(17,17,17,.88);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;cursor:pointer;
     box-shadow:0 6px 18px rgba(0,0,0,.25)}
-  .px-pill-menu{display:none;position:absolute;right:0;bottom:40px;background:#17283a;border-radius:10px;padding:6px;min-width:230px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+  .px-pill-menu{display:none;position:absolute;right:0;bottom:40px;background:#111111;border-radius:10px;padding:6px;min-width:230px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
   .px-pill.open .px-pill-menu{display:block}
-  .px-pill-menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#e6eef6;padding:8px 10px;border-radius:7px;cursor:pointer;font:inherit}
-  .px-pill-menu button:hover{background:#24405e}
+  .px-pill-menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#f2f2f2;padding:8px 10px;border-radius:7px;cursor:pointer;font:inherit}
+  .px-pill-menu button:hover{background:#333333}
   .px-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#24303c;color:#fff;padding:10px 16px;border-radius:4px;z-index:40;
     font:13px Arial,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);max-width:70vw;white-space:pre-wrap}.px-toast.bad{background:#a12a2a}
   .px-shade{position:fixed;inset:0;background:rgba(0,0,0,.32);z-index:20;display:grid;place-items:center}
@@ -1746,7 +1745,7 @@ ${h(cliText())}
         const back = document.createElement('button');
         back.className = 'px-back';
         back.textContent = '← Revenir à l’interface du produit';
-        back.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:30;padding:10px 14px;border-radius:10px;border:0;background:#0f62c9;color:#fff;cursor:pointer';
+        back.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:30;padding:10px 14px;border-radius:10px;border:0;background:#111111;color:#fff;cursor:pointer';
         back.onclick = () => { standard = false; back.remove(); render(); };
         document.body.append(back);
       }

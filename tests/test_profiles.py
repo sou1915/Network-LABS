@@ -76,7 +76,6 @@ class ProfilesTest(unittest.TestCase):
         self.assertFalse(any(record['client']=='PC1' for table in lab.bindings.values() for record in table.values()))
         self.assertEqual(cli.n.address_mode,'static')
     def test_new_switch_layouts_have_real_capacity(self):
-        from network_labs.profiles import PROFILES
         for profile,count in [('tplink-sg108e',8),('netgear-gs108e',8),('unifi-lite8',8),('aruba-1930-24',28),('mikrotik-crs326',26),('dlink-dgs1210',28)]:
             lab=Lab();lab.add(Node('SW','Switch',profile=profile))
             self.assertEqual(len(lab.nodes['SW'].ports),count)

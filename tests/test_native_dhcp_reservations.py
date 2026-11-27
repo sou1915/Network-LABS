@@ -1,5 +1,4 @@
 """DHCP reservation identities and evidence must not be confused with lease state."""
-import copy
 import subprocess
 import unittest
 from unittest.mock import Mock

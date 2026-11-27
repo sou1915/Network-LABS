@@ -1,12 +1,10 @@
 """Real Telnet PTY sessions use the shared Start gate, cgroup cleanup and Stop journal."""
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 from network_labs.appliances.examples import radius_lab

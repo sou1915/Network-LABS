@@ -12,7 +12,6 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 from network_labs.appliances.radius_eap_worker import authenticate, inner
-from network_labs.appliances.radius import probe, render
 from network_labs.appliances.radius_server import config_text, eap_password
 from network_labs.appliances.examples import radius_lab
 from network_labs.appliances.spec import validate

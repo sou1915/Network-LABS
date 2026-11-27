@@ -6,7 +6,7 @@ import struct
 import threading
 import time
 import unittest
-from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from unittest.mock import patch
 
 from network_labs.appliances.tftp_worker import read as wire_read

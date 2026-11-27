@@ -12,7 +12,6 @@ A development tool: it needs pyang and a checkout of github.com/openconfig/publi
 """
 import json
 import os
-import re
 import sys
 
 COMMIT = 'fa27bd6ac13d14a167719bbf4eac48b1f298e43f'

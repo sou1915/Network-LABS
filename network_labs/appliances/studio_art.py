@@ -1,18 +1,10 @@
-"""The « Studio » design's devices on the canvas: a rounded tile coloured by role with a white line icon (router,
+"""The workbench's devices on the canvas: a black rounded tile with a white line icon (router,
 switch, firewall, PC, server), a soft glow under it and a status light at its corner. Drawn with canvas items only (no
 image files), so it scales with the zoom and needs nothing beyond Tk."""
 import math
 
-from .design import MONO
+BACKGROUND = '#ffffff'
 
-ROLE_COLOURS = {'router': ('#3b82f6', '#1d4ed8'), 'switch': ('#14b8a6', '#0f766e'), 'firewall': ('#f97316', '#c2410c'),
-                'host': ('#8b5cf6', '#6d28d9'), 'server': ('#64748b', '#334155')}
-BACKGROUND = '#ffffff' if MONO else '#0c131b'
-
-
-def _mix(a, b, t):
-    a, b = [int(a[i:i + 2], 16) for i in (1, 3, 5)], [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    return '#' + ''.join(f'{round(x + (y - x) * t):02x}' for x, y in zip(a, b))
 
 
 def rounded(canvas, x1, y1, x2, y2, r, **options):
@@ -84,28 +76,8 @@ def mono_tile(canvas, kind, x, y, size, status, tags, selected):
 
 
 def tile(canvas, kind, x, y, size=60, status=None, tags=(), selected=False):
-    """One device: glow, tile (lighter top half for depth), icon, status light. KIND: router, switch, firewall, host, server."""
-    if MONO:
-        return mono_tile(canvas, kind, x, y, size, status, tags, selected)
-    light, dark = ROLE_COLOURS.get(kind, ROLE_COLOURS['host'])
-    half, r = size / 2, size * .3
-    glow = tuple(tags) + ('glow',)  # tagged apart, so the workbench can slip cables between the glow and the tile
-    for spread, t in ((10, .86), (6, .76), (3, .62)):  # the glow: rings fading into the canvas
-        rounded(canvas, x - half - spread, y - half - spread + 4, x + half + spread, y + half + spread + 4, r + spread,
-                fill=_mix(dark, BACKGROUND, t), outline='', tags=glow)
-    rounded(canvas, x - half, y - half, x + half, y + half, r, fill=dark, outline='', tags=tags)
-    rounded(canvas, x - half, y - half, x + half, y + half * .25, r, fill=_mix(light, dark, .12), outline='', tags=tags)
-    rounded(canvas, x - half + 1, y - half + 1, x + half - 1, y - half + size * .18, r * .8, fill=_mix(light, '#ffffff', .18), outline='',
-            tags=tags)
-    rounded(canvas, x - half + 1, y - half + 4, x + half - 1, y + half * .15, r * .9, fill=light, outline='', tags=tags)
-    glyph(canvas, kind, x, y + size * .02, size * .54, tags=tags)
-    if selected:
-        rounded(canvas, x - half - 6, y - half - 6, x + half + 6, y + half + 6, r + 6, outline='#60a5fa', fill='', width=2, tags=tags)
-    if status is not None:
-        colour = {'running': '#22c55e', 'stopped': '#ef4444'}.get(status, '#64748b')
-        d = size * .14
-        canvas.create_oval(x + half - d, y + half - d, x + half + d, y + half + d, fill=colour, outline=BACKGROUND, width=max(2, size * .05),
-                           tags=tags)
+    """One device: shadow, black tile, white icon, state dot. KIND: router, switch, firewall, host, server."""
+    return mono_tile(canvas, kind, x, y, size, status, tags, selected)
 
 
 def icon(canvas, name, x, y, size, colour, tags=()):
@@ -181,15 +153,9 @@ def icon(canvas, name, x, y, size, colour, tags=()):
 
 
 def logo(canvas, x, y, size, font):
-    """The application's mark on the rail: a blue rounded square with an N (black under the black and white design)."""
+    """The application's mark on the rail: a black rounded square with a white N."""
     half = size / 2
-    if MONO:
-        rounded(canvas, x - half, y - half, x + half, y + half, size * .3, fill='#111111', outline='')
-        canvas.create_text(x, y + 1, text='N', fill='white', font=(font, int(size * .36), 'bold'))
-        return
-    rounded(canvas, x - half, y - half + 3, x + half, y + half + 3, size * .3, fill='#0f2347', outline='')
-    rounded(canvas, x - half, y - half, x + half, y + half, size * .3, fill='#1d4ed8', outline='')
-    rounded(canvas, x - half, y - half, x + half, y + half * .2, size * .3, fill='#3b82f6', outline='')
+    rounded(canvas, x - half, y - half, x + half, y + half, size * .3, fill='#111111', outline='')
     canvas.create_text(x, y + 1, text='N', fill='white', font=(font, int(size * .36), 'bold'))
 
 
@@ -202,4 +168,4 @@ def kind_of(node, dmz=(), models=None):
     return node['role']
 
 
-__all__ = ['ROLE_COLOURS', 'glyph', 'tile', 'icon', 'logo', 'kind_of', 'rounded']
+__all__ = ['glyph', 'tile', 'icon', 'logo', 'kind_of', 'rounded']

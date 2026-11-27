@@ -3,7 +3,6 @@
 MissionsPanel is mixed into ApplianceWindow (ui.py), which provides the lab draft, the topology canvas and the
 privileged bridge (launch). Everything here reads or replaces the draft and grades it; nothing runs as root.
 """
-import os
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
@@ -240,7 +239,7 @@ class MissionsPanel:
         self.select_scenario(number)
 
     def select_scenario(self,number):
-        from .scenarios import COUNT,FAMILY_TITLES,HELP_STEPS,scenario
+        from .scenarios import COUNT,scenario
         try:
             number=int(number)
         except (TypeError,ValueError,tk.TclError):
@@ -503,7 +502,6 @@ class MissionsPanel:
                 badge.configure(text='')
         self.mission_progress.set(f'Progression : {solved} / {len(self.mission_badges)} réussies')
         if hasattr(self,'scenario_solved'):
-            from .scenarios import COUNT
             count=sum(1 for k,v in saved.items() if k.startswith(('scenario-','gen-')) and isinstance(v,dict) and v.get('solved'))
             self.scenario_solved.set(f'{count} scénario{"s" if count>1 else ""} réussi{"s" if count>1 else ""}' if count else '')
 

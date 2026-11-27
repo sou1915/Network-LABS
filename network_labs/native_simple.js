@@ -1,12 +1,13 @@
-/* « Simple » and « Studio » designs of the device pages, beside the vendor design (FortiGate, ASDM, pfSense, WebUI…):
- * one layout for every device; Studio wears the dark look of the application (native_studio.js). A clickable front panel (a port opens a drawer to change it), task tabs in plain words, health checks
+/* The « Simple » design of the device pages, beside the vendor design (FortiGate, ASDM, pfSense, WebUI…): one layout for
+ * every device, in the application's black and white. A clickable front panel (a port opens a drawer to change it), task tabs in plain words, health checks
  * that say what to fix with a button that does it, and the neighbours one click away. The choice of design is kept in
  * the browser (localStorage). Every change goes through the same checked actions as the other pages. */
 'use strict';
 (() => {
   const KEY = 'network-labs-design';
   // The browser's choice, else the product's own interface (the « Constructeur » design: a copy of the real product).
-  window.nlDesign = () => { try { return localStorage.getItem(KEY) || 'vendor'; } catch (error) { return 'vendor'; } };
+  // The browser's choice, else the product's own interface; « studio », the dark design of earlier versions, is now « simple ».
+  window.nlDesign = () => { try { const kept = localStorage.getItem(KEY) || 'vendor'; return kept === 'studio' ? 'simple' : kept; } catch (error) { return 'vendor'; } };
   window.nlSetDesign = value => {
     try { localStorage.setItem(KEY, value); } catch (error) { /* private window: the choice lasts this page only */ }
     chosen = value;
@@ -18,101 +19,101 @@
 
   const css = document.createElement('style');
   css.textContent = `
-  body.sd{margin:0;background:#f4f7fb}
+  body.sd{margin:0;background:#f7f7f7}
   body.sd>header,body.sd>.layout{display:none}
-  .sd-app{font:14px Inter,Arial,sans-serif;color:#17283a;min-height:100vh}
+  .sd-app{font:14px Inter,Arial,sans-serif;color:#111111;min-height:100vh}
   .sd-top{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:16px;padding:12px 28px;background:rgba(255,255,255,.92);
-    backdrop-filter:blur(8px);border-bottom:1px solid #e3eaf2}
-  .sd-top img{width:76px;height:auto;filter:drop-shadow(0 4px 8px rgba(0,0,0,.18))}
-  .sd-top h1{margin:0;font-size:20px;letter-spacing:-.2px}.sd-top .model{color:#5f7389;font-size:13px;margin-top:2px}
-  .sd-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;background:#eef3f8;color:#40566d}
-  .sd-badge i{width:8px;height:8px;border-radius:50%;background:#9aa9b8}.sd-badge i.on{background:#22b35e;box-shadow:0 0 8px #22b35e}
+    backdrop-filter:blur(8px);border-bottom:1px solid #e9e9e9}
+  .sd-top img{width:76px;height:auto;filter:grayscale(1) drop-shadow(0 4px 8px rgba(0,0,0,.18))}
+  .sd-top h1{margin:0;font-size:20px;letter-spacing:-.2px}.sd-top .model{color:#595959;font-size:13px;margin-top:2px}
+  .sd-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;background:#f2f2f2;color:#424242}
+  .sd-badge i{width:8px;height:8px;border-radius:50%;background:#a6a6a6}.sd-badge i.on{background:#111111;box-shadow:0 0 8px #111111}
   .sd-grow{flex:1}
-  .sd-switch{display:inline-flex;background:#eef3f8;border-radius:999px;padding:3px}
-  .sd-switch button{border:0;background:none;border-radius:999px;padding:6px 14px;font-size:12.5px;color:#4a6076;cursor:pointer}
-  .sd-switch button.on{background:#fff;color:#0f62c9;font-weight:600;box-shadow:0 1px 4px rgba(20,40,70,.15)}
-  .sd-icon{border:1px solid #dbe4ee;background:#fff;border-radius:10px;padding:7px 11px;cursor:pointer}
+  .sd-switch{display:inline-flex;background:#f2f2f2;border-radius:999px;padding:3px}
+  .sd-switch button{border:0;background:none;border-radius:999px;padding:6px 14px;font-size:12.5px;color:#4a4a4a;cursor:pointer}
+  .sd-switch button.on{background:#ffffff;color:#111111;font-weight:600;box-shadow:0 1px 4px rgba(17,17,17,.15)}
+  .sd-icon{border:1px solid #e2e2e2;background:#ffffff;border-radius:10px;padding:7px 11px;cursor:pointer}
   .sd-wrap{max-width:1180px;margin:0 auto;padding:22px 28px 60px}
-  .sd-chassis{border-radius:18px;padding:18px 20px;background:linear-gradient(180deg,#2e3b48,#19222b);box-shadow:0 12px 28px rgba(15,30,50,.18)}
-  .sd-chassis .head{display:flex;justify-content:space-between;align-items:center;color:#c9d6e2;font-size:12px;margin-bottom:12px}
-  .sd-chassis .head b{color:#fff;font-size:14px}
+  .sd-chassis{border-radius:18px;padding:18px 20px;background:linear-gradient(180deg,#393939,#202020);box-shadow:0 12px 28px rgba(17,17,17,.18)}
+  .sd-chassis .head{display:flex;justify-content:space-between;align-items:center;color:#a9a9a9;font-size:12px;margin-bottom:12px}
+  .sd-chassis .head b{color:#ffffff;font-size:14px}
   .sd-ports{display:flex;flex-wrap:wrap;gap:10px}
-  .sd-port{width:96px;border-radius:12px;padding:9px 8px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#dfe8f1;
+  .sd-port{width:96px;border-radius:12px;padding:9px 8px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#b8b8b8;
     text-align:center;cursor:pointer;transition:transform .12s,background .12s,border-color .12s;position:relative}
-  .sd-port:hover{transform:translateY(-2px);background:rgba(255,255,255,.11);border-color:#5fb0ff}
-  .sd-port.sel{border-color:#5fb0ff;background:rgba(95,176,255,.18)}
+  .sd-port:hover{transform:translateY(-2px);background:rgba(255,255,255,.11);border-color:#ffffff}
+  .sd-port.sel{border-color:#ffffff;background:rgba(255,255,255,.16)}
   .sd-port b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sd-port .jack{height:24px;width:32px;margin:6px auto;border-radius:4px;background:#0a1016;border:1px solid #56636f;position:relative}
-  .sd-port .jack:after{content:'';position:absolute;left:9px;right:9px;bottom:-1px;height:6px;background:#0a1016;border:1px solid #56636f;border-top:0}
-  .sd-port .dot{position:absolute;top:9px;right:9px;width:8px;height:8px;border-radius:50%;background:#5a6672}
-  .sd-port.up .dot{background:#3ddc84;box-shadow:0 0 8px #3ddc84}.sd-port.down .dot{background:#ff5d5d;box-shadow:0 0 8px #ff5d5d}
-  .sd-port small{display:block;font-size:10.5px;color:#9fb3c6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sd-port .jack{height:24px;width:32px;margin:6px auto;border-radius:4px;background:#111111;border:1px solid #606060;position:relative}
+  .sd-port .jack:after{content:'';position:absolute;left:9px;right:9px;bottom:-1px;height:6px;background:#111111;border:1px solid #606060;border-top:0}
+  .sd-port .dot{position:absolute;top:9px;right:9px;width:8px;height:8px;border-radius:50%;background:#4a4a4a}
+  .sd-port.up .dot{background:#ffffff;box-shadow:0 0 8px rgba(255,255,255,.7)}.sd-port.down .dot{background:transparent;border:1.5px solid #ffffff;box-sizing:border-box}
+  .sd-port small{display:block;font-size:10.5px;color:#a8a8a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sd-port .vbar{position:absolute;left:10px;right:10px;bottom:0;height:3px;border-radius:3px 3px 0 0}
   .sd-port.spare{opacity:.35;cursor:default}.sd-port.spare:hover{transform:none;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1)}
-  .sd-legend{display:flex;gap:14px;margin-top:12px;font-size:11.5px;color:#9fb3c6;flex-wrap:wrap}
+  .sd-legend{display:flex;gap:14px;margin-top:12px;font-size:11.5px;color:#a8a8a8;flex-wrap:wrap}
   .sd-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
   .sd-tabs{display:flex;gap:8px;margin:22px 0 16px;flex-wrap:wrap}
-  .sd-tabs button{border:1px solid #dbe4ee;background:#fff;border-radius:999px;padding:9px 18px;font-size:13.5px;cursor:pointer;color:#33485e}
-  .sd-tabs button:hover{border-color:#9cc5f2}
-  .sd-tabs button.on{background:#0f62c9;border-color:#0f62c9;color:#fff;font-weight:600}
+  .sd-tabs button{border:1px solid #e2e2e2;background:#ffffff;border-radius:999px;padding:9px 18px;font-size:13.5px;cursor:pointer;color:#111111}
+  .sd-tabs button:hover{border-color:#bebebe}
+  .sd-tabs button.on{background:#111111;border-color:#111111;color:#ffffff;font-weight:600}
   .sd-tabs button span{display:inline-block;margin-left:6px;border-radius:999px;padding:0 7px;font-size:11.5px;background:rgba(0,0,0,.08)}
   .sd-tabs button.on span{background:rgba(255,255,255,.25)}
   .sd-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
-  .sd-card{background:#fff;border:1px solid #e3eaf2;border-radius:16px;padding:16px 18px}
-  .sd-card h3{margin:0 0 12px;font-size:14.5px}.sd-card .sub{color:#6a7f94;font-size:12.5px}
-  .sd-kpi span{color:#6a7f94;font-size:12.5px}.sd-kpi strong{display:block;font-size:28px;margin-top:4px;letter-spacing:-.5px}
-  .sd-kpi em{font-style:normal;font-size:12px;color:#6a7f94}
+  .sd-card{background:#ffffff;border:1px solid #e9e9e9;border-radius:16px;padding:16px 18px}
+  .sd-card h3{margin:0 0 12px;font-size:14.5px}.sd-card .sub{color:#626262;font-size:12.5px}
+  .sd-kpi span{color:#626262;font-size:12.5px}.sd-kpi strong{display:block;font-size:28px;margin-top:4px;letter-spacing:-.5px}
+  .sd-kpi em{font-style:normal;font-size:12px;color:#626262}
   .sd-span2{grid-column:span 2}.sd-span4{grid-column:1/-1}
-  .sd-check{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef2f6}
+  .sd-check{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f1f1}
   .sd-check:last-child{border-bottom:0}
   .sd-check .mark{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;flex:none}
-  .sd-check.ok .mark{background:#e3f6ea;color:#1b8a4a}.sd-check.warn .mark{background:#fff1dc;color:#b06a00}.sd-check.info .mark{background:#e8f1fb;color:#2464a8}
-  .sd-check .text{flex:1;line-height:1.4}.sd-check .text small{display:block;color:#6a7f94}
-  .sd-btn{border:1px solid #cfdbe8;background:#fff;border-radius:10px;padding:7px 13px;cursor:pointer;font-size:13px;color:#1f4f86}
-  .sd-btn:hover{border-color:#8fbdf0;background:#f3f8fe}
-  .sd-btn.primary{background:#0f62c9;border-color:#0f62c9;color:#fff}.sd-btn.primary:hover{background:#0b55b0}
+  .sd-check.ok .mark{background:#efefef;color:#111111}.sd-check.warn .mark{background:#f3f3f3;color:#5f5f5f}.sd-check.info .mark{background:#efefef;color:#111111}
+  .sd-check .text{flex:1;line-height:1.4}.sd-check .text small{display:block;color:#626262}
+  .sd-btn{border:1px solid #d9d9d9;background:#ffffff;border-radius:10px;padding:7px 13px;cursor:pointer;font-size:13px;color:#111111}
+  .sd-btn:hover{border-color:#b5b5b5;background:#f7f7f7}
+  .sd-btn.primary{background:#111111;border-color:#111111;color:#ffffff}.sd-btn.primary:hover{background:#111111}
   .sd-btn:disabled{opacity:.5;cursor:default}
   .sd-chips{display:flex;flex-wrap:wrap;gap:8px}
-  .sd-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid #dbe4ee;border-radius:999px;padding:6px 12px;background:#fff;cursor:pointer;font-size:13px}
-  .sd-chip:hover{border-color:#8fbdf0;background:#f3f8fe}.sd-chip small{color:#6a7f94}
-  .sd-row{display:grid;grid-template-columns:150px 1fr 1fr 1fr auto;gap:12px;align-items:center;padding:11px 4px;border-bottom:1px solid #eef2f6}
-  .sd-row:last-child{border-bottom:0}.sd-row b{font-size:13.5px}.sd-row .muted{color:#6a7f94;font-size:12.5px}
-  .sd-pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}.sd-pill i{width:8px;height:8px;border-radius:50%;background:#9aa9b8}
-  .sd-pill.up i{background:#22b35e}.sd-pill.down i{background:#e04f4f}
-  .sd-search{width:100%;box-sizing:border-box;border:1px solid #dbe4ee;border-radius:12px;padding:10px 14px;font:inherit;margin-bottom:10px}
-  .sd-tag{display:inline-block;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:#eef3f8;color:#40566d}
-  .sd-tag.green{background:#e3f6ea;color:#1b8a4a}.sd-tag.red{background:#fde8e8;color:#b42323}.sd-tag.blue{background:#e8f1fb;color:#2464a8}
-  .sd-tag.violet{background:#efe9fb;color:#5b3aa6}
-  .sd-rule{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #eef2f6}.sd-rule:last-child{border-bottom:0}
-  .sd-rule .n{width:26px;height:26px;border-radius:8px;background:#eef3f8;display:grid;place-items:center;font-size:12px;font-weight:600;color:#40566d}
-  .sd-rule .what{flex:1}.sd-rule .what small{display:block;color:#6a7f94}
-  .sd-vlan{display:flex;align-items:flex-start;gap:14px;padding:12px 4px;border-bottom:1px solid #eef2f6}.sd-vlan:last-child{border-bottom:0}
-  .sd-vlan .sw{width:14px;height:14px;border-radius:4px;margin-top:3px;flex:none}
-  .sd-empty{padding:22px;border-radius:12px;background:#f6f9fc;color:#6a7f94;text-align:center}
-  .sd-shade{position:fixed;inset:0;background:rgba(10,25,40,.28);z-index:8}
-  .sd-drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,94vw);background:#fff;z-index:9;box-shadow:-18px 0 40px rgba(10,25,40,.22);
+  .sd-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid #e2e2e2;border-radius:999px;padding:6px 12px;background:#ffffff;cursor:pointer;font-size:13px}
+  .sd-chip:hover{border-color:#b5b5b5;background:#f7f7f7}.sd-chip small{color:#626262}
+  .sd-row{display:grid;grid-template-columns:150px 1fr 1fr 1fr auto;gap:12px;align-items:center;padding:11px 4px;border-bottom:1px solid #f1f1f1}
+  .sd-row:last-child{border-bottom:0}.sd-row b{font-size:13.5px}.sd-row .muted{color:#626262;font-size:12.5px}
+  .sd-pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}.sd-pill i{width:8px;height:8px;border-radius:50%;background:#a6a6a6}
+  .sd-pill.up i{background:#111111}.sd-pill.down i{background:#5f5f5f}
+  .sd-search{width:100%;box-sizing:border-box;border:1px solid #e2e2e2;border-radius:12px;padding:10px 14px;font:inherit;margin-bottom:10px}
+  .sd-tag{display:inline-block;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:#f2f2f2;color:#424242}
+  .sd-tag.green{background:#111111;color:#ffffff}.sd-tag.red{background:#ffffff;color:#111111;box-shadow:inset 0 0 0 1.5px #111111}.sd-tag.blue{background:#e6e6e6;color:#111111}
+  .sd-tag.violet{background:#ffffff;color:#111111;box-shadow:inset 0 0 0 1px #8a8a8a}
+  .sd-rule{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #f1f1f1}.sd-rule:last-child{border-bottom:0}
+  .sd-rule .n{width:26px;height:26px;border-radius:8px;background:#f2f2f2;display:grid;place-items:center;font-size:12px;font-weight:600;color:#424242}
+  .sd-rule .what{flex:1}.sd-rule .what small{display:block;color:#626262}
+  .sd-vlan{display:flex;align-items:flex-start;gap:14px;padding:12px 4px;border-bottom:1px solid #f1f1f1}.sd-vlan:last-child{border-bottom:0}
+  .sd-vlan .sw{width:14px;height:14px;border-radius:4px;margin-top:3px;flex:none;box-shadow:inset 0 0 0 1px #111111}
+  .sd-empty{padding:22px;border-radius:12px;background:#f8f8f8;color:#626262;text-align:center}
+  .sd-shade{position:fixed;inset:0;background:rgba(17,17,17,.28);z-index:8}
+  .sd-drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,94vw);background:#ffffff;z-index:9;box-shadow:-18px 0 40px rgba(17,17,17,.22);
     display:flex;flex-direction:column;animation:sdIn .16s ease-out}
   @keyframes sdIn{from{transform:translateX(30px);opacity:.4}to{transform:none;opacity:1}}
-  .sd-drawer .head{padding:18px 20px;border-bottom:1px solid #e3eaf2;display:flex;align-items:center;gap:12px}
+  .sd-drawer .head{padding:18px 20px;border-bottom:1px solid #e9e9e9;display:flex;align-items:center;gap:12px}
   .sd-drawer .head h2{margin:0;font-size:18px;flex:1}.sd-drawer .body{padding:18px 20px;overflow:auto;flex:1}
-  .sd-drawer label{display:block;font-size:12.5px;color:#4d6278;margin:12px 0 6px}
-  .sd-drawer input,.sd-drawer select{width:100%;box-sizing:border-box;border:1px solid #cfdbe8;border-radius:10px;padding:9px 12px;font:inherit}
-  .sd-seg{display:flex;background:#eef3f8;border-radius:10px;padding:3px}
-  .sd-seg button{flex:1;border:0;background:none;border-radius:8px;padding:8px;cursor:pointer;color:#4a6076}
-  .sd-seg button.on{background:#fff;color:#0f62c9;font-weight:600;box-shadow:0 1px 4px rgba(20,40,70,.15)}
-  .sd-drawer .foot{padding:14px 20px;border-top:1px solid #e3eaf2;display:flex;gap:10px;justify-content:flex-end}
-  .sd-facts{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;font-size:13px}.sd-facts span{color:#6a7f94}
-  .sd-err{color:#b42323;font-size:12.5px;min-height:18px;margin-top:10px}
-  .sd-note{font-size:12.5px;color:#6a7f94;line-height:1.5;margin-top:10px}
-  .sd-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#17283a;color:#fff;border-radius:12px;padding:11px 16px;
+  .sd-drawer label{display:block;font-size:12.5px;color:#4b4b4b;margin:12px 0 6px}
+  .sd-drawer input,.sd-drawer select{width:100%;box-sizing:border-box;border:1px solid #d9d9d9;border-radius:10px;padding:9px 12px;font:inherit}
+  .sd-seg{display:flex;background:#f2f2f2;border-radius:10px;padding:3px}
+  .sd-seg button{flex:1;border:0;background:none;border-radius:8px;padding:8px;cursor:pointer;color:#4a4a4a}
+  .sd-seg button.on{background:#ffffff;color:#111111;font-weight:600;box-shadow:0 1px 4px rgba(17,17,17,.15)}
+  .sd-drawer .foot{padding:14px 20px;border-top:1px solid #e9e9e9;display:flex;gap:10px;justify-content:flex-end}
+  .sd-facts{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;font-size:13px}.sd-facts span{color:#626262}
+  .sd-err{color:#5f5f5f;font-size:12.5px;min-height:18px;margin-top:10px}
+  .sd-note{font-size:12.5px;color:#626262;line-height:1.5;margin-top:10px}
+  .sd-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#111111;color:#ffffff;border-radius:12px;padding:11px 16px;
     font-size:13px;box-shadow:0 10px 28px rgba(0,0,0,.28);z-index:10}
   .sd-back{position:fixed;right:18px;bottom:18px;z-index:10}
   @media (max-width:900px){.sd-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sd-row{grid-template-columns:1fr 1fr}.sd-top img{display:none}}
   `;
   document.head.appendChild(css);
 
-  const VLAN_COLOURS = ['#3aa0e8', '#35c47c', '#f2a93b', '#b06ee8', '#e85d75', '#2ec4c4', '#8f9c2b', '#e07b39'];
-  const vlanColour = vid => vid === 1 ? '#8a9bb0' : VLAN_COLOURS[vid % VLAN_COLOURS.length];
+  const VLAN_COLOURS = ['#e6e6e6', '#9a9a9a', '#cfcfcf', '#7a7a7a', '#f5f5f5', '#b5b5b5', '#8a8a8a', '#dadada'];
+  const vlanColour = vid => vid === 1 ? '#5c5c5c' : VLAN_COLOURS[vid % VLAN_COLOURS.length];
   const mask = prefix => [0, 8, 16, 24].map(s => (prefix >= s + 8 ? 255 : prefix <= s ? 0 : 256 - 2 ** (8 - (prefix - s)))).join('.');
   const prefixOf = text => {
     const parts = text.trim().split('.').map(Number);
@@ -238,7 +239,7 @@
         row.className = 'sd-row';
         const link = p.down ? 'down' : p.peer ? 'up' : '';
         row.innerHTML = `<b>${esc(p.name)}</b><span class="sd-pill ${link}"><i></i>${p.down ? 'Arrêté' : p.peer ? 'Câblé' : 'Libre'}</span>
-          <span>${switching ? (p.trunk ? '<span class="sd-tag violet">Trunk</span>' : `<span class="sd-tag" style="background:${vlanColour(p.vlan)}22;color:#26384b">VLAN ${esc(p.vlan)}</span>`)
+          <span>${switching ? (p.trunk ? '<span class="sd-tag violet">Trunk</span>' : `<span class="sd-tag"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:${vlanColour(p.vlan)};box-shadow:inset 0 0 0 1px #111111"></i>VLAN ${esc(p.vlan)}</span>`)
             : esc(p.address || ((n.dhcp_clients || []).includes(p.port) ? 'DHCP' : 'sans adresse'))}</span>
           <span class="muted">${esc(p.peer || '—')}</span>`;
         const button = document.createElement('button');
@@ -407,11 +408,11 @@
     load();
   }
   function showStandard(target) {
-    standardView = true; page = target; root.remove(); document.body.classList.remove('sd', 'st'); render();
+    standardView = true; page = target; root.remove(); document.body.classList.remove('sd'); render();
     let back = document.querySelector('.sd-back');
     if (!back) {
       back = document.createElement('button');
-      back.className = 'sd-btn primary sd-back'; back.textContent = design() === 'studio' ? '← Revenir au design Studio' : '← Revenir au design simple';
+      back.className = 'sd-btn primary sd-back'; back.textContent = '← Revenir au design simple';
       back.onclick = () => { standardView = false; back.remove(); render(); };
       document.body.append(back);
     }
@@ -423,46 +424,24 @@
     const ports = [...d.ports, ...d.spare.map(name => ({name, spare: true}))].map(p => {
       const kind = p.spare ? 'spare' : p.down ? 'down' : p.peer ? 'up' : '';
       const bar = n.role === 'switch' && !p.spare ? `<i class="vbar" style="background:${p.trunk
-        ? 'repeating-linear-gradient(90deg,#3aa0e8 0 6px,#35c47c 6px 12px,#f2a93b 12px 18px)' : vlanColour(p.vlan)}"></i>` : '';
+        ? 'repeating-linear-gradient(90deg,#ffffff 0 6px,#7a7a7a 6px 12px)' : vlanColour(p.vlan)}"></i>` : '';
       const line = p.spare ? 'non déclaré' : n.role === 'switch' ? (p.trunk ? 'trunk' : 'VLAN ' + p.vlan)
         : p.address ? p.address.split('/')[0] : (n.dhcp_clients || []).includes(p.port) ? 'DHCP' : 'sans adresse';
       return `<div class="sd-port ${kind}${drawer === p.port ? ' sel' : ''}" ${p.spare ? '' : `data-port="${esc(p.port)}"`} title="${esc(p.spare ? 'Port du modèle non déclaré' : p.peer ? 'Câblé vers ' + p.peer : 'Libre')}">
         <span class="dot"></span><b>${esc(p.name)}</b><div class="jack"></div><small>${esc(line)}</small><small>${esc(p.spare ? '' : peerName(p) || 'libre')}</small>${bar}</div>`;
     }).join('');
     return `<div class="sd-chassis"><div class="head"><b>Face avant</b><span>Cliquer sur un port pour le régler</span></div>
-        <div class="sd-ports">${ports}</div><div class="sd-legend"><span><i style="background:#3ddc84"></i>câblé</span><span><i style="background:#5a6672"></i>libre</span>
-        <span><i style="background:#ff5d5d"></i>arrêté</span>${n.role === 'switch' ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)};border-radius:2px"></i>VLAN ${v}</span>`).join('') : ''}</div></div>`;
+        <div class="sd-ports">${ports}</div><div class="sd-legend"><span><i style="background:#ffffff"></i>câblé</span><span><i style="background:#4a4a4a"></i>libre</span>
+        <span><i style="border:1.5px solid #ffffff;box-sizing:border-box"></i>arrêté</span>${n.role === 'switch' ? d.vlans.map(v => `<span><i style="background:${vlanColour(v)};border-radius:2px"></i>VLAN ${v}</span>`).join('') : ''}</div></div>`;
   }
 
-  const designSwitch = current => [['vendor', 'Constructeur'], ['simple', 'Simple'], ['studio', 'Studio']]
+  const designSwitch = current => [['vendor', 'Constructeur'], ['simple', 'Simple']]
     .map(([id, label]) => `<button data-d="${id}" class="${id === current ? 'on' : ''}">${label}</button>`).join('');
 
-  // The « Studio » look (native_studio.js): an icon rail of the tasks, a top bar with the device's tile, dark cards.
-  function studioHtml() {
-    const n = state.node, d = state.device, running = state.observed === 'running', look = window.nlStudio;
-    const icons = {overview: 'overview', ports: 'ports', vlans: 'vlans', security: 'security', routing: 'routing', services: 'services'};
-    const rail = tabs().map(([id, label, count]) => `<button data-tab="${id}" class="${id === tab ? 'on' : ''}" title="${esc(label)}">
-      ${look.icon(icons[id], 21)}<span>${esc(label.replace('Vue d’ensemble', 'Aperçu'))}</span>${count !== undefined ? `<em>${count}</em>` : ''}</button>`).join('');
-    const title = tabs().find(([id]) => id === tab) || ['', ''];
-    const chips = [`<span class="st-chip${running ? ' on' : ''}"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span>`,
-      `<span class="st-chip">${esc(roleName(n.role))}</span>`, `<span class="st-chip">${d.ports.length} port${d.ports.length > 1 ? 's' : ''}</span>`,
-      `<span class="st-chip">${n.runtime === 'firecracker' ? 'Micro-VM' : 'OCI'}</span>`].join('');
-    return `<nav class="st-rail"><div class="st-logo">N</div>${rail}</nav><div class="st-main">
-      <div class="st-top">${look.tile(look.kind(d), running ? 'running' : 'unknown', 52)}
-        <div><h1>${esc(n.name)}</h1><div class="model">${esc(d.brand)} · ${esc(d.model)}</div><div class="st-chips">${chips}</div></div>
-        <span class="sd-grow"></span><span class="st-seg" title="Choisir le design des pages">${designSwitch('studio')}</span>
-        <button class="st-action" id="sdRefresh" title="Actualiser">${look.icon('refresh', 17)}</button>
-        <button class="st-action primary" id="stTerm">${look.icon('terminal', 17)}Terminal</button></div>
-      <div class="st-wrap">${faceHtml()}<h2 class="st-title">${esc(title[1])}${title[2] !== undefined ? `<small>${title[2]}</small>` : ''}</h2>
-        <main></main></div></div>${drawer ? drawerHtml() : ''}`;
-  }
-
   function draw() {
-    const n = state.node, d = state.device, running = state.observed === 'running', studio = design() === 'studio' && !!window.nlStudio;
+    const n = state.node, d = state.device, running = state.observed === 'running';
     if (!tabs().some(([id]) => id === tab)) tab = 'overview';
-    root.classList.toggle('st', studio);
-    document.body.classList.toggle('st', studio);
-    root.innerHTML = studio ? studioHtml() : `<div class="sd-top"><img alt="" src="/devices/${esc(d.art)}@${d.art.startsWith('host') || d.art === 'server' ? 145 : 175}.png">
+    root.innerHTML = `<div class="sd-top"><img alt="" src="/devices/${esc(d.art)}@${d.art.startsWith('host') || d.art === 'server' ? 145 : 175}.png">
       <div><h1>${esc(n.name)}</h1><div class="model">${esc(d.brand)} · ${esc(d.model)}</div></div>
       <span class="sd-badge">${esc(roleName(n.role))}</span><span class="sd-badge"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span>
       <span class="sd-grow"></span><span class="sd-switch" title="Choisir le design des pages">${designSwitch('simple')}</span>
@@ -470,10 +449,8 @@
       <div class="sd-wrap">${faceHtml()}
         <nav class="sd-tabs">${tabs().map(([id, label, count]) => `<button data-tab="${id}" class="${id === tab ? 'on' : ''}">${esc(label)}${count !== undefined ? `<span>${count}</span>` : ''}</button>`).join('')}</nav>
         <main></main></div>${drawer ? drawerHtml() : ''}`;
-    root.querySelectorAll('.sd-switch button, .st-seg button').forEach(button => { button.onclick = () => window.nlSetDesign(button.dataset.d); });
+    root.querySelectorAll('.sd-switch button').forEach(button => { button.onclick = () => window.nlSetDesign(button.dataset.d); });
     root.querySelector('#sdRefresh').onclick = () => load();
-    const terminal = root.querySelector('#stTerm');
-    if (terminal) terminal.onclick = openTerminal;
     root.querySelectorAll('[data-tab]').forEach(button => { button.onclick = () => { tab = button.dataset.tab; drawer = null; draw(); }; });
     root.querySelectorAll('.sd-port[data-port]').forEach(element => { element.onclick = () => openDrawer(element.dataset.port); });
     const main = root.querySelector('main');
@@ -486,9 +463,8 @@
   render = function () {
     previous();
     if (!state || !state.device) return;
-    document.body.classList.toggle('stb', standardView && design() === 'studio');  // the full editors, dark under Studio
-    if (!['simple', 'studio'].includes(design()) || standardView) {
-      root.remove(); document.body.classList.remove('sd', 'st');
+    if (design() !== 'simple' || standardView) {
+      root.remove(); document.body.classList.remove('sd');
       return;
     }
     document.body.classList.add('sd');

@@ -85,7 +85,7 @@ the direct launch.
 - Rapid PVST+/MST (classic STP runs), DHCP snooping, DAI and IP Source Guard on switch guests (port security, BPDU
   guard and LACP run).
 - OSPF areas other than 0, OSPF on subinterfaces or switch guests, iBGP and route policies beyond announced networks,
-  OSPF and BGP on one router (OSPF moves to FRR next), VRRP and GLBP (HSRP runs); RADIUS, SNMP and HTTPS inside guests
+  OSPF and BGP on one router (OSPF moves to FRR next), VRRPv3 and GLBP (HSRP and VRRPv2 run); RADIUS, SNMP and HTTPS inside guests
   (these exist on containers only; DNS, HTTP, NTP, Syslog and TFTP run in guests).
 - Two DHCP pools on one router interface (udhcpd serves one pool per interface), and DHCP reservations on guests.
 - IPv6 on guests.
@@ -123,6 +123,10 @@ DHCP server, firewall policy, resources). Draft changes apply on the next start.
 **Appliquer le pare-feu au lab actif** sends a saved firewall policy to the running lab,
 for containers and micro-VMs, with rollback on failure. A micro-VM has no console by
 design (its agent takes typed requests only).
+
+**One design: black and white** (`appliances/design.py`): a white window, black device tiles and cables, greys. The
+dark « Studio » and the coloured classic designs, the `--design` option and the saved choice were removed; the Network
+LABS web pages (Network LABS view, Simple design, PC desktop) are grey too. Copies of products' own pages keep theirs.
 
 **Vendor models.** The workbench library lists 56 manufacturer models from 36 brands
 (`network_labs/appliances/native_models.py`): routers, switches, firewalls, client

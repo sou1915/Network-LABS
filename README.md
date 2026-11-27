@@ -76,17 +76,14 @@ réglages) ; en haut le projet, le mode (Concevoir · Simuler · Lab en direct) 
 sous le plan, le dock des équipements par catégorie, avec une recherche ; sur le plan, les outils (sélection, câble,
 supprimer, zoom, tout afficher). Le voyant au coin de chaque tuile est plein quand l'équipement tourne, vide sinon.
 « Lab en direct » remplace le dock par le journal (événements, sorties des commandes).
-Deux autres designs restent disponibles : **Studio** (la même disposition en sombre, tuiles colorées par rôle) et
-**classique** (clair) : ⚙ › Design (ou Affichage › Design… dans le classique) ; le choix est gardé dans
-`~/.config/network-labs/ui.json`, le logiciel redémarre et rouvre le projet.
-Pour une seule session : `python3 -m network_labs --design mono` (ou `studio`, `classic`) ; `--open projet.json`
-ouvre un projet au démarrage.
+C'est le seul design : les anciens designs sombre (« Studio ») et clair en couleurs ont été retirés, et les pages web
+de Network LABS (vue Network LABS, design Simple, bureau des PC) sont elles aussi en noir & blanc ; seules les copies des
+interfaces des produits gardent leurs couleurs. `python3 -m network_labs --open projet.json` ouvre un projet au démarrage.
 
 Une fois la machine préparée (`setup`, ci-dessous) :
 
-1. **Ajouter** : cliquer (ou glisser sur le plan) un équipement du dock (Studio) ou de la bibliothèque
-   (classique) : routeur Cisco, Juniper, Huawei…, switch, pare-feu, PC. Il apparaît aussitôt, sans formulaire,
-   ses ports non configurés.
+1. **Ajouter** : cliquer (ou glisser sur le plan) un équipement du dock : routeur Cisco, Juniper, Huawei…, switch,
+   pare-feu, PC. Il apparaît aussitôt, sans formulaire, ses ports non configurés.
 2. **Câbler** : « Connecter un câble », puis cliquer les deux équipements (premiers ports libres ; Ctrl+clic pour
    choisir les ports).
 3. **▶ Démarrer** (le projet s'enregistre tout seul dans `~/.local/share/network-labs/projects/`).
@@ -258,8 +255,8 @@ Terminal dont chaque ligne s'exécute sur le PC (ip a, ip route, ping -c, tracer
 Le menu Network LABS est dans la zone de notification ; clic droit sur Démarrer : le menu Win+X (Connexions réseau,
 Terminal, Exécuter…) ; « Exécuter » ouvre ncpa.cpl, cmd, control. Les autres PC gardent le bureau Network LABS. Dessinées par
 Network LABS, sans logo ni image du constructeur ; chaque modification passe par les mêmes vérifications que le reste
-du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal ou les designs **Studio** (sombre,
-comme l'atelier) et **Simple** (clair).
+du laboratoire. Le bouton « ◉ Network LABS » (en bas à droite) ouvre le terminal, le design **Simple** (noir & blanc,
+comme l'atelier) ou la vue Network LABS.
 [Couverture par type de node et options restantes](docs/NODE_MANAGEMENT_ROADMAP.md).
 Le menu **Fichier → LAN sécurité access** crée un profil adapté aux protections
 snooping/DAI/source guard ; le profil actuel exige des ports physiques access.

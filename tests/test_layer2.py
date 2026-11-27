@@ -1,6 +1,5 @@
 import unittest
 from network_labs.engine import Lab,Node,switching_demo
-from network_labs.cli import Session
 from test_services import commands
 
 class Layer2Tests(unittest.TestCase):

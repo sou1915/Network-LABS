@@ -5,7 +5,6 @@ synchronises its clock to SRV, and R1's log messages reach SRV's collector; R1 b
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import tempfile
 import time

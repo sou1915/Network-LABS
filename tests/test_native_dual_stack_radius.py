@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr,redirect_stdout
 from unittest.mock import Mock,patch
-from network_labs.appliances.examples import dual_stack_radius_lab,radius_lab,dual_stack_dns_lab
+from network_labs.appliances.examples import dual_stack_radius_lab, radius_lab
 from network_labs.appliances.management import commands,start_service
 from network_labs.appliances.spec import validate
 from network_labs.appliances.service_adapters import adapters

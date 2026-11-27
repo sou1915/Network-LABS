@@ -4,7 +4,6 @@ import io
 import json
 import socket
 import struct
-import subprocess
 import threading
 import unittest
 from contextlib import nullcontext

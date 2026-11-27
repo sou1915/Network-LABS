@@ -1,5 +1,4 @@
 """RIP from the IOS lines of a router: the process the guest runs, the model's routes, show ip route, BIRD's own check."""
-import os
 from pathlib import Path
 import shutil
 import subprocess

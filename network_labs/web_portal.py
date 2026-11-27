@@ -43,7 +43,7 @@ class WebPortal:
                 scripts=('/native_options.js','/native_switch_options.js','/native_device_view.js','/native_fortios.js','/native_vendor.js',
                          '/native_products.js','/native_products_more.js','/native_products_hosts.js','/native_products_bsd.js',
                          '/native_windows_icons.js','/native_products_windows.js','/native_products_linux.js',
-                         '/native_desktop.js','/native_studio.js','/native_simple.js')
+                         '/native_desktop.js','/native_simple.js')
                 if native and parsed.path in scripts:
                     return self.respond(200,Path(__file__).with_name(parsed.path[1:]).read_bytes(),'text/javascript; charset=utf-8')
                 if native and parsed.path=='/InterVariable.ttf':

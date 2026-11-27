@@ -423,7 +423,7 @@
     const running = state.observed === 'running';
     app.innerHTML = `<div class="fg-top"><b>${esc(n.name)}</b><span class="sub">${esc(d.brand)} ${esc(d.model)} · menus FortiOS · système Linux</span>
       <span class="grow"></span><span class="fg-pill"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Non observé'}</span>
-      <button class="simple">◐ Design Studio</button><button class="std">Vue Network LABS</button><button class="ref">↻</button></div>
+      <button class="simple">◧ Design Simple</button><button class="std">Vue Network LABS</button><button class="ref">↻</button></div>
       <nav class="fg-nav"></nav><main class="fg-main"></main>`;
     const nav = app.querySelector('nav');
     for (const [group, items] of PAGES) {
@@ -438,7 +438,7 @@
     nav.insertAdjacentHTML('beforeend', '<div class="fg-legend">○ menu du produit non disponible dans le laboratoire</div>');
     app.querySelector('.std').onclick = () => { standard = true; document.body.classList.remove('fg'); app.remove(); render(); };
     app.querySelector('.ref').onclick = () => load();
-    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('studio');
+    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('simple');
     const main = app.querySelector('main');
     const pages = {status: statusPage, interfaces: interfacesPage, routes: routesPage, policy: policyPage, vip: vipPage, settings: settingsPage};
     (pages[fgPage] || unavailablePage)(main);

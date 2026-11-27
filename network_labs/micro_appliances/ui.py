@@ -5,7 +5,7 @@ from .runtime import make_lab,ApplianceFault
 from .experiment import echo_ping,memory_sample
 from .packets import describe
 from ..layout import fit_dialog
-from ..theme import PANEL,TEXT,MUTED,BLUE,TEAL,RED
+from ..theme import PANEL,TEXT
 
 class MicroLabWindow:
     def __init__(self,app,snapshot=None):

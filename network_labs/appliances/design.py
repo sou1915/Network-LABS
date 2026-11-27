@@ -1,54 +1,34 @@
-"""Which look the workbench wears, and the colours of each.
+"""The workbench's look: black and white. The studio's layout (an icon rail, a top bar with the lab's mode and its start
+button, devices as tiles and a device dock under the canvas) in a white window, with black devices, black cables and
+greys.
 
-Three designs: « classic » (light, the original workbench), « studio » (dark, an icon rail, a top bar with the lab's
-mode and its start button, devices as coloured tiles and a device dock under the canvas) and « mono » (the studio's
-layout in black and white: a white window, black devices, black cables). The choice is read once, at import, from the
-NETWORK_LABS_DESIGN environment variable (classic when unset). The launcher sets it from --design, else
-~/.config/network-labs/ui.json ({"design": "mono"}), else mono. Changing it restarts the application
-(ui_studio.switch_design).
-
-The workbench's modules were written for the light design and set many colours by hand. Under studio, install() maps
-those light colours to their dark counterparts as Tk receives them, so each panel follows without a dark copy of its
-code; canvas drawings choose their colours themselves (CANVAS here, studio_art for the devices). Under mono, tone()
-turns every colour Tk receives into black, white or a grey: canvas items and ttk styles included, since the studio's
-code it reuses was written for a dark window."""
-from .design_choice import DESIGNS, SETTINGS, asked, chosen, save_choice  # noqa: F401 (re-exported)
-
-# Only the environment counts here: the application's launcher (__main__.main) puts the saved choice there, so code
-# that builds the workbench without it (the tests) gets classic whatever this computer saved.
-DESIGN = asked() or 'classic'
-MONO = DESIGN == 'mono'
-STUDIO = DESIGN in ('studio', 'mono')  # the studio's layout (rail, top bar, tiles, dock); mono wears it in black and white
+The workbench's modules were written for a light window, and the studio's chrome for a dark one, and they set many
+colours by hand. install() turns every colour Tk receives into black, white or a grey (tone()): widget options, text
+tags, canvas items and ttk styles. Colours written for the dark window are read the other way round (its dark panels turn
+white, its light text dark); light tints become the grey of the same lightness; strong colours turn black."""
 
 # The window's colours. BG: behind everything; PANEL: cards and panels; SIDEBAR: the side column; LINE: borders;
 # FIELD: entries; HOVER / SELECTED: rows and buttons under the pointer or chosen.
-CLASSIC = dict(BG='#f1f4f9', PANEL='#ffffff', SIDEBAR='#eef3f9', TEXT='#172c43', MUTED='#66788f', BLUE='#007ce5', GREEN='#24c52c',
-               RED='#df1723', TITLE='#243746', LINE='#e1e9f3', FIELD='#ffffff', HOVER='#edf5ff', SELECTED='#e4f0ff',
-               CARD='#ffffff', CARD_LINE='#e1e9f3', HOVER_LINE='#b7d6fa')
+COLOURS = dict(BG='#ffffff', PANEL='#ffffff', SIDEBAR='#ffffff', TEXT='#111111', MUTED='#6b6b6b', BLUE='#111111',
+               GREEN='#111111', RED='#111111', TITLE='#000000', LINE='#e2e2e2', FIELD='#ffffff', HOVER='#f2f2f2',
+               SELECTED='#e8e8e8', CARD='#ffffff', CARD_LINE='#dddddd', HOVER_LINE='#111111')
+# The dark window the studio's chrome was written for: its colours tell tone() which ones to read the other way round.
 DARK = dict(BG='#0c131b', PANEL='#0f1922', SIDEBAR='#0a1017', TEXT='#dbe7f3', MUTED='#7f95ab', BLUE='#3b82f6', GREEN='#22c55e',
             RED='#ef4444', TITLE='#eef5fb', LINE='#1d2b38', FIELD='#0c141d', HOVER='#16273a', SELECTED='#1e3a5f',
             CARD='#121e2a', CARD_LINE='#213347', HOVER_LINE='#2f5f99')
-MONO_COLOURS = dict(BG='#ffffff', PANEL='#ffffff', SIDEBAR='#ffffff', TEXT='#111111', MUTED='#6b6b6b', BLUE='#111111',
-                    GREEN='#111111', RED='#111111', TITLE='#000000', LINE='#e2e2e2', FIELD='#ffffff', HOVER='#f2f2f2',
-                    SELECTED='#e8e8e8', CARD='#ffffff', CARD_LINE='#dddddd', HOVER_LINE='#111111')
-COLOURS = MONO_COLOURS if MONO else DARK if STUDIO else CLASSIC
 
 # The topology canvas. Links, captions and the boxes behind VLANs and firewall zones; the VLAN boxes take turns.
-CANVAS_CLASSIC = dict(background='#ffffff', grid='#e8eef7', hint='#66788f', link='#3886b9', link_hover='#007ce5', link_end='#4f83b3',
-                      light_ring='#ffffff', caption='#315b7d', name='#172c43', detail='#66788f', address='#315b7d',
-                      zone=('#f2ecff', '#cbb9ec', '#705493'), selection='#007ce5', chip=None,
-                      vlans=(('#e8f4ff', '#8fc0ed', '#0064c7'), ('#e9f8ed', '#9ed4ad', '#14884b'), ('#fff7dd', '#ead08b', '#ba7a04')))
 CANVAS_DARK = dict(background='#0c131b', grid='#1b2a39', hint='#7f95ab', link='#3b82f6', link_hover='#93c5fd', link_end='#3b82f6',
                    light_ring='#0c131b', caption='#93c5fd', name='#eef5fb', detail='#7f95ab', address='#7fb2e8',
                    zone=('#171329', '#3d2f66', '#c4b5fd'), selection='#60a5fa', chip=('#132131', '#23415f', '#93c5fd'),
                    vlans=(('#0f1d2c', '#23415f', '#93c5fd'), ('#0e1f19', '#1f4d33', '#86efac'), ('#1f1b10', '#5a4a1c', '#fcd34d')))
-CANVAS_MONO = dict(background='#ffffff', grid='#ececec', hint='#8a8a8a', link='#111111', link_hover='#555555', link_end='#111111',
+CANVAS = dict(background='#ffffff', grid='#ececec', hint='#8a8a8a', link='#111111', link_hover='#555555', link_end='#111111',
                    light_ring='#ffffff', caption='#222222', name='#111111', detail='#6b6b6b', address='#333333',
                    zone=('#fafafa', '#bdbdbd', '#333333'), selection='#111111', chip=('#ffffff', '#cccccc', '#333333'),
                    vlans=(('#f7f7f7', '#c4c4c4', '#222222'), ('#fbfbfb', '#adadad', '#222222'), ('#f3f3f3', '#d4d4d4', '#222222')))
-CANVAS = CANVAS_MONO if MONO else CANVAS_DARK if STUDIO else CANVAS_CLASSIC
 
-# Light colours set by hand in the workbench's modules and what they become under studio: backgrounds, then inks.
+# Light colours set by hand in the workbench's modules and the dark ones the studio gave them: backgrounds, then inks.
+# Only the dark side counts now: tone() reads those colours as written for a dark window.
 SURFACES = {
     '#ffffff': '#0f1922', '#f1f4f9': '#0c131b', '#eef3f9': '#0a1017', '#f1f5fb': '#0f1922', '#f3f6fa': '#132131',
     '#f6f8fb': '#111c27', '#f7f9fc': '#111c27', '#f9fbfe': '#132131', '#e8eef5': '#16273a', '#e8eef7': '#1b2a39',
@@ -91,7 +71,7 @@ def _flat(values):
             yield from _flat(value)
 
 
-# Every colour made for the dark window: under mono they are read the other way round (dark backgrounds turn white).
+# Every colour made for the dark window: read the other way round (dark backgrounds turn white).
 FOR_DARK = (set(_flat(DARK.values())) | set(_flat(CANVAS_DARK.values())) | set(_flat(SURFACES.values())) | set(_flat(INKS.values()))
             | STUDIO_LITERALS)
 NAMED = {'white': '#ffffff', 'black': '#000000'}
@@ -141,26 +121,21 @@ def tone(colour, role):
 
 
 def surface(colour):
-    """COLOUR as a background under the active design."""
-    if MONO:
-        return tone(colour, 'surface')
-    return SURFACES.get(colour.lower(), colour) if STUDIO and isinstance(colour, str) else colour
+    """COLOUR as a background."""
+    return tone(colour, 'surface')
 
 
 def ink(colour):
-    """COLOUR as text under the active design."""
-    if MONO:
-        return tone(colour, 'ink')
-    return INKS.get(colour.lower(), colour) if STUDIO and isinstance(colour, str) else colour
+    """COLOUR as text."""
+    return tone(colour, 'ink')
 
 
 SHAPE_OPTIONS = {'fill', 'outline', 'activefill', 'activeoutline', 'disabledfill', 'disabledoutline'}
 
 
 def convert(options, item=None):
-    """A widget's Tk options (('-background', '#ffffff', ...)) with their colours turned to the design's: light to dark
-    under studio, to black and white under mono. Under mono a canvas item's fill and outline follow too (ITEM: its type,
-    so a text's fill is read as ink and a line's as a line)."""
+    """A widget's Tk options (('-background', '#ffffff', ...)) with their colours turned black and white. A canvas item's
+    fill and outline follow too (ITEM: its type, so a text's fill is read as ink and a line's as a line)."""
     options = list(options)
     for index in range(0, len(options) - 1, 2):
         key = str(options[index]).lstrip('-').lower()
@@ -168,7 +143,7 @@ def convert(options, item=None):
             options[index + 1] = surface(options[index + 1])
         elif key in INK_OPTIONS:
             options[index + 1] = ink(options[index + 1])
-        elif MONO and item and key in SHAPE_OPTIONS:
+        elif item and key in SHAPE_OPTIONS:
             role = 'ink' if item == 'text' else 'line' if item == 'line' or 'outline' in key else 'surface'
             options[index + 1] = tone(options[index + 1], role)
     return tuple(options)
@@ -179,8 +154,8 @@ STYLE_ROLES = {'background': 'surface', 'fieldbackground': 'surface', 'selectbac
                'bordercolor': 'line', 'lightcolor': 'line', 'darkcolor': 'line', 'focuscolor': 'line'}
 
 
-def _install_mono(tk, ttk):
-    """Under mono: canvas items and ttk styles are converted too (the studio's code sets them by hand for a dark window)."""
+def _install_items(tk, ttk):
+    """Canvas items and ttk styles are converted too (the studio's code sets them by hand for a dark window)."""
     if getattr(tk.Canvas, '_mono_create', None):
         return
     create, itemconfigure = tk.Canvas._create, tk.Canvas.itemconfigure
@@ -222,14 +197,11 @@ def _install_mono(tk, ttk):
 
 
 def install(root):
-    """Under studio: every colour a module gives a Tk widget (at creation or in a later configure, text tags included)
-    goes through convert(), and the colours nobody sets (a Text's white page, a Label's grey) default to dark ones."""
+    """Every colour a module gives a Tk widget (at creation or in a later configure, text tags included) goes through
+    convert(), and the colours nobody sets (a Text's page, a Label's grey) default to the window's."""
     import tkinter as tk
     from tkinter import ttk
-    if not STUDIO:
-        return
-    if MONO:
-        _install_mono(tk, ttk)
+    _install_items(tk, ttk)
     if not getattr(tk.Misc, '_studio_options', None):
         original = tk.Misc._options
 
@@ -242,6 +214,6 @@ def install(root):
                        ('*activeForeground', colours['TEXT']), ('*highlightBackground', colours['PANEL']),
                        ('*highlightColor', colours['BLUE']), ('*selectBackground', colours['SELECTED']),
                        ('*selectForeground', colours['TEXT']), ('*insertBackground', colours['TEXT']), ('*troughColor', colours['BG']),
-                       ('*disabledForeground', '#9a9a9a' if MONO else '#5d7288'), ('*Text.Background', colours['FIELD']),
+                       ('*disabledForeground', '#9a9a9a'), ('*Text.Background', colours['FIELD']),
                        ('*Entry.Background', colours['FIELD']), ('*Listbox.Background', colours['FIELD'])):
         root.option_add(key, value)

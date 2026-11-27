@@ -1,4 +1,3 @@
-import io
 import json
 from pathlib import Path
 import shutil
@@ -8,7 +7,6 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
 
 from network_labs.appliances.service_probe import probe, load_ca
 from network_labs.appliances.service_probe_worker import run_probe

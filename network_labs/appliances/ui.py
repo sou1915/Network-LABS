@@ -1,6 +1,5 @@
 """Native topology and lifecycle workbench; sudo stays in an external terminal."""
 import json
-import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,10 +10,9 @@ from tkinter import filedialog,messagebox,simpledialog,ttk
 import uuid
 import os
 from ..layout import fit_dialog,ScrollPanel
-from ..theme import BG,PANEL,CARD,LINE,TEXT,MUTED,TEAL,BLUE,RED
 from .catalog import capabilities
 from .runtime import plan
-from .spec import example,validate
+from .spec import validate
 from . import topology_edit
 from .campus import campus_example
 from . import reference_theme
@@ -23,7 +21,7 @@ from .reference_theme import BG,PANEL,SIDEBAR,TEXT,MUTED,BLUE,GREEN as TEAL,RED
 from .native_models import port_label,port_names
 from .workspace_art import port_offset,draw_device,access_vlans,auto_layout,layout_bounds,networks,firewall_hosts,link_caption,draw_port_labels
 from .workspace_art import vlan_groups
-from .design import CANVAS,STUDIO
+from .design import CANVAS
 from . import studio_art
 from .missions_ui import MissionsPanel
 from .ui_quick import QuickEditing,blank_project
@@ -81,9 +79,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                                ('Édition',edits),
                                ('Affichage',[('Topologie',lambda:self.tabs.select(self.topology_tab)),
                                              ('Configuration du projet',lambda:self.tabs.select(self.editor_tab)),
-                                             ('Configuration du dispositif',lambda:self.device_tabs.select(self.config_panel)),
-                                             ('Design noir & blanc…',lambda:self.switch_design('mono')),
-                                             ('Design Studio (sombre)…',lambda:self.switch_design('studio'))]),
+                                             ('Configuration du dispositif',lambda:self.device_tabs.select(self.config_panel))]),
                                ('Outils',[('Valider / plan',self.preview),('Actualiser l’état',lambda:self.launch('status'))])]:
             menu_button=tk.Menubutton(header,text=title,bg='#223344',fg='white',activebackground='#334b60',activeforeground='white',font=(self.font,8),padx=8)
             menu=tk.Menu(menu_button,tearoff=False)
@@ -246,8 +242,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.window.bind('<Destroy>',self.destroyed,add='+')
         self.window.bind('<Configure>',self.schedule_reference_layout,add='+')
         self.content.bind('<Configure>',self.schedule_reference_layout,add='+')
-        if STUDIO:
-            self.build_studio()  # the rail, top bar, device dock and canvas tools (ui_studio)
+        self.build_studio()  # the rail, top bar, device dock and canvas tools (ui_studio)
         # A blank canvas, as in Packet Tracer: devices come from the library (click or drag), cables from two clicks.
         self.load_spec(blank_project())
         self.refresh()
@@ -261,8 +256,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
     def fit_reference_layout(self):
         self.layout_id=None
         if not self.closed and self.content.winfo_height()>350:
-            if len(self.content.panes())>1:  # the studio design hides the log until asked
-                self.content.sashpos(0,max(250,self.content.winfo_height()-(210 if STUDIO else 160)))
+            if len(self.content.panes())>1:  # the log stays hidden until asked
+                self.content.sashpos(0,max(250,self.content.winfo_height()-210))
                 self.lower.sashpos(0,int(self.content.winfo_width()*.55))
             # The device panel holds a section rail and a form: give it about 30% of the width (420-560 px)
             # so port names, addresses and action buttons are not cut off.
@@ -417,8 +412,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
     def error(self,error):messagebox.showerror('LAN natif',str(error),parent=self.window)
 
     def show_output(self,value):
-        if STUDIO and getattr(self,'log_shown',None) is False:
-            self.toggle_log(True)  # an operation's result: the studio log opens on it
+        if getattr(self,'log_shown',None) is False:
+            self.toggle_log(True)  # an operation's result: the log opens on it
         raw=json.dumps(value,ensure_ascii=False,indent=2);display=raw
         self.dock.tab(self.output_tab,text='Diagnostic réseau · lecture seule')
         if isinstance(value,dict) and isinstance(value.get('directions'),list):
@@ -469,10 +464,10 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                 self.canvas.create_oval(xx,yy,xx+1,yy+1,fill=CANVAS['grid'],outline='',tags=('grid',))
         if not graph['nodes']:
             # A blank project says how to begin, as an empty Packet Tracer workspace invites a first device.
-            where='le dock, en bas' if STUDIO else 'la bibliothèque'
+            where='le dock, en bas'
             self.canvas.create_text(width/2,height/2-24,text='Cliquer ou glisser un équipement depuis '+where,
                                     fill=MUTED,font=(self.font,13,'bold'),tags=('hint',))
-            cable='l’outil câble de la barre d’outils' if STUDIO else '« Connecter un câble »'  # Studio: the toolbar's second tool
+            cable='l’outil câble de la barre d’outils'  # the toolbar's second tool
             self.canvas.create_text(width/2,height/2+6,text='puis '+cable+' : deux clics · ▶ Démarrer · double-clic : '
                                     'le terminal de l’équipement',fill=MUTED,font=(self.font,10),tags=('hint',))
         palette=CANVAS['vlans']
@@ -527,7 +522,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                 router_links[a[0]]=router_links.get(a[0],0)+1
                 router_links[b[0]]=router_links.get(b[0],0)+1
         # Where a cable meets a device: the classic chassis is wide; a studio tile is a 56 px square.
-        reach,drop,beside,spread=(32,30,34,.45) if STUDIO else (55,25,62,1)
+        reach,drop,beside,spread=32,30,34,.45
         for index,(a,b) in enumerate(graph['links']):
             x,y=positions[a[0]];xx,yy=positions[b[0]]
             # Staggered routers (different rows, apart sideways): an L from one to the other's side.
@@ -559,7 +554,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                     bx+=port_offset(graph_nodes[b[0]],b[1])*spread
                 mid=min(ay,by)+8+(index%3)*8
                 points=(ax,ay,ax,mid,bx,mid,bx,by)
-            self.link_shapes[index]=self.canvas.create_line(*points,fill=CANVAS['link'],width=2 if STUDIO else 1.5,joinstyle='round',
+            self.link_shapes[index]=self.canvas.create_line(*points,fill=CANVAS['link'],width=2,joinstyle='round',
                                                             capstyle='round',tags=('link','link:'+str(index)))
             self.canvas.tag_bind('link:'+str(index),'<Button-3>',lambda event,aa=a,bb=b:self.remove_cable(aa,bb))
             for endpoint,peer,px,py in ((a,b,ax,ay),(b,a,bx,by)):
@@ -579,7 +574,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                     tx,ty,anchor=px+5,py+8,'w'
                 elif graph_nodes[endpoint[0]]['role']!='host':
                     if other_y<ny-45:
-                        tx,ty,anchor=nx-(36 if STUDIO else 56),ny-19,'e'
+                        tx,ty,anchor=nx-36,ny-19,'e'
                     else:
                         tx,ty=px+5,ny+drop+5+(ordinal%4)*10
                 shown=port_label(graph_nodes[endpoint[0]],endpoint[1])
@@ -605,40 +600,31 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         for node in graph['nodes']:
             name=node['name'];x,y=positions[name];observed=self.states.get(name,{})
             state=observed.get('status','non observé');memory=observed.get('memory')
-            color='#21c632' if state=='running' else '#8b9cae';tags=('node','node:'+name)
+            tags=('node','node:'+name)
             # The selection box encloses the device and its title (and, for hosts, the captions below).
             host=node['role']=='host'
-            box=(x-44,y-34,x+44,y+66) if host else (x-64,y-58,x+64,y+30)
-            if STUDIO:
-                box=(x-48,y-40,x+48,y+68) if host else (x-70,y-68,x+70,y+40)
-            self.node_shapes[name]=rounded_box(self.canvas,*box,r=16 if STUDIO else 8,fill='',outline='',width=1,tags=tags)
+            box=(x-48,y-40,x+48,y+68) if host else (x-70,y-68,x+70,y+40)
+            self.node_shapes[name]=rounded_box(self.canvas,*box,r=16,fill='',outline='',width=1,tags=tags)
             from .native_models import MODELS,label as model_label
             presentation=MODELS[node['model']]['presentation'] if node.get('model') in MODELS else None
             kind='server' if presentation=='server' or name in dmz or name.upper().startswith('SRV') else node['role']
-            host_index=[n['name'] for n in graph['nodes'] if n['role']=='host'].index(name) if node['role']=='host' else 0
-            if STUDIO:
-                studio_art.tile(self.canvas,kind,x,y,56,state if state in ('running','stopped') else 'unknown',tags=tags)
-            else:
-                draw_device(self.canvas,kind,x,y,scale=1,tags=tags,variant='red' if host_index%2 else 'blue',zoom=self.zoom)
+            studio_art.tile(self.canvas,kind,x,y,56,state if state in ('running','stopped') else 'unknown',tags=tags)
             if node['role']=='host':
-                self.canvas.create_text(x,y+(44 if STUDIO else 40),text=name,fill=CANVAS['name'],font=(self.font,9,'bold'),tags=tags)
+                self.canvas.create_text(x,y+44,text=name,fill=CANVAS['name'],font=(self.font,9,'bold'),tags=tags)
                 ips=[v.split('/')[0] for v in node['interfaces'].values() if v]
                 # Under a host: its address (what a lab is about); the model only while it has none.
                 caption=', '.join(ips) if ips else (MODELS[node['model']]['model'][:20] if node.get('model') in MODELS
                                                     else 'Linux · micro-VM' if node.get('runtime')=='firecracker' else 'Linux · OCI')
                 if node.get('dhcp_clients') and not ips:
                     caption='DHCP'
-                self.canvas.create_text(x,y+(58 if STUDIO else 54),text=caption,fill=CANVAS['address'] if ips else CANVAS['detail'],
+                self.canvas.create_text(x,y+58,text=caption,fill=CANVAS['address'] if ips else CANVAS['detail'],
                                         font=(self.font,8),tags=tags)
             else:
-                title=self.canvas.create_text(x,y-(54 if STUDIO else 48),text=name,fill=CANVAS['name'],font=(self.font,9,'bold'),tags=tags)
+                title=self.canvas.create_text(x,y-54,text=name,fill=CANVAS['name'],font=(self.font,9,'bold'),tags=tags)
                 subtitle=model_label(node,short=True)
                 subtitle=subtitle if len(subtitle)<=30 else subtitle[:29]+'…'
-                detail=self.canvas.create_text(x,y-(40 if STUDIO else 34),text=subtitle,fill=CANVAS['detail'],font=(self.font,8),tags=tags)
-                if STUDIO:
-                    self.title_patch(title,detail,tags)
-            if not STUDIO:  # a studio tile carries its own light
-                self.canvas.create_oval(x+36,y+14,x+43,y+21,fill=color,outline='#ffffff',tags=tags)
+                detail=self.canvas.create_text(x,y-40,text=subtitle,fill=CANVAS['detail'],font=(self.font,8),tags=tags)
+                self.title_patch(title,detail,tags)
             self.canvas.tag_bind('node:'+name,'<Button-1>',lambda event,n=name:self.node_pressed(event,n))
             self.canvas.tag_bind('node:'+name,'<Double-Button-1>',lambda event,n=name:self.device_double_click(n))
             self.canvas.tag_bind('node:'+name,'<Enter>',lambda event,n=name:self.hover_node(n,True))
@@ -653,8 +639,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             x,y=positions[node['name']];host=node['role']=='host'
             obstacles.append((x-32 if host else x-50,y-29,x+32 if host else x+50,y+24))
         chip=CANVAS['chip'] or ('#ffffff','#e0e9f2',MUTED)
-        draw_port_labels(self.canvas,port_labels,obstacles,(self.font,7),chip[2] if STUDIO else MUTED,chip[0],chip[1])
-        if STUDIO and graph['links']:
+        draw_port_labels(self.canvas,port_labels,obstacles,(self.font,7),chip[2],chip[0],chip[1])
+        if graph['links']:
             self.canvas.tag_lower('glow','link')  # cables run over the tiles' glow, under the tiles
         self.canvas.tag_raise('zone-label')
         self.canvas.tag_raise('port-light')  # above the devices' artwork, as a port's link light
@@ -674,8 +660,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         else:
             self.lab_chip.configure(text='○ Lab arrêté · '+str(len(graph['nodes']))+' équipement'+('s' if len(graph['nodes'])>1 else ''),
                                     bg='#e8eef5',fg=MUTED)
-        if STUDIO:
-            self.studio_lab_state(guests,len(graph['nodes']))
+        self.studio_lab_state(guests,len(graph['nodes']))
         self.filter_library();self.project_title.set(graph['name'])
         self.counts.set(f"{len(graph['nodes'])} équipements  /  {len(graph['links'])} liens  /  {graph['name']}")
         if self.zoom!=1.:
@@ -808,7 +793,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.canvas.itemconfigure(self.node_shapes[name],outline=CANVAS['selection'] if active or name in selected else '',width=2)
         for index,link in enumerate(self.graph['links']):
             if any(end[0]==name for end in link) and index in self.link_shapes:
-                width=(2.8 if active else 2) if STUDIO else (2.3 if active else 1.5)
+                width=2.8 if active else 2
                 self.canvas.itemconfigure(self.link_shapes[index],fill=CANVAS['link_hover'] if active else CANVAS['link'],width=width)
         if not self.panning:self.canvas.configure(cursor='crosshair' if self.edit_mode=='cable' else 'hand2' if active else '')
 
@@ -944,8 +929,6 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         except (ValueError,TypeError,KeyError,StopIteration) as error:
             self.config_message.set(str(error));self.config_apply.state(['disabled'])
 
-    HEADER_THEMES={'router':('#0d2638','#1f5a85'),'switch':('#123049','#2b6f9f'),'firewall':('#2a0f12','#8a2b1f'),
-                   'host':('#16263a','#34536f')}
 
     def draw_device_header(self):
         """Paint the GUI tab's device band: gradient, drawing, name, brand · model and chips."""
@@ -955,38 +938,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
 
     def paint_device_header(self,canvas,spec,node):
         """A device band on CANVAS (the Aperçu and GUI tabs): gradient, drawing, name, brand · model and chips."""
-        if STUDIO:
-            return self.paint_studio_header(canvas,spec,node)
-        canvas.delete('all')
-        from .device_view import summary
-        from .workspace_art import _mix,device_image
-        info=summary(spec,node)
-        width=max(200,canvas.winfo_width())
-        start,end=self.HEADER_THEMES.get(node['role'],self.HEADER_THEMES['host'])
-        steps=48
-        for i in range(steps):
-            canvas.create_rectangle(i*width/steps,0,(i+1)*width/steps+1,86,fill=_mix(start,end,i/(steps-1)),outline='')
-        role=info['art'].split('-')[0]
-        image=device_image(canvas,role,info['art'].split('-')[1] if '-' in info['art'] else 'blue',.8)
-        if image is not None:
-            canvas.create_image(58,43,image=image)
-        canvas.create_text(118,24,text=node['name'],anchor='w',fill='white',font=(self.font,14,'bold'))
-        line=(f"{info['brand']} · {info['title'].split(' · ')[-1]} — {info['role_name']}" if node.get('model')
-              else f"Nœud Linux générique — {info['role_name']}")
-        canvas.create_text(118,45,text=line,anchor='w',
-                           fill='#d8e6f2',font=(self.font,9))
-        running=self.states.get(node['name'],{}).get('status')=='running'
-        chips=[('● En marche' if running else '○ Non observé'),f"{len(info['ports'])} ports",
-               'Micro-VM' if node['runtime']=='firecracker' else 'OCI']+([info['cli']] if info['cli'] else [])
-        x=118
-        for chip in chips:
-            item=canvas.create_text(x+8,67,text=chip,anchor='w',fill='#3ddc84' if chip.startswith('●') else 'white',font=(self.font,8))
-            left,top,right,bottom=canvas.bbox(item)
-            if right+8>width-6:
-                canvas.delete(item)  # chips that do not fit the panel are left out rather than cut
-                break
-            canvas.tag_lower(rounded_box(canvas,left-7,top-3,right+7,bottom+3,r=9,fill=_mix(start,'#ffffff',.18),outline=''),item)
-            x=right+14
+        return self.paint_studio_header(canvas,spec,node)
 
     def build_trace_form(self,parent):
         """Follow one real ping across the lab: every link is recorded, then the packet is replayed on the topology."""
@@ -1256,7 +1208,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                   '  s’affichent ici. Pour taper des commandes : double-clic sur un équipement.')
 
     def write_output(self,display,raw,title):
-        if STUDIO and display and getattr(self,'log_shown',None) is False:
+        if display and getattr(self,'log_shown',None) is False:
             self.toggle_log(True)
         self.dock.tab(self.output_tab,text=title)
         raw=json.dumps(raw,ensure_ascii=False,indent=2)
@@ -1361,8 +1313,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         name,_,_=self.dragging;self.dragging=None
         if not self.drag_moved:return
         box=self.canvas.coords(self.node_shapes[name])
-        # Box centre minus the device origin: (-34+66)/2 for hosts, (-58+30)/2 for chassis.
-        offset=16 if next(n for n in self.graph['nodes'] if n['name']==name)['role']=='host' else -14
+        # Box centre minus the device origin: (-40+68)/2 for hosts, (-68+40)/2 for chassis (the tiles' boxes in draw()).
+        offset=14 if next(n for n in self.graph['nodes'] if n['name']==name)['role']=='host' else -14
         self.positions[name]=(max(50,(min(box[::2])+max(box[::2]))/(2*self.zoom)),max(60,(min(box[1::2])+max(box[1::2]))/(2*self.zoom)-offset))
         self.draw(self.graph,self.states)
 

@@ -1,15 +1,12 @@
-"""The « Studio » design's frame around the workbench (design.py). On the left an icon rail (pages, simulation, the log,
+"""The workbench's frame, in black and white (design.py). On the left an icon rail (pages, simulation, the log,
 the settings); on top the project's name, the mode (Concevoir · Simuler · Lab en direct) and one large button that
 starts or stops the lab; under the canvas a dock of devices to click or drag in, by category; floating tools on the
 canvas (select, cable, delete, zoom). The classic widgets are still built (the workbench drives them); this frame
 hides the ones it replaces."""
-import os
-from pathlib import Path
-import sys
 import tkinter as tk
-from tkinter import font as tkfont, messagebox, ttk
+from tkinter import font as tkfont, ttk
 
-from . import design, studio_art
+from . import studio_art
 from .design import CANVAS, COLOURS
 from .soft_widgets import rounded_box
 
@@ -218,7 +215,7 @@ class StudioChrome:
         self.studio_page.set('/  ' + next(title for title, key in PAGES if key == page))
 
     def studio_menu(self):
-        """The rail's settings: the project's files, advanced editing and the design."""
+        """The rail's settings: the project's files and advanced editing."""
         menu = tk.Menu(self.window, tearoff=False)
         for label, command in (('Nouveau LAN', self.new), ('Campus entreprise', self.new_campus),
                                ('LAN sécurité access', lambda: self.new_campus(security=True)), (None, None),
@@ -230,15 +227,6 @@ class StudioChrome:
                 menu.add_separator()
             else:
                 menu.add_command(label=label, command=command)
-        menu.add_separator()
-        designs = tk.Menu(menu, tearoff=False)
-        chosen = tk.StringVar(value=design.DESIGN)
-        designs.add_radiobutton(label='Noir & blanc', variable=chosen, value='mono', command=lambda: self.switch_design('mono'))
-        designs.add_radiobutton(label='Studio · sombre', variable=chosen, value='studio', command=lambda: self.switch_design('studio'))
-        designs.add_radiobutton(label='Classique · clair', variable=chosen, value='classic',
-                                command=lambda: self.switch_design('classic'))
-        menu.add_cascade(label='Design', menu=designs)
-        menu.chosen_design = chosen  # kept alive with the menu
         x, y = self.settings_button.winfo_rootx() + 52, self.settings_button.winfo_rooty() - 250
         try:
             menu.tk_popup(x, max(0, y))
@@ -523,28 +511,6 @@ class StudioChrome:
                 break
             canvas.tag_lower(rounded_box(canvas, left - 8, top - 3, right + 8, bottom + 3, r=9, fill='#132131', outline='#23364a'), item)
             x = right + 14
-
-    # Switching design -------------------------------------------------------------------------------------------
-    def switch_design(self, chosen):
-        """Save the choice, then start the application again on the project as it is (saved first)."""
-        if chosen == design.DESIGN:
-            return
-        name = {'mono': 'noir & blanc', 'studio': 'Studio (sombre)'}.get(chosen, 'classique (clair)')
-        if self.pending:
-            messagebox.showinfo('Design', 'Attendre la fin de l’opération en cours, puis changer de design.', parent=self.window)
-            return
-        if not messagebox.askokcancel('Design', f'Passer au design {name} ?\n\nLe projet est enregistré, puis le logiciel redémarre '
-                                      'et le rouvre.', parent=self.window):
-            return
-        if not self.save():
-            return
-        design.save_choice(chosen)
-        package = Path(__file__).resolve().parents[2]
-        environment = dict(os.environ, NETWORK_LABS_DESIGN=chosen)
-        environment['PYTHONPATH'] = os.pathsep.join(filter(None, [str(package), environment.get('PYTHONPATH')]))
-        arguments = [sys.executable, '-m', 'network_labs', '--open', str(self.path)]
-        self.root.destroy()
-        os.execve(sys.executable, arguments, environment)
 
 
 __all__ = ['StudioChrome', 'IconButton', 'Choice', 'Tip']

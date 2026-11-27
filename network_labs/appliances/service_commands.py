@@ -9,7 +9,6 @@ The lab running, each one is a request to the guest (a real DNS query, a real HT
 answers through the network model.
 """
 import datetime
-import ipaddress
 import re
 import time
 
@@ -274,7 +273,7 @@ def windows_nslookup(console, name, server=None):
         error = output.strip() if code else None
     lines = ['Serveur :   UnKnown', f'Address:  {server}', '']
     if error in ('timeout', 'unreachable', 'no server'):
-        return '\n'.join(lines[:2] + ['', f'DNS request timed out.\n    timeout was 2 seconds.\n*** La demande à UnKnown a dépassé le délai d’attente'])
+        return '\n'.join(lines[:2] + ['', 'DNS request timed out.\n    timeout was 2 seconds.\n*** La demande à UnKnown a dépassé le délai d’attente'])
     if error:
         return '\n'.join(lines + [f'*** UnKnown ne parvient pas à trouver {name} : Non-existent domain'])
     names = [value for kind, value in rows if kind == 'PTR']
@@ -368,7 +367,7 @@ def browse(console, url, curl, headers=False):
     """GET URL from the device: http://HOST[:PORT][/PATH], HOST a name (DNS) or an address."""
     match = re.fullmatch(r'(?:http://)?([A-Za-z0-9_.-]+)(?::(\d{1,5}))?(/[A-Za-z0-9/._-]*)?', url)
     if not match:
-        return f'curl: (3) URL using bad/illegal format or missing URL' if curl else f'wget: bad address \'{url}\''
+        return 'curl: (3) URL using bad/illegal format or missing URL' if curl else f'wget: bad address \'{url}\''
     host_name, port, path = match[1], int(match[2] or 80), match[3] or '/'
     address = host_name
     if not _ip(host_name):

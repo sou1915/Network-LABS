@@ -59,6 +59,7 @@ def validate(data):
     if not isinstance(data.get('nodes'), list) or len(data['nodes']) > 256:
         raise ValueError('0..256 nodes required.')  # an empty project is a blank canvas; starting one is refused
     names = set()
+    from .guest_startup import validate_profile  # imported here: guest_startup imports this module
     for node_index, original in enumerate(data['nodes']):
         # In-memory callers can reuse the same dict in several nodes. Each node
         # must own its configuration, just as if it had been loaded from JSON.
@@ -155,7 +156,6 @@ def validate(data):
                 if node.get('firewall') is not None:
                     raise ValueError('A firewall policy requires role firewall.')
                 node['interfaces'] = dict(sorted(interfaces.items(), key=lambda item: port_order(item[0])))
-                from .guest_startup import validate_profile
                 validate_profile(node)
                 continue
             dynamic = set(node['dhcp_clients'])
@@ -187,7 +187,6 @@ def validate(data):
             if node.get('gateway') and (not interfaces['eth0'] or
                                         ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network):
                 raise ValueError('Firecracker boot gateway must be on eth0.')
-        from .guest_startup import validate_profile
         validate_profile(node)
     from .ipv6 import validate_lab as validate_ipv6_lab
     validate_ipv6_lab(data)

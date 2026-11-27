@@ -18,7 +18,6 @@ from network_labs.appliances.capture import capture
 from network_labs.appliances.dot1x import authenticate, observe, TABLE
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.persistence import load_startup
-from network_labs.appliances.radius_server import start_servers
 from network_labs.appliances.runtime import Manager, RuntimeFailure, run, static_busybox_rootfs
 from network_labs.appliances.spec import namespace
 from test_native_integration import unexpected_host_link_changes

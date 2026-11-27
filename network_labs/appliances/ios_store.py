@@ -25,7 +25,7 @@ GRAMMAR = [
     ('config', 'hostname NOM', r'hostname (\S+)', 1, 'Nom de l’équipement (l’invite change).', ['hostname R-CENTRE'], EFFECT, 'RSF'),
     ('config', 'banner motd #TEXTE#', r'banner motd (\^c|.).+\1', 2, 'Message affiché à l’ouverture de la console.',
      ['banner motd #Acces reserve#'], EFFECT, 'RSF'),
-    ('config', 'enable secret MOTDEPASSE', rf'enable secret (?:[059] )?\S+', 2, 'Mot de passe du mode privilégié (chiffré).',
+    ('config', 'enable secret MOTDEPASSE', r'enable secret (?:[059] )?\S+', 2, 'Mot de passe du mode privilégié (chiffré).',
      ['enable secret class'], EFFECT, 'RSF'),
     ('config', 'enable password MOTDEPASSE', r'enable password (?:[07] )?\S+', 2, 'Mot de passe du mode privilégié (en clair).',
      ['enable password cisco'], EFFECT, 'RSF'),

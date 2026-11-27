@@ -16,7 +16,6 @@ from network_labs.appliances.examples import radius_lab
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.radius_login import login
 from network_labs.appliances.radius_accounting import send
-from network_labs.appliances.radius_accounting_worker import verified_response
 from network_labs.appliances.radius_server import ACCOUNTING_FILE
 from network_labs.appliances.runtime import Manager,run,static_busybox_rootfs
 from network_labs.appliances.firewall import fingerprint

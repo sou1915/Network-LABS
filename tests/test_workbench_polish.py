@@ -2,7 +2,6 @@
 a cable in a row below, never on top of another), the drawing is saved with the project and comes back as it was left,
 and a PC's desktop sets its IP configuration (DHCP, or a static address and gateway) in the project."""
 import copy
-import json
 import unittest
 
 from network_labs.appliances import topology_edit
@@ -170,13 +169,13 @@ class DesktopTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             script = response.read()
             self.assertTrue(all(word in script for word in (b'network-labs-design', b'/api/host_ip', b"section: 'switching'")))
-            self.assertIn(b'/native_studio.js', page)  # the dark « Studio » look, loaded before the page that uses it
-            self.assertLess(page.index(b'/native_studio.js'), page.index(b'/native_simple.js'))
+            # The dark « Studio » design is gone: the pages are black and white, and an old « studio » choice reads as « simple ».
+            self.assertNotIn(b'/native_studio.js', page)
             connection.request('GET', '/native_studio.js', headers={'Host': portal.host})
             response = connection.getresponse()
-            self.assertEqual(response.status, 200)
-            studio = response.read()
-            self.assertTrue(all(word in studio for word in (b'window.nlStudio', b'.sd-app.st', b'body.stb')))
+            response.read()
+            self.assertEqual(response.status, 404)
+            self.assertIn(b"kept === 'studio' ? 'simple' : kept", script)
         finally:
             portal.close()
 

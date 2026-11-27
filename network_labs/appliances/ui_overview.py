@@ -5,7 +5,6 @@ devices follow with their runtime state, and the connectivity test of container 
 import tkinter as tk
 from tkinter import ttk
 
-from .design import STUDIO
 
 STATES = {'running': 'en marche', 'stopped': 'arrêté', 'exited': 'arrêté', 'failed': 'en échec'}  # the window's language
 from .reference_theme import BG, BLUE, MUTED, PANEL, TEXT
@@ -98,8 +97,7 @@ class DeviceOverview:
                     else widget.pack(fill='x', padx=10, before=self.nodes_title)
         if node is None:
             self.overview_node = None
-            where = 'le dock sous le schéma' if STUDIO else 'la bibliothèque'
-            self.selected_details.set(f'Ajouter un équipement depuis {where} (clic ou glisser), puis le sélectionner.')
+            self.selected_details.set('Ajouter un équipement depuis le dock sous le schéma (clic ou glisser), puis le sélectionner.')
             self.draw_overview_header()
             return
         try:
@@ -150,8 +148,7 @@ class DeviceOverview:
             canvas.delete('all')
             width = max(200, canvas.winfo_width())
             from .soft_widgets import rounded_box
-            fill, border = ('#132131', '#1d2b38') if STUDIO else ('#eef3f9', '#dde6f0')
-            rounded_box(canvas, 2, 4, width - 2, 82, r=14, fill=fill, outline=border)
+            rounded_box(canvas, 2, 4, width - 2, 82, r=14, fill='#132131', outline='#1d2b38')
             canvas.create_text(width / 2, 34, text='Aucun équipement sélectionné', fill=TEXT, font=(self.font, 11, 'bold'))
             canvas.create_text(width / 2, 56, text='Cliquer sur un équipement du schéma', fill=MUTED, font=(self.font, 8))
             return

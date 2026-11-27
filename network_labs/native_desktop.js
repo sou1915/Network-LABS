@@ -9,86 +9,86 @@
 (() => {
   const css = document.createElement('style');
   css.textContent = `
-  body.pc{margin:0;background:#0f2235}
+  body.pc{margin:0;background:#111111}
   body.pc>header,body.pc>.layout{display:none}
-  .pc-app{position:fixed;inset:0;display:grid;grid-template-rows:1fr 48px;font:13px Inter,Arial,sans-serif;color:#13263a;
-    background:radial-gradient(1200px 700px at 78% 18%,rgba(97,183,255,.55),transparent 60%),
-      radial-gradient(900px 600px at 12% 92%,rgba(46,196,182,.35),transparent 60%),linear-gradient(140deg,#0e2a47,#123a5e 45%,#0d2f4a)}
+  .pc-app{position:fixed;inset:0;display:grid;grid-template-rows:1fr 48px;font:13px Inter,Arial,sans-serif;color:#111111;
+    background:radial-gradient(1200px 700px at 78% 18%,rgba(17,17,17,.55),transparent 60%),
+      radial-gradient(900px 600px at 12% 92%,rgba(17,17,17,.35),transparent 60%),linear-gradient(140deg,#111111,#111111 45%,#111111)}
   .pc-desk{position:relative;padding:24px 28px;display:grid;grid-auto-flow:column;grid-template-rows:repeat(auto-fill,112px);grid-auto-columns:108px;gap:10px 14px;align-content:start;justify-content:start}
-  .pc-icon{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 6px;border-radius:12px;color:#fff;cursor:pointer;
+  .pc-icon{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 6px;border-radius:12px;color:#ffffff;cursor:pointer;
     text-align:center;font-size:12.5px;line-height:1.25;user-select:none;border:1px solid transparent;background:none}
   .pc-icon:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18)}
   .pc-icon.off{opacity:.55;cursor:default}.pc-icon.off:hover{background:none;border-color:transparent}
   .pc-glyph{width:54px;height:54px;border-radius:14px;display:grid;place-items:center;box-shadow:0 8px 18px rgba(0,0,0,.28);font-size:26px}
   .pc-glyph svg{width:30px;height:30px}
-  .pc-bar{display:flex;align-items:center;gap:12px;padding:0 14px;background:rgba(9,22,36,.78);backdrop-filter:blur(10px);color:#e7f0f8;
+  .pc-bar{display:flex;align-items:center;gap:12px;padding:0 14px;background:rgba(17,17,17,.78);backdrop-filter:blur(10px);color:#bfbfbf;
     border-top:1px solid rgba(255,255,255,.08)}
-  .pc-bar b{font-size:13px}.pc-bar .sub{color:#9db3c8;font-size:12px}.pc-bar .grow{flex:1}
-  .pc-bar button{background:rgba(255,255,255,.08);color:#e7f0f8;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:6px 12px;font-size:12px}
+  .pc-bar b{font-size:13px}.pc-bar .sub{color:#8c8c8c;font-size:12px}.pc-bar .grow{flex:1}
+  .pc-bar button{background:rgba(255,255,255,.08);color:#bfbfbf;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:6px 12px;font-size:12px}
   .pc-bar button:hover{background:rgba(255,255,255,.16)}
   .pc-pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:4px 11px;background:rgba(255,255,255,.08);font-size:12px}
-  .pc-pill i{width:8px;height:8px;border-radius:50%;background:#8a98a6}.pc-pill i.on{background:#3ddc84;box-shadow:0 0 8px #3ddc84}
-  .pc-clock{font-variant-numeric:tabular-nums;color:#cfe0ef;font-size:12px;text-align:right;line-height:1.2}
-  .pc-win{position:absolute;top:48px;left:calc(50% + 60px);transform:translateX(-50%);width:min(600px,80vw);background:#f7f9fc;border-radius:12px;
+  .pc-pill i{width:8px;height:8px;border-radius:50%;background:#959595}.pc-pill i.on{background:#ffffff;box-shadow:0 0 8px rgba(255,255,255,.7)}
+  .pc-clock{font-variant-numeric:tabular-nums;color:#b1b1b1;font-size:12px;text-align:right;line-height:1.2}
+  .pc-win{position:absolute;top:48px;left:calc(50% + 60px);transform:translateX(-50%);width:min(600px,80vw);background:#f9f9f9;border-radius:12px;
     box-shadow:0 24px 60px rgba(0,0,0,.45);overflow:hidden;border:1px solid rgba(255,255,255,.4)}
-  .pc-win .title{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;background:#e9eff6;border-bottom:1px solid #d9e3ee;font-weight:600}
-  .pc-win .title span{flex:1}.pc-win .title button{border:0;background:none;font-size:16px;padding:2px 8px;border-radius:6px;cursor:pointer;color:#30465c}
-  .pc-win .title button:hover{background:#d3dfeb}
+  .pc-win .title{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;background:#eeeeee;border-bottom:1px solid #e1e1e1;font-weight:600}
+  .pc-win .title span{flex:1}.pc-win .title button{border:0;background:none;font-size:16px;padding:2px 8px;border-radius:6px;cursor:pointer;color:#111111}
+  .pc-win .title button:hover{background:#dddddd}
   .pc-win .content{padding:18px 20px}
-  .pc-win fieldset{border:1px solid #d9e3ee;border-radius:10px;padding:12px 14px;margin:0 0 14px}
-  .pc-win legend{padding:0 6px;font-size:12px;font-weight:600;color:#30465c}
+  .pc-win fieldset{border:1px solid #e1e1e1;border-radius:10px;padding:12px 14px;margin:0 0 14px}
+  .pc-win legend{padding:0 6px;font-size:12px;font-weight:600;color:#111111}
   .pc-row{display:grid;grid-template-columns:170px 1fr;align-items:center;gap:10px;margin:8px 0}
-  .pc-row label{color:#43586e;font-size:12.5px}
-  .pc-row input,.pc-row select{border:1px solid #c9d6e3;border-radius:7px;padding:7px 10px;font:inherit;background:#fff}
-  .pc-row input:disabled{background:#eef2f6;color:#7e8fa1}
+  .pc-row label{color:#434343;font-size:12.5px}
+  .pc-row input,.pc-row select{border:1px solid #d4d4d4;border-radius:7px;padding:7px 10px;font:inherit;background:#ffffff}
+  .pc-row input:disabled{background:#f1f1f1;color:#707070}
   .pc-radio{display:flex;gap:18px;margin:4px 0 10px}.pc-radio label{display:flex;align-items:center;gap:7px;cursor:pointer}
   .pc-radio input{appearance:auto;width:auto;height:auto}
   .pc-acts{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
-  .pc-acts button{border-radius:8px;padding:8px 16px;border:1px solid #c9d6e3;background:#fff;cursor:pointer}
-  .pc-acts .ok{background:#1769c4;border-color:#1769c4;color:#fff}.pc-acts .ok:disabled{opacity:.55}
-  .pc-msg{margin-top:12px;font-size:12px;line-height:1.5;color:#37506a;min-height:18px}.pc-msg.bad{color:#b42323}
-  .pc-note{font-size:11.5px;color:#6a7f94;line-height:1.5}
-  .pc-pre{background:#0c1622;color:#d9e8f5;border-radius:8px;padding:14px 16px;font:12px "DejaVu Sans Mono",monospace;white-space:pre;overflow:auto;margin:0}
+  .pc-acts button{border-radius:8px;padding:8px 16px;border:1px solid #d4d4d4;background:#ffffff;cursor:pointer}
+  .pc-acts .ok{background:#111111;border-color:#111111;color:#ffffff}.pc-acts .ok:disabled{opacity:.55}
+  .pc-msg{margin-top:12px;font-size:12px;line-height:1.5;color:#111111;min-height:18px}.pc-msg.bad{color:#5f5f5f}
+  .pc-note{font-size:11.5px;color:#626262;line-height:1.5}
+  .pc-pre{background:#111111;color:#b7b7b7;border-radius:8px;padding:14px 16px;font:12px "DejaVu Sans Mono",monospace;white-space:pre;overflow:auto;margin:0}
   .pc-win.wide{width:min(860px,92vw)}.pc-win.wide .content{padding:0}
-  .pc-url{display:flex;gap:8px;padding:10px 12px;background:#eef3f8;border-bottom:1px solid #d9e3ee}
-  .pc-url input{flex:1;border:1px solid #c9d6e3;border-radius:16px;padding:7px 14px;font:inherit;background:#fff}
-  .pc-url button{border:1px solid #c9d6e3;border-radius:8px;background:#fff;padding:6px 12px;cursor:pointer}
-  .pc-page{width:100%;height:min(56vh,460px);border:0;background:#fff;display:block}
-  .pc-status{padding:6px 12px;font-size:11.5px;color:#5c7086;border-top:1px solid #e2e9f1;background:#f6f8fb;min-height:16px}
-  .pc-error{padding:40px 30px;color:#37506a;height:min(56vh,460px);box-sizing:border-box}.pc-error h3{margin:0 0 8px;font-size:17px;color:#1d3349}
+  .pc-url{display:flex;gap:8px;padding:10px 12px;background:#f2f2f2;border-bottom:1px solid #e1e1e1}
+  .pc-url input{flex:1;border:1px solid #d4d4d4;border-radius:16px;padding:7px 14px;font:inherit;background:#ffffff}
+  .pc-url button{border:1px solid #d4d4d4;border-radius:8px;background:#ffffff;padding:6px 12px;cursor:pointer}
+  .pc-page{width:100%;height:min(56vh,460px);border:0;background:#ffffff;display:block}
+  .pc-status{padding:6px 12px;font-size:11.5px;color:#575757;border-top:1px solid #e8e8e8;background:#f8f8f8;min-height:16px}
+  .pc-error{padding:40px 30px;color:#111111;height:min(56vh,460px);box-sizing:border-box}.pc-error h3{margin:0 0 8px;font-size:17px;color:#111111}
   .sv{display:grid;grid-template-columns:150px 1fr;min-height:min(60vh,480px)}
-  .sv-tabs{background:#eef3f8;border-right:1px solid #d9e3ee;padding:8px 0}
-  .sv-tabs a{display:block;padding:9px 16px;cursor:pointer;color:#30465c;font-weight:600;font-size:12.5px;letter-spacing:.3px}
-  .sv-tabs a.on{background:#fff;color:#1769c4;box-shadow:inset 3px 0 #1769c4}
+  .sv-tabs{background:#f2f2f2;border-right:1px solid #e1e1e1;padding:8px 0}
+  .sv-tabs a{display:block;padding:9px 16px;cursor:pointer;color:#111111;font-weight:600;font-size:12.5px;letter-spacing:.3px}
+  .sv-tabs a.on{background:#ffffff;color:#111111;box-shadow:inset 3px 0 #111111}
   .sv-body{padding:16px 20px;overflow:auto;max-height:min(64vh,520px)}
-  .sv-body h3{margin:0 0 12px;font-size:15px;text-align:center;letter-spacing:.5px;color:#1d3349}
+  .sv-body h3{margin:0 0 12px;font-size:15px;text-align:center;letter-spacing:.5px;color:#111111}
   .sv-onoff{display:flex;gap:22px;align-items:center;margin:0 0 14px}.sv-onoff label{display:flex;gap:6px;align-items:center;cursor:pointer}
   .sv-onoff input{appearance:auto;width:auto;height:auto}
-  .sv-t{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}.sv-t th{background:#eef3f8;text-align:left;padding:6px 8px;border:1px solid #d9e3ee}
-  .sv-t td{padding:6px 8px;border:1px solid #e2e9f1}.sv-t tr.sel td{background:#e3efff}.sv-t tbody tr{cursor:pointer}
+  .sv-t{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}.sv-t th{background:#f2f2f2;text-align:left;padding:6px 8px;border:1px solid #e1e1e1}
+  .sv-t td{padding:6px 8px;border:1px solid #e8e8e8}.sv-t tr.sel td{background:#ededed}.sv-t tbody tr{cursor:pointer}
   .sv-grid{display:grid;grid-template-columns:90px 1fr 70px 1fr;gap:8px;align-items:center}
-  .sv-grid input,.sv-grid select,.sv-body textarea{border:1px solid #c9d6e3;border-radius:7px;padding:6px 9px;font:inherit;background:#fff}
+  .sv-grid input,.sv-grid select,.sv-body textarea{border:1px solid #d4d4d4;border-radius:7px;padding:6px 9px;font:inherit;background:#ffffff}
   .sv-body textarea{width:100%;box-sizing:border-box;height:180px;font:12px "DejaVu Sans Mono",monospace;margin-top:8px}
-  .sv-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.sv-btns button{border:1px solid #c9d6e3;border-radius:7px;background:#fff;padding:6px 12px;cursor:pointer}
-  .sv-btns button.ok,.sv-foot button.ok{background:#1769c4;border-color:#1769c4;color:#fff}
-  .sv-foot button{border:1px solid #c9d6e3;border-radius:8px;background:#fff;padding:8px 16px;cursor:pointer}
-  .sv-foot{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #d9e3ee;background:#f6f8fb}
+  .sv-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.sv-btns button{border:1px solid #d4d4d4;border-radius:7px;background:#ffffff;padding:6px 12px;cursor:pointer}
+  .sv-btns button.ok,.sv-foot button.ok{background:#111111;border-color:#111111;color:#ffffff}
+  .sv-foot button{border:1px solid #d4d4d4;border-radius:8px;background:#ffffff;padding:8px 16px;cursor:pointer}
+  .sv-foot{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #e1e1e1;background:#f8f8f8}
   .sv-foot .grow{flex:1}.sv-foot .pc-msg{margin:0}
-  .pc-toast{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);background:rgba(9,22,36,.92);color:#fff;padding:10px 16px;border-radius:10px;
+  .pc-toast{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);background:rgba(17,17,17,.92);color:#ffffff;padding:10px 16px;border-radius:10px;
     box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12.5px;z-index:9}
   `;
   document.head.appendChild(css);
 
   const svg = path => `<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
   const APPS = [
-    ['ip', 'Configuration IP', '#1f7ae0', svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 9h4M7 12h7"/>')],
-    ['cmd', 'Invite de commandes', '#22313f', svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2-3 2M12 15h5"/>')],
-    ['info', 'Informations réseau', '#0f9d8a', svg('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/>')],
-    ['web', 'Navigateur web', '#6b55d3', svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>')],
-    ['services', 'Services', '#2d8a4e', svg('<rect x="4" y="3" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="16" height="7" rx="1.5"/><path d="M8 6.5h.01M8 17.5h.01M12 6.5h5M12 17.5h5"/>')],
-    ['mail', 'Messagerie', '#d9822b', svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'),
+    ['ip', 'Configuration IP', '#111111', svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 9h4M7 12h7"/>')],
+    ['cmd', 'Invite de commandes', '#111111', svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2-3 2M12 15h5"/>')],
+    ['info', 'Informations réseau', '#111111', svg('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/>')],
+    ['web', 'Navigateur web', '#111111', svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>')],
+    ['services', 'Services', '#111111', svg('<rect x="4" y="3" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="16" height="7" rx="1.5"/><path d="M8 6.5h.01M8 17.5h.01M12 6.5h5M12 17.5h5"/>')],
+    ['mail', 'Messagerie', '#5f5f5f', svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'),
       'Bientôt : un serveur de messagerie dans le laboratoire.'],
-    ['text', 'Éditeur de texte', '#5b6b7b', svg('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>'),
+    ['text', 'Éditeur de texte', '#686868', svg('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>'),
       'Bientôt.'],
   ];
   let desk = null, toastTimer = null, standard = false;
@@ -257,7 +257,7 @@
         body.innerHTML = `<h3>HTTP</h3>${onoff('http')}<table class="sv-t"><thead><tr><th>Fichier</th><th>Taille</th></tr></thead><tbody>${names.map(name =>
           `<tr data-p="${esc(name)}"><td>${esc(name)}</td><td>${new Blob([held.http.pages[name]]).size} o</td></tr>`).join('') ||
           '<tr><td colspan="2">Aucune page</td></tr>'}</tbody></table>
-          <div class="sv-btns"><input id="svNew" placeholder="nouvelle-page.html" style="border:1px solid #c9d6e3;border-radius:7px;padding:6px 9px">
+          <div class="sv-btns"><input id="svNew" placeholder="nouvelle-page.html" style="border:1px solid #d4d4d4;border-radius:7px;padding:6px 9px">
           <button type="button" class="new">Nouveau</button><button type="button" class="del">Supprimer</button></div>
           <textarea id="svText" spellcheck="false"></textarea>`;
         wireOnoff('http');
@@ -383,7 +383,7 @@
     app.className = 'pc-app';
     app.innerHTML = `<div class="pc-desk"></div><div class="pc-bar"><b>${esc(n.name)}</b><span class="sub">${esc(d.brand)} · ${esc(d.model)}</span>
       <span class="pc-pill"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Lab arrêté'}</span><span class="grow"></span>
-      <button type="button" class="simple">◐ Design Studio</button><button type="button" class="std">Vue Network LABS</button>
+      <button type="button" class="simple">◧ Design Simple</button><button type="button" class="std">Vue Network LABS</button>
       <button type="button" class="ref">↻</button><span class="pc-clock">${clock()}</span></div>`;
     desk = app.querySelector('.pc-desk');
     const server = state.device.server || state.node.services;  // Packet Tracer's Server: a Services tab
@@ -399,7 +399,7 @@
     if (open) desk.append(open);
     app.querySelector('.std').onclick = () => { standard = true; document.body.classList.remove('pc'); app.remove(); render(); };
     app.querySelector('.ref').onclick = () => load();
-    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('studio');
+    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('simple');
     if (!app.isConnected) document.body.append(app);
   }
 

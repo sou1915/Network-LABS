@@ -477,7 +477,7 @@
     app.style.setProperty('--vx', profile.accent);
     app.innerHTML = `<div class="vx-top"><b>${esc(n.name)}</b><span class="sub">${esc(d.brand)} ${esc(d.model)} · menus ${esc(profile.product || d.model)} · système Linux</span>
       <span class="grow"></span><span class="vx-pill"><i class="${running ? 'on' : ''}"></i>${running ? 'En marche' : 'Non observé'}</span>
-      <button type="button" class="simple">◐ Design Studio</button><button type="button" class="std">Vue Network LABS</button>
+      <button type="button" class="simple">◧ Design Simple</button><button type="button" class="std">Vue Network LABS</button>
       <button type="button" class="ref">↻</button></div>
       <div class="vx-strip"></div><div class="vx-body"><nav class="vx-nav"></nav><main class="vx-main"></main></div>`;
     const strip = app.querySelector('.vx-strip'), nav = app.querySelector('.vx-nav');
@@ -520,7 +520,7 @@
     }
     app.querySelector('.std').onclick = () => openStandard('dashboard');
     app.querySelector('.ref').onclick = () => load();
-    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('studio');
+    app.querySelector('.simple').onclick = () => window.nlSetDesign && window.nlSetDesign('simple');
     const main = app.querySelector('main');
     if (profile.family !== 'side') main.insertAdjacentHTML('beforeend', `<div class="vx-crumb">${esc(item.group)} › ${esc(item.label)}</div>`);
     const pages = {status: n.role === 'firewall' ? statusPage : devicePage, interfaces: interfacesPage, routes: routesPage,

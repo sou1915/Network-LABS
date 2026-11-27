@@ -11,7 +11,6 @@ try:
 except ImportError:
     pty = None
 import select
-import socket
 import struct
 import subprocess
 try:
