@@ -512,14 +512,14 @@ static void serve(int input, int output, int mutations) {
     }
     char guard_port[PORT_SIZE], guard_extra;
     if (mutations && sscanf(request, "NL1 PORT_GUARD_CLEAR %5s %c", guard_port, &guard_extra) == 1 && valid_port(guard_port)) {
-        char path[48]; snprintf(path, sizeof(path), "/run/port-guard/%.5s", guard_port);
+        char path[256]; snprintf(path, sizeof(path), GUARD_RUN "/%.5s", guard_port);
         if (unlink(path) && errno != ENOENT) { reply(output, 1, "port guard clear failed", 23); return; }
         reply(output, 0, "", 0); return;
     }
     if (!strcmp(request, "NL1 PORT_GUARD_SHOW")) {  /* "== PORT" then its state file, for each guarded port */
         static char listing[LIMIT]; size_t used = 0;
         for (int p = 0; p < MAX_PORTS; p++) {
-            char path[48]; snprintf(path, sizeof(path), "/run/port-guard/eth%d", p);
+            char path[256]; snprintf(path, sizeof(path), GUARD_RUN "/eth%d", p);
             int fd = open(path, O_RDONLY | O_CLOEXEC);
             if (fd < 0) continue;
             used += (size_t)snprintf(listing + used, sizeof(listing) - used, "== eth%d\n", p);
@@ -559,10 +559,10 @@ static void serve(int input, int output, int mutations) {
     }
     if (!strcmp(request, "NL1 HSRP_SHOW")) {  /* "now SECONDS", then "== IFACE.GROUP" and its state file, for each group */
         static char listing[LIMIT]; size_t used = (size_t)snprintf(listing, sizeof(listing), "now %.1f\n", monotonic_now());
-        DIR *folder = opendir("/run/hsrp"); struct dirent *entry;
+        DIR *folder = opendir(HSRP_RUN); struct dirent *entry;
         while (folder && (entry = readdir(folder)) && used < sizeof(listing) - 2048) {
             if (entry->d_name[0] == '.' || strstr(entry->d_name, ".new")) continue;
-            char path[300], text[1024]; snprintf(path, sizeof(path), "/run/hsrp/%.200s", entry->d_name);
+            char path[300], text[1024]; snprintf(path, sizeof(path), HSRP_RUN "/%.200s", entry->d_name);
             if (read_state_file(path, text, sizeof(text)))
                 used += (size_t)snprintf(listing + used, sizeof(listing) - used, "== %s\n%s", entry->d_name, text);
         }

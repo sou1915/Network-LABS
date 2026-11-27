@@ -7,10 +7,13 @@
  * hold time. The active router holds the virtual address on a macvlan device carrying the group's virtual MAC
  * (0000.0c07.acNN, version 2 0000.0c9f.fNNN): the hosts' gateway keeps its MAC across a failover, and a gratuitous ARP
  * moves it in the switches. A guest kernel without macvlan gets the address on the port itself. State:
- * /run/hsrp/IFACE.GROUP. SIGTERM resigns and removes everything; SIGUSR1 leaves it to the next instance (a configuration
+ * HSRP_RUN/IFACE.GROUP. SIGTERM resigns and removes everything; SIGUSR1 leaves it to the next instance (a configuration
  * change), which takes the groups back in their state. */
 #define HSRP_GROUPS 16
 enum { HS_INIT = 0, HS_LISTEN = 2, HS_SPEAK = 4, HS_STANDBY = 8, HS_ACTIVE = 16 };
+#ifndef HSRP_RUN
+#define HSRP_RUN "/run/hsrp"  /* tests and the fuzzer build the agent with their own folder */
+#endif
 struct hsrp { char iface[IFACE_SIZE], vdev[IFNAMSIZ]; int group, version, priority, preempt, hello, hold, fd, state, macvlan;
               unsigned changes; struct in_addr vip, self, active, standby, speaker; int active_priority, standby_priority;
               unsigned char auth[8], mac[6], vmac[6]; double since, entered, next_hello, active_until, standby_until, speaker_until; };
@@ -140,8 +143,8 @@ static const char *hsrp_state_name(int state) {
          : state == HS_LISTEN ? "listen" : "init";
 }
 static void hsrp_save(struct hsrp *h, double now) {
-    char path[48], temporary[56], text[1024], vip[16], active[16] = "-", standby[16] = "-", auth[17];
-    snprintf(path, sizeof(path), "/run/hsrp/%.10s.%d", h->iface, h->group);
+    char path[256], temporary[264], text[1024], vip[16], active[16] = "-", standby[16] = "-", auth[17];
+    snprintf(path, sizeof(path), HSRP_RUN "/%.10s.%d", h->iface, h->group);
     snprintf(temporary, sizeof(temporary), "%.47s.new", path);
     inet_ntop(AF_INET, &h->vip, vip, sizeof(vip));
     if (h->state == HS_ACTIVE) strcpy(active, "local");
@@ -172,18 +175,17 @@ static void hsrp_to(struct hsrp *h, int state, double now) {
 static int hsrp_beats(struct hsrp *h, int priority, struct in_addr address) {  /* that router outranks this one */
     return priority > h->priority || (priority == h->priority && ntohl(address.s_addr) > ntohl(h->self.s_addr));
 }
-static void hsrp_receive(struct hsrp *h, double now) {
-    unsigned char frame[1600]; struct sockaddr_ll from; socklen_t size = sizeof(from);
-    ssize_t n = recvfrom(h->fd, frame, sizeof(frame), 0, (struct sockaddr *)&from, &size);
-    if (n < 14 + 20 + 8 + 20 || from.sll_pkttype == PACKET_OUTGOING) return;
+/* One frame from the port (N bytes, whatever a peer sent): an HSRP message of this group moves the state machine. */
+static void hsrp_packet(struct hsrp *h, const unsigned char *frame, size_t n, double now) {
+    if (n < 14 + 20 + 8 + 20) return;
     const unsigned char *ip = frame + 14;
     size_t header = (size_t)(ip[0] & 0x0f) * 4;
-    if ((ip[0] >> 4) != 4 || header < 20 || ip[9] != 17 || (size_t)n < 14 + header + 8 + 20) return;
+    if ((ip[0] >> 4) != 4 || header < 20 || ip[9] != 17 || n < 14 + header + 8 + 20) return;
     const unsigned char *udp = ip + header, *p = udp + 8;
     if (udp[2] != 0x07 || udp[3] != 0xc1) return;
     struct in_addr source; memcpy(&source, ip + 12, 4);
     if (source.s_addr == h->self.s_addr) return;
-    size_t room = (size_t)n - 14 - header - 8;
+    size_t room = n - 14 - header - 8;
     int op, state, priority, group; unsigned char auth[8];
     if (h->version == 1) {
         if (p[0] != 0) return;
@@ -220,6 +222,11 @@ static void hsrp_receive(struct hsrp *h, double now) {
         if ((h->state == HS_SPEAK || h->state == HS_STANDBY) && better) hsrp_to(h, HS_LISTEN, now);
     }
 }
+static void hsrp_receive(struct hsrp *h, double now) {
+    unsigned char frame[1600]; struct sockaddr_ll from; socklen_t size = sizeof(from);
+    ssize_t n = recvfrom(h->fd, frame, sizeof(frame), 0, (struct sockaddr *)&from, &size);
+    if (n > 0 && from.sll_pkttype != PACKET_OUTGOING) hsrp_packet(h, frame, (size_t)n, now);
+}
 static void hsrp_tick(struct hsrp *h, double now) {
     if (!hsrp_port(h)) {  /* port down or without its address: Init, as IOS shows it */
         hsrp_to(h, HS_INIT, now);
@@ -249,8 +256,8 @@ static void hsrp_tick(struct hsrp *h, double now) {
 }
 /* A group of the previous instance: taken back in its state when it is still configured alike, else let go. */
 static void hsrp_resume(struct hsrp *h, double now) {
-    char path[48], text[1024], vip[16] = "", state[16] = "", vdev[IFNAMSIZ] = "";
-    snprintf(path, sizeof(path), "/run/hsrp/%.10s.%d", h->iface, h->group);
+    char path[256], text[1024], vip[16] = "", state[16] = "", vdev[IFNAMSIZ] = "";
+    snprintf(path, sizeof(path), HSRP_RUN "/%.10s.%d", h->iface, h->group);
     if (!read_state_file(path, text, sizeof(text))) return;
     struct in_addr previous = h->vip;
     sscanf(state_field(text, "vip"), "%15s", vip); sscanf(state_field(text, "state"), "%15s", state);
@@ -271,7 +278,7 @@ static void hsrp_resume(struct hsrp *h, double now) {
 }
 /* State files of groups no longer configured: their address let go (with a resign when they were active), the file gone. */
 static void hsrp_tidy(struct hsrp *groups, int count) {
-    DIR *folder = opendir("/run/hsrp"); struct dirent *entry;
+    DIR *folder = opendir(HSRP_RUN); struct dirent *entry;
     while (folder && (entry = readdir(folder))) {
         if (entry->d_name[0] == '.' || strstr(entry->d_name, ".new")) continue;
         int kept = 0;
@@ -281,7 +288,7 @@ static void hsrp_tidy(struct hsrp *groups, int count) {
         }
         if (kept) continue;
         char path[300], text[1024], state[16] = "", vip[16] = "", auth[17] = "", spec[160];
-        snprintf(path, sizeof(path), "/run/hsrp/%.200s", entry->d_name);
+        snprintf(path, sizeof(path), HSRP_RUN "/%.200s", entry->d_name);
         if (read_state_file(path, text, sizeof(text))) {
             struct hsrp old; char iface[IFACE_SIZE] = "";
             sscanf(state_field(text, "interface"), "%10s", iface); sscanf(state_field(text, "state"), "%15s", state);
@@ -308,7 +315,7 @@ static int hsrp(int count, char **specs) {
         for (int j = 0; j < i; j++)
             if (!strcmp(groups[i].iface, groups[j].iface) && groups[i].group == groups[j].group) return 2;
     }
-    mkdir("/run/hsrp", 0755);
+    mkdir(HSRP_RUN, 0755);
     struct sigaction caught; memset(&caught, 0, sizeof(caught)); caught.sa_handler = hsrp_caught;
     sigaction(SIGTERM, &caught, NULL); sigaction(SIGUSR1, &caught, NULL);
     hsrp_tidy(groups, count);
@@ -321,7 +328,7 @@ static int hsrp(int count, char **specs) {
                 struct hsrp *h = &groups[i];
                 if (h->state == HS_ACTIVE) { hsrp_send(h, 2); hsrp_release(h); }
                 device_sysctl(h->iface, "arp_ignore", "0"); device_sysctl(h->iface, "arp_announce", "0");
-                char path[48]; snprintf(path, sizeof(path), "/run/hsrp/%.10s.%d", h->iface, h->group); unlink(path);
+                char path[256]; snprintf(path, sizeof(path), HSRP_RUN "/%.10s.%d", h->iface, h->group); unlink(path);
             }
             return 0;
         }

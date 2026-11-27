@@ -80,12 +80,18 @@ static ssize_t tftp_wait(int fd, unsigned char *in, size_t room, int opcode, uns
     }
     return -1;
 }
+/* The file name and mode of a read or write request (SIZE bytes from a peer), cut to fit NAME[80] and MODE[16]. */
+static void tftp_request(const unsigned char *request, size_t size, char *name, char *mode) {
+    size_t at = 2, used = 0;
+    while (at < size && request[at] && used < 79) name[used++] = (char)request[at++];
+    name[used] = 0; at++; used = 0;
+    while (at < size && request[at] && used < 15) mode[used++] = (char)tolower(request[at++]);
+    mode[used] = 0;
+}
 static void tftp_serve(const unsigned char *request, size_t size, struct sockaddr_in peer) {
     if (fork() != 0) return;
-    char name[80] = {0}, mode[16] = {0}; size_t at = 2, used = 0;
-    while (at < size && request[at] && used < sizeof(name) - 1) name[used++] = (char)request[at++];
-    at++; used = 0;
-    while (at < size && request[at] && used < sizeof(mode) - 1) mode[used++] = (char)tolower(request[at++]);
+    char name[80], mode[16];
+    tftp_request(request, size, name, mode);
     int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (fd < 0 || connect(fd, (struct sockaddr *)&peer, sizeof(peer))) _exit(1);
     if (!valid_file(name) || (strcmp(mode, "octet") && strcmp(mode, "netascii"))) { tftp_error(fd, 2, "Access violation"); _exit(0); }

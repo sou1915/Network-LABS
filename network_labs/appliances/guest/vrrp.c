@@ -166,18 +166,17 @@ static void vrrp_to(struct vrrp *v, int state, double now) {
     if (state != VR_BACKUP) v->master.s_addr = 0;
     vrrp_save(v);
 }
-static void vrrp_receive(struct vrrp *v, double now) {
-    unsigned char frame[1600]; struct sockaddr_ll from; socklen_t size = sizeof(from);
-    ssize_t n = recvfrom(v->fd, frame, sizeof(frame), 0, (struct sockaddr *)&from, &size);
-    if (n < 14 + 20 + 20 || from.sll_pkttype == PACKET_OUTGOING || frame[12] != 0x08 || frame[13] != 0x00) return;
+/* One frame from the port (N bytes, whatever a peer sent): an advert of this group moves the state machine. */
+static void vrrp_packet(struct vrrp *v, const unsigned char *frame, size_t n, double now) {
+    if (n < 14 + 20 + 20 || frame[12] != 0x08 || frame[13] != 0x00) return;
     const unsigned char *ip = frame + 14;
     size_t header = (size_t)(ip[0] & 0x0f) * 4;
-    if ((ip[0] >> 4) != 4 || header < 20 || ip[9] != 112 || ip[8] != 255 || (size_t)n < 14 + header + 20) return;  /* TTL 255 only */
+    if ((ip[0] >> 4) != 4 || header < 20 || ip[9] != 112 || ip[8] != 255 || n < 14 + header + 20) return;  /* TTL 255 only */
     struct in_addr source; memcpy(&source, ip + 12, 4);
     if (source.s_addr == v->self.s_addr) return;
     const unsigned char *p = ip + header;
     size_t message = 8 + 4 * (size_t)p[3] + 8;
-    if (p[0] != 0x21 || p[1] != v->vrid || p[3] < 1 || (size_t)n < 14 + header + message || ip_checksum(p, message, 0)) return;
+    if (p[0] != 0x21 || p[1] != v->vrid || p[3] < 1 || n < 14 + header + message || ip_checksum(p, message, 0)) return;
     if (p[4] != v->authtype || (v->authtype && memcmp(p + 8 + 4 * p[3], v->auth, 8))) return;  /* another group's password */
     int priority = p[2];
     double skew = vrrp_skew(v);
@@ -195,6 +194,11 @@ static void vrrp_receive(struct vrrp *v, double now) {
             v->down_at = now + vrrp_down(v);
         }
     }
+}
+static void vrrp_receive(struct vrrp *v, double now) {
+    unsigned char frame[1600]; struct sockaddr_ll from; socklen_t size = sizeof(from);
+    ssize_t n = recvfrom(v->fd, frame, sizeof(frame), 0, (struct sockaddr *)&from, &size);
+    if (n > 0 && from.sll_pkttype != PACKET_OUTGOING) vrrp_packet(v, frame, (size_t)n, now);
 }
 static void vrrp_tick(struct vrrp *v, double now) {
     if (!vrrp_port(v)) {  /* port down or without its address: Init, as IOS shows it */

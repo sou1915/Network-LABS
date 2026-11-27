@@ -5,8 +5,11 @@
  * s(hutdown) r(estrict) p(rotect) or n (no port security, BPDU guard only), MACS the secure addresses (hex, '+' between)
  * or '-'. A source address beyond MAX is a violation: shutdown err-disables the port (link down); restrict and protect
  * pin the address on the bridge as local, so nothing is forwarded to it any more. A BPDU on a BPDU-guard port
- * err-disables it. State: /run/port-guard/PORT (kept across restarts: an err-disabled port stays so until cleared). */
+ * err-disables it. State: GUARD_RUN/PORT (kept across restarts: an err-disabled port stays so until cleared). */
 #define GUARD_MACS 64
+#ifndef GUARD_RUN
+#define GUARD_RUN "/run/port-guard"  /* tests and the fuzzer build the agent with their own folder */
+#endif
 struct guard { char port[PORT_SIZE]; int fd, max, sticky, bpdu, vid; char mode; unsigned char macs[GUARD_MACS][6];
                char kinds[GUARD_MACS]; int count; unsigned violations; unsigned char last[6]; int disabled; char reason[24]; };
 static int hex_mac(const char *text, unsigned char *mac) {
@@ -15,8 +18,8 @@ static int hex_mac(const char *text, unsigned char *mac) {
     return 1;
 }
 static void guard_save(struct guard *g) {
-    char path[48], temporary[56], text[2048]; size_t used = 0;
-    snprintf(path, sizeof(path), "/run/port-guard/%.5s", g->port); snprintf(temporary, sizeof(temporary), "%.47s.new", path);
+    char path[256], temporary[264], text[2048]; size_t used = 0;
+    snprintf(path, sizeof(path), GUARD_RUN "/%.5s", g->port); snprintf(temporary, sizeof(temporary), "%.255s.new", path);
     used += (size_t)snprintf(text + used, sizeof(text) - used, "state %s\nreason %s\nviolations %u\nlast ",
                              g->disabled ? "err-disabled" : "secure", g->reason[0] ? g->reason : "-", g->violations);
     if (g->violations) for (int i = 0; i < 6; i++) used += (size_t)snprintf(text + used, sizeof(text) - used, "%02x", g->last[i]);
@@ -86,13 +89,30 @@ static int guard_parse(const char *text, struct guard *g) {
     }
     return 1;
 }
+/* One frame that came in on the port (N bytes, whatever a peer sent): a BPDU, a new MAC address or a violation. */
+static void guard_frame(struct guard *g, const unsigned char *frame, size_t n) {
+    static const unsigned char bpdu[6] = {0x01, 0x80, 0xc2, 0x00, 0x00, 0x00};
+    if (n < 14) return;
+    if (g->bpdu && !memcmp(frame, bpdu, 6)) { guard_disable(g, "bpduguard"); return; }
+    if (g->mode == 'n' || (frame[6] & 1)) return;
+    for (int m = 0; m < g->count; m++) if (!memcmp(g->macs[m], frame + 6, 6)) return;  /* a known address */
+    if (g->count < g->max) {
+        memcpy(g->macs[g->count], frame + 6, 6); g->kinds[g->count++] = g->sticky ? 'k' : 'd';
+        guard_save(g); return;
+    }
+    int repeated = g->violations && !memcmp(g->last, frame + 6, 6);
+    g->violations++; memcpy(g->last, frame + 6, 6);
+    if (g->mode == 's') { guard_disable(g, "psecure-violation"); return; }
+    if (!repeated) guard_pin(g, frame + 6);
+    guard_save(g);
+}
 static int port_guard(int count, char **specs) {
     struct guard guards[MAX_PORTS]; struct pollfd waits[MAX_PORTS];
     if (count < 1 || count > MAX_PORTS) return 2;
-    mkdir("/run/port-guard", 0755);
+    mkdir(GUARD_RUN, 0755);
     for (int i = 0; i < count; i++) {
         if (!guard_parse(specs[i], &guards[i])) return 2;
-        char path[48], text[64] = {0}; snprintf(path, sizeof(path), "/run/port-guard/%.5s", guards[i].port);
+        char path[256], text[64] = {0}; snprintf(path, sizeof(path), GUARD_RUN "/%.5s", guards[i].port);
         int fd = open(path, O_RDONLY | O_CLOEXEC);  /* an err-disabled port stays so until its state is cleared */
         if (fd >= 0) {
             ssize_t n = read(fd, text, sizeof(text) - 1); close(fd);
@@ -110,7 +130,6 @@ static int port_guard(int count, char **specs) {
         guards[i].fd = sock;
         guard_save(&guards[i]);
     }
-    static const unsigned char bpdu[6] = {0x01, 0x80, 0xc2, 0x00, 0x00, 0x00};
     for (;;) {
         for (int i = 0; i < count; i++) { waits[i].fd = guards[i].fd; waits[i].events = POLLIN; waits[i].revents = 0; }
         if (poll(waits, (nfds_t)count, -1) < 0) { if (errno == EINTR) continue; return 1; }
@@ -119,21 +138,7 @@ static int port_guard(int count, char **specs) {
             if (g->fd < 0 || !(waits[i].revents & POLLIN)) continue;
             unsigned char frame[2048]; struct sockaddr_ll from; socklen_t size = sizeof(from);
             ssize_t n = recvfrom(g->fd, frame, sizeof(frame), 0, (struct sockaddr *)&from, &size);
-            if (n < 14 || from.sll_pkttype == PACKET_OUTGOING) continue;
-            if (g->bpdu && !memcmp(frame, bpdu, 6)) { guard_disable(g, "bpduguard"); continue; }
-            if (g->mode == 'n' || (frame[6] & 1)) continue;
-            int known = 0;
-            for (int m = 0; m < g->count && !known; m++) known = !memcmp(g->macs[m], frame + 6, 6);
-            if (known) continue;
-            if (g->count < g->max) {
-                memcpy(g->macs[g->count], frame + 6, 6); g->kinds[g->count++] = g->sticky ? 'k' : 'd';
-                guard_save(g); continue;
-            }
-            int repeated = g->violations && !memcmp(g->last, frame + 6, 6);
-            g->violations++; memcpy(g->last, frame + 6, 6);
-            if (g->mode == 's') { guard_disable(g, "psecure-violation"); continue; }
-            if (!repeated) guard_pin(g, frame + 6);
-            guard_save(g);
+            if (n > 0 && from.sll_pkttype != PACKET_OUTGOING) guard_frame(g, frame, (size_t)n);
         }
     }
 }
