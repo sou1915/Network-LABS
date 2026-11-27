@@ -6,7 +6,7 @@ as any feature change. The dated development log is kept unchanged in
 [PROJECT_STATUS.md](PROJECT_STATUS.md). The first-release scope is
 [RELEASE_1.md](RELEASE_1.md).
 
-Last updated: 2026-11-26.
+Last updated: 2026-11-27.
 
 ## Target
 
@@ -292,12 +292,26 @@ sudo python3 -m network_labs.appliances stop microvm-dhcp
 Micro-VMs need Linux with `/dev/kvm`, `firecracker` (and optionally `jailer`) and a
 guest kernel; the CI job pins Firecracker v1.10.1 and its CI kernel 5.10.
 
+Packaging and installation: `pyproject.toml` makes the project a pip-installable package with no dependency beyond
+the standard library (`network-labs` opens the workbench, `network-labs-lab` is the command line above).
+`.github/workflows/guest-kernel-release.yml` builds the Network LABS guest kernel (802.1Q, bonding, macvlan), boots it on
+KVM and publishes it with its corresponding source when a `guest-kernel-*` tag is pushed; once its SHA-256 is pinned in
+`setup.GUEST_KERNEL`, `setup --download` fetches it instead of Firecracker's kernel. Not published yet.
+
+Licence: GPL-3.0-or-later (`LICENSE`); bundled third-party files and the trademarks the pages name are listed in
+`THIRD_PARTY_NOTICES.md`.
+
 ## Tests
 
 - Unit tests: `python3 -m unittest discover -s tests` (privileged and KVM cases skip
   without root, containers or `/dev/kvm`).
 - CI: `.github/workflows/tests.yml` runs about 60 jobs on push and pull request;
   `microvm-kvm` runs only when dispatched manually with `suite: microvm-kvm`.
+- `lint-and-fuzz`: pyflakes over the whole tree (clean), then the guest agent under libFuzzer with ASan and UBSan for
+  two minutes (`tests/fuzz`: HSRP, VRRP, port-guard frames, DNS, Syslog, TFTP and the host's typed fields). A ten-minute
+  run on four cores (21 million inputs) found nothing.
+- `device-pages`: every one of the 56 device models' pages in Chromium, with hostile text in the configuration
+  (`test_page_smoke`), and the products' own forms (`test_product_pages`).
 - Ubuntu 26.04 runners are not supported yet; jobs are pinned to 24.04.
 
 ## Known limits
