@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 experiments/micro_appliances/guest/target/
 .venv-*/
+build/
+dist/
+*.egg-info/

@@ -36,6 +36,14 @@ python3 -m network_labs
 Aucune dépendance pip/npm pour l'utilisation normale. Le navigateur local du
 système ouvre les pages de gestion ; le logiciel doit rester actif.
 
+Ou comme paquet Python (commandes `network-labs` pour l'atelier, `network-labs-lab` pour la ligne de commande) :
+
+```bash
+python3 -m venv --system-site-packages ~/.venv-network-labs
+~/.venv-network-labs/bin/pip install ./Network-LABS
+~/.venv-network-labs/bin/network-labs
+```
+
 ### Windows et macOS : le mode modèle
 
 L'atelier s'ouvre aussi sous Windows et macOS (Python 3.12 de python.org, qui inclut Tkinter), sans KVM :
@@ -579,3 +587,9 @@ and [LAN protocol coverage](docs/LAN_PROTOCOL_COVERAGE.md) for remaining protoco
 `example --snmpv3-informs` adds a USM-only log receiver and real SHA-256/AES authPriv informs, with receiver discovery and fresh engine identities. See [encrypted inform setup](docs/NATIVE_LAN_CORE.md#snmpv3-authpriv-informs).
 
 `example --snmpv3-traps` adds two real authPriv trap agents with fresh sender-engine bindings and a log receiver that retires rotated identities. See [managed sender-engine traps](docs/NATIVE_LAN_CORE.md#snmpv3-authpriv-traps-with-managed-sender-engines).
+
+## Licence
+
+Network LABS est un logiciel libre : GNU General Public License, version 3 ou (au choix) toute version ultérieure
+([LICENSE](LICENSE)). Les polices, icônes, feuilles de style et images reprises d'autres projets gardent leur licence :
+voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), qui liste aussi les marques citées.
