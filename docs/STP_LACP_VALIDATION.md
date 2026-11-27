@@ -25,7 +25,7 @@ Run the scenario on a disposable privileged Linux host with `crun`,
 ```bash
 sudo modprobe bonding max_bonds=0
 sudo env NETWORK_LABS_NATIVE_TESTS=1 python3 -m unittest discover \
-  -s tests -p test_native_integration.py -k test_common_stp_uses -v
+  -s tests -p test_native_integration_switching.py -k test_common_stp_uses -v
 ```
 
 The dedicated `switching-interop` CI job runs this same test. Its packet

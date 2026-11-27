@@ -155,7 +155,7 @@ Test réel opt-in sur un hôte Linux de test avec les prérequis :
 
 ```bash
 sudo env NETWORK_LABS_NATIVE_TESTS=1 python3 -m unittest discover \
-  -s tests -p test_native_integration.py -v
+  -s tests -p 'test_native_integration*.py' -v
 ```
 
 Ce test démarre trois containers, vérifie un vrai ping à travers le bridge,

@@ -32,7 +32,7 @@ Tests that need more than Python skip themselves; to run them:
 | device pages in a browser (`test_page_smoke`, `test_product_pages`) | Node and Playwright with Chromium | `npm install --global playwright` then `npx playwright install chromium`; run with `NODE_PATH="$(npm root --global)"` |
 | guest agent fuzzing (`test_agent_fuzz`) | clang with its fuzzer runtime | Ubuntu: `clang libclang-rt-18-dev`; `NETWORK_LABS_FUZZ_SECONDS=600` for a longer run |
 | real micro-VMs (`test_native_microvm*`) | root, KVM, Firecracker, a guest kernel | `sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_MICROVM_KERNEL=/path/vmlinux python3 -m unittest tests.test_native_microvm -v` |
-| real containers (`test_native_integration`) | root, crun and the tools in the CI job | `sudo env NETWORK_LABS_NATIVE_TESTS=1 …` as in `.github/workflows/tests.yml` |
+| real containers (`test_native_integration_*`, one module per topic) | root, crun and the tools in the CI job | `sudo env NETWORK_LABS_NATIVE_TESTS=1 …` as in `.github/workflows/tests.yml` |
 | WebAssembly prototype (`test_micro_*`) | Wasmtime | `pip install -r experiments/micro_appliances/requirements.txt` |
 
 The CI (`.github/workflows/tests.yml`) runs all of these, the micro-VM ones on KVM when asked

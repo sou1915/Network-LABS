@@ -213,7 +213,7 @@ Le job CI natif exécute les opérations suivantes, sans moteur pédagogique :
 ```bash
 python3 -m unittest discover -s tests -p test_native_lan.py -v
 sudo env NETWORK_LABS_NATIVE_TESTS=1 python3 -m unittest discover \
-  -s tests -p test_native_integration.py -v
+  -s tests -p 'test_native_integration*.py' -v
 ```
 
 ## Références techniques
