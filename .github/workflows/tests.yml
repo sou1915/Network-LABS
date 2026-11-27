@@ -70,7 +70,7 @@ jobs:
     # Runs on the Firecracker CI kernel even if the guest kernel build fails.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.suite == 'microvm-kvm' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30  # three steps of real guests (run 937: 16 minutes)
     steps:
       - uses: actions/checkout@v4
       - name: Require real KVM

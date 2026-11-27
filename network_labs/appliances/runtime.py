@@ -114,10 +114,13 @@ def oci_config(spec, node, index, rootfs):
 
 def needs_guest_startup(node):
     """False only for a plain one-port host, fully set by the kernel's ip= boot option. Any other guest goes through the
-    guest startup; an unnumbered or shut port among them, since nothing else would bring it up, or keep it down."""
+    guest startup; an unnumbered or shut port among them, since nothing else would bring it up, or keep it down; and a
+    server with services (DNS, web, NTP, Syslog, TFTP), which only the guest startup starts."""
+    from .guest_services import tftp_files, wanted
+    tokens, pages = wanted(node) if node['role'] == 'host' else ([], None)
     simple = (node['role'] == 'host' and len(node['interfaces']) == 1 and bool(node['interfaces']['eth0'])
               and not node.get('shutdown') and 'guest_network' not in node and not node.get('dhcp_server')
-              and not node.get('dhcp_clients'))
+              and not node.get('dhcp_clients') and not tokens and pages is None and not tftp_files(node))
     return not simple
 
 
