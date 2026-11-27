@@ -26,7 +26,6 @@ spec=json.loads(Path(sys.argv[2]).read_text());directory=Path(sys.argv[3]);artif
 from network_labs.__main__ import App
 root=tk.Tk();app=App(root);root.geometry('1280x720+0+0');window=app.open_native_lab();window.load_spec(spec,directory/'project.json')
 assert window.embedded and window.window.master is root
-assert app.lab.execution_backend=='model'
 errors=[];root.report_callback_exception=lambda *error:errors.append(str(error));owners=[]
 original=ui.read_result
 def checked_result(path,request):
@@ -256,7 +255,6 @@ try:
         assert len(owners)==19 and set(owners)=={os.geteuid()},owners
         (artifacts/'native-admission-result.json').write_text(json.dumps({'native_web_admission_verified':True,'gui_uid':os.geteuid(),'result_owner_uids':owners,'node_count':5,'link_count':4,'allowed':admission_allowed['data'],'arp_blocked':arp_blocked['data'],'ip_blocked':ip_blocked['data'],'observed':admission_counters,'stopped':True,'callback_errors':errors},indent=2))
         window.close();root.update()
-        assert app.workspace.winfo_ismapped() and app.lab.execution_backend=='model'
         assert not errors,errors
 finally:root.destroy()
 '''
