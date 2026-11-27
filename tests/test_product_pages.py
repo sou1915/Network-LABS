@@ -49,6 +49,7 @@ const { chromium } = require('playwright');
   await page.check('input[name=asAct][value=drop]'); await page.fill('#asSvc', 'tcp/23'); await page.fill('#asName', 'Bloquer Telnet LAN');
   await page.click('.px-dfoot button:text-is("OK")'); await page.click('.as-apply .apply'); await page.waitForSelector('.px-toast');
   await open('PFS'); seen.PFS = await product();
+  await page.waitForFunction(() => !document.body.classList.contains('px-wait'));  // pfSense's own stylesheets have loaded
   const look = {pfSense: await page.evaluate(() => [getComputedStyle(document.querySelector('#topmenu')).backgroundColor,
     getComputedStyle(document.body).fontFamily.split(',')[0].replace(/["']/g, ''), [...document.querySelectorAll('link[data-px-sheet]')].map(l => l.getAttribute('href'))])};
   await page.click('#topmenu .dropdown-toggle:has-text("Firewall")'); await page.click('#topmenu .dropdown-menu a[data-go="rules"]'); await page.click('.action-buttons .add >> nth=0');
