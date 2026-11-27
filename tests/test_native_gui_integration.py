@@ -199,8 +199,10 @@ try:
         root.update()
         # The device controls stay visible: the results log opens beside the device panel, never over it.
         assert window.verify_button.winfo_viewable()
-        assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()
-        assert not window.lower.winfo_ismapped() or window.lower.winfo_rootx()+window.lower.winfo_width()<=window.device_panel.winfo_rootx()
+        window_bottom=window.window.winfo_rooty()+window.window.winfo_height()
+        assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window_bottom
+        log_right=window.lower.winfo_rootx()+window.lower.winfo_width()
+        assert not window.lower.winfo_ismapped() or log_right<=window.device_panel.winfo_rootx()
         window.choose_node('FW1');window.device_tabs.select(window.config_panel)
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
         assert window.config_apply.winfo_ismapped()

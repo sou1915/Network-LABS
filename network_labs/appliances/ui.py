@@ -134,7 +134,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2)
             line.pack(fill='x')
             self.nav_items[label]=(button,line)
-        body=self.body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
+        body=self.body=ttk.Panedwindow(self.window,orient='horizontal')
+        body.grid(row=3,column=0,sticky='nsew',padx=4)
         library_card=SoftPanel(body,BG,SIDEBAR)
         library_card.configure(width=218)
         body.add(library_card,weight=0)
@@ -147,7 +148,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         content.add(lower,weight=1)
         self.dock=ttk.Notebook(lower,height=155,style='Native.TNotebook')
         lower.add(self.dock,weight=3)
-        self.activity_book=ttk.Notebook(lower,height=155,style='Native.TNotebook');lower.add(self.activity_book,weight=2)
+        self.activity_book=ttk.Notebook(lower,height=155,style='Native.TNotebook')
+        lower.add(self.activity_book,weight=2)
         activity_card=SoftPanel(self.activity_book,BG)
         self.activity_book.add(activity_card,text='Événements')
         activity=activity_card.inner
@@ -175,7 +177,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.build_library_palette(library)
         self.project_list=tk.Frame(library,bg=SIDEBAR)
         self.project_list_open=False
-        self.project_toggle=ttk.Button(library,text='▸ Équipements du projet',command=self.toggle_project_list,style='Native.TButton');self.project_toggle.pack(fill='x',padx=7,pady=8)
+        self.project_toggle=ttk.Button(library,text='▸ Équipements du projet',command=self.toggle_project_list,style='Native.TButton')
+        self.project_toggle.pack(fill='x',padx=7,pady=8)
         self.library=ttk.Treeview(self.project_list,show='tree',selectmode='browse',height=4,style='Native.Treeview')
         self.library.pack(fill='both',expand=True,side='left')
         project_scroll=ttk.Scrollbar(self.project_list,style='Native.Vertical.TScrollbar',command=self.library.yview)
@@ -186,7 +189,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         workspace.add(self.tabs,weight=1)
         self.topology_tab=tk.Frame(self.tabs,bg=BG)
         self.editor_tab=ttk.Frame(self.tabs)
-        diagnostics=self.tools_tab=ttk.Frame(self.tabs);self.output_tab=ttk.Frame(self.dock);self.dock.add(self.output_tab,text='Diagnostic réseau · lecture seule')
+        diagnostics=self.tools_tab=ttk.Frame(self.tabs)
+        self.output_tab=ttk.Frame(self.dock)
+        self.dock.add(self.output_tab,text='Diagnostic réseau · lecture seule')
         self.missions_tab=tk.Frame(self.tabs,bg=BG)
         self.raw_tab=ttk.Frame(self.dock)
         self.dock.add(self.raw_tab,text='Détails JSON')
@@ -1899,7 +1904,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         if not path.exists() and time.monotonic()-pending['began']<300:
             self.poll_id=self.window.after(100,self.poll_result);return
         try:
-            response=read_result(path,pending['request']) if path.exists() else {'ok':False,'error':'Aucun résultat reçu ; actualiser l’état. Le lab peut rester actif.'}
+            response=read_result(path,pending['request']) if path.exists() else {'ok':False,
+                    'error':'Aucun résultat reçu ; actualiser l’état. Le lab peut rester actif.'}
             self.apply_response(response,pending['request'])
         except (OSError,ValueError,TypeError,KeyError) as error:
             self.last_response={'ok':False,'uncertain':True,'error':str(error)}
