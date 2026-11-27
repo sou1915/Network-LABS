@@ -75,9 +75,12 @@ class LogBesideDevicePanelTest(unittest.TestCase):
         from network_labs.__main__ import App
         root = tk.Tk()
         self.addCleanup(root.destroy)
-        root.geometry('1280x720+0+0')
-        window = App(root).open_native_lab()
-        window.load_spec(example('/tmp/rootfs'))
+        from network_labs.appliances.campus import campus_example
+        app = App(root)
+        root.geometry('1280x720+0+0')  # after App(), which sizes the window to the screen
+        window = app.open_native_lab()
+        small = example('/tmp/rootfs')
+        window.load_spec(campus_example(small['nodes'][0]['rootfs'], small['name']))  # ten devices: the lists are long
 
         def settle():
             for _ in range(40):
@@ -110,7 +113,8 @@ class WorkbenchGUITests(unittest.TestCase):
     def test_declared_topology_is_unobserved_until_real_result_and_stop_requires_confirmation(self):
         window=self.window;self.assertEqual(len(window.node_shapes),3);self.assertEqual(len(window.canvas.find_withtag('link')),2)
         self.assertTrue(all(n['values'][1]=='non observé' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
-        graph=bridge.public_topology(example('/rootfs'));lab=graph['name']
+        graph=bridge.public_topology(example('/rootfs'))
+        lab=graph['name']
         response={'ok':True,'lab':lab,'action':'status','topology':graph,'data':{'name':lab,'phase':'running','nodes':[{'name':n['name'],'state':{'status':'running'},'memory_current_bytes':1048576} for n in graph['nodes']]}}
         window.apply_response(response,{'lab':lab,'action':'status'});self.root.update()
         self.assertTrue(all(n['values'][1]=='en marche' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
@@ -334,9 +338,12 @@ class WorkbenchGUITests(unittest.TestCase):
 
     def test_graphical_edit_click_drag_and_pending_or_mismatched_view_guards(self):
         from network_labs.appliances import topology_edit as edit
-        window=self.window;spec=window.manifest()
+        window=self.window
+        spec=window.manifest()
         window.commit_edit(edit.add_node(spec,name='SW2',role='switch',rootfs='/tmp/rootfs',ports=4))
-        self.root.update();self.assertIn('SW2',window.node_shapes);self.assertFalse(window.states)
+        self.root.update()
+        self.assertIn('SW2',window.node_shapes)
+        self.assertFalse(window.states)
         window.set_edit_mode('cable')
         with patch.object(window,'connect_dialog') as connect,patch.object(window,'auto_connect') as auto:
             window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
@@ -428,8 +435,11 @@ class WorkbenchGUITests(unittest.TestCase):
 
     def test_hover_and_double_click_open_real_configuration_without_editing(self):
         window=self.window;original=window.manifest();window.choose_node('SW1');self.root.update()
-        x,y=window.drawn_positions['PC1'];x-=window.canvas.canvasx(0);y-=window.canvas.canvasy(0)
-        window.canvas.event_generate('<Motion>',warp=True,x=round(x),y=round(y));self.root.update()
+        x,y=window.drawn_positions['PC1']
+        x-=window.canvas.canvasx(0)
+        y-=window.canvas.canvasy(0)
+        window.canvas.event_generate('<Motion>',warp=True,x=round(x),y=round(y))
+        self.root.update()
         self.assertEqual(window.nodes.selection(),('SW1',),'Hover must not replace the selected form')
         from network_labs.appliances.reference_theme import BLUE
         self.assertEqual(window.canvas.itemcget(window.node_shapes['PC1'],'outline'),BLUE)
@@ -457,13 +467,15 @@ class WorkbenchGUITests(unittest.TestCase):
             spec=self.window.manifest();self.assertEqual(spec['name'],'Secure-access');self.assertEqual(len(spec['nodes']),5)
             switch=next(n for n in spec['nodes'] if n['role']=='switch')
             self.assertTrue(all(p=={'mode':'access','vlan':10} for p in switch['switchports'].values()))
-            self.assertFalse(self.window.states);launch.assert_not_called()
+            self.assertFalse(self.window.states)
+            launch.assert_not_called()
 
     def test_native_console_requires_observed_oci_and_keeps_draft(self):
         from network_labs.appliances import ui
         window=self.window;window.choose_node('PC1');original=window.manifest()
         with patch.object(ui,'launch_terminal') as launch,patch.object(window,'error'):
-            self.assertFalse(window.open_console());launch.assert_not_called()
+            self.assertFalse(window.open_console())
+            launch.assert_not_called()
             window.states={'PC1':{'status':'running'}};window.select_node()
             self.assertTrue(window.open_console())
             self.assertEqual(launch.call_args.args[0][-3:],[window.view_lab,'PC1','oci'])

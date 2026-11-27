@@ -198,6 +198,7 @@ try:
         assert window.output_tab.master is window.dock
         root.update()
         # The device controls stay visible: the results log opens beside the device panel, never over it.
+        window.device_tabs.select(0);root.update()  # the device's « Aperçu », where « Tester la liaison » is
         assert window.verify_button.winfo_viewable()
         window_bottom=window.window.winfo_rooty()+window.window.winfo_height()
         assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window_bottom

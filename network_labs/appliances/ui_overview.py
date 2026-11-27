@@ -72,13 +72,15 @@ class DeviceOverview:
         self.note = tk.StringVar(value='')
         self.note_label = tk.Label(details, textvariable=self.note, bg=PANEL, fg=BLUE, font=(self.font, 8), justify='left',
                                    anchor='nw', wraplength=360)
-        self.note_label.pack(fill='x', padx=14, pady=6)
         self.note_label.bind('<Configure>', lambda event: self.note_label.configure(wraplength=max(160, event.width - 4)))
         self.overview_hint = self.label(details, 'Double-clic sur un équipement : son terminal · clic droit sur un câble : le retirer',
                                         MUTED, 7)
         self.overview_hint.configure(justify='center')
-        self.overview_hint.pack(side='bottom', fill='x', padx=12, pady=6)
+        self.overview_hint.pack(side='bottom', fill='x', padx=12, pady=6, before=self.overview_ports_title)
         self.overview_hint.bind('<Configure>', lambda event: self.overview_hint.configure(wraplength=max(160, event.width - 4)))
+        # The bottom of the tab is packed first, so the hint, the note and the link test keep their room on a short
+        # screen or with the results log open; the port and device lists above take what is left (the wheel scrolls them).
+        self.note_label.pack(side='bottom', fill='x', padx=14, pady=6, before=self.overview_ports_title)
 
     def overview_selected(self):
         selected = self.nodes.selection()
@@ -156,7 +158,7 @@ class DeviceOverview:
 
     def show_oci_controls(self, shown):
         if shown and not self.oci_controls.winfo_ismapped():
-            self.oci_controls.pack(fill='x', before=self.note_label)
+            self.oci_controls.pack(side='bottom', fill='x', after=self.note_label)
         elif not shown and self.oci_controls.winfo_ismapped():
             self.oci_controls.pack_forget()
 
