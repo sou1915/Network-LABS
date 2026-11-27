@@ -93,7 +93,7 @@ def fetch_kernel(folder, fetch=_download):
 def image_stamp():
     """What the guest disk was built from: the agent source and this builder (a change means rebuild)."""
     here = Path(__file__).parent
-    sources = [here / 'guest' / 'agent.c', here / 'guest_image.py', Path(__file__)]
+    sources = sorted((here / 'guest').glob('*.c')) + [here / 'guest_image.py', Path(__file__)]  # agent.c and its parts
     return hashlib.sha256(b''.join(path.read_bytes() for path in sources)).hexdigest()[:16]
 
 
