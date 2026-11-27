@@ -35,7 +35,8 @@ native_apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20
 mkdir -p /etc/apt/sources.list.d.disabled
 for source in /etc/apt/sources.list.d/*; do
     [[ -e "$source" ]] || continue
-    grep -q 'ubuntu\.com/ubuntu' "$source" || mv "$source" /etc/apt/sources.list.d.disabled/
+    # Ubuntu's own sources name its archive directly or, on the hosted runners, through apt-mirrors.txt.
+    grep -qE 'ubuntu\.com/ubuntu|mirror\+file:/etc/apt/apt-mirrors\.txt' "$source" || mv "$source" /etc/apt/sources.list.d.disabled/
 done
 apt-get "${native_apt_options[@]}" update
 apt-get "${native_apt_options[@]}" install -y "${recommends[@]}" "$@"
