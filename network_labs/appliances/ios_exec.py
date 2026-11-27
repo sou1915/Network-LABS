@@ -17,7 +17,7 @@ SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', '
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
          'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree',
          'show etherchannel summary', 'show port-security', 'show port-security interface {p0}', 'show port-security address',
-         'show standby', 'show standby brief', 'show hosts', 'show ntp status', 'show ntp associations', 'show logging']
+         'show standby', 'show standby brief', 'show vrrp', 'show vrrp brief', 'show hosts', 'show ntp status', 'show ntp associations', 'show logging']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -52,6 +52,8 @@ def answer(console, low):
         return port_security(console, low.split()[-1] if match[2] else None, address=bool(match[1]) and not match[2])
     if full in ('show standby', 'show standby brief'):
         return standby(console, brief=full.endswith('brief'))
+    if full in ('show vrrp', 'show vrrp brief'):
+        return vrrp_show(console, brief=full.endswith('brief'))
     match = re.fullmatch(r'show spanning-tree(?: vlan (\d+))?', full)
     if match:
         return spanning_tree(console, int(match[1]) if match[1] else None)
@@ -112,7 +114,7 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan', 'eth': 'etherchannel', 'ether': 'etherchannel',
          'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary',
          'port-sec': 'port-security', 'port-security': 'port-security', 'addr': 'address', 'address': 'address',
-         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'br': 'brief', 'bri': 'brief', 'brief': 'brief',
+         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'vrr': 'vrrp', 'vrrp': 'vrrp', 'br': 'brief', 'bri': 'brief', 'brief': 'brief',
          'host': 'hosts', 'hosts': 'hosts', 'ntp': 'ntp', 'assoc': 'associations', 'associations': 'associations',
          'logg': 'logging', 'logging': 'logging', 'log': 'logging'}
 
@@ -322,6 +324,21 @@ def guard_states(console):
     if console.running():
         return port_guard.parse(console.query('port-guard-show'))
     return {port: state for (name, port), state in port_guard.model(console.spec_now()).items() if name == node['name']}
+
+
+def vrrp_show(console, brief=False):
+    """« show vrrp [brief] »: the VRRP groups as the router guest runs them, or as a stopped lab elects them."""
+    from . import vrrp
+    node = console.node()
+    if node['role'] != 'router':
+        return "% Invalid input detected at '^' marker."
+    if not vrrp.groups(node):
+        return ''
+    if console.running():
+        states = vrrp.parse(console.query('vrrp-show'))
+    else:
+        states = {(port, group): state for (name, port, group), state in vrrp.election(console.spec_now()).items() if name == node['name']}
+    return vrrp.brief(node, states) if brief else vrrp.show(node, states)
 
 
 def standby(console, brief=False):

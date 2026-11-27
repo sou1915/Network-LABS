@@ -29,9 +29,12 @@ OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'p
 OPERATIONS.update({'port-guard-start': 'PORT_GUARD_START', 'port-guard-stop': 'PORT_GUARD_STOP',
                    'port-guard-clear': 'PORT_GUARD_CLEAR', 'port-guard-show': 'PORT_GUARD_SHOW'})  # port security, BPDU guard
 OPERATIONS.update({'hsrp-start': 'HSRP_START', 'hsrp-stop': 'HSRP_STOP', 'hsrp-show': 'HSRP_SHOW'})  # IOS « standby »
+OPERATIONS.update({'vrrp-start': 'VRRP_START', 'vrrp-stop': 'VRRP_STOP', 'vrrp-show': 'VRRP_SHOW'})  # IOS « vrrp »
 # One HSRP group: IFACE/GROUP/VERSION/VIRTUAL-ADDRESS/PRIORITY/PREEMPT/HELLO/HOLD/AUTHENTICATION (hex); the agent checks it again.
 HSRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/\d{1,3}/(?:[0-9a-f]{2}){1,8}'
 HSRP_GROUPS = 16
+VRRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,3}/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/(?:-|(?:[0-9a-f]{2}){1,8})'
+VRRP_GROUPS = 16
 OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
                    'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
 # Server services (guest_services): the agent's --services daemon (DNS, NTP, Syslog collector, NTP client), its web
@@ -325,11 +328,11 @@ def _bridge_vlan_command(operation, interface, vlan, state):
 
 def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
             vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, hsrp=None, service=None,
-            timeout=6):
+            vrrp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
     if operation in SERVICE_OPERATIONS:  # server services and their clients: arguments in « service » only
-        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard, hsrp)
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard, hsrp, vrrp)
         if any(v is not None for v in others):
             raise ValueError('Guest service operations accept only their service arguments.')
         return _exchange(path, operation, service_command(operation, service), timeout)
@@ -349,6 +352,20 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         return _exchange(path, operation, OPERATIONS[operation], timeout)
     if hsrp is not None:
         raise ValueError('Only hsrp-start accepts groups.')
+    if operation.startswith('vrrp-'):  # the agent's VRRP speaker: one argument per group
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard)
+        if any(v is not None for v in others):
+            raise ValueError('Guest VRRP operations accept only groups.')
+        if operation == 'vrrp-start':
+            if not isinstance(vrrp, list) or not 1 <= len(vrrp) <= VRRP_GROUPS \
+                    or not all(isinstance(g, str) and re.fullmatch(VRRP_GROUP, g) for g in vrrp):
+                raise ValueError(f'Guest vrrp-start requires 1..{VRRP_GROUPS} groups.')
+            return _exchange(path, operation, 'VRRP_START ' + ' '.join(vrrp), timeout)
+        if vrrp is not None:
+            raise ValueError(f'Guest {operation} takes no group.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if vrrp is not None:
+        raise ValueError('Only vrrp-start accepts groups.')
     if operation.startswith('port-guard-'):  # the agent's port guard: its policies, one argument per port
         others = (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)
         if any(v is not None for v in others):

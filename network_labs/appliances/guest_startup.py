@@ -250,13 +250,16 @@ def observe(socket, node):
     by_port = {port: [] for port in declared}
     interface = None; active = set()
     from .hsrp import virtual_addresses
+    from .vrrp import virtual_addresses as vrrp_addresses
     standby = virtual_addresses(node)
+    for port, values in vrrp_addresses(node).items():  # VRRP's virtual addresses, as HSRP's
+        standby.setdefault(port, set()).update(values)
     for line in text.splitlines():
         header = re.match(r'^\d+: ([^:@]+)(?:@[^:]+)?: <([^>]*)>', line)  # a subinterface reads "eth0.10@eth0
         if header:
             interface = header[1]
-            if standby and re.fullmatch(r'hsrp\d+-\d+', interface):
-                interface = None  # the active HSRP router's virtual MAC device (the agent's): not a port, never saved
+            if standby and re.fullmatch(r'(?:hsrp|vrrp)\d+-\d+', interface):
+                interface = None  # the active HSRP router's or the VRRP master's virtual MAC device (the agent's): never saved
                 continue
             if interface != 'lo' and interface not in by_port:
                 raise ValueError('Guest has an undeclared interface.')
@@ -753,6 +756,9 @@ def change_routing(socket, old, new):
     from .hsrp import arguments as hsrp_groups
     if hsrp_groups(old) != hsrp_groups(new):  # a standby line typed or removed: the speaker takes its groups back as they were
         query(socket, 'hsrp-start', hsrp=hsrp_groups(new)) if hsrp_groups(new) else query(socket, 'hsrp-stop')
+    from .vrrp import arguments as vrrp_groups
+    if vrrp_groups(old) != vrrp_groups(new):  # a vrrp line typed or removed: the same hand-over
+        query(socket, 'vrrp-start', vrrp=vrrp_groups(new)) if vrrp_groups(new) else query(socket, 'vrrp-stop')
     _dhcp_servers(socket, old, new)  # « ip dhcp pool » blocks: one udhcpd per pool
     from .guest_services import change as change_services
     change_services(socket, old, new)  # DNS, NTP, Syslog and web services, IOS « ip dns server », « ntp … »
@@ -916,6 +922,9 @@ def apply(socket, node, timeout=40, alive=None):
     from .hsrp import arguments as hsrp_groups
     if hsrp_groups(node):  # « standby »: the agent speaks HSRP on those ports and holds the address once active
         query(socket, 'hsrp-start', hsrp=hsrp_groups(node))
+    from .vrrp import arguments as vrrp_groups
+    if vrrp_groups(node):  # « vrrp »: the agent speaks VRRP on those ports and holds the address once master
+        query(socket, 'vrrp-start', vrrp=vrrp_groups(node))
     from .guest_services import start as start_services
     start_services(socket, node)  # a server's DNS, HTTP, NTP and Syslog; a router's « ip dns server », « ntp master »…
     for port in node.get('dhcp_clients', []):

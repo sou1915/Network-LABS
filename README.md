@@ -143,6 +143,10 @@ La sécurité des ports agit pour de vrai sur les switchs : `switchport port-sec
 HSRP aussi, sur les routeurs : `standby 1 ip 192.168.1.1`, `standby 1 priority 110`, `standby 1 preempt`
 (`timers`, `authentication`, `standby version 2`) ; les routeurs élisent l'actif pour de vrai, il répond pour l'adresse
 virtuelle avec la MAC 0000.0c07.ac01, et le standby prend la relève si l'actif tombe (`show standby`, `show standby brief`).
+VRRP de même (`vrrp 1 ip 192.168.1.1`, `vrrp 1 priority 110`, `no vrrp 1 preempt`, `timers advertise`, `authentication
+text`, `description`, `shutdown`) : le master annonce le groupe (protocole IP 112), répond avec la MAC 0000.5e00.0101, et un
+backup prend la relève s'il se tait ou démissionne ; l'adresse même du port fait du routeur le propriétaire (priorité 255)
+(`show vrrp`, `show vrrp brief`).
 Celles qui n'agissent pas encore sur le trafic du lab (portfast, IPv6, NTP, SNMP, logging…) sont
 acceptées et gardées dans la configuration ; le catalogue de commandes le précise. Pour **toutes** les commandes d'un vrai Cisco, il faudra une image Cisco
 officielle (étape suivante : images constructeur sous QEMU).

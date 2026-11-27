@@ -78,6 +78,14 @@ def features(node):
                 add('HSRP', f"{name(port)} · groupe {group} · {settings['ip'] or 'sans adresse'} · priorité {settings['priority']}"
                             + (' · preempt' if settings['preempt'] else ''))
 
+    def vrrp():
+        from .vrrp import groups
+        for port, entries in sorted(groups(node).items()):
+            for group, settings in sorted(entries.items()):
+                add('VRRP', f"{name(port)} · groupe {group} · {settings['ip'] or 'sans adresse'} · priorité {settings['effective']}"
+                            + (' (propriétaire)' if settings['owner'] else '') + ('' if settings['preempt'] else ' · sans preempt')
+                            + (' · shutdown' if settings['shutdown'] else ''))
+
     def nat():
         from .ios_nat import entries
         rules = entries(node) if node.get('role') == 'router' and node.get('cli_config') else []
@@ -124,7 +132,7 @@ def features(node):
         if node.get('role') == 'switch' and routing(node):
             add('Routage inter-VLAN', 'ip routing · ' + ', '.join(f'Vlan{s[4:]}' for s in sorted(node.get('svis') or {})))
 
-    for work in (ospf, rip, eigrp, bgp, hsrp, nat, relay, dhcp, acl, stp, channels, security, layer3):
+    for work in (ospf, rip, eigrp, bgp, hsrp, vrrp, nat, relay, dhcp, acl, stp, channels, security, layer3):
         attempt(work)
     return found
 

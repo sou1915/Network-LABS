@@ -301,10 +301,11 @@ class Model:
             for port, values in public_addresses(node).items():  # a router answers for its static NAT and pool addresses
                 for value in values:
                     self.owners.setdefault((self.seg.get((node['name'], port)), ipaddress.IPv4Interface(value).ip), (node['name'], port))
-        self.virtual = {}  # (segment, address) -> (router, port): HSRP, the group's active router answers for its address
+        self.virtual = {}  # (segment, address) -> (router, port): HSRP's active router, VRRP's master answers for the address
         if any(n.get('role') == 'router' and n.get('cli_config') for n in spec['nodes']):
             from .hsrp import virtual_owners
-            self.virtual = virtual_owners(spec, self.seg)
+            from .vrrp import virtual_owners as vrrp_owners
+            self.virtual = {**vrrp_owners(spec, self.seg), **virtual_owners(spec, self.seg)}
             for key, owner in self.virtual.items():
                 self.owners.setdefault(key, owner)
 

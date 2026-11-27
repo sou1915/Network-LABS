@@ -905,6 +905,9 @@ class IOS:
         if low.split()[:1] == ['standby'] or low.split()[:2] == ['no', 'standby']:
             from .hsrp import configure  # HSRP: a router port's or subinterface's standby groups (acts in the guest)
             return configure(node, self.port, ' '.join(command.split()))
+        if low.split()[:1] == ['vrrp'] or low.split()[:2] == ['no', 'vrrp']:
+            from .vrrp import configure as vrrp  # VRRP: a router port's or subinterface's vrrp groups (acts in the guest)
+            return vrrp(node, self.port, ' '.join(command.split()))
         if self.port in (node.get('svis') or {}):
             svi = node['svis'][self.port]
             if low.startswith('ip address '):
