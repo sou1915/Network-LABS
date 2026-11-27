@@ -6,6 +6,11 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "$(id -u)" != 0 ]]; then
     echo 'This helper requires root inside GitHub Actions.' >&2
     exit 2
 fi
+recommends=(--no-install-recommends)
+if [[ "${1:-}" == --with-recommends ]]; then
+    recommends=()
+    shift
+fi
 if (( $# == 0 || $# > 64 )); then
     echo 'Supply 1..64 explicit Ubuntu package names.' >&2
     exit 2
@@ -35,4 +40,4 @@ if ! apt-get "${native_apt_options[@]}" update; then
     done
     apt-get "${native_apt_options[@]}" update
 fi
-apt-get "${native_apt_options[@]}" install -y --no-install-recommends "$@"
+apt-get "${native_apt_options[@]}" install -y "${recommends[@]}" "$@"
