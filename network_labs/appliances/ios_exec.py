@@ -17,7 +17,8 @@ SHOWS = ['show ip nat translations', 'show ip nat statistics', 'show version', '
          'show interfaces trunk', 'show interfaces status', 'show ip dhcp binding', 'show arp', 'show ip arp',
          'show mac address-table', 'show ip route static', 'show ip eigrp neighbors', 'show spanning-tree',
          'show etherchannel summary', 'show port-security', 'show port-security interface {p0}', 'show port-security address',
-         'show standby', 'show standby brief', 'show vrrp', 'show vrrp brief', 'show hosts', 'show ntp status', 'show ntp associations', 'show logging']
+         'show standby', 'show standby brief', 'show vrrp', 'show vrrp brief', 'show hosts', 'show ntp status', 'show ntp associations',
+    'show logging']
 ROUTE_CODES = {'connected': 'CL', 'static': 'S', 'rip': 'R', 'eigrp': 'D', 'ospf': 'O', 'bgp': 'B'}
 
 
@@ -114,7 +115,8 @@ WORDS = {'sh': 'show', 'sho': 'show', 'ver': 'version', 'vers': 'version', 'vers
          'spanning-tree': 'spanning-tree', 'vl': 'vlan', 'vlan': 'vlan', 'eth': 'etherchannel', 'ether': 'etherchannel',
          'etherch': 'etherchannel', 'etherchannel': 'etherchannel', 'sum': 'summary', 'summ': 'summary', 'summary': 'summary',
          'port-sec': 'port-security', 'port-security': 'port-security', 'addr': 'address', 'address': 'address',
-         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'vrr': 'vrrp', 'vrrp': 'vrrp', 'br': 'brief', 'bri': 'brief', 'brief': 'brief',
+         'stan': 'standby', 'stand': 'standby', 'standby': 'standby', 'vrr': 'vrrp', 'vrrp': 'vrrp', 'br': 'brief', 'bri': 'brief',
+    'brief': 'brief',
          'host': 'hosts', 'hosts': 'hosts', 'ntp': 'ntp', 'assoc': 'associations', 'associations': 'associations',
          'logg': 'logging', 'logging': 'logging', 'log': 'logging'}
 

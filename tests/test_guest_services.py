@@ -78,7 +78,8 @@ class ServicesModelTest(unittest.TestCase):
 
     def test_ios_lines_make_a_dns_and_ntp_server(self):
         console = guest_console.Console('svc', 'R1', lambda _: self.draft)
-        for line in ['en', 'conf t', 'ip host intranet.lab.local 192.168.1.80 192.168.1.81', 'ip dns server', 'ntp master 3', 'ip http server', 'end']:
+        for line in ['en', 'conf t', 'ip host intranet.lab.local 192.168.1.80 192.168.1.81', 'ip dns server', 'ntp master 3',
+                     'ip http server', 'end']:
             self.assertNotIn('% Invalid', console.line(line), line)
         tokens, pages = guest_services.wanted(self.node('R1'))
         self.assertEqual(tokens, ['dns', 'a:intranet.lab.local=192.168.1.80', 'a:intranet.lab.local=192.168.1.81', 'a:printer=192.168.1.50',
@@ -170,11 +171,13 @@ class ServicesModelTest(unittest.TestCase):
         self.assertIn('ip host printer 192.168.1.50', running)
         self.assertEqual(self.router.line('copy tftp://10.0.0.99/x running-config'), '')  # Destination filename [running-config]?
         self.assertIn('%Error opening tftp://10.0.0.99/x (Timed out)', self.router.line(''))
-        self.assertEqual(self.router.line('copy startup-config tftp://10.0.0.10/s.cfg'), '%Error opening nvram:startup-config (No such file or directory)')
+        self.assertEqual(self.router.line('copy startup-config tftp://10.0.0.10/s.cfg'),
+                         '%Error opening nvram:startup-config (No such file or directory)')
 
     def test_services_are_checked(self):
         spec = lab()
-        for bad in ({'dns': {'on': True, 'records': [['bad name', 'A', '10.0.0.1']]}}, {'dns': {'on': True, 'records': [['a.lab', 'MX', 'x']]}},
+        for bad in ({'dns': {'on': True, 'records': [['bad name', 'A', '10.0.0.1']]}}, {'dns': {'on': True, 'records': [['a.lab', 'MX',
+                                                                                                                         'x']]}},
                     {'dns': {'on': True, 'records': [['a.lab', 'A', '300.1.1.1']]}}, {'http': {'on': True, 'pages': {'../x.html': 'x'}}},
                     {'http': {'on': True, 'pages': {'a.php': 'x'}}}, {'ftp': {'on': True}}, {'ntp': {'on': 'yes'}},
                     {'dns': {'on': True, 'records': [['a.lab', 'CNAME', 'b.lab'], ['a.lab', 'A', '10.0.0.1']]}}):
@@ -200,7 +203,8 @@ class ServicesModelTest(unittest.TestCase):
     def test_syslog_datagrams_are_ios_ones(self):
         import datetime
         when = datetime.datetime(2026, 11, 26, 10, 0, 1, 123000)
-        self.assertEqual(guest_services.syslog_message('R1', 7, '%LINK-3-UPDOWN: Interface GigabitEthernet0/0/0, changed state to up', when),
+        self.assertEqual(guest_services.syslog_message('R1', 7, '%LINK-3-UPDOWN: Interface GigabitEthernet0/0/0, changed state to up',
+                                                       when),
                          (3, '<187>7: *Nov 26 10:00:01.123: %LINK-3-UPDOWN: Interface GigabitEthernet0/0/0, changed state to up'))
 
 
@@ -228,8 +232,10 @@ class AgentServicesTest(unittest.TestCase):
         commands = [['ip', 'netns', 'add', cls.spaces[0]], ['ip', 'netns', 'add', cls.spaces[1]],
                     ['ip', 'link', 'add', 'vs' + tag, 'type', 'veth', 'peer', 'name', 'vp' + tag],
                     ['ip', 'link', 'set', 'vs' + tag, 'netns', cls.spaces[0]], ['ip', 'link', 'set', 'vp' + tag, 'netns', cls.spaces[1]],
-                    ['ip', '-n', cls.spaces[0], 'addr', 'add', '10.9.0.1/24', 'dev', 'vs' + tag], ['ip', '-n', cls.spaces[0], 'link', 'set', 'vs' + tag, 'up'],
-                    ['ip', '-n', cls.spaces[1], 'addr', 'add', '10.9.0.2/24', 'dev', 'vp' + tag], ['ip', '-n', cls.spaces[1], 'link', 'set', 'vp' + tag, 'up'],
+                    ['ip', '-n', cls.spaces[0], 'addr', 'add', '10.9.0.1/24', 'dev', 'vs' + tag], ['ip', '-n', cls.spaces[0], 'link',
+                                                                                                   'set', 'vs' + tag, 'up'],
+                    ['ip', '-n', cls.spaces[1], 'addr', 'add', '10.9.0.2/24', 'dev', 'vp' + tag], ['ip', '-n', cls.spaces[1], 'link',
+                                                                                                   'set', 'vp' + tag, 'up'],
                     ['ip', '-n', cls.spaces[0], 'link', 'set', 'lo', 'up'], ['ip', '-n', cls.spaces[1], 'link', 'set', 'lo', 'up']]
         try:
             for command in commands:
@@ -248,13 +254,15 @@ class AgentServicesTest(unittest.TestCase):
 
     def ask(self, side, request):
         space = self.spaces[0 if side == 'srv' else 1]
-        out = subprocess.run(['ip', 'netns', 'exec', space, str(self.root / ('h_' + side)), 'NL1 ' + request], capture_output=True, timeout=10).stdout
+        out = subprocess.run(['ip', 'netns', 'exec', space, str(self.root / ('h_' + side)), 'NL1 ' + request], capture_output=True,
+                             timeout=10).stdout
         header, _, body = out.partition(b'\n')
         return int(header.split()[1]), body.decode()
 
     def test_dns_ntp_syslog_and_web_for_real(self):
         self.assertEqual(self.ask('srv', service_command('services-start', ['dns', 'a:www.lab.local=10.9.0.1', 'a:www.lab.local=10.9.0.3',
-                                                                             'cname:web.lab.local=www.lab.local', 'ntp:3', 'syslog'])), (0, ''))
+                                                                             'cname:web.lab.local=www.lab.local', 'ntp:3', 'syslog'])), (0,
+                                                                                     ''))
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 www.lab.local'), (0, 'A 10.9.0.1\nA 10.9.0.3\n'))
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 WEB.lab.local'), (0, 'CNAME www.lab.local\nA 10.9.0.1\nA 10.9.0.3\n'))
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 nope.lab.local'), (1, 'NXDOMAIN'))
@@ -264,7 +272,8 @@ class AgentServicesTest(unittest.TestCase):
         self.assertIn('canonical name = www.lab.local', looked)  # BusyBox's own resolver, against the agent's server
         code, ntp = self.ask('pc', 'NTP_QUERY 10.9.0.1')
         self.assertEqual((code, ntp.split()[:2]), (0, ['stratum', '3']))
-        self.assertEqual(self.ask('pc', service_command('syslog-send', ['10.9.0.1', '<189>12: *Nov 26 10:00:01.000: %SYS-5-CONFIG_I: test'])), (0, ''))
+        self.assertEqual(self.ask('pc', service_command('syslog-send', ['10.9.0.1',
+                                                                        '<189>12: *Nov 26 10:00:01.000: %SYS-5-CONFIG_I: test'])), (0, ''))
         time.sleep(.3)
         self.assertIn('10.9.0.2 <189>12: *Nov 26 10:00:01.000: %SYS-5-CONFIG_I: test', self.ask('srv', 'SYSLOG_READ')[1])
         self.assertEqual(self.ask('srv', service_command('http-page', ['index.html', b'<h1>Hello from SRV</h1>'])), (0, ''))

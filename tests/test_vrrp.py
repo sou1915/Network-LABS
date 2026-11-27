@@ -119,7 +119,8 @@ class VrrpTest(unittest.TestCase):
 
     def test_ios_checks(self):
         replies = self.type('R1', ['en', 'conf t', 'int g0/0/0', 'vrrp 1 priority 255', 'vrrp 0 ip 192.168.1.1', 'vrrp 3 ip 10.9.9.9',
-                                   'vrrp 1 authentication md5 key-string x', 'vrrp 1 timers advertise 0', 'vrrp 1 ip 192.168.1.1 secondary'])
+                                   'vrrp 1 authentication md5 key-string x', 'vrrp 1 timers advertise 0',
+            'vrrp 1 ip 192.168.1.1 secondary'])
         for reply in replies[3:]:
             self.assertTrue(reply.strip(), replies)
         self.assertIn('Address 10.9.9.9 is not in a subnet', replies[5])
@@ -182,16 +183,19 @@ class AgentVrrpTest(unittest.TestCase):
         root, agent = Path(cls.folder.name), Path('network_labs/appliances/guest/agent.c').resolve()
         for side in ('r1', 'r2'):
             (root / side).mkdir()
-            subprocess.run(['gcc', '-Wall', '-Wextra', '-Werror', f'-DVRRP_RUN="{root / side}"', '-o', str(root / ('agent_' + side)), str(agent)],
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-Werror', f'-DVRRP_RUN="{root / side}"', '-o', str(root / ('agent_' + side)),
+                            str(agent)],
                            check=True)
         cls.root, tag = root, str(os.getpid())
         cls.spaces = {name: f'nlv{name}{tag}' for name in ('r1', 'r2', 'pc', 'sw')}
         commands = [['ip', 'netns', 'add', space] for space in cls.spaces.values()]
-        commands += [['ip', '-n', cls.spaces['sw'], 'link', 'add', 'br0', 'type', 'bridge'], ['ip', '-n', cls.spaces['sw'], 'link', 'set', 'br0', 'up']]
+        commands += [['ip', '-n', cls.spaces['sw'], 'link', 'add', 'br0', 'type', 'bridge'], ['ip', '-n', cls.spaces['sw'], 'link', 'set',
+                                                                                              'br0', 'up']]
         for name, address in (('r1', '10.9.0.2/24'), ('r2', '10.9.0.3/24'), ('pc', '10.9.0.10/24')):
             space, port = cls.spaces[name], f'p{name}'
             commands += [['ip', 'link', 'add', 'eth0', 'netns', space, 'type', 'veth', 'peer', 'name', port, 'netns', cls.spaces['sw']],
-                         ['ip', '-n', cls.spaces['sw'], 'link', 'set', port, 'master', 'br0'], ['ip', '-n', cls.spaces['sw'], 'link', 'set', port, 'up'],
+                         ['ip', '-n', cls.spaces['sw'], 'link', 'set', port, 'master', 'br0'], ['ip', '-n', cls.spaces['sw'], 'link',
+                                                                                                'set', port, 'up'],
                          ['ip', '-n', space, 'addr', 'add', address, 'dev', 'eth0'], ['ip', '-n', space, 'link', 'set', 'eth0', 'up']]
         try:
             for command in commands:

@@ -32,7 +32,8 @@ class RemoteLoginTest(unittest.TestCase):
 
     def test_telnet_with_the_vty_password_then_enable_and_exit(self):
         self.assertEqual(self.type('PC1', 'telnet 192.168.1.1')[0],
-                         'Trying 192.168.1.1 ...Open\n\nPassword required, but none set\n\n[Connection to 192.168.1.1 closed by foreign host]')
+                         'Trying 192.168.1.1 ...Open\n\nPassword required, but none set\n\n'
+                         '[Connection to 192.168.1.1 closed by foreign host]')
         self.type('R1', 'conf t', 'line vty 0 4', 'password cisco', 'login', 'end')
         self.assertEqual(self.type('PC1', 'telnet 192.168.1.1')[0], 'Trying 192.168.1.1 ...Open\n\nUser Access Verification\n')
         self.assertEqual(self.prompt('PC1'), 'Password: ')

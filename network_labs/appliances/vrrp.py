@@ -225,7 +225,8 @@ def parse(text):
         who, priority, advert = (values.get('master', '- 0 0').split() + ['0', '0'])[:3]
         since = float(values.get('since', 0) or 0)
         state = _blank()
-        state.update(state=values.get('state', 'init'), changes=int(values.get('changes', 0)), since=max(0.0, now - since) if since else None,
+        state.update(state=values.get('state', 'init'), changes=int(values.get('changes', 0)), since=max(0.0,
+                                                                                                         now - since) if since else None,
                      master=None if who == '-' else who, master_priority=int(priority), master_advert=int(advert) or None,
                      macvlan=values.get('macvlan') == '1')
         if state['state'] == 'backup' and float(values.get('down', 0) or 0):
@@ -310,7 +311,8 @@ def show(node, states):
         advert = state['master_advert'] or settings['advertise']
         lines.append(f'  Master Advertisement interval is {advert:.3f} sec')
         interval = down_interval(advert, settings['effective'])
-        expires = f' (expires in {state["down_expires"]:.3f} sec)' if state['state'] == 'backup' and state['down_expires'] is not None else ''
+        backup = state['state'] == 'backup' and state['down_expires'] is not None
+        expires = f' (expires in {state["down_expires"]:.3f} sec)' if backup else ''
         lines.append(f'  Master Down interval is {interval:.3f} sec{expires}')
         blocks.append('\n'.join(lines))
     return '\n\n'.join(blocks)
@@ -322,6 +324,7 @@ def brief(node, states):
     for port, group, settings, state in _rows(node, states):
         master = _own_address(node, port) if state['master'] == 'local' else state['master'] or 'unknown'
         time_ms = round(down_interval(settings['advertise'], settings['effective']) * 1000)
-        lines.append(f'{_shown(node, port, short=True):<19}{group:<4}{settings["effective"]:<4}{time_ms:<6}{"Y" if settings["owner"] else " ":<4}'
+        lines.append(f'{_shown(node, port,
+                               short=True):<19}{group:<4}{settings["effective"]:<4}{time_ms:<6}{"Y" if settings["owner"] else " ":<4}'
                      f'{"Y" if settings["preempt"] else " ":<4}{state["state"].capitalize():<8}{master:<16}{settings["ip"] or "unknown"}')
     return '\n'.join(lines)

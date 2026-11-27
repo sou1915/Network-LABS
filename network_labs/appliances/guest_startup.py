@@ -186,7 +186,9 @@ def check_switch(socket, node):
         raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
     from .svi import management, routed
     devices = {svi['device'] for svi in routed(node)} - {'br0'}  # a routing switch's SVIs: br0.N
-    up = set(); interface = None; held = []
+    up = set()
+    interface = None
+    held = []
     for line in query(socket, 'addresses').splitlines():
         header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
         if header:
@@ -194,7 +196,8 @@ def check_switch(socket, node):
             if interface not in ('lo', 'br0') and interface not in node['interfaces'] and interface not in devices \
                     and interface not in bundles(node):
                 raise ValueError('Guest has an undeclared interface.')
-            if 'UP' in header[2].split(','): up.add(interface)
+            if 'UP' in header[2].split(','):
+                up.add(interface)
         elif line.split()[:1] == ['inet'] and (interface == 'br0' or interface in devices):
             held.append((interface, str(ipaddress.IPv4Interface(line.split()[1]))))
         elif line.split()[:1] == ['inet'] and interface != 'lo':
@@ -248,7 +251,8 @@ def observe(socket, node):
     text = query(socket, 'addresses')
     declared = guest_interfaces(node)
     by_port = {port: [] for port in declared}
-    interface = None; active = set()
+    interface = None
+    active = set()
     from .hsrp import virtual_addresses
     from .vrrp import virtual_addresses as vrrp_addresses
     standby = virtual_addresses(node)
@@ -301,7 +305,8 @@ def observe(socket, node):
     default_seen = False
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
-        if not fields: continue
+        if not fields:
+            continue
         if (node.get('ospf') or node.get('bgp') or _runs_rip(node) or _runs_eigrp(node)) and learned(fields):
             continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
@@ -317,10 +322,12 @@ def observe(socket, node):
         if network == '0.0.0.0/0' and fields[4] in dynamic:
             continue  # Installed by the DHCP client from the lease's router option.
         if network == '0.0.0.0/0' and node.get('gateway'):
-            if gateway != node['gateway'] or fields[4] != 'eth0': raise ValueError('Guest primary gateway differs.')
+            if gateway != node['gateway'] or fields[4] != 'eth0':
+                raise ValueError('Guest primary gateway differs.')
             default_seen = True
         else:
-            routes.append({'network': network, 'gateway': gateway}); devices[network] = fields[4]
+            routes.append({'network': network, 'gateway': gateway})
+            devices[network] = fields[4]
     if node.get('gateway') and not default_seen and 'eth0' not in down:
         raise ValueError('Guest primary gateway missing.')
     candidate = copy.deepcopy(node)
@@ -613,7 +620,8 @@ def change_switch(socket, old, new):
     check_switch(socket, new)
 
 
-LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'resolvers',
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services',
+                'resolvers',
                 'dhcp_server', 'dhcp_extra')
 
 
@@ -808,7 +816,8 @@ def apply(socket, node, timeout=40, alive=None):
             query(socket, 'ready')
             break
         except (OSError, ValueError):
-            if time.monotonic() >= deadline: raise
+            if time.monotonic() >= deadline:
+                raise
             time.sleep(.1)
     if node.get('role') == 'switch':
         from .etherchannel import bridged_ports, bundles

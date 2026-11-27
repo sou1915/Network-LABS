@@ -140,7 +140,8 @@ def ntp(console, associations):
             st = state['stratum'] - 1 if state['reference'] == state['server'] else 16
             reach = 377 if mark == '*' else 0
             lines.append(f'{mark}~{state["server"]:<16}{".LOCL." if st != 16 else ".INIT.":<16}{st:>2}'
-                         f'      {12 if mark == "*" else "-":>1}     16   {reach:>3}  {state["delay"] * 1000:.3f}   {state["offset"] * 1000:.3f}   0.020')
+                         f'      {12 if mark == "*" else "-":>1}     16   {reach:>3}'
+                         f'  {state["delay"] * 1000:.3f}   {state["offset"] * 1000:.3f}   0.020')
         lines.append(' * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured')
         return '\n'.join(lines)
     if not state['synced']:
@@ -246,12 +247,14 @@ def windows_ping(console, words):
         if reply['ok']:
             ms = reply.get('time_ms') or 1.0
             times.append(ms)
-            lines.append(f'Réponse de {address} : octets=32 temps{"<1ms" if ms < 1 else "=" + str(round(ms)) + " ms"} TTL={reply.get("ttl") or 64}')
+            lines.append(f'Réponse de {address} : octets=32 temps{"<1ms" if ms < 1 else "=" + str(round(ms)) + " ms"}'
+                         f' TTL={reply.get("ttl") or 64}')
         else:
             lines.append('Délai d’attente de la demande dépassé.')
     sent, received = len(result['replies']), len(times)
     lines += ['', f'Statistiques Ping pour {address}:',
-              f'    Paquets : envoyés = {sent}, reçus = {received}, perdus = {sent - received} (perte {round(100 * (sent - received) / max(1, sent))}%),']
+              f'    Paquets : envoyés = {sent}, reçus = {received}, perdus = {sent - received}'
+              f' (perte {round(100 * (sent - received) / max(1, sent))}%),']
     if times:
         lines += ['Durée approximative des boucles en millisecondes :',
                   f'    Minimum = {round(min(times))}ms, Maximum = {round(max(times))}ms, Moyenne = {round(sum(times) / len(times))}ms']
@@ -273,7 +276,8 @@ def windows_nslookup(console, name, server=None):
         error = output.strip() if code else None
     lines = ['Serveur :   UnKnown', f'Address:  {server}', '']
     if error in ('timeout', 'unreachable', 'no server'):
-        return '\n'.join(lines[:2] + ['', 'DNS request timed out.\n    timeout was 2 seconds.\n*** La demande à UnKnown a dépassé le délai d’attente'])
+        return '\n'.join(lines[:2] + ['',
+                'DNS request timed out.\n    timeout was 2 seconds.\n*** La demande à UnKnown a dépassé le délai d’attente'])
     if error:
         return '\n'.join(lines + [f'*** UnKnown ne parvient pas à trouver {name} : Non-existent domain'])
     names = [value for kind, value in rows if kind == 'PTR']

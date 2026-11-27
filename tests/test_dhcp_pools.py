@@ -79,7 +79,8 @@ class PoolsTest(unittest.TestCase):
 
     def test_two_pools_for_one_lan_are_refused_a_new_name_replaces_an_old_pool(self):
         with self.assertRaisesRegex(ValueError, 'un pool par interface'):
-            vendor_config.apply(self.spec, 'R1', 'ip dhcp pool A\n network 192.0.2.0 255.255.255.0\nip dhcp pool B\n network 192.0.2.0 255.255.255.0')
+            vendor_config.apply(self.spec, 'R1',
+                                'ip dhcp pool A\n network 192.0.2.0 255.255.255.0\nip dhcp pool B\n network 192.0.2.0 255.255.255.0')
         renamed = vendor_config.apply(self.spec, 'R1', 'ip dhcp pool USERS\n network 198.51.100.0 255.255.255.0')
         self.assertEqual([p['name'] for p in pools(router(renamed))], ['VLAN10', 'USERS'])
 
@@ -106,7 +107,8 @@ class PoolsTest(unittest.TestCase):
         calls = []
         def fake(socket, operation, **kw):
             calls.append((operation, kw.get('interface'), kw.get('dhcp')))
-            return {'forwarding': '1\n', 'dhcp-leases': 'Mac Address       IP Address      Host Name           Expires in\n'}.get(operation, '')
+            return {'forwarding': '1\n',
+                    'dhcp-leases': 'Mac Address       IP Address      Host Name           Expires in\n'}.get(operation, '')
         with patch.object(guest_startup, 'query', side_effect=fake), \
                 patch.object(guest_startup, 'observe', return_value={'addresses': [], 'routes': []}):
             guest_startup.apply('/socket', router(self.spec))
@@ -120,7 +122,8 @@ class PoolsTest(unittest.TestCase):
         self.assertEqual([c[:2] for c in calls if c[0] != 'dhcp-leases'], [('dhcp-stop', 'eth0.20'), ('dhcp-serve', 'eth0.20')])
         calls.clear()
         with patch.object(guest_startup, 'query', side_effect=fake):
-            guest_startup._dhcp_servers('/socket', router(self.spec), router(vendor_config.apply(self.spec, 'R1', 'no ip dhcp pool VLAN10')))
+            guest_startup._dhcp_servers('/socket', router(self.spec), router(vendor_config.apply(self.spec, 'R1',
+                                                                                                 'no ip dhcp pool VLAN10')))
         self.assertEqual([c[:2] for c in calls], [('dhcp-stop', 'eth0.10')])
         from network_labs.appliances.guest_startup import LIVE_ROUTING
         self.assertTrue({'dhcp_server', 'dhcp_extra'} <= set(LIVE_ROUTING))
@@ -182,7 +185,8 @@ class AgentPoolsTest(unittest.TestCase):
         cls.folder.cleanup()
 
     def ask(self, request):
-        out = subprocess.run(['ip', 'netns', 'exec', self.spaces[0], str(self.root / 'h'), 'NL1 ' + request], capture_output=True, timeout=10).stdout
+        out = subprocess.run(['ip', 'netns', 'exec', self.spaces[0], str(self.root / 'h'), 'NL1 ' + request], capture_output=True,
+                             timeout=10).stdout
         header, _, body = out.partition(b'\n')
         return int(header.split()[1]), body.decode()
 

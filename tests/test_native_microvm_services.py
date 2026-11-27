@@ -78,4 +78,5 @@ class ServicesGuestTests(unittest.TestCase):
             self.assertFalse(seen['R1 clock'].startswith('*'))
             self.assertRegex(seen['R1 copy run tftp'], r'!!\n\d+ bytes copied')
             self.assertIn('ip name-server 10.0.0.10', seen['SRV tftpboot'])
-            self.assertRegex(seen['SRV logread'], r'10\.0\.0\.1 <189>\d+: \*\w{3} +\d+ [\d:.]+: %SYS-5-CONFIG_I: Configured from console by console')
+            self.assertRegex(seen['SRV logread'],
+                             r'10\.0\.0\.1 <189>\d+: \*\w{3} +\d+ [\d:.]+: %SYS-5-CONFIG_I: Configured from console by console')

@@ -18,9 +18,11 @@ OUT = ROOT / 'network_labs' / 'appliances' / 'assets' / 'linux'
 SYMBOLIC = ['network-wired-symbolic', 'network-wired-disconnected-symbolic', 'audio-volume-high-symbolic', 'system-shutdown-symbolic',
             'view-app-grid-symbolic', 'go-previous-symbolic', 'go-next-symbolic', 'window-close-symbolic', 'window-minimize-symbolic',
             'window-maximize-symbolic', 'open-menu-symbolic', 'edit-find-symbolic', 'emblem-system-symbolic', 'system-lock-screen-symbolic',
-            'camera-photo-symbolic', 'night-light-symbolic', 'power-profile-balanced-symbolic', 'weather-clear-night-symbolic', 'list-add-symbolic',
+            'camera-photo-symbolic', 'night-light-symbolic', 'power-profile-balanced-symbolic', 'weather-clear-night-symbolic',
+    'list-add-symbolic',
             'user-home-symbolic', 'user-trash-symbolic', 'user-desktop-symbolic', 'folder-documents-symbolic', 'folder-download-symbolic',
-            'folder-music-symbolic', 'folder-pictures-symbolic', 'folder-videos-symbolic', 'document-open-recent-symbolic', 'starred-symbolic',
+            'folder-music-symbolic', 'folder-pictures-symbolic', 'folder-videos-symbolic', 'document-open-recent-symbolic',
+    'starred-symbolic',
             'preferences-system-symbolic']
 PLACES = ['folder', 'user-home', 'user-desktop', 'user-trash', 'folder-documents', 'folder-download', 'folder-music', 'folder-pictures',
           'folder-videos', 'folder-templates', 'folder-publicshare', 'network-workgroup']
@@ -28,7 +30,8 @@ PLACES = ['folder', 'user-home', 'user-desktop', 'user-trash', 'folder-documents
 PANELS = ['network', 'bluetooth', 'display', 'sound', 'power', 'multitasking', 'appearance', 'applications', 'notifications', 'search',
           'online-accounts', 'sharing', 'mouse', 'keyboard', 'color', 'printers', 'accessibility', 'privacy', 'system']
 YARU_APPS = ['org.gnome.Nautilus', 'org.gnome.Settings', 'org.gnome.Terminal', 'org.gnome.TextEditor', 'org.gnome.Epiphany']
-GNOME_APPS = {'org.gnome.Nautilus': 'nautilus-data', 'org.gnome.Settings': 'gnome-control-center-data', 'org.gnome.Console': 'gnome-console',
+GNOME_APPS = {'org.gnome.Nautilus': 'nautilus-data', 'org.gnome.Settings': 'gnome-control-center-data',
+              'org.gnome.Console': 'gnome-console',
               'org.gnome.TextEditor': 'gnome-text-editor', 'org.gnome.Epiphany': 'epiphany-browser-data'}
 
 
@@ -81,8 +84,10 @@ def main(packages):
         shutil.copyfile(find(packages / 'fonts-cantarell', f'Cantarell-{weight}.otf'), fonts / f'Cantarell-{weight}.otf')
     copyright_of(packages, 'fonts-cantarell', fonts / 'COPYRIGHT-fonts-cantarell.txt')
     from PIL import Image
-    for source, package, target in ((packages / 'ubuntu-wallpapers/usr/share/backgrounds/warty-final-ubuntu.png', 'ubuntu-wallpapers', 'ubuntu.jpg'),
-                                    (packages / 'gnome-backgrounds/usr/share/backgrounds/gnome/adwaita-l.jpg', 'gnome-backgrounds', 'gnome.jpg')):
+    for source, package, target in ((packages / 'ubuntu-wallpapers/usr/share/backgrounds/warty-final-ubuntu.png', 'ubuntu-wallpapers',
+                                     'ubuntu.jpg'),
+                                    (packages / 'gnome-backgrounds/usr/share/backgrounds/gnome/adwaita-l.jpg', 'gnome-backgrounds',
+                                     'gnome.jpg')):
         image = Image.open(source).convert('RGB')
         image = image.resize((1920, round(image.height * 1920 / image.width)), Image.LANCZOS)
         image.save(walls / target, quality=86, optimize=True, progressive=True)

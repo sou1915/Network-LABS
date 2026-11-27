@@ -146,7 +146,8 @@ def _eigrp(spec, model, node):
             continue
         for port in (p['port'] for p in mine['interfaces']):
             for peer_port in (p['port'] for p in theirs['interfaces']):
-                if model.seg.get((node['name'], port)) is not None and model.seg.get((node['name'], port)) == model.seg.get((other['name'], peer_port)):
+                if model.seg.get((node['name'], port)) is not None and model.seg.get((node['name'], port)) == model.seg.get((other['name'],
+                                                                                                                             peer_port)):
                     neighbors.append({'address': other['interfaces'][peer_port].split('/')[0], 'port': port, 'hold': '13', 'uptime': '0',
                                       'srtt': '1', 'rto': '100', 'queue': '0', 'seq': '3'})
     return {'asn': mine['asn'], 'metrics': {}, 'neighbors': neighbors}

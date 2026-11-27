@@ -95,7 +95,8 @@ class DraftTraceTest(unittest.TestCase):
         for name, lines in TYPED.items():
             self.type(name, *lines)
         found = self.type('PC1', 'tracert 192.168.3.10')[0]
-        self.assertRegex(found, r'  1 .* ms  192\.168\.1\.1\n  2 .* ms  10\.0\.12\.2\n  3 .* ms  10\.0\.23\.2\n  4 .* ms  192\.168\.3\.10\n')
+        self.assertRegex(found,
+                         r'  1 .* ms  192\.168\.1\.1\n  2 .* ms  10\.0\.12\.2\n  3 .* ms  10\.0\.23\.2\n  4 .* ms  192\.168\.3\.10\n')
         self.assertRegex(self.type('R1', 'en', 'traceroute 192.168.3.10')[-1], r'\n  1 10\.0\.12\.2 1 msec .*\n  2 10\.0\.23\.2 ')
         # An ACL on R2 that drops what comes from PC1's LAN: R2 and everything after it stay silent.
         self.type('R2', 'en', 'conf t', 'access-list 1 deny 192.168.1.0 0.0.0.255', 'access-list 1 permit any', 'int g0/0/0',

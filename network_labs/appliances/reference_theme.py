@@ -85,9 +85,11 @@ def apply(root):
         images['tabline']=(blank,active)
         s.element_create('Soft.tabline','image',blank,('selected',active),sticky='ew')
         root._native_soft_images=images
-    for name,element in [('Native.Rail.TButton','Soft.rail'),('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),('Native.Primary.TButton','Soft.primary'),
+    for name,element in [('Native.Rail.TButton','Soft.rail'),('Native.TButton','Soft.button'),('Native.Toolbutton','Soft.button'),
+                         ('Native.Primary.TButton','Soft.primary'),
                          ('Native.Start.TButton','Soft.start'),('Native.Stop.TButton','Soft.stop')]:
-        s.layout(name,[(element,{'sticky':'nswe','children':[('Button.padding',{'sticky':'nswe','children':[('Button.label',{'sticky':'nswe'})]})]})])
+        s.layout(name,[(element,{'sticky':'nswe','children':[('Button.padding',{'sticky':'nswe','children':[('Button.label',
+                                                                                                             {'sticky':'nswe'})]})]})])
     s.configure('Native.Rail.TButton',background=ELEMENTS['rail'][0][0],foreground='#edf4fa',font=(font,8),padding=(4,8),anchor='w')
     s.configure('Native.Start.TButton',background=BG,foreground='white',font=(font,9,'bold'),padding=(11,5),borderwidth=0)
     s.map('Native.Start.TButton',foreground=[('disabled','#71859d')])
@@ -103,7 +105,8 @@ def apply(root):
     s.map('Native.Treeview',background=[('selected',COLOURS['SELECTED'])],foreground=[('selected',TEXT)])
     s.configure('Native.TEntry',background=PANEL,fieldbackground=COLOURS['FIELD'],foreground=TEXT,insertcolor=TEXT,font=(font,9),
                 padding=5)
-    s.layout('Native.TEntry',[('Soft.entry',{'sticky':'nswe','children':[('Entry.padding',{'sticky':'nswe','children':[('Entry.textarea',{'sticky':'nswe'})]})]})])
+    s.layout('Native.TEntry',[('Soft.entry',{'sticky':'nswe','children':[('Entry.padding',{'sticky':'nswe','children':[('Entry.textarea',
+            {'sticky':'nswe'})]})]})])
     s.configure('Native.TCombobox',background=PANEL,fieldbackground=COLOURS['FIELD'],foreground=TEXT,font=(font,9),padding=5,
                 arrowsize=11,arrowcolor=MUTED)
     s.map('Native.TCombobox',fieldbackground=[('readonly',COLOURS['FIELD'])],foreground=[('readonly',TEXT)])
@@ -114,9 +117,12 @@ def apply(root):
             shade='#c8c8c8'
             thumb=surface(root,shade,shade,radius=6,size=12)
             root._native_soft_images['thumb',orient]=thumb
-            s.element_create('Soft.'+orient+'.Scrollbar.thumb','image',thumb,border=5,sticky='nswe',width=10 if orient=='Vertical' else 24,height=24 if orient=='Vertical' else 10)
-        s.configure('Native.'+orient+'.TScrollbar',background=BG,troughcolor=PANEL,arrowsize=10,borderwidth=0,troughborderwidth=0,bordercolor=PANEL,lightcolor=PANEL,darkcolor=PANEL)
-        s.layout('Native.'+orient+'.TScrollbar',[(orient+'.Scrollbar.trough',{'sticky':'nswe','children':[('Soft.'+orient+'.Scrollbar.thumb',{'sticky':'nswe','expand':1})]})])
+            s.element_create('Soft.'+orient+'.Scrollbar.thumb','image',thumb,border=5,sticky='nswe',width=10 if orient=='Vertical' else 24,
+                             height=24 if orient=='Vertical' else 10)
+        s.configure('Native.'+orient+'.TScrollbar',background=BG,troughcolor=PANEL,arrowsize=10,borderwidth=0,troughborderwidth=0,
+                    bordercolor=PANEL,lightcolor=PANEL,darkcolor=PANEL)
+        s.layout('Native.'+orient+'.TScrollbar',[(orient+'.Scrollbar.trough',{'sticky':'nswe',
+                'children':[('Soft.'+orient+'.Scrollbar.thumb',{'sticky':'nswe','expand':1})]})])
     base_styles(root,s,font)
     return font
 

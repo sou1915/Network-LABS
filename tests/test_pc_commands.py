@@ -65,7 +65,8 @@ class IosTablesTest(unittest.TestCase):
         self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1\n  10    7a38.5937.9355    DYNAMIC     Fa0/2\n', text)
         self.assertTrue(text.endswith('Total Mac Addresses for this criterion: 2'))
         plain = next(n for n in switch_lab('/k', '/d')['nodes'] if n['name'] == 'SW1')  # no VLANs: all in VLAN 1
-        self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1', ios_exec.mac_table(Console(plain, {'bridge-fdb': 'eth0 1a:de:c7:b4:72:eb 0\n'})))
+        self.assertIn('   1    1ade.c7b4.72eb    DYNAMIC     Fa0/1', ios_exec.mac_table(Console(plain,
+                {'bridge-fdb': 'eth0 1a:de:c7:b4:72:eb 0\n'})))
 
 
 if __name__ == '__main__':

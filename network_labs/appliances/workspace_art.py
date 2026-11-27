@@ -319,15 +319,20 @@ def auto_layout(graph,members,width):
     names=[n['name'] for n in graph['nodes']]
     near={n:set() for n in names}
     for a,b in graph['links']:
-        near[a[0]].add(b[0]);near[b[0]].add(a[0])
+        near[a[0]].add(b[0])
+        near[b[0]].add(a[0])
     seen,components=set(),[]
     for name in names:
-        if name in seen or not near[name]:continue
-        group,stack=[],[name];seen.add(name)
+        if name in seen or not near[name]:
+            continue
+        group,stack=[],[name]
+        seen.add(name)
         while stack:
-            here=stack.pop();group.append(here)
+            here=stack.pop()
+            group.append(here)
             for other in sorted(near[here]-seen):
-                seen.add(other);stack.append(other)
+                seen.add(other)
+                stack.append(other)
         components.append(group)
     positions,cursor,bottom={},70,0
     for group in components:
@@ -358,14 +363,18 @@ def layout_bounds(graph,positions):
     roles={n['name']:n['role'] for n in graph['nodes']}
     boxes=[(x-80,y-(40 if roles.get(name)=='host' else 75),x+80,y+(95 if roles.get(name)=='host' else 60))
            for name,(x,y) in positions.items()]
-    if not boxes:return None
+    if not boxes:
+        return None
     return min(b[0] for b in boxes),min(b[1] for b in boxes),max(b[2] for b in boxes),max(b[3] for b in boxes)
 
 
 def place_nodes(graph,members,width):
-    positions={};dmz=firewall_hosts(graph)
-    routers=[n for n in graph['nodes'] if n['role']=='router'];firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
-    switches=[n for n in graph['nodes'] if n['role']=='switch'];upper=bool(routers or firewalls)
+    positions={}
+    dmz=firewall_hosts(graph)
+    routers=[n for n in graph['nodes'] if n['role']=='router']
+    firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
+    switches=[n for n in graph['nodes'] if n['role']=='switch']
+    upper=bool(routers or firewalls)
     # Routers and firewalls sit low enough that their titles clear the zoom bar over the canvas corner.
     for i,n in enumerate(routers):
         positions[n['name']]=((i+1)*width*.8/(len(routers)+1),100)
@@ -397,7 +406,8 @@ def place_nodes(graph,members,width):
     if vids:
         groups=[(vid,[n for n in hosts if members.get(n['name'])==vid]) for vid in vids]
         other=[n for n in hosts if n['name'] not in members]
-        if other:groups.append((None,other))
+        if other:
+            groups.append((None,other))
         cell=width/len(groups)
         for g,(_,nodes) in enumerate(groups):
             per_row=max(1,int(cell//95))
@@ -424,7 +434,8 @@ def networks(graph,names,spec,vid):
 
 def link_caption(a,b,config):
     def tagged(endpoint):
-        n=config.get(endpoint[0],{});p=endpoint[1]
+        n=config.get(endpoint[0],{})
+        p=endpoint[1]
         return n.get('switchports',{}).get(p,{}).get('mode')=='trunk' or any(s.get('parent')==p for s in n.get('subinterfaces',{}).values())
     if all(tagged(end) for end in (a,b)):return 'Trunk · 802.1Q'
     addresses=[config.get(end[0],{}).get('interfaces',{}).get(end[1],'') for end in (a,b)]
@@ -442,11 +453,13 @@ def draw_port_labels(canvas,labels,obstacles,font,color,background='#ffffff',bor
         x1,y1,x2,y2=box
         return sum(max(0,min(x2+2,b[2])-max(x1-2,b[0]))*max(0,min(y2+2,b[3])-max(y1-2,b[1])) for b in occupied)
     for label in labels:
-        x,y=label['x'],label['y'];tags=('port-label',label['tag'])
+        x,y=label['x'],label['y']
+        tags=('port-label',label['tag'])
         item=canvas.create_text(x,y,text=label['text'],anchor=label['anchor'],fill=color,font=font,tags=tags)
         best=None
         for dx,dy in offsets:
-            canvas.coords(item,x+dx,y+dy);box=canvas.bbox(item)
+            canvas.coords(item,x+dx,y+dy)
+            box=canvas.bbox(item)
             score=overlap(box)
             if best is None or score<best[0]:best=(score,dx,dy,box)
             if score==0:break

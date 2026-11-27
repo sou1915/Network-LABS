@@ -31,7 +31,8 @@ OPERATIONS.update({'port-guard-start': 'PORT_GUARD_START', 'port-guard-stop': 'P
 OPERATIONS.update({'hsrp-start': 'HSRP_START', 'hsrp-stop': 'HSRP_STOP', 'hsrp-show': 'HSRP_SHOW'})  # IOS « standby »
 OPERATIONS.update({'vrrp-start': 'VRRP_START', 'vrrp-stop': 'VRRP_STOP', 'vrrp-show': 'VRRP_SHOW'})  # IOS « vrrp »
 # One HSRP group: IFACE/GROUP/VERSION/VIRTUAL-ADDRESS/PRIORITY/PREEMPT/HELLO/HOLD/AUTHENTICATION (hex); the agent checks it again.
-HSRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/\d{1,3}/(?:[0-9a-f]{2}){1,8}'
+HSRP_GROUP = (r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/\d{1,3}'
+              r'/(?:[0-9a-f]{2}){1,8}')
 HSRP_GROUPS = 16
 VRRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,3}/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/(?:-|(?:[0-9a-f]{2}){1,8})'
 VRRP_GROUPS = 16
@@ -47,7 +48,8 @@ SERVICE_OPERATIONS = {'services-start': 'SERVICES_START', 'services-stop': 'SERV
                       'tftp-put': 'TFTP_PUT', 'tftp-get': 'TFTP_GET'}
 OPERATIONS.update(SERVICE_OPERATIONS)
 DNS_NAME = r'[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*'  # at most 90 long
-SERVICE_TOKEN = re.compile(rf'dns|syslog|tftp|ntp:(?:1[0-5]|[1-9])|sync:\d{{1,3}}(?:\.\d{{1,3}}){{3}}|a:{DNS_NAME}=\d{{1,3}}(?:\.\d{{1,3}}){{3}}|cname:{DNS_NAME}={DNS_NAME}')
+SERVICE_TOKEN = re.compile(rf'dns|syslog|tftp|ntp:(?:1[0-5]|[1-9])|sync:\d{{1,3}}(?:\.\d{{1,3}}){{3}}'
+                           rf'|a:{DNS_NAME}=\d{{1,3}}(?:\.\d{{1,3}}){{3}}|cname:{DNS_NAME}={DNS_NAME}')
 WEB_PAGE = re.compile(r'[a-z0-9_-]{1,35}\.(?:html|htm|txt|css)')
 WEB_PATH = re.compile(r'/[A-Za-z0-9/._-]{0,99}')
 TFTP_FILE = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}')
@@ -67,7 +69,8 @@ def service_command(operation, values):
     command = SERVICE_OPERATIONS[operation]
     if operation in ('file-put', 'file-delete'):  # a file staged for TFTP: « out » (to send) or « tftp » (the server's)
         if len(values) != (3 if operation == 'file-put' else 2) or values[0] not in ('out', 'tftp') or not isinstance(values[1], str) \
-                or not TFTP_FILE.fullmatch(values[1]) or (operation == 'file-put' and (not isinstance(values[2], bytes) or len(values[2]) > PAGE_CHUNK)):
+                or not TFTP_FILE.fullmatch(values[1]) or (operation == 'file-put' and (not isinstance(values[2],
+                        bytes) or len(values[2]) > PAGE_CHUNK)):
             raise ValueError(f'Guest {operation}: out|tftp, a file name, and at most {PAGE_CHUNK} bytes.')
         return f'{command} {values[0]} {values[1]}' + (f' {values[2].hex()}' if operation == 'file-put' else '')
     if operation in ('tftp-read', 'tftp-put', 'tftp-get'):
@@ -332,7 +335,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
     if operation in SERVICE_OPERATIONS:  # server services and their clients: arguments in « service » only
-        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard, hsrp, vrrp)
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard,
+                  hsrp, vrrp)
         if any(v is not None for v in others):
             raise ValueError('Guest service operations accept only their service arguments.')
         return _exchange(path, operation, service_command(operation, service), timeout)
@@ -422,7 +426,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     if stp is not None:
         raise ValueError('Only spanning tree operations accept STP numbers.')
     if operation.startswith('eigrp-'):  # FRR's eigrpd, from the typed process
-        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay)):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl,
+                                               relay)):
             raise ValueError('Guest EIGRP operations accept only the process (render, start) or what to show.')
         if operation in ('eigrp-render', 'eigrp-start'):
             if state is not None:
@@ -435,7 +440,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     if eigrp is not None:
         raise ValueError('Only eigrp-render and eigrp-start accept an EIGRP process.')
     if operation in ('proxy-arp', 'dev-route-add', 'dev-route-delete'):  # a port's proxy ARP, a route through a port
-        if not guest_interface(interface) or interface == 'br0' or any(v is not None for v in (destination, cidr, gateway, rule, dhcp, vlan)):
+        if not guest_interface(interface) or interface == 'br0' or any(v is not None for v in (destination, cidr, gateway, rule, dhcp,
+                                                                                               vlan)):
             raise ValueError(f'Guest {operation} requires a port eth0..eth15 (or a subinterface).')
         if operation == 'proxy-arp':
             if state not in ('on', 'off') or network is not None:
@@ -445,7 +451,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
             raise ValueError(f'Guest {operation} accepts a port and a network.')
         return _exchange(path, operation, f'{OPERATIONS[operation]} {interface} {ipaddress.IPv4Network(network)}', timeout)
     if operation.startswith('dhcp-relay-'):  # IOS « ip helper-address »: the agent's own relay
-        if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl)) \
+        if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip,
+                                               ttl)) \
                 or (relay is None) != (operation != 'dhcp-relay-start'):
             raise ValueError('Guest dhcp-relay-start takes only the relay; stop and show take nothing.')
         return _exchange(path, operation, OPERATIONS[operation] + (' ' + relay_fields(relay) if relay else ''), timeout)

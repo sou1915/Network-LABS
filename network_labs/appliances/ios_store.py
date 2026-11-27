@@ -58,12 +58,15 @@ GRAMMAR = [
     ('config', 'logging host A.B.C.D', rf'logging (?:host )?{IP}', 3,
      'Serveur syslog : les messages (%SYS, %LINK…) y partent en UDP 514.', ['logging host 192.0.2.50'], EFFECT, 'RSF'),
     ('config', 'logging trap NIVEAU', r'logging trap (?:[0-7]|emergencies|alerts|critical|errors|warnings|notifications|informational'
-     r'|debugging)', 2, 'Gravité la plus faible envoyée au serveur syslog (informational par défaut).', ['logging trap warnings'], EFFECT, 'RSF'),
+     r'|debugging)', 2, 'Gravité la plus faible envoyée au serveur syslog (informational par défaut).', ['logging trap warnings'], EFFECT,
+        'RSF'),
     ('config', 'logging buffered N', r'logging buffered \d+', 2, 'Journal en mémoire.', ['logging buffered 8192'], STORED, 'RSF'),
-    ('config', 'service timestamps log datetime msec', r'service timestamps (?:log|debug) (?:datetime(?: msec)?(?: localtime)?(?: show-timezone)?'
+    ('config', 'service timestamps log datetime msec',
+     r'service timestamps (?:log|debug) (?:datetime(?: msec)?(?: localtime)?(?: show-timezone)?'
      r'|uptime)', 3, 'Horodatage des messages.', ['service timestamps log datetime msec'], STORED, 'RSF'),
     ('config', 'ip host NOM A.B.C.D', rf'ip host [a-z0-9_][a-z0-9_.-]{{0,89}}(?: {IP}){{1,8}}', 3,
-     'Table d’hôtes : le nom se résout sans DNS (ping NOM) ; servie aux autres avec « ip dns server ».', ['ip host www.lab.local 192.0.2.80'],
+     'Table d’hôtes : le nom se résout sans DNS (ping NOM) ; servie aux autres avec « ip dns server ».',
+        ['ip host www.lab.local 192.0.2.80'],
      EFFECT, 'RSF'),
     ('config', 'ip name-server A.B.C.D', rf'ip name-server {IP}(?: {IP}){{0,5}}', 3,
      'Serveur DNS de l’équipement (ping, telnet vers un nom).', ['ip name-server 192.0.2.53'], EFFECT, 'RSF'),

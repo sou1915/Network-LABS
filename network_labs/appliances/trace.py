@@ -78,7 +78,8 @@ def _first(hop):
 
 
 def ios_text(result):
-    lines = ['Type escape sequence to abort.', f'Tracing the route to {result["destination"]}', 'VRF info: (vrf in name/id, vrf out name/id)']
+    lines = ['Type escape sequence to abort.', f'Tracing the route to {result["destination"]}',
+             'VRF info: (vrf in name/id, vrf out name/id)']
     for hop in result['hops']:
         address = _first(hop)
         if address is None and not any(p['flag'] for p in hop['probes']):
@@ -134,7 +135,8 @@ def windows_text(result, french=False):
                 cells.append(f'{"*":>5}   ')
             else:
                 cells.append(f'{"<1" if p["time_ms"] < 1 else round(p["time_ms"]):>5} ms')
-        lines.append(f'{hop["ttl"]:>3} ' + ' '.join(cells) + '  ' + (address or ('Délai d’attente de la demande dépassé.' if french else 'Request timed out.')))
+        lost = 'Délai d’attente de la demande dépassé.' if french else 'Request timed out.'
+        lines.append(f'{hop["ttl"]:>3} ' + ' '.join(cells) + '  ' + (address or lost))
     lines += ['', 'Itinéraire déterminé.' if french else 'Trace complete.']
     return '\n'.join(lines)
 

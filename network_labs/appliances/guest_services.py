@@ -418,7 +418,8 @@ def model_http(spec, source, server, port, path):
     page = path.strip('/') or 'index.html'
     if page in pages:
         return 200, pages[page]
-    return 404, '<HTML><HEAD><TITLE>404 Not Found</TITLE></HEAD>\n<BODY><H1>404 Not Found</H1>\nThe requested URL was not found\n</BODY></HTML>\n'
+    return 404, ('<HTML><HEAD><TITLE>404 Not Found</TITLE></HEAD>\n<BODY><H1>404 Not Found</H1>\n'
+                 'The requested URL was not found\n</BODY></HTML>\n')
 
 
 def syslog_message(hostname, sequence, text, when):

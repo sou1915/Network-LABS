@@ -10,7 +10,8 @@ from network_labs.appliances.ui_quick import blank_project
 
 MARKS = ['conf t', 'ip route 0.0.0.0 0.0.0.0 203.0.113.2', 'int g0/0/0', 'ip nat inside', 'int g0/0/1', 'ip nat outside', 'end']
 STATIC = ['conf t', 'ip nat inside source static 192.168.1.10 203.0.113.10', 'end']
-POOL = ['conf t', 'no ip nat inside source static 192.168.1.10 203.0.113.10', 'ip nat pool PUBLIC 203.0.113.20 203.0.113.21 netmask 255.255.255.0',
+POOL = ['conf t', 'no ip nat inside source static 192.168.1.10 203.0.113.10',
+        'ip nat pool PUBLIC 203.0.113.20 203.0.113.21 netmask 255.255.255.0',
         'access-list 2 permit 192.168.1.0 0.0.0.255', 'ip nat inside source list 2 pool PUBLIC', 'end']
 
 
