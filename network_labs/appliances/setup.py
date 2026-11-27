@@ -23,6 +23,12 @@ FIRECRACKER = {'version': 'v1.10.1',
 KERNEL = {'name': 'vmlinux-5.10.223',
           'url': 'https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223',
           'sha256': '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65'}
+# The Network LABS guest kernel (Firecracker's CI kernel plus 802.1Q, bonding and macvlan), published with its source by
+# .github/workflows/guest-kernel-release.yml when a guest-kernel-* tag is pushed. Once its SHA-256 is pinned here, setup
+# downloads it instead of Firecracker's kernel, and VLAN labs work without building anything.
+GUEST_KERNEL = {'name': 'vmlinux-5.10.223-network-labs',
+                'url': 'https://github.com/sou1915/Network-LABS/releases/download/guest-kernel-5.10.223-nl1/vmlinux-5.10.223-network-labs',
+                'sha256': None}
 IMAGE = 'guest-full.ext4'
 IMAGE_MIB = 128
 PACKAGES = 'busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr'
@@ -84,9 +90,15 @@ def fetch_firecracker(folder, fetch=_download):
     return Path(folder) / 'bin'
 
 
+def kernel_release():
+    """The kernel setup downloads: the Network LABS one once its checksum is pinned, else Firecracker's."""
+    return GUEST_KERNEL if GUEST_KERNEL['sha256'] else KERNEL
+
+
 def fetch_kernel(folder, fetch=_download):
-    target = Path(folder) / KERNEL['name']
-    _write(target, fetch(KERNEL['url'], KERNEL['sha256']))
+    release = kernel_release()
+    target = Path(folder) / release['name']
+    _write(target, fetch(release['url'], release['sha256']))
     return target
 
 
@@ -147,19 +159,22 @@ def prepare(download=False, kernel=None, rebuild=False, folder=None, fetch=_down
     step('tools', 'Outils de construction du disque', not missing,
          'tous présents' if not missing else 'manquants : ' + ', '.join(missing), f'sudo apt install {PACKAGES}')
 
+    release = kernel_release()
     kernel = Path(kernel) if kernel else (Path(os.environ['NETWORK_LABS_MICROVM_KERNEL'])
-                                          if os.environ.get('NETWORK_LABS_MICROVM_KERNEL') else folder / KERNEL['name'])
+                                          if os.environ.get('NETWORK_LABS_MICROVM_KERNEL') else folder / release['name'])
     note = ''
-    if not kernel.is_file() and download and kernel == folder / KERNEL['name']:
+    if not kernel.is_file() and download and kernel == folder / release['name']:
         try:
             fetch_kernel(folder, fetch)
             note = 'téléchargé et vérifié'
         except (OSError, ValueError) as error:
             note = f'téléchargement impossible : {error}'
+    publisher = 'Network LABS, avec VLAN 802.1Q' if release is GUEST_KERNEL else 'officiel Firecracker'
     step('kernel', 'Noyau des micro-VM', kernel.is_file(), f'{kernel}' + (f' ({note})' if note else ''),
-         'Relancer avec --download (noyau officiel Firecracker, vérifié), ou indiquer --kernel CHEMIN.')
-    step('vlan-kernel', 'Noyau Network LABS (VLAN 802.1Q, facultatif)', True,
-         'Pour les scénarios campus/VLAN : tools/guest_kernel/build.sh construit un noyau avec 802.1Q.')
+         f'Relancer avec --download (noyau {publisher}, vérifié), ou indiquer --kernel CHEMIN.')
+    if release is not GUEST_KERNEL:
+        step('vlan-kernel', 'Noyau Network LABS (VLAN 802.1Q, facultatif)', True,
+             'Pour les scénarios campus/VLAN : tools/guest_kernel/build.sh construit un noyau avec 802.1Q.')
 
     disk = folder / IMAGE
     if not missing:

@@ -50,6 +50,26 @@ class SetupTest(unittest.TestCase):
         self.assertTrue(os.access(folder / 'firecracker', os.X_OK))
         self.assertFalse((Path(self.folder.name).parent / 'evil').exists())
 
+    def test_the_network_labs_kernel_is_downloaded_once_its_checksum_is_pinned(self):
+        fetched = []
+
+        def fetch(url, sha256):
+            fetched.append((url, sha256))
+            return b'kernel'
+        self.assertIs(setup.kernel_release(), setup.GUEST_KERNEL if setup.GUEST_KERNEL['sha256'] else setup.KERNEL)
+        with mock.patch.dict(setup.GUEST_KERNEL, sha256='a' * 64), mock.patch.object(setup, '_which', return_value=None):
+            result = setup.prepare(download=True, folder=self.folder.name, fetch=fetch)
+        self.assertIn((setup.GUEST_KERNEL['url'], 'a' * 64), fetched)
+        self.assertTrue(result['kernel'].endswith('vmlinux-5.10.223-network-labs'))
+        self.assertEqual((Path(self.folder.name) / 'vmlinux-5.10.223-network-labs').read_bytes(), b'kernel')
+        self.assertNotIn('vlan-kernel', [s['id'] for s in result['steps']])  # VLANs come with this kernel
+        self.assertTrue(setup.GUEST_KERNEL['url'].startswith('https://github.com/sou1915/Network-LABS/releases/download/'))
+        with mock.patch.dict(setup.GUEST_KERNEL, sha256=None), mock.patch.object(setup, '_which', return_value=None):
+            fetched.clear()
+            result = setup.prepare(download=True, folder=self.folder.name + '/other', fetch=fetch)
+        self.assertEqual(fetched[-1], (setup.KERNEL['url'], setup.KERNEL['sha256']))  # Firecracker's, until then
+        self.assertIn('vlan-kernel', [s['id'] for s in result['steps']])
+
     def test_checklist_without_downloads_names_each_fix(self):
         with mock.patch.object(setup, '_which', return_value=None):
             result = setup.prepare(folder=self.folder.name)
