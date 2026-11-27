@@ -69,12 +69,22 @@ static int valid_port_number(const char *value) {
     long number = atol(value); return number >= 1 && number <= 65535;
 }
 /* A running daemon is identified by its pid file and a live process. */
+/* 1 while PID runs: it exists and is not a zombie (an ended daemon its parent, or init, has not reaped yet). */
+static int process_alive(pid_t pid) {
+    if (pid <= 1 || kill(pid, 0) != 0) return 0;
+    char path[32], stat[256] = {0}; snprintf(path, sizeof(path), "/proc/%d/stat", (int)pid);
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 1;  /* no /proc: kill's answer */
+    ssize_t n = read(fd, stat, sizeof(stat) - 1); close(fd);
+    const char *state = n > 0 ? strrchr(stat, ')') : NULL;  /* "PID (NAME) STATE ...", NAME may hold spaces */
+    return !(state && state[1] == ' ' && state[2] == 'Z');
+}
 static pid_t pidfile_alive(const char *path) {
     char text[16] = {0}; int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return 0;
     ssize_t n = read(fd, text, sizeof(text) - 1); close(fd);
     long pid = n > 0 ? atol(text) : 0;
-    return pid > 1 && kill((pid_t)pid, 0) == 0 ? (pid_t)pid : 0;
+    return process_alive((pid_t)pid) ? (pid_t)pid : 0;
 }
 /* Start a long-lived service outside this request: own session, no inherited output, reparented to init. */
 static int spawn_detached_pid(const char *program, char *const argv[], const char *pidfile) {

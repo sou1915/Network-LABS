@@ -24,6 +24,16 @@ class GuestStartupDecisionTest(unittest.TestCase):
         self.assertTrue(runtime.needs_guest_startup(dict(host, shutdown=['eth0'])))
         self.assertTrue(runtime.needs_guest_startup({'role': 'router', 'interfaces': {'eth0': '', 'eth1': ''}}))
 
+    def test_a_server_with_services_goes_through_guest_startup(self):
+        from network_labs.appliances.guest_services import default_services
+        host = {'role': 'host', 'interfaces': {'eth0': '192.0.2.10/24'}, 'runtime': 'firecracker'}
+        server = dict(host, services=default_services('SRV'))  # a new server: HTTP on
+        self.assertTrue(runtime.needs_guest_startup(server))
+        dns = dict(host, services={'dns': {'on': True, 'records': [['www.lab', 'A', '192.0.2.10']]}})
+        self.assertTrue(runtime.needs_guest_startup(dns))
+        off = {key: {'on': False} for key in ('dns', 'http', 'ntp', 'syslog', 'tftp')}
+        self.assertFalse(runtime.needs_guest_startup(dict(host, services=off)))  # nothing to start
+
 
 class MicroVMStartPathTests(unittest.TestCase):
     def test_reference_labs_start_and_stop_without_container_code(self):

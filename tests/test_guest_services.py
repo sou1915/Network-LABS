@@ -263,8 +263,11 @@ class AgentServicesTest(unittest.TestCase):
         self.assertEqual(self.ask('srv', service_command('services-start', ['dns', 'a:www.lab.local=10.9.0.1', 'a:www.lab.local=10.9.0.3',
                                                                              'cname:web.lab.local=www.lab.local', 'ntp:3', 'syslog'])), (0,
                                                                                      ''))
-        self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 www.lab.local'), (0, 'A 10.9.0.1\nA 10.9.0.3\n'))
-        self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 WEB.lab.local'), (0, 'CNAME www.lab.local\nA 10.9.0.1\nA 10.9.0.3\n'))
+        code, rows = self.ask('pc', 'RESOLVE 10.9.0.1 www.lab.local')
+        self.assertEqual((code, sorted(rows.splitlines())), (0, ['A 10.9.0.1', 'A 10.9.0.3']))  # dnsmasq rotates the addresses
+        code, rows = self.ask('pc', 'RESOLVE 10.9.0.1 WEB.lab.local')
+        self.assertEqual((code, rows.splitlines()[0], sorted(rows.splitlines()[1:])), (0, 'CNAME www.lab.local', ['A 10.9.0.1',
+                                                                                                         'A 10.9.0.3']))
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 nope.lab.local'), (1, 'NXDOMAIN'))
         self.assertEqual(self.ask('pc', 'RESOLVE 10.9.0.1 10.9.0.1'), (0, 'PTR www.lab.local\n'))
         looked = subprocess.run(['ip', 'netns', 'exec', self.spaces[1], 'busybox', 'nslookup', 'web.lab.local', '10.9.0.1'],
@@ -284,8 +287,12 @@ class AgentServicesTest(unittest.TestCase):
         self.assertTrue(page.startswith('HTTP/1.1 200 OK'), page)
         self.assertIn('<h1>Hello from SRV</h1>', page)
         self.assertEqual(self.ask('pc', service_command('services-start', ['sync:10.9.0.1'])), (0, ''))
-        time.sleep(2.5)
-        sync = guest_services.parse_state(self.ask('pc', 'SERVICES_SHOW')[1])['sync']
+        deadline = time.monotonic() + 20  # chrony selects the server after a few polls (iburst)
+        while True:
+            sync = guest_services.parse_state(self.ask('pc', 'SERVICES_SHOW')[1])['sync']
+            if sync['synced'] == '1' or time.monotonic() >= deadline:
+                break
+            time.sleep(.5)
         self.assertEqual((sync['server'], sync['synced'], sync['stratum']), ('10.9.0.1', '1', '3'))
         shown = guest_services.parse_state(self.ask('srv', 'SERVICES_SHOW')[1])
         self.assertEqual((shown['dns']['records'], shown['syslog']['messages'], shown['http']), ('3', '1', True))

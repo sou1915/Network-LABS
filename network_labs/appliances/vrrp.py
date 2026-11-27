@@ -2,8 +2,9 @@
 « [no] vrrp N preempt », « vrrp N timers advertise S », « vrrp N authentication text W », « vrrp N description TEXT » and
 « [no] vrrp N shutdown », typed on a LAN port or a router-on-a-stick subinterface.
 
-The lines are kept with the port's IOS lines (ios_store) and make its groups (groups()). In the guest, the agent's --vrrp
-mode speaks VRRP for real: adverts (IP protocol 112 to 224.0.0.18, TTL 255) every advertisement interval; the router of
+The lines are kept with the port's IOS lines (ios_store) and make its groups (groups()). In the guest, keepalived speaks
+VRRP for real (the agent's --vrrp mode writes its configuration and reads its state back for « show vrrp »): adverts (IP
+protocol 112 to 224.0.0.18, TTL 255) every advertisement interval; the router of
 the highest priority (then the highest address) is the master and holds the virtual address with the virtual MAC
 0000.5e00.01NN; a backup takes over when the master falls silent for the master down interval (three adverts and a skew
 that favours the higher priority), or at once when the master resigns (an advert of priority 0). Preemption is on by
@@ -99,11 +100,12 @@ def arguments(node):
 
 
 def virtual_addresses(node):
-    """{port: {'A.B.C.D/32'}}: the virtual addresses the guest may hold beside each port while master (not the owner's own)."""
+    """{port: {'A.B.C.D/32'}}: the virtual addresses the guest may hold beside each port while master. The owner's too:
+    keepalived adds the virtual address as a /32 beside the port's own address, which it already is."""
     found = {}
     for port, entries in groups(node).items():
         for settings in entries.values():
-            if settings['ip'] and not settings['owner']:
+            if settings['ip']:
                 found.setdefault(port, set()).add(settings['ip'] + '/32')
     return found
 
@@ -194,6 +196,8 @@ def configure(node, port, command):
         text = values[1:] if values and values[0].lower() == 'text' else values
         if len(text) != 1 or len(text[0]) > 8:
             raise ValueError('Incomplete command.' if not text else 'Le mot d’authentification VRRP fait 8 caractères au plus.')
+        if not all(33 <= ord(c) <= 126 and c not in '"\\' for c in text[0]):  # keepalived's configuration quotes it
+            raise ValueError('Network LABS : le mot d’authentification VRRP s’écrit en caractères ASCII, sans " ni \\.')
         return _store(node, port, (group, 'authentication'), f'{prefix}authentication text {text[0]}')
     if keyword == 'description':
         text = ' '.join(values)

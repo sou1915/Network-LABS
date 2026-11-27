@@ -83,6 +83,7 @@ class SetupTest(unittest.TestCase):
         self.assertIn('→ sudo apt install', text)
 
     @unittest.skipUnless(all(setup._which(n) for n in ('busybox', 'mke2fs', 'debugfs', 'gcc', 'bird', 'birdc'))
+                         and all(setup._which(setup.TOOLS[n]) for n in ('keepalived', 'dnsmasq', 'chronyd', 'chronyc'))
                          and setup._which(('xtables-legacy-multi', 'iptables-legacy')), 'image tools required')
     def test_builds_one_full_disk_once_and_remembers_the_paths(self):
         from network_labs.appliances import progress
@@ -95,7 +96,8 @@ class SetupTest(unittest.TestCase):
         listing = shutil.which('debugfs') or '/usr/sbin/debugfs'
         import subprocess
         files = subprocess.run([listing, '-R', 'ls /usr/sbin', first['disk']], capture_output=True, text=True).stdout
-        self.assertIn('bird', files)
+        for program in ('bird', 'keepalived', 'dnsmasq', 'chronyd'):
+            self.assertIn(program, files)
         again = setup.prepare(kernel=kernel, folder=self.folder.name)
         self.assertIn('à jour', {s['id']: s for s in again['steps']}['image']['detail'])
         self.assertEqual(progress.load()['paths'], {'kernel': str(kernel), 'disk': first['disk']})

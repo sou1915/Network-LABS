@@ -12,8 +12,9 @@ A router or a switch takes IOS lines instead: « ip dns server » with its « ip
 LEVEL » (its log messages leave as syslog datagrams), « ip name-server A.B.C.D » (and « no ip domain-lookup »), « ip http
 server ».
 
-In the guest everything is real: the agent's --services daemon answers DNS queries (A, CNAME, and PTR from the A
-records), NTP requests, collects syslog datagrams and keeps an NTP association; BusyBox httpd serves the pages. A stopped
+In the guest everything is real: dnsmasq answers DNS queries (A, CNAME, and PTR from the A records), chrony answers NTP
+requests and keeps the NTP association, the agent's --services mode runs them and collects syslog datagrams and serves
+TFTP itself; BusyBox httpd serves the pages. A stopped
 lab answers from the project through the network model (the query's path and firewalls checked as UDP 53 / TCP 80).
 """
 import ipaddress

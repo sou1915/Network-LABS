@@ -63,11 +63,12 @@ mode modèle. Même chose sous Linux sans KVM pour un lab de micro-VM.
 
 Une seule commande vérifie la machine, télécharge Firecracker et le noyau
 officiels épinglés (sommes SHA-256 contrôlées), construit un disque unique pour
-tous les labs (agent, iptables, BIRD, FRR) et retient les chemins pour l'atelier. Elle
-ne demande aucun droit : ce qui exige `sudo` est affiché comme commande à copier.
+tous les labs (agent, iptables, BIRD, FRR, keepalived, dnsmasq, chrony) et retient les chemins pour l'atelier. Elle
+ne demande aucun droit : ce qui exige `sudo` est affiché comme commande à copier. chrony devient aussi le client NTP de
+cette machine (à la place de systemd-timesyncd, comme sur Ubuntu 25.10).
 
 ```bash
-sudo apt install -y busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr
+sudo apt install -y busybox-static e2fsprogs gcc libc6-dev iptables bird2 frr keepalived dnsmasq-base chrony
 python3 -m network_labs.appliances setup --download
 ```
 

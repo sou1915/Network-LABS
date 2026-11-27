@@ -59,14 +59,22 @@ def _libraries(program, label):
 def _copy_files(root, sources):
     for source in sources:
         # The host may reach one file through /lib and /usr/lib; the image has no such link, and iptables
-        # looks for its modules under the path it was built with. Provide both spellings as plain files.
+        # looks for its modules under the path it was built with. Provide both spellings, as one file: the
+        # second is a hard link to the first, which mke2fs keeps, so the image holds each library once.
         # Resolve the folder, not the file: a module such as libxt_MASQUERADE.so is a link to libxt_NAT.so,
         # and iptables loads it by the link's own name.
-        for location in {source, source.parent.resolve() / source.name}:
+        first = None
+        for location in sorted({source, source.parent.resolve() / source.name}):
             target = root / location.relative_to('/')
             target.parent.mkdir(parents=True, exist_ok=True)
-            if not target.exists():
-                shutil.copyfile(source, target); target.chmod(0o755)
+            if target.exists():
+                first = first or target
+            elif first is None:
+                shutil.copyfile(source, target)
+                target.chmod(0o755)
+                first = target
+            else:
+                os.link(first, target)
 
 
 def install_iptables(root, program):
@@ -125,8 +133,26 @@ def install_frr(root, programs=None):
     (frr_etc / 'vtysh.conf').write_text('username root nopassword\n')
 
 
+SERVICE_PROGRAMS = {'keepalived': '/usr/sbin/keepalived', 'dnsmasq': '/usr/sbin/dnsmasq', 'chronyd': '/usr/sbin/chronyd',
+                    'chronyc': '/usr/bin/chronyc'}
+
+
+def install_services(root, programs=None):
+    """Copy keepalived (VRRP), dnsmasq (DNS, DHCP relay) and chrony (NTP) with their shared libraries: the proven daemons
+    the agent runs for those services instead of speaking the protocols itself. They run as root in the guest; dnsmasq
+    and chronyd look root up by name, which the image's own account files hold."""
+    programs = programs or SERVICE_PROGRAMS
+    for name, destination in SERVICE_PROGRAMS.items():
+        program = Path(programs[name]).resolve()
+        _copy_files(root, _libraries(program, 'services'))
+        target = root / destination.lstrip('/')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(program, target)
+        target.chmod(0o755)
+
+
 def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', with_agent=False, cc='gcc', with_firewall=False,
-          iptables=None, with_routing=False, bird=None, birdc=None, frr=None):
+          iptables=None, with_routing=False, bird=None, birdc=None, frr=None, with_services=False, services=None):
     """Publish a complete ext4 image exclusively; never overwrite an existing path."""
     if type(size_mib) is not int or not 16 <= size_mib <= 1024:
         raise ValueError('Guest disk size must be an integer between 16 and 1024 MiB.')
@@ -175,6 +201,15 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
             if not all(Path(path).is_file() for path in frr.values()):
                 raise ValueError('Guest routing needs FRR on this machine (package frr) for BGP.')
             install_frr(root, frr)
+        if with_services:
+            if not with_agent:
+                raise ValueError('A services guest image needs the agent; add --with-agent.')
+            services = services or SERVICE_PROGRAMS
+            missing = sorted(name for name, path in services.items() if not Path(path).is_file())
+            if missing:
+                raise ValueError('Guest services need keepalived, dnsmasq and chrony on this machine (packages keepalived '
+                                 'dnsmasq-base chrony): ' + ', '.join(missing) + ' missing.')
+            install_services(root, services)
         (root / 'etc/inittab').write_text(inittab)
         (root / 'etc/shadow').write_text('root:!:0:0:99999:7:::\n')
         (root / 'etc/shadow').chmod(0o600)
@@ -205,4 +240,4 @@ def build(busybox, output, *, size_mib=64, mke2fs='mke2fs', debugfs='debugfs', w
     return {'disk': str(output), 'size_mib': size_mib, 'sha256': digest,
             'guest_boot_verified': False, 'guest_control_available': False, 'guest_agent_installed': bool(with_agent),
             'guest_firewall_installed': bool(with_firewall),
-            'guest_routing_installed': bool(with_routing)}
+            'guest_routing_installed': bool(with_routing), 'guest_services_installed': bool(with_services)}

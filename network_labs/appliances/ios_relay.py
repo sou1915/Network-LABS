@@ -2,7 +2,7 @@
 
 As on IOS, a DHCP request broadcast on a port with a helper address is sent to that address with the port's address as
 giaddr; the server picks the pool of that network and answers to it; the router broadcasts the answer back on the port.
-The guest agent's own relay does it (busybox-static has no dhcprelay): one per router, so every helper of a router
+dnsmasq relays (the agent's --dhcp-relay mode writes its configuration): one relay per router, so every helper of a router
 names the same server. The server side is a pool whose network is on none of the server's ports (a relayed pool,
 dhcp_server['network']): it is served on the port the relayed requests arrive by (toward()).
 """

@@ -42,6 +42,7 @@
 #include "routing.c"
 #include "port_guard.c"
 #include "fhrp.c"
+#include "daemons.c"
 #include "hsrp.c"
 #include "vrrp.c"
 #include "services.c"

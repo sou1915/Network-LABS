@@ -1,5 +1,6 @@
-"""The guest agent under libFuzzer (tests/fuzz/agent_fuzz.c): every handler of what peers send (HSRP, VRRP, frames on a
-security port, DNS, Syslog, TFTP) and of the fields the host types, with AddressSanitizer and UndefinedBehaviorSanitizer,
+"""The guest agent under libFuzzer (tests/fuzz/agent_fuzz.c): every handler of what peers send (HSRP, frames on a security
+port, Syslog, TFTP) and of the fields the host types, with the daemon configurations written from them (keepalived,
+dnsmasq, chrony: no field may add a line of its own), with AddressSanitizer and UndefinedBehaviorSanitizer,
 starting from one well-formed message each (tests/fuzz/seeds.py). Runs NETWORK_LABS_FUZZ_SECONDS (20 by default) when
 clang and its fuzzer runtime are installed (Ubuntu: clang, libclang-rt-18-dev), in a network namespace of its own."""
 import os
@@ -41,8 +42,8 @@ def isolated():
 class SeedTest(unittest.TestCase):
     def test_every_handler_has_a_well_formed_seed(self):
         found = seeds.seeds()
-        self.assertEqual({value[0] for value in found.values()}, set(range(11)))  # handlers 0..10 (11 is 10's twin)
-        self.assertEqual(seeds.checksum(seeds.vrrp()[34:]), 0)  # the VRRP advert's own checksum holds
+        self.assertEqual({value[0] for value in found.values()}, set(range(8)))  # handlers 0..7 (8 is 7's twin)
+        self.assertEqual(seeds.checksum(seeds.hsrp_v1()[14:34]), 0)  # the IPv4 header's own checksum holds
 
 
 class AgentFuzzTest(unittest.TestCase):

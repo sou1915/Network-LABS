@@ -32,7 +32,7 @@ Tests that need more than Python skip themselves; to run them:
 | device pages in a browser (`test_page_smoke`, `test_product_pages`) | Node and Playwright with Chromium | `npm install --global playwright` then `npx playwright install chromium`; run with `NODE_PATH="$(npm root --global)"` |
 | guest agent fuzzing (`test_agent_fuzz`) | clang with its fuzzer runtime | Ubuntu: `clang libclang-rt-18-dev`; `NETWORK_LABS_FUZZ_SECONDS=600` for a longer run |
 | real micro-VMs (`test_native_microvm*`) | root, KVM, Firecracker, a guest kernel | `sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_MICROVM_KERNEL=/path/vmlinux python3 -m unittest tests.test_native_microvm -v` |
-| real containers (`test_native_integration`) | root, crun and the tools in the CI job | `sudo env NETWORK_LABS_NATIVE_TESTS=1 …` as in `.github/workflows/tests.yml` |
+| real containers (`test_native_integration_*`, one module per topic) | root, crun and the tools in the CI job | `sudo env NETWORK_LABS_NATIVE_TESTS=1 …` as in `.github/workflows/tests.yml` |
 | WebAssembly prototype (`test_micro_*`) | Wasmtime | `pip install -r experiments/micro_appliances/requirements.txt` |
 
 The CI (`.github/workflows/tests.yml`) runs all of these, the micro-VM ones on KVM when asked
@@ -57,8 +57,10 @@ gcc -Wall -Wextra -Werror -o /tmp/agent network_labs/appliances/guest/agent.c
 - The device pages build HTML in JavaScript: pass every value that comes from the project through `esc()` (the
   configuration a student types, or a shared project file, can hold any text). `test_page_smoke` opens every model's
   page with hostile text in its configuration and fails if any of it runs.
-- The guest agent parses what other machines send, as root. A new protocol or field read from the network gets a
-  handler in `tests/fuzz/agent_fuzz.c` and a well-formed seed in `tests/fuzz/seeds.py`.
+- The guest agent runs as root. A protocol a proven daemon speaks goes to that daemon (keepalived, dnsmasq, chrony,
+  BIRD, FRR), the agent writing its configuration from checked fields; what the agent still parses from the network
+  (HSRP, port-guard frames, Syslog, TFTP), and any new field it reads, gets a handler in `tests/fuzz/agent_fuzz.c` and a
+  well-formed seed in `tests/fuzz/seeds.py`.
 - No vendor logo or proprietary picture in the pages (the one exception, the Windows logo on the Start button, is
   listed in `THIRD_PARTY_NOTICES.md`). A file taken from another project keeps its licence file and gets a note in
   `network_labs/appliances/assets/README.md` and a row in `THIRD_PARTY_NOTICES.md`.
