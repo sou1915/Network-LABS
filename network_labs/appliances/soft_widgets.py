@@ -3,6 +3,7 @@ import base64
 import struct
 import tkinter as tk
 import zlib
+from .design import COLOURS,surface as themed
 
 
 def rounded_box(c,x1,y1,x2,y2,r=8,**options):
@@ -37,7 +38,9 @@ def surface(root,fill,border,radius=8,size=24):
 
 
 class SoftCard(tk.Canvas):
-    def __init__(self,parent,background,face='#ffffff',border='#e1e9f3'):
+    def __init__(self,parent,background,face=None,border=None):
+        face=themed(face) or COLOURS['CARD']
+        border=themed(border) or COLOURS['CARD_LINE']
         super().__init__(parent,bg=background,height=44,highlightthickness=0,bd=0,cursor='hand2')
         self.face=face;self.edge=border
         self.inner=tk.Frame(self,bg=face)
@@ -52,7 +55,8 @@ class SoftCard(tk.Canvas):
         self.tag_lower(self.paint_id)
         self.itemconfigure(self.inner_window,width=max(1,w-12))
     def hover(self,active):
-        self.face='#edf5ff' if active else '#ffffff';self.edge='#b7d6fa' if active else '#e1e9f3'
+        self.face=COLOURS['HOVER'] if active else COLOURS['CARD']
+        self.edge=COLOURS['HOVER_LINE'] if active else COLOURS['CARD_LINE']
         def recolor(widget):
             widget.configure(bg=self.face)
             for child in widget.winfo_children():recolor(child)
@@ -60,13 +64,15 @@ class SoftCard(tk.Canvas):
 
 
 class SoftPanel(tk.Canvas):
-    def __init__(self,parent,background,face='#ffffff'):
+    def __init__(self,parent,background,face=None):
+        face=themed(face) or COLOURS['PANEL']
         super().__init__(parent,bg=background,highlightthickness=0,bd=0)
+        self.edge=COLOURS['LINE']
         self.face=face;self.inner=tk.Frame(self,bg=face)
         self.inner_window=self.create_window(6,6,window=self.inner,anchor='nw');self.paint_id=None
         self.bind('<Configure>',self.arrange)
     def arrange(self,event=None):
         w=max(20,self.winfo_width());h=max(20,self.winfo_height())
         if self.paint_id is not None:self.delete(self.paint_id)
-        self.paint_id=rounded_box(self,1,1,w-1,h-1,r=12,fill=self.face,outline='#e1e9f3')
+        self.paint_id=rounded_box(self,1,1,w-1,h-1,r=12,fill=self.face,outline=self.edge)
         self.tag_lower(self.paint_id);self.itemconfigure(self.inner_window,width=max(1,w-12),height=max(1,h-12))

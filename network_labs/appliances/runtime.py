@@ -4,8 +4,8 @@ No host default route, physical interface, firewall or sysctl is changed.
 Only explicitly requested start/stop commands create host resources.
 """
 from contextlib import contextmanager
-import fcntl
 import copy
+import hashlib
 import ipaddress
 import json
 import os
@@ -17,7 +17,7 @@ import subprocess
 import time
 
 from .catalog import capabilities
-from .spec import DEFAULT_VCPU_BUDGET, MIB, identifier, namespace, prefix, validate
+from .spec import DEFAULT_VCPU_BUDGET, MIB, identifier, namespace, port_order, prefix, validate
 
 STATE_ROOT = Path('/run/network-labs')
 CONFIG_ROOT = Path('/var/lib/network-labs')
@@ -112,8 +112,27 @@ def oci_config(spec, node, index, rootfs):
     }
 
 
+def needs_guest_startup(node):
+    """False only for a plain one-port host, fully set by the kernel's ip= boot option. Any other guest goes through the
+    guest startup; an unnumbered or shut port among them, since nothing else would bring it up, or keep it down."""
+    simple = (node['role'] == 'host' and len(node['interfaces']) == 1 and bool(node['interfaces']['eth0'])
+              and not node.get('shutdown') and 'guest_network' not in node and not node.get('dhcp_server')
+              and not node.get('dhcp_clients'))
+    return not simple
+
+
+def guest_mac(name, port):
+    """The fixed MAC of a micro-VM port (locally administered, from the node's name and the port's number), as a real
+    device keeps its burned-in addresses: ARP caches, MAC tables and spanning tree bridge IDs read the same on every
+    start, and a stopped lab can already show them. The bridge of a switch guest takes its lowest port's: eth0's."""
+    digest = hashlib.sha256(name.encode()).digest()
+    return ':'.join(f'{byte:02x}' for byte in (0x02, *digest[:4], int(port[3:])))
+
+
 def firecracker_config(node, kernel, disk):
-    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw'
+    # bonding.max_bonds=0: a kernel with bonding built in (the Network LABS one, for EtherChannel) creates no bond0 of its
+    # own; a guest holds only the bonds its switch declares. Kernels without bonding ignore the module parameter.
+    boot = 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw bonding.max_bonds=0'
     if node['interfaces']['eth0']:  # A switch guest's ports stay unnumbered: no kernel IP autoconfiguration.
         interface = ipaddress.IPv4Interface(node['interfaces']['eth0'])
         boot += f' ip={interface.ip}::{node.get("gateway", "")}:{interface.netmask}:{node["name"]}:eth0:off'
@@ -121,7 +140,8 @@ def firecracker_config(node, kernel, disk):
         'boot-source': {'kernel_image_path': str(kernel), 'boot_args': boot},
         'drives': [{'drive_id': 'rootfs', 'path_on_host': str(disk), 'is_root_device': True, 'is_read_only': False}],
         'machine-config': {'vcpu_count': node.get('vcpus',1), 'mem_size_mib': node['memory_mib']},
-        'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:]} for port in sorted(node['interfaces'])],
+        'network-interfaces': [{'iface_id': port, 'host_dev_name': 'tap' + port[3:], 'guest_mac': guest_mac(node['name'], port)}
+                               for port in sorted(node['interfaces'], key=port_order)],  # eth2 before eth10: the guest's order
         'vsock': {'guest_cid': 3, 'uds_path': str(Path(disk).parent / 'guest.vsock')},
     }
 
@@ -361,6 +381,7 @@ class Manager:
         stat = STATE_ROOT.stat()
         if stat.st_uid != 0 or stat.st_mode & 0o022:
             raise RuntimeFailure('State directory must be owned by root and not writable by other users.')
+        import fcntl  # Linux: running labs only (the workbench opens on Windows and macOS in model mode)
         with (STATE_ROOT / (self.name + '.lock')).open('a') as handle:
             fcntl.flock(handle, fcntl.LOCK_EX)
             yield self
@@ -402,6 +423,27 @@ class Manager:
 
     def ns(self, index, *args, **options):
         return run(['ip', 'netns', 'exec', namespace(self.state['spec'], index), *args], **options)
+
+    def join_cable(self, index, port):
+        """Join a micro-VM's tap to its cable (the veth named PORT in its namespace) so that every frame crosses as on a
+        wire: a tc redirect each way. A Linux bridge would hold back the IEEE link-local group addresses (LACP, LLDP);
+        a host kernel without tc ingress filtering gets that bridge all the same."""
+        tap = 'tap' + port[3:]
+        redirected = all(
+            self.ns(index, 'tc', 'qdisc', 'add', 'dev', here, 'ingress', check=False).returncode == 0
+            and self.ns(index, 'tc', 'filter', 'add', 'dev', here, 'parent', 'ffff:', 'protocol', 'all', 'u32', 'match', 'u32', '0', '0',
+                        'action', 'mirred', 'egress', 'redirect', 'dev', there, check=False).returncode == 0
+            for here, there in ((tap, port), (port, tap)))
+        if redirected:
+            return 'redirect'
+        for device in (tap, port):
+            self.ns(index, 'tc', 'qdisc', 'del', 'dev', device, 'ingress', check=False)
+        bridge = 'vmbr' + port[3:]
+        self.ns(index, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
+        for device in (tap, port):
+            self.ns(index, 'ip', 'link', 'set', device, 'master', bridge)
+        self.ns(index, 'ip', 'link', 'set', bridge, 'up')
+        return 'bridge'
 
     def preflight(self, spec):
         report = capabilities()
@@ -464,7 +506,10 @@ class Manager:
                 raise RuntimeFailure(node['name'] + ': RADIUS SSH shell requires a rootfs built with the trusted --ssh-relay executable.')
             if (node.get('management') or {}).get('ssh_keys') and not (Path(node['rootfs']) / 'usr/sbin/dropbear').is_file():
                 raise RuntimeFailure(node['name'] + ': SSH requires a trusted rootfs built with --dropbear.')
-            if (node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None) and any(not (Path(node['rootfs']) / path).is_file() for path in ('usr/sbin/bird', 'usr/sbin/birdc')):
+            # A micro-VM router's BIRD is on its guest disk: the agent refuses to start OSPF without it.
+            bird_needed = node.get('ospf') is not None or node.get('ospfv3') is not None or node.get('dhcpv6_relay') is not None
+            bird_files = ('usr/sbin/bird', 'usr/sbin/birdc')
+            if node['runtime'] == 'oci' and bird_needed and any(not (Path(node['rootfs']) / path).is_file() for path in bird_files):
                 raise RuntimeFailure(node['name'] + ': Managed BIRD routing/RA requires a rootfs built with --bird and --birdc.')
             if node.get('dhcpv6_pd_server') and any(not (Path(node['rootfs']) / p).is_file() for p in ('usr/sbin/kea-dhcp6', 'usr/lib/network-labs/dhcpv6-pd-hook')):
                 raise RuntimeFailure(node['name'] + ': PD server requires --kea-dhcp6 and --dhcpv6-pd-hook rootfs assets.')
@@ -483,7 +528,8 @@ class Manager:
                     raise RuntimeFailure(node['name'] + ': OVS requires a rootfs built with --openvswitch.')
         if any(n.get('dot1x') or (n.get('firewall') is not None and n['runtime'] == 'oci') or n.get('firewall_ipv6') is not None or n.get('ra_guard') is not None or n.get('port_security') or (n.get('dhcp_snooping') or {}).get('enabled') for n in spec['nodes']) and not shutil.which('nft'):
             raise RuntimeFailure('Managed 802.1X/firewall/port security/DHCP snooping/RA Guard requires host nftables (nft).')
-        if any(n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
+        # Container switches bond in the host kernel; a switch micro-VM bonds in its own (the Network LABS guest kernel).
+        if any(n['runtime'] == 'oci' and n['port_channels'] for n in spec['nodes']) and not Path('/sys/module/bonding').exists():
             raise RuntimeFailure('LACP requires a preloaded bonding driver. Run sudo modprobe bonding max_bonds=0 first; the manager will not auto-load it.')
         from .lacp import preflight_strict
         preflight_strict(spec)
@@ -497,6 +543,8 @@ class Manager:
 
     def start(self, data):
         spec = validate(data)
+        if not spec['nodes']:
+            raise ValueError('Ajouter au moins un équipement avant de démarrer.')
         if spec['name'] != self.name:
             raise ValueError('Manager/lab name mismatch.')
         if self.directory.exists():
@@ -509,6 +557,7 @@ class Manager:
         jailed = jailer_path() is not None and any(n['runtime'] == 'firecracker' for n in spec['nodes'])
         if jailed:
             # Labs start concurrently under per-lab locks; the block must be on disk before this lock is released.
+            import fcntl
             with (STATE_ROOT / 'vm-uids.lock').open('a') as handle:
                 fcntl.flock(handle, fcntl.LOCK_EX)
                 self.state['vm_uid_base'] = allocate_vm_uid_base(STATE_ROOT, self.name)
@@ -528,15 +577,17 @@ class Manager:
                     self.state.setdefault('firewall_ipv6_fingerprints', {})[node['name']] = apply_ipv6_firewall(self, i, node)
                     self.save()
                 if node['runtime'] == 'firecracker':
+                    # The VM's namespace is only its cables' plumbing (taps, bridges, veths): no IPv6 there, or each
+                    # device would send its own router solicitations and MLD reports down the cable, and a switch
+                    # guest would learn MACs no lab device has. The guests' own IPv6 is theirs, inside the VM.
+                    self.ns(i, 'sysctl', '-qw', 'net.ipv6.conf.all.disable_ipv6=1', 'net.ipv6.conf.default.disable_ipv6=1',
+                            check=False)
                     for port in node['interfaces']:
-                        tap, bridge = 'tap' + port[3:], 'vmbr' + port[3:]
+                        tap = 'tap' + port[3:]
                         # A jailed VMM has no CAP_NET_ADMIN: it may open only the taps it owns.
                         owner = ['user', str(self.state['vm_uid_base'] + i), 'group', str(self.state['vm_uid_base'] + i)] if jailed else []
                         self.ns(i, 'ip', 'tuntap', 'add', tap, 'mode', 'tap', *owner)
-                        self.ns(i, 'ip', 'link', 'add', bridge, 'type', 'bridge', 'stp_state', '0')
-                        self.ns(i, 'ip', 'link', 'set', tap, 'master', bridge)
-                        self.ns(i, 'ip', 'link', 'set', tap, 'up')
-                        self.ns(i, 'ip', 'link', 'set', bridge, 'up')
+                        self.ns(i, 'ip', 'link', 'set', tap, 'up')  # its cable is joined to it when the link is made
             byname = {n['name']: (i, n) for i, n in enumerate(spec['nodes'])}
             for i, link in enumerate(spec['links']):
                 peers = [f'{prefix(spec)}l{i}{side}' for side in ('a', 'b')]
@@ -550,7 +601,7 @@ class Manager:
                     self.ns(j, 'ip', 'link', 'set', peer, 'name', port)
                     if node['runtime'] == 'firecracker':
                         self.ns(j, 'ip', 'link', 'set', port, 'up')
-                        self.ns(j, 'ip', 'link', 'set', port, 'master', 'vmbr' + port[3:])
+                        self.join_cable(j, port)
             connected = {tuple(e) for link in spec['links'] for e in link}
             for i, node in enumerate(spec['nodes']):
                 if node['runtime'] == 'oci':
@@ -730,7 +781,7 @@ class Manager:
         try:
             code = process.wait(timeout=0.3)
         except subprocess.TimeoutExpired:
-            if 'guest_network' in node or len(node['interfaces']) > 1 or node['role'] != 'host' or node.get('dhcp_server') or node.get('dhcp_clients'):
+            if needs_guest_startup(node):
                 from .guest_startup import apply
                 try:
                     apply(bundle / 'guest.vsock', node, alive=lambda: process.poll() is None)
@@ -795,6 +846,84 @@ class Manager:
                 return result
         raise RuntimeFailure('Kernel inspection is available for existing OCI nodes only.')
 
+    def observe_node(self, name):
+        """Addresses, routes and (switch guests) bridge VLANs of a running node, for vendor 'show' commands."""
+        from . import vendor_show
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before show commands.')
+        node = next((n for n in state['spec']['nodes'] if n['name'] == name), None)
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        if node['runtime'] == 'oci':
+            observation = vendor_show.observe_container(self.inspect(name), node)
+        else:
+            from .guest_startup import query
+            socket = self.directory / name / 'guest.vsock'
+            try:
+                observation = vendor_show.observe_guest(lambda operation, **fields: query(socket, operation, **fields), node)
+            except (OSError, ValueError) as error:
+                raise RuntimeFailure(f'{name}: guest observation failed: {error}') from error
+        from .ios_nat import entries as ios_nat
+        if node.get('firewall') is not None or ios_nat(node):
+            # Tracked connections; a guest kernel without conntrack reports none rather than failing the observation.
+            try:
+                observation['sessions'] = vendor_show.parse_sessions(self.sessions(name)['output'])
+            except (OSError, ValueError, RuntimeFailure, subprocess.SubprocessError) as error:
+                observation['sessions'] = None
+                observation['sessions_error'] = str(error)
+        return observation
+
+    def ping_node(self, name, destination, count=5):
+        """Echo requests from a running node, one bounded probe at a time, for vendor 'ping' commands."""
+        from .vendor_show import echo_reply
+        destination = str(ipaddress.IPv4Address(destination))
+        if type(count) is not int or not 1 <= count <= 5:
+            raise ValueError('Ping count must be 1..5.')
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before ping.')
+        index, node = next(((i, n) for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), (None, None))
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        replies = []
+        for sequence in range(count):
+            if node['runtime'] == 'oci':
+                result = self.ns(index, 'ping', '-n', '-c', '1', '-W', '1', destination, check=False, timeout=5)
+                code, output = result.returncode, result.stdout
+            else:
+                from .guest_control import request
+                try:
+                    result = request(self.directory / name / 'guest.vsock', 'ping', destination=destination)
+                except (OSError, ValueError) as error:
+                    raise RuntimeFailure(f'{name}: guest ping failed: {error}') from error
+                code, output = result['exit_code'], result['output']
+            replies.append(dict(echo_reply(code, output), sequence=sequence))
+        return {'node': name, 'destination': destination, 'replies': replies}
+
+    def trace_node(self, name, destination):
+        """traceroute from a running micro-VM: one guest probe per request, three per hop (trace.walk)."""
+        from . import trace
+        from .guest_control import request
+        destination = str(ipaddress.IPv4Address(destination))
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before traceroute.')
+        node = next((n for n in state['spec']['nodes'] if n['name'] == name), None)
+        if node is None:
+            raise RuntimeFailure('Unknown node: ' + name)
+        if node['runtime'] != 'firecracker':
+            raise RuntimeFailure('traceroute: micro-VM nodes only.')
+        socket = self.directory / name / 'guest.vsock'
+
+        def send(ttl):
+            try:
+                result = request(socket, 'trace', destination=destination, ttl=ttl)
+            except (OSError, ValueError) as error:
+                raise RuntimeFailure(f'{name}: guest traceroute failed: {error}') from error
+            return trace.probe(result['exit_code'], result['output'])
+        return dict(trace.walk(send, destination), node=name)
+
     def configure_ios(self, name, text):
         from .ios import compile_config
         state = self.read()
@@ -831,7 +960,7 @@ class Manager:
         return self._configure_network(name, validate(candidate), 'Linux kernel common spanning tree (IEEE 802.1D)')
 
     def _configure_network(self, name, candidate, source):
-        from .lan import configure
+        from .lan import configure as configure_lan
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
@@ -841,8 +970,7 @@ class Manager:
             adapter.preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
         if (selected or previous['nodes'][index].get('lldp') is not None) and candidate['nodes'][index] == previous['nodes'][index]:
             return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
-        if selected:
-            configure = selected[0].apply_change
+        configure = selected[0].apply_change if selected else configure_lan
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('switch_backend') == 'ovs' or candidate['nodes'][index].get('switch_backend') == 'ovs':
@@ -869,7 +997,7 @@ class Manager:
         return result
 
     def configure_firewall(self, name, policy):
-        from .firewall import apply
+        from .firewall import apply as apply_host
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab must be running before configuration.')
@@ -877,6 +1005,7 @@ class Manager:
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
         guest = state['spec']['nodes'][index]['runtime'] == 'firecracker'
+        apply = apply_host
         if guest:
             # Inside the guest the chain is rebuilt while closed: forwarding drops until the new policy is read back.
             from .guest_firewall import apply as apply_guest
@@ -908,9 +1037,65 @@ class Manager:
                     'note': 'Guest IPv4 policy rebuilt with the chain closed, then read back; forwarding paused for the change. Existing conntrack sessions retained.'}
         return {'configured': name, 'revision': state['revision'], 'note': 'Atomic IPv4 policy update; existing conntrack sessions retained.'}
 
+    def configure_routing(self, name, declared):
+        """Live change of a running micro-VM's port addresses, routes, gateway, OSPF, BGP and ACLs to DECLARED.
+        Anything else still needs a restart. The change is journalled, read back, and rolled back if it fails."""
+        from . import guest_startup
+        state = self.read()
+        if state['phase'] != 'running':
+            raise RuntimeFailure('Lab must be running before configuration.')
+        index = next((i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name), None)
+        if index is None or state['spec']['nodes'][index]['runtime'] != 'firecracker':
+            raise ValueError('Live changes apply to a running micro-VM.')
+        switch = state['spec']['nodes'][index]['role'] == 'switch'
+        # A switch: VLANs, access and trunk ports, shut ports are live too.
+        LIVE_ROUTING, change_routing = ((guest_startup.LIVE_SWITCH, guest_startup.change_switch) if switch else
+                                        (guest_startup.LIVE_ROUTING, guest_startup.change_routing))
+        previous = state['spec']['nodes'][index]
+        candidate = copy.deepcopy(state['spec'])
+        candidate['nodes'][index] = copy.deepcopy(declared)
+        candidate = validate(candidate)
+        wanted = candidate['nodes'][index]
+        same = lambda node: {k: v for k, v in node.items() if k not in LIVE_ROUTING}
+        def addresses(node):
+            profile = node.get('guest_network') or {}
+            return profile.get('addresses', []), profile.get('port_addresses', {})
+        if (same(wanted) != same(previous) or addresses(wanted) != addresses(previous)
+                or set(wanted['interfaces']) != set(previous['interfaces'])):
+            raise ValueError('Only port addresses, shut ports, static routes, the gateway, OSPF, RIP, BGP, access lists, DHCP pools '
+                             'and, on a switch, VLANs and switchports change on a running lab; restart it for the rest.')
+        socket = self.directory / name / 'guest.vsock'
+        state['phase'] = 'configuring'
+        state['pending_spec'] = candidate
+        state['pending_node'] = name
+        self.save()
+        try:
+            change_routing(socket, previous, wanted)
+        except (OSError, ValueError, RuntimeFailure) as original:
+            try:
+                change_routing(socket, wanted, previous)
+            except (OSError, ValueError, RuntimeFailure) as rollback:
+                state['phase'] = 'configuration-failed'
+                self.save()
+                raise RuntimeFailure(f'Routing change failed: {original}; rollback failed: {rollback}. Stop the lab.') from original
+            state['phase'] = 'running'
+            state.pop('pending_spec')
+            state.pop('pending_node', None)
+            self.save()
+            raise RuntimeFailure(f'Routing change failed and was rolled back: {original}') from original
+        state['spec'] = candidate
+        state['revision'] = state.get('revision', 0) + 1
+        state['phase'] = 'running'
+        state.pop('pending_spec')
+        state.pop('pending_node', None)
+        self.save()
+        return {'configured': name, 'revision': state['revision'],
+                'note': 'Static routes, gateway and OSPF changed in the running guest, then read back.'}
+
     def sessions(self, name, clear=False):
         for index, node in enumerate(self.read()['spec']['nodes']):
-            if node['name'] == name and node.get('firewall') is not None and node['runtime'] == 'firecracker':
+            from .ios_nat import entries as ios_nat
+            if node['name'] == name and (node.get('firewall') is not None or ios_nat(node)) and node['runtime'] == 'firecracker':
                 if clear:
                     raise ValueError('Clearing sessions is not available on micro-VM firewalls yet; the guest has no conntrack tool.')
                 from .guest_control import request

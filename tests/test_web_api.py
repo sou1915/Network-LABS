@@ -1,5 +1,5 @@
+from network_labs import demo_labs
 import unittest,threading
-from network_labs.__main__ import App
 from network_labs.web_api import DeviceAPI,Conflict
 from network_labs.cli import Session
 
@@ -9,7 +9,11 @@ class FakeRoot:
     def lift(self):pass
 
 class FakeApp:
-    def __init__(self):self.lab=App.lan_demo();self.root=FakeRoot();self.owner=threading.get_ident();self.changes=[]
+    def __init__(self):
+        self.lab=demo_labs.lan_demo()
+        self.root=FakeRoot()
+        self.owner=threading.get_ident()
+        self.changes=[]
     def changed(self,message):
         assert threading.get_ident()==self.owner
         self.changes.append(message)
@@ -30,7 +34,8 @@ class WebAPITests(unittest.TestCase):
     def test_revision_conflict_and_lab_replacement(self):
         state=self.api.snapshot('PC1');Session(self.app.lab,'PC1').execute('hostname CLIENT')
         with self.assertRaises(Conflict):self.api.dispatch('apply',{'node':'PC1','revision':state['revision'],'commands':['hostname OLD']})
-        state=self.api.snapshot('PC1');self.app.lab=App.lan_demo()
+        state=self.api.snapshot('PC1')
+        self.app.lab=demo_labs.lan_demo()
         with self.assertRaises(Conflict):self.api.dispatch('apply',{'node':'PC1','revision':state['revision'],'commands':['hostname OLD']})
     def test_port_probe_and_cli_action(self):
         result=self.api.dispatch('test',{'node':'PC1','protocol':'tcp','target':'nas.lan','port':445})

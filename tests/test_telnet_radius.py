@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from network_labs.appliances.__main__ import main
 from network_labs.appliances.examples import radius_lab
 from network_labs.appliances.management import commands, managed_files, start_service

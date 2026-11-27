@@ -24,6 +24,11 @@ def integer(value, low, high, label):
     return value
 
 
+def port_order(name):
+    """Ports in their number order (eth2 before eth10); a guest numbers its network devices in this order."""
+    return (0, int(name[3:])) if name.startswith('eth') and name[3:].isdigit() else (1, name)
+
+
 def keys(obj, allowed, label):
     if not isinstance(obj, dict) or set(obj) - set(allowed):
         raise ValueError(f'{label}: object with known fields required ({", ".join(allowed)}).')
@@ -45,22 +50,25 @@ def asset(value):
 
 def validate(data):
     data = copy.deepcopy(data)
-    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links'), 'Lab')
+    keys(data, ('version', 'name', 'budget_mib', 'budget_vcpus', 'reserve_mib', 'nodes', 'links', 'layout'), 'Lab')
     if type(data.get('version')) is not int or data['version'] not in (1, 2):
         raise ValueError('Native manifest version 1 or 2 required.')
     identifier(data.get('name'))
     budget = integer(data.setdefault('budget_mib', 2048), 128, 1048576, 'budget_mib')
     reserve = integer(data.setdefault('reserve_mib', 512), 64, budget, 'reserve_mib')
-    if not isinstance(data.get('nodes'), list) or not data['nodes'] or len(data['nodes']) > 256:
-        raise ValueError('1..256 nodes required.')
+    if not isinstance(data.get('nodes'), list) or len(data['nodes']) > 256:
+        raise ValueError('0..256 nodes required.')  # an empty project is a blank canvas; starting one is refused
     names = set()
+    from .guest_startup import validate_profile  # imported here: guest_startup imports this module
     for node_index, original in enumerate(data['nodes']):
         # In-memory callers can reuse the same dict in several nodes. Each node
         # must own its configuration, just as if it had been loaded from JSON.
         node = copy.deepcopy(original)
         data['nodes'][node_index] = node
         from .lan import LAN_FIELDS, addresses, validate_lan
-        keys(node, ('name', 'runtime', 'role', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command', 'startup', 'interfaces', 'gateway', 'firewall', *LAN_FIELDS), 'Node')
+        keys(node, ('name', 'runtime', 'role', 'model', 'rootfs', 'kernel', 'disk', 'memory_mib', 'vcpus', 'guest_network', 'command',
+                    'startup', 'interfaces', 'gateway', 'firewall', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services', 'dhcp_extra',
+                    *LAN_FIELDS), 'Node')
         name = identifier(node.get('name'))
         if name in names:
             raise ValueError('Duplicate node: ' + name)
@@ -71,6 +79,8 @@ def validate(data):
         role = node.setdefault('role', 'host')
         if role not in ('host', 'switch', 'router', 'firewall'):
             raise ValueError('Unknown role: ' + str(role))
+        from .native_models import validate as validate_model
+        validate_model(node)  # A vendor model is presentation and port layout; the node still runs Linux.
         integer(node.setdefault('memory_mib', 64), 16, budget, 'memory_mib')
         interfaces = node.setdefault('interfaces', {})
         if not isinstance(interfaces, dict) or len(interfaces) > 64:
@@ -87,6 +97,22 @@ def validate(data):
         validate_firewall(node)
         from .firewall_ipv6 import validate_node as validate_firewall_ipv6
         validate_firewall_ipv6(node)
+        from .acl import validate as validate_acls
+        validate_acls(node)
+        from .bgp import validate as validate_bgp
+        validate_bgp(node)
+        from .ios_store import validate as validate_cli
+        validate_cli(node)
+        from .rip import validate as validate_rip
+        validate_rip(node)
+        from .ios_relay import validate as validate_relay
+        validate_relay(node)
+        from .eigrp import validate as validate_eigrp
+        validate_eigrp(node)
+        from .dhcp import validate_extra
+        validate_extra(node)  # a router micro-VM's other DHCP pools
+        from .guest_services import validate as validate_services
+        validate_services(node)  # a server micro-VM's DNS, HTTP, NTP and Syslog services
         if node.get('gateway'):
             ipaddress.IPv4Address(node['gateway'])
             if not any(address and ipaddress.IPv4Address(node['gateway']) in ipaddress.IPv4Interface(address).network for address in addresses(node).values()):
@@ -111,41 +137,56 @@ def validate(data):
             asset(node.get('kernel')); asset(node.get('disk'))
             if 'rootfs' in node or 'command' in node or 'startup' in node:
                 raise ValueError('Firecracker uses kernel/disk, not OCI commands.')
-            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= 4 or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
-                raise ValueError('Firecracker host, router, firewall or switch requires contiguous ports eth0..eth3.')
+            from .native_models import MICROVM_PORTS
+            if role not in ('host', 'router', 'firewall', 'switch') or not 1 <= len(interfaces) <= MICROVM_PORTS \
+                    or set(interfaces) != {f'eth{i}' for i in range(len(interfaces))}:
+                raise ValueError(f'Firecracker host, router, firewall or switch requires contiguous ports eth0..eth{MICROVM_PORTS - 1}.')
             if role == 'switch':
-                # The measured guest kernel bridges but has no 802.1Q: one untagged segment, no addressing.
-                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node or node['svis']
-                        or node['vlans'] != [1] or any(port != {'mode': 'access', 'vlan': 1} for port in node['switchports'].values())):
-                    raise ValueError('Firecracker switch: 2..4 unnumbered ports in one untagged VLAN 1 (no 802.1Q in the guest kernel); '
-                                     'no addresses, gateway, SVIs or guest_network.')
+                # Access and trunk ports on the guest bridge; VLANs other than one untagged VLAN 1 need a
+                # guest kernel with 802.1Q and bridge VLAN filtering (tools/guest_kernel). No addressing.
+                if (len(interfaces) < 2 or any(interfaces.values()) or node.get('gateway') or 'guest_network' in node
+                        or len(node['vlans']) > 32):
+                    raise ValueError('Firecracker switch: 2..16 unnumbered ports, at most 32 VLANs; no port addresses, '
+                                     'gateway or guest_network (management: one SVI, ip default-gateway).')
+                for port in node['switchports'].values():
+                    if port['mode'] == 'trunk':
+                        allowed = node['vlans'] if port['allowed'] == 'all' else port['allowed']
+                        if port['native_vlan'] not in node['vlans'] or set(allowed) - set(node['vlans']):
+                            raise ValueError('Firecracker switch trunk: native and allowed VLANs must be declared in vlans.')
                 if node.get('firewall') is not None:
                     raise ValueError('A firewall policy requires role firewall.')
-                node['interfaces'] = dict(sorted(interfaces.items()))
-                from .guest_startup import validate_profile
+                node['interfaces'] = dict(sorted(interfaces.items(), key=lambda item: port_order(item[0])))
                 validate_profile(node)
                 continue
             dynamic = set(node['dhcp_clients'])
-            if any(not address for port, address in interfaces.items() if port not in dynamic):
-                raise ValueError('Firecracker host, router or firewall requires one static IPv4 per port (or a DHCP client port), contiguous eth0..eth3.')
+            # A port may stay unnumbered, as on a new device: it comes up without an address until one is configured
+            # (live, from the node's terminal). DHCP client ports and subinterface parents are unnumbered too.
             if dynamic and role != 'host':
                 raise ValueError('A Firecracker DHCP client must be a host; routers and firewalls keep static addresses.')
-            server = node.get('dhcp_server')
-            if server and ('network' in server or server['reservations']):
-                raise ValueError('Firecracker DHCP server: local pool only; remote networks and reservations are not available on guests yet.')
-            if role in ('router', 'firewall') and len(interfaces) < 2:
-                raise ValueError('Firecracker router or firewall requires at least two ports; a single-port guest is a host.')
+            from .dhcp import pools
+            if any(server['reservations'] for server in pools(node)):
+                raise ValueError('Firecracker DHCP server: no reservations on guests yet.')  # a remote (relayed) network is fine
+            subinterfaces = node['subinterfaces']
+            if any(sub['vlan'] is None or not sub['address'] for sub in subinterfaces.values()):
+                raise ValueError('Firecracker subinterfaces need a VLAN and an IPv4 address.')
+            if role in ('router', 'firewall') and len(interfaces) + len(subinterfaces) < 2:
+                raise ValueError('Firecracker router or firewall requires at least two interfaces (ports or subinterfaces); '
+                                 'a single-port guest is a host.')
+            if any(not (interfaces.get(server['interface']) or subinterfaces.get(server['interface'], {}).get('address'))
+                   for server in pools(node)):  # a pool per LAN: on a numbered port or a router-on-a-stick subinterface
+                raise ValueError('DHCP server: give its port an IPv4 address first.')
             if role == 'firewall' and node.get('firewall') is None:
                 raise ValueError('Firecracker firewall requires an explicit firewall policy; no default pass-through.')
             if role != 'firewall' and node.get('firewall') is not None:
                 raise ValueError('A firewall policy requires role firewall.')
-            interfaces = node['interfaces'] = dict(sorted(interfaces.items()))
-            networks = [ipaddress.IPv4Interface(a).network for a in interfaces.values() if a]
+            interfaces = node['interfaces'] = dict(sorted(interfaces.items(), key=lambda item: port_order(item[0])))
+            addresses_declared = [*interfaces.values(), *(sub['address'] for sub in node['subinterfaces'].values())]
+            networks = [ipaddress.IPv4Interface(a).network for a in addresses_declared if a]
             if any(a.overlaps(b) for i, a in enumerate(networks) for b in networks[i+1:]):
                 raise ValueError('Firecracker interface subnets must not overlap.')
-            if node.get('gateway') and ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network:
+            if node.get('gateway') and (not interfaces['eth0'] or
+                                        ipaddress.IPv4Address(node['gateway']) not in ipaddress.IPv4Interface(interfaces['eth0']).network):
                 raise ValueError('Firecracker boot gateway must be on eth0.')
-        from .guest_startup import validate_profile
         validate_profile(node)
     from .ipv6 import validate_lab as validate_ipv6_lab
     validate_ipv6_lab(data)
@@ -199,6 +240,19 @@ def validate(data):
     vcpu_budget = integer(data.get('budget_vcpus', DEFAULT_VCPU_BUDGET), 1, 1024, 'budget_vcpus')
     if sum(n['vcpus'] for n in data['nodes'] if n['runtime'] == 'firecracker') > vcpu_budget:
         raise ValueError(f'Micro-VM vCPU allocations exceed the lab budget of {vcpu_budget}; lower vcpus or set budget_vcpus.')
+    if 'layout' in data:  # where the workbench draws each device; names no longer in the lab are dropped
+        layout = data['layout']
+        if not isinstance(layout, dict):
+            raise ValueError('layout: {device: [x, y]}.')
+        kept = {}
+        for name, point in layout.items():
+            if name not in names:
+                continue
+            if not isinstance(point, (list, tuple)) or len(point) != 2 or \
+                    not all(type(v) in (int, float) and -10000 <= v <= 100000 for v in point):
+                raise ValueError(f'layout: {name} needs [x, y] coordinates.')
+            kept[name] = [round(float(point[0]), 1), round(float(point[1]), 1)]
+        data['layout'] = kept
     return data
 
 

@@ -76,7 +76,7 @@ jobs:
       - name: Require real KVM
         run: test -c /dev/kvm
       - name: Install guest and fabric tools
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2 frr
       - name: Fetch pinned official Firecracker and guest kernel
         run: |
           curl -fL --retry 3 https://github.com/firecracker-microvm/firecracker/releases/download/v1.10.1/firecracker-v1.10.1-x86_64.tgz -o /tmp/firecracker.tgz
@@ -87,7 +87,7 @@ jobs:
           curl -fL --retry 3 https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223 -o /tmp/vmlinux
           echo '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65  /tmp/vmlinux' | sha256sum -c -
       - name: Verify actual guests under the Firecracker jailer (unprivileged VMM, chroot, cgroup caps)
-        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v
+        run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_JAILER=1 NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_missions tests.test_native_microvm_ospf tests.test_native_microvm_scenarios tests.test_native_microvm_bgp tests.test_native_microvm_quick tests.test_native_microvm_nat_ios tests.test_native_microvm_static_nat_ios tests.test_native_microvm_relay_ios tests.test_native_microvm_rip_ios tests.test_native_microvm_eigrp_ios tests.test_native_microvm_port_route_ios tests.test_native_microvm_stp tests.test_native_microvm_ports tests.test_native_microvm_port_security tests.test_native_microvm_services -v
       - name: Verify actual guests with the direct launch used when no jailer is installed
         if: always()
         run: sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_VM_JAILER=0 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/unjailed NETWORK_LABS_MICROVM_KERNEL=/tmp/vmlinux python3 -m unittest tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v
@@ -103,7 +103,7 @@ jobs:
         run: |
           kernel="$(ls /tmp/guest-kernel/vmlinux-*-network-labs)"
           (cd /tmp/guest-kernel && sha256sum -c ./*.sha256)
-          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/own-kernel NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp -v
+          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_GUEST_VLAN=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_EVIDENCE=/tmp/network-labs-microvm-evidence/own-kernel NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm_switch_vlans tests.test_native_microvm_switch_live tests.test_native_microvm_layer3_switch tests.test_native_microvm_etherchannel tests.test_native_microvm_hsrp tests.test_native_microvm_router_on_a_stick tests.test_native_microvm tests.test_native_microvm_multinic tests.test_native_microvm_router tests.test_native_microvm_firewall tests.test_native_microvm_switch tests.test_native_microvm_router_quad tests.test_native_microvm_firewall_nat tests.test_native_microvm_dhcp tests.test_native_microvm_scenarios -v
       - name: Report what the guest kernel supports
         if: always()
         run: |
@@ -126,6 +126,35 @@ jobs:
         env:
           NETWORK_LABS_GUEST_BUSYBOX: /bin/busybox
         run: python3 -m unittest tests.test_guest_image tests.test_guest_control tests.test_guest_startup tests.test_microvm_foundation -v
+  lint-and-fuzz:
+    # pyflakes over the whole tree, then the guest agent under libFuzzer with ASan and UBSan (tests/fuzz).
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: |
+          python3 -m venv /tmp/lint && /tmp/lint/bin/pip install --quiet pyflakes==4.1.0
+          /tmp/lint/bin/pyflakes network_labs tests tools
+      - name: Install clang and its fuzzer runtime
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh clang libclang-rt-18-dev
+      - name: Fuzz the guest agent for two minutes
+        run: sudo env NETWORK_LABS_FUZZ_SECONDS=120 python3 -m unittest tests.test_agent_fuzz -v
+  device-pages:
+    # Every device model's page in Chromium: no script error, typed text shown as text; and the products' own forms.
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the desktop and Playwright
+        run: |
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh python3-tk xvfb
+          npm install --global playwright@1.63.0
+          npx --yes playwright@1.63.0 install --with-deps chromium
+      - name: Open every page
+        run: NODE_PATH="$(npm root --global)" PYTHONPATH=tests xvfb-run -a python3 -m unittest tests.test_page_smoke tests.test_product_pages tests.test_workbench_polish -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04
@@ -265,7 +294,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated OSPFv3 failover prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump bird2 dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump bird2 dnsmasq
       - name: Verify costed DNS paths, carrier-up loss, failover, total withdrawal and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_ospfv3_failover_integration.py -v
   ipv6-dns-ospfv3-interop:
@@ -275,7 +304,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated dynamic IPv6 DNS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump bird2 dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump bird2 dnsmasq
       - name: Verify OSPFv3 DNS wire, independent service and route loss, reconvergence and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_ospfv3_integration.py -v
   syslog-recover-interop:
@@ -285,7 +314,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated sender recovery prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
       - name: Verify public recovery, live and ambiguous PID refusal, drift and real queued TCP/TLS replay
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_recover_integration.py -v
   syslog-disk-queue-interop:
@@ -295,7 +324,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated TCP and TLS spool prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
       - name: Verify queued markers across sender SIGKILL, TCP/TLS wire, drift and cold restore boundary
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_disk_queue_integration.py -v
   syslog-tls-lifecycle-interop:
@@ -305,7 +334,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated mutual TLS lifecycle prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux rsyslog rsyslog-gnutls openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux rsyslog rsyslog-gnutls openssl
       - name: Verify offline pair rejection, rekey, CA change, distinct issuers, restore and rollback
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_lifecycle_integration.py -v
   https-identity-lifecycle-interop:
@@ -315,7 +344,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated HTTPS identity lifecycle prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nginx-core openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nginx-core openssl
       - name: Verify offline identity rejection, leaf and CA replacement, rollback and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_https_identity_lifecycle_integration.py -v
   ipv6-dns-tftp-interop:
@@ -325,7 +354,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 DNS and TFTP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq
       - name: Verify separate DNS and TFTP, tagged paths, independent outages and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_tftp_integration.py -v
   ipv6-tftp-subinterfaces-interop:
@@ -345,7 +374,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 NTP hierarchy prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump chrony
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump chrony
       - name: Verify managed source, relay, client ACLs, fresh-source outage and restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_ntp_relay_integration.py -v
   ipv6-ntp-interop:
@@ -355,7 +384,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 chronyd prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump chrony
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump chrony
       - name: Verify clockless IPv6 local reference, client ACL, observations, outages and restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_ntp_integration.py -v
   ntp-ipv4-interop:
@@ -365,7 +394,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv4 NTP regression prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux chrony
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux chrony
       - name: Retain real IPv4 local reference, relay and client behavior
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 PYTHONPATH=tests /usr/bin/python3 -m unittest test_native_integration.RealContainerTests.test_ntp_local_reference_relay_and_client_with_real_chronyd -v
   ipv6-tftp-interop:
@@ -375,7 +404,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 TFTP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq
       - name: Verify IPv6 binary reads, negotiation, routed outages, drift and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_tftp_integration.py -v
   ipv6-input-firewall-interop:
@@ -385,7 +414,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 local input prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables tcpdump dnsmasq
       - name: Verify local input allowance, denial, state, NDP, forwarding isolation and restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_input_firewall_integration.py -v
   ipv6-dns-firewall-interop:
@@ -395,7 +424,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DNS and IPv6 firewall prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables conntrack tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables conntrack tcpdump dnsmasq
       - name: Verify DNS wire, stateful returns, default denial, stateless control and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_firewall_integration.py -v
   ipv6-dns-subinterfaces-interop:
@@ -405,7 +434,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 DNS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq
       - name: Verify IPv6-only DNS across static tagged routing, outages, drift and restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_dns_subinterfaces_integration.py -v
   dot1x-wired-interop:
@@ -415,7 +444,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated wired admission prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump freeradius wpasupplicant
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables tcpdump freeradius wpasupplicant
       - name: Verify owned wired peer lifecycle, private handoff, repeated authentication and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dot1x_supplicant_integration.py -v
       - name: Verify real wpa_supplicant, EAPOL/RADIUS, controlled data path and finite kernel revocation
@@ -427,7 +456,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated EAP-MD5 prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius
       - name: Verify real FreeRADIUS EAP-MD5 challenge, State, proof, assets and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_eap_md5_integration.py -v
   telnet-radius-journal-interop:
@@ -437,7 +466,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated Telnet orphan recovery prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius gcc libc6-dev
       - name: Verify actual Telnet worker SIGKILL, guarded cleanup, silent Stop handoff and stale runtime refusal
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_journal.py -v
   telnet-radius-shell-interop:
@@ -447,7 +476,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated Telnet session prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables freeradius gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables freeradius gcc libc6-dev
       - name: Verify real Telnet PTY, Start receipt gate, cleanup, Stop journal and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_shell.py -v
   telnet-radius-interop:
@@ -457,7 +486,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated Telnet RADIUS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius gcc libc6-dev
       - name: Verify actual Telnet diagnostics, pre-auth privilege drop, role denials and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_telnet_radius_integration.py -v
   radius-roles-interop:
@@ -467,7 +496,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated role authorization prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius dropbear-bin openssh-client gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius dropbear-bin openssh-client gcc libc6-dev
       - name: Verify CLI and SSH role grants, silent denials, accounting and cold policy changes
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_roles_integration.py -v
   ssh-radius-journal-interop:
@@ -477,7 +506,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated SSH journal prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius dropbear-bin openssh-client gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius dropbear-bin openssh-client gcc libc6-dev
       - name: Verify real SSH worker SIGKILL, guarded Stop recovery and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_journal.py -v
   radius-journal-interop:
@@ -487,7 +516,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated orphan session prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump freeradius
       - name: Verify actual killed supervisor, guarded cleanup, Stop handoff and stale runtime refusal
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_journal_integration.py -v
   radius-outbox-interop:
@@ -497,7 +526,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated durable Stop prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables tcpdump freeradius
       - name: Verify real Stop persistence, policy pinning, failed replay and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_outbox_integration.py -v
   radius-accounting-retry-interop:
@@ -507,7 +536,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated accounting retry prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux nftables tcpdump freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux nftables tcpdump freeradius
       - name: Verify real accounting response loss, start gate, stop uncertainty and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_radius_accounting_retry_integration.py -v
   ipv6-service-probe-interop:
@@ -517,7 +546,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 probe prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq-base openssl
       - name: Verify real IPv6 DNS probes, TCP, HTTP, TLS, SNTP and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_service_probe_ipv6_integration.py -v
   dual-stack-services-interop:
@@ -527,7 +556,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DNS and AAA coexistence prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base dropbear-bin openssh-client freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq-base dropbear-bin openssh-client freeradius
       - name: Verify real DNS and AAA, independent outages, route isolation and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_services_integration.py -v
   dual-stack-radius-interop:
@@ -537,7 +566,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated dual-stack SSH and RADIUS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dropbear-bin openssh-client freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dropbear-bin openssh-client freeradius
       - name: Verify real SSH over both families, RADIUS fail-closed policy and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_radius_integration.py -v
   dual-stack-dns-interop:
@@ -547,7 +576,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated dual-stack DNS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
       - name: Verify routed A/AAAA over IPv4/IPv6 UDP/TCP, independent faults and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dual_stack_dns_integration.py -v
   tftp-blksize-interop:
@@ -557,7 +586,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated TFTP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
       - name: Verify real negotiated binary reads, hash mismatch, errors and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_tftp_blksize_integration.py -v
   dns-transport-interop:
@@ -567,7 +596,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DNS transport prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump dnsmasq-base
       - name: Verify real DNS TCP/UDP, matched truncation controls, framing failures and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dns_transport_integration.py -v
   https-server-interop:
@@ -577,7 +606,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated persistent HTTPS prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nginx-core openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nginx-core openssl
       - name: Verify persistent HTTPS trust and identity, methods, drift, outage and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_https_server_integration.py -v
   syslog-tls-interop:
@@ -587,7 +616,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated mutual TLS syslog prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump rsyslog rsyslog-gnutls openssl
       - name: Verify mutual names and trust, encrypted storage, rejection, retry, drift and cold restore
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tls_integration.py -v
   syslog-tcp-forward-interop:
@@ -597,7 +626,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated TCP syslog forwarding prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump rsyslog
       - name: Verify guest logger forwarding, suspended retry, volatile queues, drift and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_forward_integration.py -v
   syslog-tcp-interop:
@@ -607,7 +636,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated TCP syslog prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump rsyslog
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump rsyslog
       - name: Verify real framing, stored delivery, rejected sender, rotation, outage and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_syslog_tcp_integration.py -v
   lacp-strict-capability:
@@ -617,7 +646,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated strict-LACP prerequisites and iproute2 build tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump gcc make pkg-config bison flex libelf-dev libmnl-dev libcap-dev libbpf-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump gcc make pkg-config bison flex libelf-dev libmnl-dev libcap-dev libbpf-dev
       - name: Build pinned upstream iproute2 with native lacp_strict support
         run: |
           git init /tmp/network-labs-strict-iproute2
@@ -656,7 +685,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated control-loss/STP/LACP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Prepare bonding without host bonds and record kernel
         run: |
           sudo modprobe bonding max_bonds=0
@@ -671,7 +700,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated carrier/STP/LACP prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Prepare bonding without host bonds and record kernel
         run: |
           sudo modprobe bonding max_bonds=0
@@ -685,7 +714,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DHCPv6 and RA Guard prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
       - name: Verify local IA_NA and RA Guard wire evidence, renewal, outage, trust control and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_dhcpv6_integration.py -v
   ra-guard-interop:
@@ -694,7 +723,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated RA Guard prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nftables dnsmasq-base
       - name: Verify trusted SLAAC, untrusted RA variants, drift, saved restart and trust control
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ra_guard_integration.py -v
   ipv6-firewall-interop:
@@ -703,7 +732,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 firewall prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump nftables conntrack
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump nftables conntrack
       - name: Verify actual IPv6 allow/deny, conntrack, stateless controls, drift and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_firewall_integration.py -v
   ipv6-subinterfaces-interop:
@@ -712,7 +741,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 router-on-a-stick prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Verify actual dot1Q routing, static next hops, failure isolation and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_subinterfaces_integration.py -v
   dhcpv6-pd-interop:
@@ -721,7 +750,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DHCPv6 PD prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends kea-dhcp6-server dnsmasq-base crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev make git
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh kea-dhcp6-server dnsmasq-base crun iproute2 busybox-static util-linux tcpdump gcc libc6-dev make git
       - name: Build pinned PD-compatible BusyBox
         run: |
           git clone --depth 1 --branch 1_36_1 https://github.com/mirror/busybox.git /tmp/network-labs-pd-source
@@ -734,7 +763,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated DHCPv6 relay prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dnsmasq-base bird2 crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh dnsmasq-base bird2 crun iproute2 busybox-static util-linux tcpdump
       - name: Verify remote DHCPv6 allocation, relay/RA wire evidence, outages and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_dhcpv6_relay_integration.py -v
   ipv6-svi-interop:
@@ -743,7 +772,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 SVI prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Verify actual IPv6 SVI routing, trunk tags, drift refusal and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ipv6_svi_integration.py -v
   ospfv3-interop:
@@ -752,7 +781,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated IPv6 routing prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bird2 crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh bird2 crun iproute2 busybox-static util-linux tcpdump
       - name: Verify real physical/SVI OSPFv3, tagged transit pruning, kernel delivery and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ospfv3_integration.py -v
   switching-interop:
@@ -764,7 +793,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated switching prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends crun iproute2 busybox-static util-linux tcpdump
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh crun iproute2 busybox-static util-linux tcpdump
       - name: Prepare bonding without host bonds
         run: |
           uname -r
@@ -780,7 +809,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install isolated SSH prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dropbear-bin openssh-client crun iproute2 busybox-static util-linux
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh dropbear-bin openssh-client crun iproute2 busybox-static util-linux
       - name: Verify server-enforced SSH actions, bypass denials and saved restart
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_access.py -v
   radius-interop:
@@ -789,7 +818,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install independent RADIUS server
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux gcc libc6-dev
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh freeradius dropbear-bin openssh-client crun iproute2 busybox-static util-linux gcc libc6-dev
       - name: Verify accounting writer failures and concurrent appends
         run: /usr/bin/python3 -m unittest discover -s tests -p test_radius_accounting_writer.py -v
       - name: Verify real FreeRADIUS PAP decisions and listener cleanup
@@ -801,8 +830,8 @@ jobs:
       - name: Verify bounded RADIUS SSH shells, PTY, accounting and cleanup
         run: sudo env NETWORK_LABS_NATIVE_TESTS=1 /usr/bin/python3 -m unittest discover -s tests -p test_native_ssh_radius_shell.py -v
   added-lines:
-    # Review-friendliness of the lines a pull request adds. Warn-only until the
-    # micro-VM role work (PR #4) is merged; then drop --warn-only to make it blocking.
+    # Review-friendliness of the lines a pull request adds: no joined statements, no
+    # lines over 140 characters. Existing lines are never checked.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -810,7 +839,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check added Python lines
-        run: python3 tools/check_added_lines.py --warn-only "origin/${{ github.base_ref }}"
+        run: python3 tools/check_added_lines.py "origin/${{ github.base_ref }}"
   tests:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'dot1x' || inputs.suite == 'ipv6-dns' || inputs.suite == 'ipv6-dns-firewall' || inputs.suite == 'ipv6-input-firewall' || inputs.suite == 'dns-aaaa' || inputs.suite == 'ipv6-tftp' || inputs.suite == 'ipv6-tftp-subinterfaces' || inputs.suite == 'ipv6-ntp' || inputs.suite == 'ipv6-ntp-relay' || inputs.suite == 'ipv6-dns-tftp' || inputs.suite == 'https-identity-lifecycle' || inputs.suite == 'syslog-tls-lifecycle' || inputs.suite == 'syslog-disk-queue' || inputs.suite == 'syslog-recover' || inputs.suite == 'ipv6-dns-ospfv3' || inputs.suite == 'ipv6-dns-ospfv3-failover' || inputs.suite == 'lan-readiness-retry' || inputs.suite == 'ipv6-https' || inputs.suite == 'ipv6-https-firewall' || inputs.suite == 'ipv6-dns-https' || inputs.suite == 'ssh-host-key' || inputs.suite == 'ssh-radius-host-key' || inputs.suite == 'dual-stack-ssh-host-key' || inputs.suite == 'benchmark-kernel-peak'
     runs-on: ubuntu-24.04
@@ -854,7 +883,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native appliance prerequisites
-        run: sudo apt-get update && sudo apt-get install -y crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony freeradius
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh --with-recommends crun iproute2 busybox-static dnsmasq-base bird2 lldpd openvswitch-switch nftables conntrack tcpdump util-linux coreutils dropbear-bin openssh-client openssl rsyslog snmpd snmp snmptrapd chrony freeradius
       - name: Prepare Linux bonding without creating default host bonds
         run: |
           uname -r

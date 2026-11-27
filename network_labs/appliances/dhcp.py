@@ -1,5 +1,7 @@
 """BusyBox DHCP server/client inside OCI nodes, with a real DHCP event hook."""
+import copy
 import ipaddress
+import re
 from pathlib import Path
 
 from .lan import addresses
@@ -34,6 +36,44 @@ esac
 def pool_network(node):
     config = node['dhcp_server']
     return ipaddress.IPv4Network(config['network'], strict=True) if 'network' in config else ipaddress.IPv4Interface(addresses(node)[config['interface']]).network
+
+
+def pools(node):
+    """Every DHCP pool a node serves: node['dhcp_server'], then a micro-VM router's other pools (node['dhcp_extra']: one per
+    LAN or router-on-a-stick subinterface, as IOS's several « ip dhcp pool » blocks)."""
+    return [pool for pool in [node.get('dhcp_server'), *(node.get('dhcp_extra') or [])] if pool]
+
+
+def with_pool(node, pool):
+    """NODE seen as serving POOL alone (the helpers that read node['dhcp_server'] then answer for that pool)."""
+    return dict(node, dhcp_server=pool)
+
+
+def validate_extra(node):
+    """node['dhcp_extra']: a micro-VM's other pools, each checked as node['dhcp_server'] is, one pool per interface."""
+    extra = node.get('dhcp_extra')
+    if extra is None:
+        return
+    if not isinstance(extra, list) or len(extra) > 7:
+        raise ValueError('dhcp_extra: up to seven more DHCP pools.')
+    if not extra:
+        node.pop('dhcp_extra')
+        return
+    if node.get('runtime') != 'firecracker' or not node.get('dhcp_server'):
+        raise ValueError('Several DHCP pools: a micro-VM, with its first pool in dhcp_server.')
+    clean = []
+    for pool in extra:
+        temporary = copy.deepcopy(node)
+        temporary['dhcp_server'] = copy.deepcopy(pool)
+        validate_server(temporary)
+        clean.append(temporary['dhcp_server'])
+    node['dhcp_extra'] = clean
+    every = pools(node)
+    if len({p['interface'] for p in every}) != len(every):
+        raise ValueError('Several DHCP pools: one pool per interface (port or subinterface).')
+    names = [p.get('name', 'LAN') for p in every]
+    if len(set(names)) != len(names):
+        raise ValueError('Several DHCP pools: each pool has its own name.')
 
 
 def validate_reservations(node):
@@ -121,7 +161,13 @@ def validate_server(node):
     from .spec import keys, integer
     all_interfaces = addresses(node)
     server = node['dhcp_server']
-    keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network'), 'DHCP server')
+    keys(server, ('interface', 'start', 'end', 'router', 'dns', 'lease_seconds', 'reservations', 'network', 'name'), 'DHCP server')
+    if 'name' in server and not (isinstance(server['name'], str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,32}', server['name'])):
+        raise ValueError('DHCP pool name: 1..32 letters, digits, _ . or -.')
+    if 'network' in server and node.get('runtime') == 'firecracker' and node.get('role') == 'router':
+        # A relayed pool on a router guest is served where the relayed requests arrive: toward its network.
+        from .ios_relay import toward
+        server['interface'] = toward(node, server['network']) or server.get('interface')
     interface = server.get('interface')
     if interface not in all_interfaces or not all_interfaces[interface] or node['role'] == 'switch':
         raise ValueError('DHCP server requires a numbered interface on a host/router/firewall.')

@@ -22,7 +22,6 @@ def completed(value, code=0, error=''):
 def manager_for(spec=None):
     spec = spec or static_routing_lab('/rootfs')
     state = {'phase': 'running', 'revision': 9, 'spec': spec}
-    node = spec['nodes'][1]
     def ns(index, *args, **kwargs):
         assert index == 1 and kwargs == {'check': False, 'timeout': 3}
         if args[0] == 'sysctl':

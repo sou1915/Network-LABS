@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
-from network_labs.appliances.https_server import BASE,CA,CERT,KEY,BINARY,files,validate_node,identity_assets,install,policy,preflight,observe
+from network_labs.appliances.https_server import BASE, CA, CERT, KEY, BINARY, files, identity_assets, install, policy, preflight, observe
 from network_labs.appliances.spec import example,validate
 from network_labs.appliances.service_adapters import adapters
 from network_labs.appliances.runtime import RuntimeFailure,oci_config

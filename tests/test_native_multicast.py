@@ -1,7 +1,6 @@
 """Conservative multicast policy, drift and bounded actual-probe contracts."""
 import copy
 import unittest
-from unittest.mock import patch
 
 from network_labs.appliances.examples import multicast_lab
 from network_labs.appliances.ios import compile_config

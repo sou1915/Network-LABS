@@ -1,7 +1,6 @@
 """Functional probe and reproducible measurements of the optional prototype."""
 import hashlib
 from importlib.metadata import version
-import json
 from pathlib import Path
 import platform
 import sys

@@ -12,7 +12,7 @@ from pathlib import Path
 from contextlib import redirect_stdout,redirect_stderr
 from network_labs.appliances.__main__ import main
 from unittest.mock import Mock,patch
-from network_labs.appliances.radius_accounting_worker import account,accounting_request
+from network_labs.appliances.radius_accounting_worker import account
 from network_labs.appliances.radius_accounting import send
 from network_labs.appliances.examples import radius_lab
 from network_labs.appliances.spec import validate

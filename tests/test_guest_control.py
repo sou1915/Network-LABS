@@ -77,7 +77,7 @@ class GuestAgentTests(unittest.TestCase):
         self.assertEqual(Path('/proc/sys/net/ipv4/ip_forward').read_text(), before)
 
     def test_stdio_cannot_mutate_interfaces(self):
-        for data in (b'NL1 BRIDGE_ADD eth0\n', b'NL1 BRIDGE_ADD eth9\n', b'NL1 BRIDGE_ADD eth0 x\n', b'NL1 BRIDGE_PORTS x\n'):
+        for data in (b'NL1 BRIDGE_ADD eth0\n', b'NL1 BRIDGE_ADD eth16\n', b'NL1 BRIDGE_ADD eth0 x\n', b'NL1 BRIDGE_PORTS x\n'):
             self.assertEqual(self.invoke(data)[0], 2, data)
         for data in (b'NL1 LINK eth0 up\n', b'NL1 LINK eth0 down\n', b'NL1 ADDR_ADD 192.0.2.11/24\n', b'NL1 ADDR_DEL 192.0.2.11/24\n', b'NL1 ROUTE_ADD 198.51.100.0/24 192.0.2.20\n', b'NL1 ROUTE_DEL 198.51.100.0/24 192.0.2.20\n', b'NL1 LINK lo down\n', b'NL1 LINK eth0 down;id\n'):
             self.assertEqual(self.invoke(data)[0], 2)
@@ -180,7 +180,8 @@ class GuestTransportTests(unittest.TestCase):
         for operation, verb in [('route-add', 'IF_ROUTE_ADD'), ('route-delete', 'IF_ROUTE_DEL')]:
             result = self.exchange(b'NL1 0 0\n', operation=operation, arguments={'network': '203.0.113.0/24', 'gateway': '198.51.100.20', 'interface': 'eth1'}, wire=('NL1 ' + verb + ' eth1 203.0.113.0/24 198.51.100.20\n').encode())
             self.assertEqual(result['exit_code'], 0)
-        with self.assertRaises(ValueError): request('/missing', 'route-add', network='203.0.113.0/24', gateway='198.51.100.20', interface='eth4')
+        with self.assertRaises(ValueError):
+            request('/missing', 'route-add', network='203.0.113.0/24', gateway='198.51.100.20', interface='eth16')
         with self.assertRaises(ValueError): request('/missing', 'ping', destination='192.0.2.20', interface='eth1')
 
     def test_forwarding_wire_and_validation(self):
@@ -194,4 +195,5 @@ class GuestTransportTests(unittest.TestCase):
     def test_multinic_address_and_link_wire(self):
         for operation, arguments, wire in [('address-add', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_ADD eth1 198.51.100.10/24\n'), ('address-delete', {'interface':'eth1','cidr':'198.51.100.10/24'}, b'NL1 IF_DEL eth1 198.51.100.10/24\n'), ('link', {'interface':'eth1','state':'down'}, b'NL1 LINK eth1 down\n')]:
             self.assertEqual(self.exchange(b'NL1 0 0\n',operation=operation,arguments=arguments,wire=wire)['exit_code'],0)
-        with self.assertRaises(ValueError):request('/missing','address-add',interface='eth4',cidr='198.51.100.10/24')
+        with self.assertRaises(ValueError):
+            request('/missing','address-add',interface='eth16',cidr='198.51.100.10/24')

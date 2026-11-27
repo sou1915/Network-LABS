@@ -5,7 +5,7 @@ import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from network_labs.appliances.examples import syslog_tcp_lab, syslog_lab
+from network_labs.appliances.examples import syslog_tcp_lab
 from network_labs.appliances.spec import validate
 from network_labs.appliances.syslog_server import files, rootfs_assets
 from network_labs.appliances.syslog_send import send, frame

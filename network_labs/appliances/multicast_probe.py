@@ -4,12 +4,10 @@ import json
 import os
 import shutil
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-from pathlib import Path
 
 from .runtime import RuntimeFailure
 from .spec import integer, namespace

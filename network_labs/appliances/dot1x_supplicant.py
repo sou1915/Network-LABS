@@ -1,5 +1,8 @@
 """Opt-in owned wired peer service; the NAS still requires explicit finite auth."""
-import fcntl
+try:
+    import fcntl  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    fcntl = None
 import hashlib
 import json
 import os

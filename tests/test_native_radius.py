@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 import socket
 import struct
-import subprocess
 import sys
 import tempfile
 import threading

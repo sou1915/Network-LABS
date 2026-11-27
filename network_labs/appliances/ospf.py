@@ -35,12 +35,22 @@ def validate_ospf(node):
         return
     keys(policy, ('router_id', 'interfaces', 'hello', 'dead', 'process_id', 'networks'), 'OSPF')
     integer(policy.setdefault('process_id', 1), 1, 65535, 'OSPF process ID')
-    if node['runtime'] != 'oci' or not node['forwarding'] or not (node['role'] == 'router' or
+    guest = node['runtime'] == 'firecracker'
+    if guest:
+        # A micro-VM router runs BIRD in its guest (image built --with-routing); the agent writes its configuration.
+        if node['role'] != 'router':
+            raise ValueError('OSPF on a micro-VM requires role router.')
+        if node.get('gateway') or (node.get('guest_network') or {}).get('routes') or node.get('subinterfaces'):
+            raise ValueError('OSPF on a micro-VM router: no static or default routes and no subinterfaces; OSPF learns the routes.')
+        if any(port.get(key) is not None for port in (policy.get('interfaces') or {}).values() if isinstance(port, dict)
+               for key in ('hello', 'dead')):
+            raise ValueError('OSPF on a micro-VM router: hello and dead are set for the whole process, not per interface.')
+    elif node['runtime'] != 'oci' or not node['forwarding'] or not (node['role'] == 'router' or
             (node['role'] == 'switch' and node.get('switch_backend', 'linux') == 'linux' and node.get('svis'))):
         raise ValueError('OSPF requires a forwarding OCI router or Linux L3 switch with SVIs.')
-    if any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
-                                     'dhcp_server', 'dhcp_pools', 'dns_server', 'firewall',
-                                     'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')):
+    if not guest and any(node.get(key) for key in ('startup', 'routes', 'gateway', 'subinterfaces', 'port_channels', 'dhcp_clients',
+                                                   'dhcp_server', 'dhcp_pools', 'dns_server', 'firewall',
+                                                   'port_security', 'dhcp_snooping', 'arp_inspection', 'ip_source_guard', 'multicast')):
         raise ValueError('Initial OSPF profile excludes static/default routes, subinterfaces, bundles and other managed services.')
     integer(policy.setdefault('hello', 1), 1, 60, 'OSPF hello')
     integer(policy.setdefault('dead', 4), 2, 240, 'OSPF dead')
@@ -148,6 +158,14 @@ def config(node):
     return '\n'.join(lines + ['  };', '}']) + '\n'
 
 
+def guest_process(node):
+    """The typed OSPF process a micro-VM guest agent turns into the same BIRD configuration as config()."""
+    policy = node['ospf']
+    return {'router_id': policy['router_id'], 'hello': policy['hello'], 'dead': policy['dead'],
+            'interfaces': [{'port': name, 'cost': port['cost'], 'passive': port['passive'], 'type': port['network_type'],
+                            'priority': port['priority']} for name, port in enabled_interfaces(node).items()]}
+
+
 def prepare_files(bundle, node):
     if node.get('ospf') is not None:
         (Path(bundle) / 'files/bird.conf').write_text(config(node))
@@ -187,7 +205,7 @@ def start_one(manager, node):
 
 def start_servers(manager):
     for node in manager.state['spec']['nodes']:
-        if node.get('ospf') is not None:
+        if node.get('ospf') is not None and node['runtime'] == 'oci':  # a micro-VM router's guest starts its own BIRD
             start_one(manager, node)
 
 

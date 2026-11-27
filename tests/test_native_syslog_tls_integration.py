@@ -1,6 +1,5 @@
 """Real mutual-TLS rsyslog, explicit trust/name failures, retry and cold restore."""
 from concurrent.futures import ThreadPoolExecutor
-import copy
 import json
 import os
 from pathlib import Path
@@ -16,7 +15,7 @@ from network_labs.appliances.examples import syslog_tls_lab
 from network_labs.appliances.persistence import load_startup
 from network_labs.appliances.runtime import Manager,RuntimeFailure,run,static_busybox_rootfs
 from network_labs.appliances.syslog_server import LOG,start_server
-from network_labs.appliances.syslog_tls import CA,CERT,KEY
+from network_labs.appliances.syslog_tls import CA, KEY
 from test_native_integration import unexpected_host_link_changes
 
 PROBE='''import json,socket,ssl,sys

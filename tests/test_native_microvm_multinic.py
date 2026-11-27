@@ -36,8 +36,14 @@ class MultiNICGuestTests(unittest.TestCase):
                         results['addresses']=query(sockets['VM1'],'addresses')
                         fabric=json.loads(manager.ns(0,'ip','-j','link','show').stdout)
                         masters={item['ifname']:item.get('master') for item in fabric}
-                        self.assertEqual(masters['tap0'],'vmbr0');self.assertEqual(masters['tap1'],'vmbr1')
-                        self.assertEqual(masters['eth0'],'vmbr0');self.assertEqual(masters['eth1'],'vmbr1')
+                        # Each tap is joined to its cable by a tc redirect each way (every frame crosses, LACP included).
+                        for port in ('eth0','eth1'):
+                            tap='tap'+port[3:]
+                            self.assertIsNone(masters[tap])
+                            self.assertIsNone(masters[port])
+                            for here,there in ((tap,port),(port,tap)):
+                                shown=manager.ns(0,'tc','filter','show','dev',here,'ingress').stdout
+                                self.assertIn(f'Egress Redirect to device {there}',shown)
                         results['fabric']=masters
                         def probe(name,destination,expected):
                             result=request(sockets[name],'ping',destination=destination)

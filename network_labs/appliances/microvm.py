@@ -92,6 +92,48 @@ def switch_example(kernel, disk):
                      'links': [[['SW1', f'eth{i}'], [f'VM{i + 1}', 'eth0']] for i in range(3)]})
 
 
+def switch_vlan_example(kernel, disk):
+    """SW1 and SW2 joined by a trunk carrying VLANs 10 and 20; VM3 shares VM1's subnet but sits in VLAN 20.
+
+    VM1 (SW1, VLAN 10) reaches VM2 (SW1, VLAN 10) and VM4 (SW2, VLAN 10, across the trunk), but not
+    VM3 (SW1, VLAN 20) although all four use 192.0.2.0/24: only the VLAN separates them.
+    """
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()),
+            'memory_mib': 128, 'vcpus': 1}
+    access = lambda vid: {'mode': 'access', 'vlan': vid}
+    trunk = {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}
+    switches = [dict(base, name='SW1', role='switch', interfaces={f'eth{i}': '' for i in range(4)}, vlans=[1, 10, 20],
+                     switchports={'eth0': access(10), 'eth1': access(10), 'eth2': access(20), 'eth3': trunk}),
+                dict(base, name='SW2', role='switch', interfaces={'eth0': '', 'eth1': ''}, vlans=[1, 10, 20],
+                     switchports={'eth0': trunk, 'eth1': access(10)})]
+    hosts = [dict(base, name=f'VM{i}', role='host', interfaces={'eth0': f'192.0.2.{10 + i}/24'}) for i in range(1, 5)]
+    links = [[['SW1', 'eth0'], ['VM1', 'eth0']], [['SW1', 'eth1'], ['VM2', 'eth0']], [['SW1', 'eth2'], ['VM3', 'eth0']],
+             [['SW1', 'eth3'], ['SW2', 'eth0']], [['SW2', 'eth1'], ['VM4', 'eth0']]]
+    return validate({'version': 1, 'name': 'microvm-switch-vlans', 'budget_mib': 2048, 'reserve_mib': 512,
+                     'nodes': switches + hosts, 'links': links})
+
+
+def router_on_a_stick_example(kernel, disk):
+    """Inter-VLAN routing: R1 routes between VLAN 10 and VLAN 20 over one trunk port with two 802.1Q subinterfaces.
+
+    VM1 (VLAN 10, 192.0.2.0/24) and VM2 (VLAN 20, 198.51.100.0/24) hang off SW1 access ports; SW1's
+    trunk carries both VLANs tagged to R1's unnumbered eth0, which holds eth0.10 and eth0.20.
+    """
+    base = {'runtime': 'firecracker', 'kernel': str(Path(kernel).resolve()), 'disk': str(Path(disk).resolve()),
+            'memory_mib': 128, 'vcpus': 1}
+    switch = dict(base, name='SW1', role='switch', interfaces={'eth0': '', 'eth1': '', 'eth2': ''}, vlans=[1, 10, 20],
+                  switchports={'eth0': {'mode': 'access', 'vlan': 10}, 'eth1': {'mode': 'access', 'vlan': 20},
+                               'eth2': {'mode': 'trunk', 'native_vlan': 1, 'allowed': [10, 20]}})
+    router = dict(base, name='R1', role='router', interfaces={'eth0': ''},
+                  subinterfaces={'eth0.10': {'parent': 'eth0', 'vlan': 10, 'address': '192.0.2.1/24'},
+                                 'eth0.20': {'parent': 'eth0', 'vlan': 20, 'address': '198.51.100.1/24'}})
+    hosts = [dict(base, name='VM1', role='host', interfaces={'eth0': '192.0.2.10/24'}, gateway='192.0.2.1'),
+             dict(base, name='VM2', role='host', interfaces={'eth0': '198.51.100.10/24'}, gateway='198.51.100.1')]
+    links = [[['SW1', 'eth0'], ['VM1', 'eth0']], [['SW1', 'eth1'], ['VM2', 'eth0']], [['SW1', 'eth2'], ['R1', 'eth0']]]
+    return validate({'version': 1, 'name': 'microvm-router-on-a-stick', 'budget_mib': 2048, 'reserve_mib': 512,
+                     'nodes': [switch, router, *hosts], 'links': links})
+
+
 def firewall_example(kernel, disk):
     """FW1 lets the inside (VM2) ping out and keeps the outside (VM3) from starting anything inward."""
     spec = router_example(kernel, disk)
@@ -101,4 +143,46 @@ def firewall_example(kernel, disk):
         'rules': [{'name': 'inside-ping-out', 'in': 'eth0', 'out': 'eth1', 'source': '192.0.2.0/24', 'protocol': 'icmp', 'action': 'accept'}],
         'nat': []})
     spec['links'] = [[['FW1', 'eth0'], ['VM2', 'eth0']], [['FW1', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)
+
+
+def ospf_example(kernel, disk):
+    """VM2 - R1 - R2 - R3 - VM3: three router guests learn every network from each other with OSPF (BIRD in the guest).
+
+    No static route anywhere: the routers' guest images need BIRD (microvm-rootfs --with-routing).
+    """
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-ospf'
+    first, left, right = spec['nodes']
+    transit = {'eth0': {'cost': 10, 'passive': False}, 'eth1': {'cost': 10, 'passive': False}}
+    r1 = dict(first, name='R1', model='cisco-isr4331', interfaces={'eth0': '192.0.2.1/24', 'eth1': '203.0.113.1/30'},
+              ospf={'router_id': '1.1.1.1', 'interfaces': dict(transit, eth0={'cost': 10, 'passive': True})})
+    r2 = dict(first, name='R2', model='juniper-mx204', interfaces={'eth0': '203.0.113.2/30', 'eth1': '203.0.113.5/30'},
+              ospf={'router_id': '2.2.2.2', 'interfaces': transit})
+    r3 = dict(first, name='R3', model='huawei-ar6120', interfaces={'eth0': '203.0.113.6/30', 'eth1': '198.51.100.1/24'},
+              ospf={'router_id': '3.3.3.3', 'interfaces': dict(transit, eth1={'cost': 10, 'passive': True})})
+    spec['nodes'] = [r1, r2, r3, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['R3', 'eth0']],
+                     [['R3', 'eth1'], ['VM3', 'eth0']]]
+    return validate(spec)
+
+
+def bgp_example(kernel, disk):
+    """VM2 - R1 (AS 65001) - R2 (AS 65002) - R3 (AS 65003) - VM3: three router guests in three ASes exchange their LANs over
+    eBGP (FRR in the guest). No static route anywhere: the routers' guest images need FRR (microvm-rootfs --with-routing)."""
+    spec = router_example(kernel, disk)
+    spec['name'] = 'microvm-bgp'
+    first, left, right = spec['nodes']
+    r1 = dict(first, name='R1', model='cisco-isr4331', interfaces={'eth0': '192.0.2.1/24', 'eth1': '203.0.113.1/30'},
+              bgp={'asn': 65001, 'router_id': '1.1.1.1', 'neighbors': [{'address': '203.0.113.2', 'remote_as': 65002}],
+                   'networks': ['192.0.2.0/24']})
+    r2 = dict(first, name='R2', model='juniper-mx204', interfaces={'eth0': '203.0.113.2/30', 'eth1': '203.0.113.5/30'},
+              bgp={'asn': 65002, 'router_id': '2.2.2.2', 'networks': [],
+                   'neighbors': [{'address': '203.0.113.1', 'remote_as': 65001}, {'address': '203.0.113.6', 'remote_as': 65003}]})
+    r3 = dict(first, name='R3', model='huawei-ar6120', interfaces={'eth0': '203.0.113.6/30', 'eth1': '198.51.100.1/24'},
+              bgp={'asn': 65003, 'router_id': '3.3.3.3', 'neighbors': [{'address': '203.0.113.5', 'remote_as': 65002}],
+                   'networks': ['198.51.100.0/24']})
+    spec['nodes'] = [r1, r2, r3, left, right]
+    spec['links'] = [[['R1', 'eth0'], ['VM2', 'eth0']], [['R1', 'eth1'], ['R2', 'eth0']], [['R2', 'eth1'], ['R3', 'eth0']],
+                     [['R3', 'eth1'], ['VM3', 'eth0']]]
     return validate(spec)

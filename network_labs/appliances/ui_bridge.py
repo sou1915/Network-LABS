@@ -1,4 +1,5 @@
 """Typed terminal/sudo handoff. Only the unprivileged client writes GUI results."""
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -8,9 +9,10 @@ import sys
 import tempfile
 from .spec import identifier,load
 
-ACTIONS=('start','status','stop','inspect','verify')
+ACTIONS=('start','status','stop','inspect','verify','firewall','routing','show','ping','mission','trace','consoles')
 SOURCE=Path(__file__).resolve().parents[2]
 BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances.ui_bridge",run_name="__main__")'
+CLI_BOOTSTRAP='import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("network_labs.appliances",run_name="__main__")'
 
 
 def private_json(path,value):
@@ -23,8 +25,8 @@ def private_json(path,value):
 
 
 def public_topology(spec):
-    return {'name':spec['name'],'nodes':[{k:node[k] for k in ('name','role','runtime','interfaces')} for node in spec['nodes']],
-            'links':spec['links']}
+    nodes=[{k:node[k] for k in ('name','role','runtime','interfaces','model') if k in node} for node in spec['nodes']]
+    return {'name':spec['name'],'nodes':nodes,'links':spec['links']}
 
 
 def observed_states(status):
@@ -43,10 +45,15 @@ def observed_states(status):
 def validate_topology(graph):
     if not isinstance(graph,dict) or set(graph)!={'name','nodes','links'}:raise ValueError('Invalid native topology.')
     identifier(graph['name'])
-    if not isinstance(graph['nodes'],list) or not 1<=len(graph['nodes'])<=256:raise ValueError('Invalid topology nodes.')
+    if not isinstance(graph['nodes'],list) or len(graph['nodes'])>256:
+        raise ValueError('Invalid topology nodes.')
     nodes={}
     for node in graph['nodes']:
-        if not isinstance(node,dict) or set(node)!={'name','role','runtime','interfaces'}:raise ValueError('Invalid topology node.')
+        required,allowed={'name','role','runtime','interfaces'},{'name','role','runtime','interfaces','model'}
+        if not isinstance(node,dict) or not required<=set(node)<=allowed:
+            raise ValueError('Invalid topology node.')
+        if 'model' in node and not isinstance(node['model'],str):
+            raise ValueError('Invalid topology model.')
         name=identifier(node['name'])
         if name in nodes or node['runtime'] not in ('oci','firecracker') or node['role'] not in ('host','switch','router','firewall'):
             raise ValueError('Invalid topology identity.')
@@ -67,17 +74,55 @@ def backend(action,target,node=None,destination=None):
     from .runtime import Manager
     from .radius_server import redact
     if action not in ACTIONS:raise ValueError('Unknown native GUI operation.')
-    if action in ('inspect','verify'):identifier(node)
-    elif node is not None:raise ValueError('Unexpected node argument.')
-    if action=='verify':identifier(destination)
-    elif destination is not None:raise ValueError('Unexpected destination argument.')
-    spec=load(target) if action=='start' else None
+    if action in ('inspect','verify','firewall','routing','show','ping','mission','trace'):
+        identifier(node)
+    elif node is not None:
+        raise ValueError('Unexpected node argument.')
+    if action=='verify':
+        identifier(destination)
+    elif action in ('ping','trace'):
+        ipaddress.IPv4Address(destination)
+    elif action=='mission' and destination is not None:
+        from .missions import decode_probes
+        decode_probes(destination)  # a generated scenario's own pings
+    elif destination is not None:
+        raise ValueError('Unexpected destination argument.')
+    spec=load(target) if action in ('start','firewall','routing') else None
     lab=spec['name'] if spec else identifier(target)
+    if action=='trace':
+        # Recording must not hold the lab lock: each capture takes it only while it starts.
+        from .packet_trace import trace
+        data=trace(lab,node,destination)
+        with Manager(lab).locked() as manager:
+            topology=public_topology(manager.read()['spec'])
+        return {'ok':True,'action':action,'lab':lab,'topology':topology,'data':redact(data)}
     with Manager(lab).locked() as manager:
         if action=='start':manager.start(spec)
+        if action=='firewall':
+            # The saved project's policy for that node replaces the running one (rollback on failure).
+            declared=next((n for n in spec['nodes'] if n['name']==node and n.get('firewall') is not None),None)
+            if declared is None:
+                raise ValueError('The saved project has no firewall policy for this node.')
+            firewall_result=manager.configure_firewall(node,declared['firewall'])
         topology=public_topology(manager.read()['spec'])
         if action=='stop':manager.stop();data={'stopped':lab}
         elif action=='inspect':data=manager.inspect(node)
+        elif action=='show':
+            data=manager.observe_node(node)
+        elif action=='ping':
+            data=manager.ping_node(node,destination)
+        elif action=='mission':
+            # NODE carries the mission id: its pings run from the running guests of this lab.
+            from .missions import run_real
+            data=run_real(manager,node,destination)
+        elif action=='firewall':
+            data=firewall_result
+        elif action=='routing':
+            # The saved project's node: its static routes, gateway and OSPF replace the running ones (rollback on failure).
+            declared=next((n for n in spec['nodes'] if n['name']==node),None)
+            if declared is None:
+                raise ValueError('The saved project has no such node.')
+            data=manager.configure_routing(node,declared)
         elif action=='verify':
             from .verify import verify
             data=verify(manager,node,destination,count=2,bidirectional=True)
@@ -94,13 +139,25 @@ def validate_request(request):
     if action not in ACTIONS:raise ValueError('Unknown GUI operation.')
     target=request['target']
     if not isinstance(target,str) or '\0' in target or len(target)>4096:raise ValueError('Invalid operation target.')
-    if action=='start':
-        if not Path(target).is_absolute():raise ValueError('Start requires an absolute manifest snapshot.')
+    if action in ('start','firewall','routing'):
+        if not Path(target).is_absolute():
+            raise ValueError('Start and firewall require an absolute manifest snapshot.')
     elif target!=request['lab']:raise ValueError('Operation lab differs.')
-    if action in ('inspect','verify'):identifier(request['node'])
-    elif request['node'] is not None:raise ValueError('Unexpected node argument.')
-    if action=='verify':identifier(request['destination'])
-    elif request['destination'] is not None:raise ValueError('Unexpected destination argument.')
+    if action in ('inspect','verify','firewall','routing','show','ping','mission','trace'):
+        identifier(request['node'])
+    elif request['node'] is not None:
+        raise ValueError('Unexpected node argument.')
+    if action=='verify':
+        identifier(request['destination'])
+    elif action in ('ping','trace'):
+        if not isinstance(request['destination'],str):
+            raise ValueError('Ping requires an IPv4 destination.')
+        ipaddress.IPv4Address(request['destination'])
+    elif action=='mission' and request['destination'] is not None:
+        from .missions import decode_probes
+        decode_probes(request['destination'])
+    elif request['destination'] is not None:
+        raise ValueError('Unexpected destination argument.')
     return request
 
 
@@ -114,7 +171,9 @@ def execute_request(request):
     # a widget, result file, pipe capture, argv or application log.
     auth=subprocess.run(['sudo','-v'])
     if auth.returncode:return {'ok':False,'error':'Authentification sudo annulée ou refusée.'}
-    args=['sudo','-n',sys.executable,'-I','-c',BOOTSTRAP,str(SOURCE),'--backend',request['action'],request['target']]
+    # « consoles » re-activates the in-app terminals of a running lab: the status of the lab, then the server.
+    action='status' if request['action']=='consoles' else request['action']
+    args=['sudo','-n',sys.executable,'-I','-c',BOOTSTRAP,str(SOURCE),'--backend',action,request['target']]
     if request['node'] is not None:args.append(request['node'])
     if request['destination'] is not None:args.append(request['destination'])
     result=subprocess.run(args,stdin=subprocess.DEVNULL,capture_output=True,text=True)
@@ -122,14 +181,36 @@ def execute_request(request):
         if len(result.stdout)>8*1024*1024:raise ValueError('Response budget exceeded.')
         payload=json.loads(result.stdout)
         if not isinstance(payload,dict) or type(payload.get('ok')) is not bool:raise ValueError('Invalid response.')
-        if payload['ok'] and (result.returncode or payload.get('action')!=request['action'] or payload.get('lab')!=request['lab']):
+        if payload['ok'] and (result.returncode or payload.get('action')!=action or payload.get('lab')!=request['lab']):
             raise ValueError('Response context differs.')
         if payload['ok']:
             validate_topology(payload.get('topology'))
             if payload['topology']['name']!=request['lab'] or not isinstance(payload.get('data'),dict):raise ValueError('Invalid backend data.')
+            payload['action']=request['action']
+            if request['action'] in ('start','status','consoles'):
+                payload['consoles']=start_consoles(request['lab'])
         return payload
     except (ValueError,TypeError):
         return {'ok':False,'uncertain':True,'error':'Résultat backend non confirmé ; actualiser l’état réel.'}
+
+
+def start_consoles(lab):
+    """The lab's console server, started in the background with the sudo just given (the in-app terminals need no
+    other password). Already running: nothing to do. Returns whether the terminals are available."""
+    from .console_server import available
+    if available(lab):
+        return True
+    command=['sudo','-n',sys.executable,'-I','-c',CLI_BOOTSTRAP,str(SOURCE),'console-server',lab,str(os.getuid())]
+    try:
+        subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    except OSError:
+        return False
+    import time
+    for _ in range(30):
+        if available(lab):
+            return True
+        time.sleep(.2)
+    return False
 
 
 def read_result(path,request):

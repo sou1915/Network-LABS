@@ -3,7 +3,7 @@ import copy
 from .spec import validate
 
 
-def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
+def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None,model=None):
     draft=copy.deepcopy(spec)
     if role not in ('host','switch','router','firewall'):
         raise ValueError('Création graphique : poste Linux, switch ou routeur OCI.')
@@ -11,11 +11,18 @@ def add_node(spec, *, name, role, rootfs, ports=1, address='',firewall=None):
         raise ValueError('Choisir entre 1 et 16 interfaces.')
     draft['nodes'].append({'name':name,'role':role,'runtime':'oci','rootfs':rootfs,
                            'interfaces':{f'eth{i}':address if i==0 else '' for i in range(ports)}})
-    if firewall is not None:draft['nodes'][-1]['firewall']=copy.deepcopy(firewall)
+    if firewall is not None:
+        draft['nodes'][-1]['firewall']=copy.deepcopy(firewall)
+    if model:
+        # A vendor model: its port names become aliases of the container's eth ports (gi1/0/1 -> eth0, ...).
+        from .native_models import aliases
+        node=draft['nodes'][-1]
+        node['model']=model
+        node['interface_aliases']=aliases(model,list(node['interfaces']))
     return validate(draft)
 
 
-def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', memory_mib=128, vcpus=1):
+def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', memory_mib=128, vcpus=1, model=None):
     """Add a Firecracker node to a draft.
 
     addresses: one IPv4/prefix per port, comma-separated; "dhcp" for a one-port host that
@@ -23,8 +30,9 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
     """
     if role not in ('host', 'switch', 'router', 'firewall'):
         raise ValueError('Micro-VM : poste, switch, routeur ou pare-feu.')
-    if type(ports) is not int or not 1 <= ports <= 4:
-        raise ValueError('Une micro-VM a de 1 à 4 interfaces (eth0..eth3).')
+    from .native_models import MICROVM_PORTS
+    if type(ports) is not int or not 1 <= ports <= MICROVM_PORTS:
+        raise ValueError(f'Une micro-VM a de 1 à {MICROVM_PORTS} interfaces (eth0..eth{MICROVM_PORTS - 1}).')
     node = {'name': name, 'role': role, 'runtime': 'firecracker', 'kernel': kernel, 'disk': disk,
             'memory_mib': memory_mib, 'vcpus': vcpus}
     text = addresses.strip()
@@ -34,13 +42,18 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
         if role != 'host' or ports != 1:
             raise ValueError('DHCP : uniquement pour un poste à une interface.')
         node.update(interfaces={'eth0': ''}, dhcp_clients=['eth0'])
+    elif not text:
+        node['interfaces'] = {f'eth{i}': '' for i in range(ports)}  # unconfigured, as a new device: set from its terminal
     else:
-        values = [value.strip() for value in text.split(',')] if text else []
-        if len(values) != ports or not all(values):
-            raise ValueError(f'Donner une adresse IPv4/préfixe par interface ({ports}), séparées par des virgules, ou « dhcp ».')
+        values = [value.strip() for value in text.split(',')]
+        if len(values) != ports:
+            raise ValueError(f'Donner une adresse IPv4/préfixe par interface ({ports}) ou rien, séparées par des virgules, '
+                             'ou « dhcp ».')
         node['interfaces'] = {f'eth{i}': value for i, value in enumerate(values)}
     if role == 'firewall':
         node['firewall'] = {'default': 'drop', 'stateful': True, 'rules': [], 'nat': []}
+    if model:
+        node['model'] = model  # Micro-VM ports keep their eth names: guests take no interface aliases.
     draft = copy.deepcopy(spec)
     draft['nodes'].append(node)
     return validate(draft)
@@ -49,7 +62,8 @@ def add_microvm_node(spec, *, name, role, kernel, disk, ports=1, addresses='', m
 def connect(spec, a, b):
     draft=copy.deepcopy(spec)
     draft['links'].append([list(a),list(b)])
-    return validate(draft)
+    from .spanning_tree import close_loops
+    return validate(close_loops(draft))  # a cable that closes a switch loop turns STP on, as on a Catalyst
 
 
 def disconnect(spec, a, b):
@@ -93,7 +107,11 @@ def configure_node(spec,name,*,new_name,port,address,gateway,enabled):
     """Edit one physical port and basic identity without guessing advanced refs."""
     draft=copy.deepcopy(spec)
     node=next((n for n in draft['nodes'] if n['name']==name),None)
-    if node is None or node['runtime']!='oci':raise ValueError('Configuration de base : équipement OCI existant requis.')
+    if node is None:
+        raise ValueError('Configuration de base : équipement existant requis.')
+    guest=node['runtime']=='firecracker'
+    if guest and not enabled:
+        raise ValueError('MicroVM : un port ne peut pas être désactivé dans le brouillon ; débrancher le câble.')
     if port not in node['interfaces']:raise ValueError('Choisir une interface physique existante.')
     if not all(isinstance(v,str) for v in (new_name,address,gateway)) or type(enabled) is not bool:
         raise ValueError('Nom, IPv4 et passerelle textuels ; état du port booléen requis.')
@@ -111,7 +129,9 @@ def configure_node(spec,name,*,new_name,port,address,gateway,enabled):
     node['interfaces'][port]=address
     if gateway:node['gateway']=gateway
     else:node.pop('gateway',None)
-    shutdown=[p for p in node.get('shutdown',[]) if p!=port]
-    if not enabled:shutdown.append(port)
-    node['shutdown']=shutdown
+    if not guest:
+        shutdown=[p for p in node.get('shutdown',[]) if p!=port]
+        if not enabled:
+            shutdown.append(port)
+        node['shutdown']=shutdown
     return validate(draft)

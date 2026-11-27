@@ -1,6 +1,5 @@
 """Static admission must reject incomplete policies and preserve real evidence."""
 import copy
-import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from network_labs.appliances.diagnostics import explain_node
-from network_labs.appliances.examples import campus, lacp_lab, port_security_lab
+from network_labs.appliances.examples import lacp_lab, port_security_lab
 from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.ios import compile_config
 from network_labs.appliances.lan import configure

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-labs"
+version = "0.1.0"
+description = "Teaching network lab for Linux: every device is a real Firecracker micro-VM with its vendor's CLI and web pages."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+requires-python = ">=3.12"
+# Standard library only. Tkinter comes from the system (Ubuntu: python3-tk). Real labs also need Linux with KVM,
+# Firecracker and the guest kernel: `network-labs-lab setup --download` checks and fetches them.
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications",
+    "Intended Audience :: Education",
+    "Natural Language :: French",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Education",
+    "Topic :: System :: Networking",
+]
+
+[project.optional-dependencies]
+# Only for the maintainers' tools (tools/*.py rebuild bundled pictures and icons) and the lint step.
+dev = ["pillow", "pyflakes"]
+
+[project.scripts]
+network-labs = "network_labs.__main__:main"
+network-labs-lab = "network_labs.appliances.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/sou1915/Network-LABS"
+
+[tool.setuptools.packages.find]
+include = ["network_labs*"]
+
+[tool.setuptools.package-data]
+network_labs = ["*.js", "*.html", "*.css"]
+"network_labs.appliances" = ["assets/**/*", "guest/*.c", "*.c"]
+"network_labs.appliances.openconfig" = ["*.json"]
+"network_labs.micro_appliances" = ["*.json", "*.wasm", "*.wasm.sha256"]

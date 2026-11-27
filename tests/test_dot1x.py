@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 from network_labs.appliances.examples import dot1x_lab
 from network_labs.appliances.dot1x import TABLE, gate_snapshot, render, stop
 from network_labs.appliances.dot1x_worker import current, envelope, serve, gate, admission_policy
-from network_labs.appliances.firewall import fingerprint
 from network_labs.appliances.lan import configure
 from network_labs.appliances.spec import validate
 from network_labs.appliances.runtime import Manager, RuntimeFailure

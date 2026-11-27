@@ -1,6 +1,5 @@
 """Persist declared startup configuration only after checking managed kernel state."""
 import ipaddress
-from pathlib import Path
 
 from .lan import addresses, memberships
 from .spec import identifier, load

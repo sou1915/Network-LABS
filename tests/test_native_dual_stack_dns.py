@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from contextlib import redirect_stdout,redirect_stderr
 from unittest.mock import Mock,patch
-from network_labs.appliances.examples import dual_stack_dns_lab,dns_lab,slaac_lab
+from network_labs.appliances.examples import dual_stack_dns_lab, dns_lab
 from network_labs.appliances.spec import validate
 from network_labs.appliances.dns import server_config,start_servers
 from network_labs.appliances.__main__ import main

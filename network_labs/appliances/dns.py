@@ -46,7 +46,10 @@ def validate_dns(node):
         raise ValueError('IPv6 resolvers require a statically numbered single-interface OCI IPv6 host.')
     if len(set(node['resolvers'])) != len(resolvers):
         raise ValueError('Duplicate DNS resolver.')
-    if resolvers and (node['runtime'] != 'oci' or node.get('dhcp_clients') or node['role'] == 'switch' or node.get('startup')):
+    if resolvers and node['runtime'] == 'firecracker':  # a micro-VM PC's or server's DNS server (guest_services asks it)
+        if node['role'] != 'host' or any(':' in value for value in node['resolvers']):
+            raise ValueError('Micro-VM resolvers: IPv4 DNS servers of a PC or a server.')
+    elif resolvers and (node['runtime'] != 'oci' or node.get('dhcp_clients') or node['role'] == 'switch' or node.get('startup')):
         raise ValueError('Static resolvers require an OCI endpoint without DHCP clients or untracked startup; DHCP owns its own resolver file.')
     policy = node.setdefault('dns_server', None)
     if policy is None:

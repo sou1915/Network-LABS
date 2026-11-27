@@ -1,7 +1,9 @@
-"""Single common spanning tree, driven by the Linux IEEE 802.1D engine.
+"""Single common spanning tree, driven by the Linux IEEE 802.1D engine (in the container's namespace, or in a switch
+micro-VM's own kernel: guest_stp).
 
 RSTP is accepted only for the explicit OVS backend. Kernel stp_state=1
-remains classic STP. Never infer a tree from the topology.
+remains classic STP. Never infer a running tree from the topology (a stopped lab's « show spanning-tree » is a
+prediction from the cables: guest_stp.from_model).
 """
 import copy
 import json
@@ -11,7 +13,7 @@ import re
 from .spec import integer, keys
 
 TIMERS = ('hello_time', 'max_age', 'forward_delay')
-TICKS = os.sysconf('SC_CLK_TCK')
+TICKS = os.sysconf('SC_CLK_TCK') if hasattr(os, 'sysconf') else 100  # Linux USER_HZ; none on Windows
 
 
 def validate_tree(node):
@@ -36,8 +38,11 @@ def validate_tree(node):
     ports = policy.setdefault('ports', {})
     if not isinstance(ports, dict) or set(ports) - set(node['switchports']):
         raise ValueError('STP ports must be effective bridge ports, not physical bond members.')
-    if (mode != 'off' or ports) and (node['role'] != 'switch' or node['runtime'] != 'oci'):
-        raise ValueError('Spanning tree requires OCI switch nodes.')
+    guest = node['runtime'] == 'firecracker' and node['role'] == 'switch'
+    if (mode != 'off' or ports) and (node['role'] != 'switch' or (node['runtime'] != 'oci' and not guest)):
+        raise ValueError('Spanning tree requires switch nodes.')
+    if guest and mode == 'rstp':
+        raise ValueError('Switch micro-VM: classic STP (the guest kernel\'s 802.1D); RSTP needs the OVS backend of container switches.')
     if mode == 'off' and ports:
         raise ValueError('STP port parameters require enabled STP.')
     if mode in ('stp', 'rstp'):
@@ -52,6 +57,103 @@ def validate_tree(node):
             value = integer(port.setdefault('priority', 128), 0, 240, 'STP port priority')
             if value % 16:
                 raise ValueError('STP port priority must be a multiple of 16.')
+
+
+LAB_TIMERS = {'hello_time': 2, 'max_age': 6, 'forward_delay': 4}  # 8 s to forwarding instead of IOS's 30
+
+
+def close_loops(spec):
+    """Switch micro-VMs joined in a loop get classic STP, as a Catalyst runs it by default: what a cable that closes a
+    loop needs (validate_components refuses a loop without STP). Lab timers, so ports forward after 8 s."""
+    switches = {n['name']: n for n in spec['nodes'] if n.get('role') == 'switch'}
+    adjacency = {name: [] for name in switches}
+    for (a, _), (b, _) in spec.get('links', []):
+        if a in switches and b in switches:
+            adjacency[a].append(b)
+            adjacency[b].append(a)
+    seen = set()
+    for start in switches:
+        if start in seen:
+            continue
+        component, pending = set(), [start]
+        while pending:
+            item = pending.pop()
+            if item not in component:
+                component.add(item)
+                pending.extend(adjacency[item])
+        seen |= component
+        links = sum(len(adjacency[n]) for n in component) // 2
+        if links >= len(component) and all(switches[n].get('runtime') == 'firecracker' for n in component):
+            for name in component:
+                turn_on(switches[name])
+    return spec
+
+
+def turn_on(node):
+    """A switch micro-VM's STP policy, turned on as a Catalyst runs it (lab timers, IOS default port costs) if it was off."""
+    policy = node.setdefault('spanning_tree', {})
+    if policy.get('mode', 'off') == 'off':
+        policy.update(mode='stp', **LAB_TIMERS)
+        policy['ports'] = {}
+    sync_ports(node)
+    return policy
+
+
+def sync_ports(node):
+    """Key a switch's STP port settings by its bridge ports: a port that joins an EtherChannel gives way to the bundle
+    (one STP port, IOS's bundle cost), one that leaves gets its own default cost back."""
+    from .etherchannel import bridged_ports, bundles, ios_cost as bundle_cost
+    policy = node.get('spanning_tree') or {}
+    if policy.get('mode', 'off') == 'off':
+        return
+    current = policy.get('ports') or {}
+    policy['ports'] = {port: current.get(port) or {'cost': ios_cost(node, port)} for port in bridged_ports(node)}
+    for bond in bundles(node):  # a bundle's cost follows its members, as IOS recomputes it
+        policy['ports'][bond] = dict(policy['ports'][bond], cost=bundle_cost(node, bond))
+
+
+def vlan_list(text):
+    """The VLANs of an IOS list « 1 », « 1,10,20 », « 1-10 »."""
+    found = set()
+    for part in text.split(','):
+        low, _, high = part.partition('-')
+        if not low.isdigit() or (high and not high.isdigit()):
+            raise ValueError('Invalid input detected at \'^\' marker.')
+        found.update(range(int(low), int(high or low) + 1))
+    return found
+
+
+ROOT = {'primary': 24576, 'secondary': 28672}  # what IOS's root macro writes when no bridge has a lower priority
+
+
+def ios_priority(node, vlans, value):
+    """« spanning-tree vlan VLANS priority N » on a switch micro-VM: its bridge's priority (None: back to 32768). The
+    guest bridge runs one 802.1D tree for every VLAN, so the list must hold VLAN 1."""
+    if 1 not in vlan_list(vlans):
+        raise ValueError(f'Network LABS : ce switch fait tourner un seul arbre 802.1D pour tous ses VLAN ; '
+                         f'tapez spanning-tree vlan 1 {"priority " + str(value) if value is not None else "…"}.')
+    if value is not None and (value > 61440 or value % 4096):
+        raise ValueError('Bridge Priority must be in increments of 4096.\n% Allowed values are:\n'
+                         '  0     4096  8192  12288 16384 20480 24576 28672\n  32768 36864 40960 45056 49152 53248 57344 61440')
+    turn_on(node)['priority'] = 32768 if value is None else value
+
+
+def ios_port(node, port, key, value):
+    """« spanning-tree cost N » / « spanning-tree port-priority N » on a switch micro-VM port (None: the IOS default)."""
+    if key == 'cost' and value is not None and not 1 <= value <= 65535:
+        raise ValueError('Network LABS : coût STP de 1 à 65535 (le pont du noyau Linux).')
+    if key == 'priority' and value is not None and (value > 240 or value % 16):
+        raise ValueError('Port Priority in increments of 16 is required\n% Allowed values are:\n'
+                         '  0   16  32  48  64  80  96  112 128 144 160 176 192 208 224 240')
+    settings = turn_on(node).setdefault('ports', {}).setdefault(port, {})
+    settings[key] = value if value is not None else ios_cost(node, port) if key == 'cost' else 128
+
+
+def ios_cost(node, port):
+    """IOS's default STP cost of a port (short method): 19 on FastEthernet, 4 on GigabitEthernet, 2 on 10 Gigabit."""
+    from .native_models import port_names
+    label = port_names(node).get(port, port).lower()
+    return 2 if label.startswith('te') else 4 if label.startswith('gi') else 19 if label.startswith('fa') else 100
 
 
 def validate_components(spec, edges):
@@ -74,9 +176,12 @@ def validate_components(spec, edges):
         visited.update(component)
         policies = [switches[n]['spanning_tree'] for n in component]
         modes = {p['mode'] for p in policies}
-        if len(modes) > 1:
-            raise ValueError('Initial common-tree backend requires the same STP mode on every switch in a connected component.')
         count = sum(a in component and b in component for a, b in switch_edges)
+        # Switch micro-VMs each run their own kernel's 802.1D, and a guest bridge without STP passes BPDUs on (as a hub
+        # does): without a loop, a switch may run it while its neighbour does not (« spanning-tree vlan 1 » typed on one).
+        guests = all(switches[n].get('runtime') == 'firecracker' for n in component)
+        if len(modes) > 1 and not (guests and count < len(component)):
+            raise ValueError('Initial common-tree backend requires the same STP mode on every switch in a connected component.')
         if count >= len(component) and modes not in ({'stp'}, {'rstp'}):
             raise ValueError('Layer-2 switch loop requires STP on every switch in the component.')
         if len({p.get('carrier_recovery', False) for p in policies}) > 1:

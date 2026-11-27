@@ -82,7 +82,6 @@ class Session(Layer2Commands,CLIEditing,AccessMulticastCLI,PCCommands,LANCommand
             line=self.normalize_command(line)
         except ValueError as e:
             return '% '+str(e)
-        raw=line
         line=' '.join(line.split())
         if line.lower().startswith('show interface '):
             line='show interfaces '+line.split(' ',2)[2]

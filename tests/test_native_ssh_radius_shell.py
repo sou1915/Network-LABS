@@ -3,7 +3,6 @@ import hashlib
 import os
 from pathlib import Path
 import pty
-import re
 import select
 import shutil
 import subprocess

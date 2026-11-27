@@ -1,5 +1,8 @@
 """Pinned Linux link events for a finite controlled-port authorization."""
-import fcntl
+try:
+    import fcntl  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    fcntl = None
 import select
 import socket
 import struct

@@ -174,7 +174,8 @@ class GuestFirewallTests(unittest.TestCase):
                          ('FW_POLICY drop', 'FW_STATE established', 'FW_LIST'))
         longest = _firewall_command('firewall-rule', None, {'action': 'accept', 'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'source': '255.255.255.255/32', 'destination': '255.255.255.255/32', 'dport': 65535})
         self.assertLess(len('NL1 ' + longest), 159)
-        bad = [('firewall-rule', None, {'action': 'allow'}), ('firewall-rule', None, {'action': 'accept', 'in': 'eth9'}), ('firewall-rule', None, {'action': 'accept', 'dport': 80}),
+        bad = [('firewall-rule', None, {'action': 'allow'}), ('firewall-rule', None, {'action': 'accept', 'in': 'eth16'}),
+               ('firewall-rule', None, {'action': 'accept', 'dport': 80}),
                ('firewall-rule', None, {'action': 'accept', 'protocol': 'tcp', 'dport': 0}), ('firewall-rule', None, {'action': 'accept', 'source': '192.0.2.1/24'}),
                ('firewall-rule', None, {'action': 'accept', 'comment': '; id'}), ('firewall-rule', 'drop', {'action': 'accept'}), ('firewall-rule', None, None),
                ('firewall-policy', 'reject', None), ('firewall-state', 'new', None), ('firewall-flush', 'drop', None), ('firewall-list', None, {'action': 'accept'})]
@@ -186,8 +187,8 @@ class GuestFirewallTests(unittest.TestCase):
     def test_web_management_offers_and_validates_the_policy_page_for_firewall_guests(self):
         from network_labs.appliances.management_options import configure_section, sections
         spec = firewall_example('/kernel', '/disk')
-        self.assertEqual([item['id'] for item in sections(spec['nodes'][0])], ['vmresources', 'firewall'])
-        self.assertEqual([item['id'] for item in sections(spec['nodes'][1])], ['vmresources'])
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][0])], ['vmresources', 'firewall', 'subinterfaces', 'dhcpserver'])
+        self.assertEqual([item['id'] for item in sections(spec['nodes'][1])], ['vmresources', 'dhcpserver'])
         policy = copy.deepcopy(spec['nodes'][0]['firewall'])
         policy['rules'].append({'name': 'inside-web', 'in': 'eth0', 'out': 'eth1', 'protocol': 'tcp', 'dport': 443, 'action': 'accept'})
         saved = configure_section(spec, 'FW1', 'firewall', {'firewall': policy})
@@ -294,7 +295,7 @@ class GuestNatTests(unittest.TestCase):
         for rule in ({'type': 'masquerade'}, {'type': 'dnat', 'out': 'eth1', 'to': '192.0.2.1'}, {'type': 'masquerade', 'out': 'eth1', 'to': '192.0.2.1'},
                      {'type': 'snat', 'out': 'eth1'}, {'type': 'dnat', 'in': 'eth1', 'to': '192.0.2.1', 'to_port': 80},
                      {'type': 'dnat', 'in': 'eth1', 'to': '192.0.2.1', 'dport': 80}, {'type': 'redirect', 'in': 'eth1'},
-                     {'type': 'dnat', 'in': 'eth9', 'to': '192.0.2.1'}, {'type': 'masquerade', 'out': 'eth1', 'comment': '; id'}):
+                     {'type': 'dnat', 'in': 'eth16', 'to': '192.0.2.1'}, {'type': 'masquerade', 'out': 'eth1', 'comment': '; id'}):
             with self.subTest(rule=rule), self.assertRaises(ValueError): _firewall_command('firewall-nat-rule', None, rule)
 
     def test_apply_installs_translation_while_closed_and_reads_it_back(self):

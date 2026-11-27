@@ -66,6 +66,38 @@ class BridgeTests(unittest.TestCase):
             with self.subTest(fault=fault),self.assertRaises(ValueError):bridge.validate_topology({**graph,**fault})
 
 
+@unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
+class LogBesideDevicePanelTest(unittest.TestCase):
+    def test_the_results_log_never_covers_the_device_controls(self):
+        """The log opens under the topology only: the device panel keeps its full height and its buttons."""
+        import time
+        import tkinter as tk
+        from network_labs.__main__ import App
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        from network_labs.appliances.campus import campus_example
+        app = App(root)
+        root.geometry('1280x720+0+0')  # after App(), which sizes the window to the screen
+        window = app.open_native_lab()
+        small = example('/tmp/rootfs')
+        window.load_spec(campus_example(small['nodes'][0]['rootfs'], small['name']))  # ten devices: the lists are long
+
+        def settle():
+            for _ in range(40):
+                root.update()
+                time.sleep(.02)
+        settle()
+        window.choose_node('PC1')
+        for shown in (False, True):
+            window.toggle_log(shown)
+            settle()
+            button = window.verify_button
+            self.assertTrue(button.winfo_viewable(), shown)
+            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), window.window.winfo_rooty() + window.window.winfo_height())
+        self.assertTrue(window.lower.winfo_ismapped())
+        self.assertLessEqual(window.lower.winfo_rootx() + window.lower.winfo_width(), window.device_panel.winfo_rootx())
+
+
 @unittest.skipUnless(os.environ.get('DISPLAY'),'GUI requires X display')
 class WorkbenchGUITests(unittest.TestCase):
     def setUp(self):
@@ -81,10 +113,11 @@ class WorkbenchGUITests(unittest.TestCase):
     def test_declared_topology_is_unobserved_until_real_result_and_stop_requires_confirmation(self):
         window=self.window;self.assertEqual(len(window.node_shapes),3);self.assertEqual(len(window.canvas.find_withtag('link')),2)
         self.assertTrue(all(n['values'][1]=='non observé' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
-        graph=bridge.public_topology(example('/rootfs'));lab=graph['name']
+        graph=bridge.public_topology(example('/rootfs'))
+        lab=graph['name']
         response={'ok':True,'lab':lab,'action':'status','topology':graph,'data':{'name':lab,'phase':'running','nodes':[{'name':n['name'],'state':{'status':'running'},'memory_current_bytes':1048576} for n in graph['nodes']]}}
         window.apply_response(response,{'lab':lab,'action':'status'});self.root.update()
-        self.assertTrue(all(n['values'][1]=='running' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
+        self.assertTrue(all(n['values'][1]=='en marche' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
         with self.assertRaises(ValueError):window.apply_response({**response,'lab':'wrong-lab'},{'lab':lab,'action':'status'})
         window.apply_response({'ok':False,'error':'Root result unconfirmed'},{'lab':lab,'action':'stop'})
         self.assertTrue(all(n['values'][1]=='non observé' for n in (window.nodes.item(i) for i in window.nodes.get_children())))
@@ -147,22 +180,178 @@ class WorkbenchGUITests(unittest.TestCase):
         self.root.update()
         window.choose_node('R7')
         self.root.update()
-        self.assertIn('disabled', window.console_button.state())
+        # A running micro-VM opens its own vendor-style terminal (guest_console), never a Linux shell.
+        self.assertNotIn('disabled', window.console_button.state())
+        self.assertIn('R7', window.console_button.cget('text'))
         self.assertNotIn('disabled', window.capture_button.state())
         self.assertEqual(list(window.capture_ports.cget('values')), ['eth0', 'eth1'])
-        with patch.object(window, 'error') as error:
-            self.assertFalse(window.open_console())
-        self.assertIn('micro-VM', str(error.call_args.args[0]))
+        with patch('network_labs.appliances.ui.launch_terminal') as launch:
+            self.assertTrue(window.open_console())
+        self.assertEqual(launch.call_args.args[0][-3:], [window.view_lab, 'R7', 'guest'])
+
+    def test_packet_tracer_style_blank_project_one_click_devices_two_click_cable_and_dialog_free_save(self):
+        from network_labs.appliances import progress, ui_quick
+        window = self.window
+        self.assertTrue(window.new())
+        self.root.update()
+        self.assertEqual(window.manifest()['nodes'], [])
+        self.assertTrue(window.canvas.find_withtag('hint'))  # the blank canvas says how to begin
+        paths = {'missions': {}, 'paths': {'kernel': '/assets/vmlinux', 'disk': '/assets/guest.ext4'}, 'seen': []}
+        with patch.object(progress, 'load', return_value=paths):
+            self.assertEqual(window.quick_add('router', 'cisco-isr4331', at=(200, 200)), 'R1')
+            self.assertEqual(window.quick_add('router', 'juniper-mx204'), 'R2')
+            self.assertEqual(window.quick_add('host'), 'PC1')
+        self.root.update()
+        nodes = {n['name']: n for n in window.manifest()['nodes']}
+        self.assertEqual(nodes['R1']['interfaces'], {'eth0': '', 'eth1': '', 'eth2': ''})  # the ISR's three ports, unconfigured
+        self.assertEqual(nodes['R1']['shutdown'], ['eth0', 'eth1', 'eth2'])  # and shut, until « no shutdown »
+        self.assertEqual(nodes['PC1'].get('shutdown', []), [])
+        self.assertEqual((nodes['R1']['runtime'], nodes['R1']['kernel']), ('firecracker', '/assets/vmlinux'))
+        self.assertEqual(window.positions['R1'], (200, 200))
+        window.set_edit_mode('cable')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R2')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'PC1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        self.root.update()
+        self.assertEqual(window.manifest()['links'], [[['R1', 'eth0'], ['R2', 'eth0']], [['PC1', 'eth0'], ['R1', 'eth1']]])
+        self.assertIn('gi0/0/1', window.note.get())  # the vendor's port name
+        with tempfile.TemporaryDirectory() as directory, patch.object(ui_quick, 'projects_dir', return_value=Path(directory)):
+            self.assertTrue(window.save())  # never saved: the projects folder, no file dialog
+            self.assertTrue((Path(directory) / 'mon-lab.json').is_file())
+        with patch.object(progress, 'load', return_value={'missions': {}, 'paths': {}, 'seen': []}), \
+                patch('tkinter.messagebox.askyesno', return_value=False) as ask:
+            window.new()
+            self.assertIsNone(window.quick_add('router'))  # nothing prepared: offered to prepare the computer
+            ask.assert_called_once()
+
+    def test_double_click_opens_the_devices_cli_inside_the_workbench(self):
+        from network_labs.appliances.microvm import bgp_example
+        from network_labs.appliances import console_server
+        window = self.window
+        spec = bgp_example('/assets/vmlinux', '/assets/guest.ext4')
+        window.load_spec(spec)
+        window.draw(bridge.public_topology(spec), {n['name']: {'status': 'running'} for n in spec['nodes']})
+        window.view_lab = spec['name']
+        self.root.update()
+        replies = {'open': {'ok': True, 'prompt': 'R1> ', 'banner': 'R1 · Cisco IOS.'}, 'close': {'ok': True}}
+        with patch.object(console_server, 'available', return_value=True), \
+                patch.object(console_server, 'request', side_effect=lambda lab, payload: replies[payload['op']]):
+            cli = window.device_double_click('R1') and window.cli_windows['R1']
+            self.root.update()
+            self.assertEqual(cli.window.title(), 'R1')
+            self.assertIs(window.open_cli('R1'), cli)  # one window per device
+            with patch('network_labs.appliances.ui.launch_terminal') as terminal:
+                self.assertTrue(window.open_console())  # the CLI tab's button opens the same window, no xterm
+                terminal.assert_not_called()
+            cli.close()
+        with patch.object(console_server, 'available', return_value=False), \
+                patch('tkinter.messagebox.askyesno', return_value=True), patch.object(window, 'launch') as launch:
+            self.assertIsNone(window.open_cli('R2'))  # a lab started before this version: one password to enable them
+            launch.assert_called_once_with('consoles')
+
+    def test_double_click_a_stopped_device_and_type_its_configuration_straight_away(self):
+        from network_labs.appliances import progress
+        window = self.window
+        window.new()
+        paths = {'missions': {}, 'paths': {'kernel': '/assets/vmlinux', 'disk': '/assets/guest.ext4'}, 'seen': []}
+        with patch.object(progress, 'load', return_value=paths):
+            window.quick_add('router', 'cisco-isr4331')
+            window.quick_add('host')
+        window.set_edit_mode('cable')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'R1')
+        window.node_pressed(SimpleNamespace(x=0, y=0), 'PC1')
+        window.set_edit_mode(None)
+        self.root.update()
+
+        def type_lines(cli, *lines):
+            for line in lines:
+                cli.set_typed(line)
+                cli.submit()
+            self.root.update()
+        router = window.device_double_click('R1') and window.cli_windows['R1']
+        self.assertTrue(router.synchronous)  # the lab is stopped: the CLI works on the project
+        router.submit()  # Press RETURN to get started!
+        type_lines(router, 'en', 'conf t', 'int g0/0/0', 'ip add 192.168.1.1 255.255.255.0', 'no shut', 'end')
+        text = router.text.get('1.0', 'end')
+        self.assertIn('%LINK-5-CHANGED: Interface GigabitEthernet0/0/0, changed state to up', text)
+        r1 = next(n for n in window.manifest()['nodes'] if n['name'] == 'R1')
+        self.assertEqual((r1['interfaces']['eth0'], r1['shutdown']), ('192.168.1.1/24', ['eth1', 'eth2']))  # in the project
+        pc = window.open_cli('PC1')
+        pc.submit()
+        type_lines(pc, 'ip addr add 192.168.1.10/24 dev eth0', 'ip route add default via 192.168.1.1', 'ping 192.168.1.1')
+        self.assertIn('4 packets received', pc.text.get('1.0', 'end'))  # the network model's answer
+        router.close()
+        pc.close()
+
+    def test_command_catalogue_window_lists_the_nodes_commands_and_copies_an_example(self):
+        from network_labs.appliances.microvm import bgp_example
+        window = self.window
+        window.load_spec(bgp_example('/assets/vmlinux', '/assets/guest.ext4'))
+        self.root.update()
+        window.choose_node('R2')
+        self.root.update()
+        self.assertNotIn('disabled', window.catalogue_button.state())  # before the lab runs, to prepare
+        catalogue = window.open_catalogue()
+        self.root.update()
+        self.assertIn('Junos', catalogue.window.title())
+        catalogue.query.set('bgp neighbor')
+        self.root.update()
+        rows = [catalogue.table.item(i)['values'][1] for i in catalogue.table.get_children()]
+        self.assertTrue(rows and all('neighbor' in row for row in rows))
+        catalogue.query.set('')
+        catalogue.topic.set('Interfaces')
+        catalogue.fill()
+        self.root.update()
+        self.assertIn('set interfaces xe-0/0/0 unit 0 family inet address', catalogue.copy())
+        self.assertEqual(self.root.clipboard_get(), catalogue.copy())
+        catalogue.window.destroy()
+
+    def test_firewall_policy_is_applied_to_the_running_lab_from_a_private_snapshot(self):
+        from network_labs.appliances.microvm import firewall_example
+        window = self.window
+        spec = firewall_example('/assets/vmlinux', '/assets/guest.ext4')
+        window.load_spec(spec)
+        self.root.update()
+        window.choose_node('FW1')
+        self.root.update()
+        self.assertIn('disabled', window.firewall_live.state())  # Not running yet: nothing to change live.
+        window.draw(bridge.public_topology(spec), {name: {'status': 'running'} for name in ('FW1', 'VM2', 'VM3')})
+        window.view_lab = spec['name']
+        window.choose_node('FW1')
+        window.load_config(force=True)
+        self.root.update()
+        self.assertNotIn('disabled', window.firewall_live.state())
+        with tempfile.TemporaryDirectory() as directory, patch('network_labs.appliances.ui.launch_terminal', return_value=Mock()):
+            window.path = Path(directory) / 'canonical.json'
+            self.assertTrue(window.launch('firewall'))
+            request = window.pending['request']
+            self.assertEqual((request['action'], request['node'], request['lab']), ('firewall', 'FW1', spec['name']))
+            snapshot = json.loads(Path(request['target']).read_text())
+            self.assertEqual(snapshot['nodes'][0]['firewall'], spec['nodes'][0]['firewall'])
+            window.pending['directory'].cleanup()
+            window.pending = None
+            window.busy(False)
+        window.choose_node('VM2')
+        self.root.update()
+        self.assertIn('disabled', window.firewall_live.state())
 
     def test_graphical_edit_click_drag_and_pending_or_mismatched_view_guards(self):
         from network_labs.appliances import topology_edit as edit
-        window=self.window;spec=window.manifest()
+        window=self.window
+        spec=window.manifest()
         window.commit_edit(edit.add_node(spec,name='SW2',role='switch',rootfs='/tmp/rootfs',ports=4))
-        self.root.update();self.assertIn('SW2',window.node_shapes);self.assertFalse(window.states)
+        self.root.update()
+        self.assertIn('SW2',window.node_shapes)
+        self.assertFalse(window.states)
         window.set_edit_mode('cable')
-        with patch.object(window,'connect_dialog') as connect:
+        with patch.object(window,'connect_dialog') as connect,patch.object(window,'auto_connect') as auto:
             window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
-            window.node_pressed(SimpleNamespace(x=30,y=30),'SW2')
+            window.node_pressed(SimpleNamespace(x=30,y=30),'SW2')  # a plain click: the first free ports, no dialog
+            auto.assert_called_once_with('SW1','SW2')
+            connect.assert_not_called()
+            window.node_pressed(SimpleNamespace(x=10,y=10),'SW1')
+            window.node_pressed(SimpleNamespace(x=30,y=30,state=4),'SW2')  # Ctrl-click: choose the ports
             connect.assert_called_once_with('SW1','SW2')
         window.set_edit_mode(None);before=window.drawn_positions['SW2']
         window.node_pressed(SimpleNamespace(x=100,y=100),'SW2')
@@ -246,14 +435,18 @@ class WorkbenchGUITests(unittest.TestCase):
 
     def test_hover_and_double_click_open_real_configuration_without_editing(self):
         window=self.window;original=window.manifest();window.choose_node('SW1');self.root.update()
-        x,y=window.drawn_positions['PC1'];x-=window.canvas.canvasx(0);y-=window.canvas.canvasy(0)
-        window.canvas.event_generate('<Motion>',warp=True,x=round(x),y=round(y));self.root.update()
+        x,y=window.drawn_positions['PC1']
+        x-=window.canvas.canvasx(0)
+        y-=window.canvas.canvasy(0)
+        window.canvas.event_generate('<Motion>',warp=True,x=round(x),y=round(y))
+        self.root.update()
         self.assertEqual(window.nodes.selection(),('SW1',),'Hover must not replace the selected form')
         from network_labs.appliances.reference_theme import BLUE
         self.assertEqual(window.canvas.itemcget(window.node_shapes['PC1'],'outline'),BLUE)
         window.device_tabs.select(window.device_tabs.tabs()[0])
         for kind,stamp in [('<ButtonPress-1>',1000),('<ButtonRelease-1>',1010),('<ButtonPress-1>',1100),('<ButtonRelease-1>',1110)]:
-            window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp);self.root.update()
+            window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp)
+            self.root.update()
         self.assertEqual(window.device_tabs.select(),str(window.config_panel))
         self.assertEqual(window.nodes.selection(),('PC1',));self.assertEqual(window.manifest(),original)
 
@@ -274,15 +467,18 @@ class WorkbenchGUITests(unittest.TestCase):
             spec=self.window.manifest();self.assertEqual(spec['name'],'Secure-access');self.assertEqual(len(spec['nodes']),5)
             switch=next(n for n in spec['nodes'] if n['role']=='switch')
             self.assertTrue(all(p=={'mode':'access','vlan':10} for p in switch['switchports'].values()))
-            self.assertFalse(self.window.states);launch.assert_not_called()
+            self.assertFalse(self.window.states)
+            launch.assert_not_called()
 
     def test_native_console_requires_observed_oci_and_keeps_draft(self):
         from network_labs.appliances import ui
         window=self.window;window.choose_node('PC1');original=window.manifest()
         with patch.object(ui,'launch_terminal') as launch,patch.object(window,'error'):
-            self.assertFalse(window.open_console());launch.assert_not_called()
+            self.assertFalse(window.open_console())
+            launch.assert_not_called()
             window.states={'PC1':{'status':'running'}};window.select_node()
-            self.assertTrue(window.open_console());self.assertEqual(launch.call_args.args[0][-2:],[window.view_lab,'PC1'])
+            self.assertTrue(window.open_console())
+            self.assertEqual(launch.call_args.args[0][-3:],[window.view_lab,'PC1','oci'])
             self.assertEqual(window.manifest(),original)
             window.pending={'action':'stop'};self.assertFalse(window.open_console());window.pending=None
             window.view_lab='foreign';self.assertFalse(window.open_console())

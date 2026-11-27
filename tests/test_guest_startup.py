@@ -121,7 +121,12 @@ class GuestStartupTests(unittest.TestCase):
     def test_router_role_needs_two_ports_and_stays_a_micro_vm_role(self):
         from network_labs.appliances.microvm import router_example
         spec=router_example('/kernel','/disk');spec['nodes'][0]['interfaces']={'eth0':'192.0.2.1/24'}
-        with self.assertRaisesRegex(ValueError,'two ports'):validate(spec)
+        with self.assertRaisesRegex(ValueError, 'two interfaces'):
+            validate(spec)
+        spec=router_example('/kernel','/disk')
+        spec['nodes'][0]['interfaces']['eth1']=''
+        spec['nodes'][0]['guest_network']={'addresses':[],'routes':[]}
+        self.assertEqual(validate(spec)['nodes'][0]['interfaces']['eth1'],'')  # a port not configured yet, as on a new router
         for role in ('switch','firewall'):
             spec=router_example('/kernel','/disk');spec['nodes'][0]['role']=role
             with self.subTest(role=role),self.assertRaises(ValueError):validate(spec)
@@ -161,9 +166,11 @@ class GuestStartupTests(unittest.TestCase):
                'address on bridge': ('eth0\neth1\neth2\n', self.BRIDGED + '    inet 192.0.2.99/24 scope global br0\n', '0\n'),
                'port down': ('eth0\neth1\neth2\n', self.BRIDGED.replace('4: eth2: <BROADCAST,UP,LOWER_UP>', '4: eth2: <BROADCAST>'), '0\n'),
                'routing': ('eth0\neth1\neth2\n', self.BRIDGED, '1\n'),
-               'extra port': ('eth0\neth1\neth2\n', self.BRIDGED + '6: eth3: <BROADCAST,UP>\n', '0\n')}
-        for label, (ports, text, forwarding) in bad.items():
-            replies = {'bridge-ports': ports, 'addresses': text, 'forwarding': forwarding}
+               'extra port': ('eth0\neth1\neth2\n', self.BRIDGED + '6: eth3: <BROADCAST,UP>\n', '0\n'),
+               'spanning tree on, none declared': ('eth0\neth1\neth2\n', self.BRIDGED, '0\n', 'bridge stp_state 1\n')}
+        for label, (ports, text, forwarding, *stp) in bad.items():
+            replies = {'bridge-ports': ports, 'addresses': text, 'forwarding': forwarding,
+                       'bridge-stp-show': ''.join(stp) or 'bridge stp_state 0\n'}
             with self.subTest(label), patch('network_labs.appliances.guest_startup.query', side_effect=lambda s, o, **k: replies[o]), self.assertRaises(ValueError):
                 check_switch('/socket', node)
 
@@ -183,7 +190,7 @@ class GuestStartupTests(unittest.TestCase):
         self.assertNotIn('guest_network', saved['nodes'][0])
         self.assertEqual([n['guest_network'] for n in saved['nodes'][1:]], [empty] * 3)
 
-    def test_switch_role_is_one_untagged_unnumbered_segment(self):
+    def test_plain_switch_role_is_unnumbered_and_boots_without_ip(self):
         from network_labs.appliances.microvm import switch_example
         from network_labs.appliances.runtime import firecracker_config
         from pathlib import Path
@@ -192,8 +199,6 @@ class GuestStartupTests(unittest.TestCase):
         changes = {'numbered port': lambda n: n['interfaces'].update(eth0='192.0.2.1/24'),
                    'one port': lambda n: n.update(interfaces={'eth0': ''}, switchports={}),
                    'gateway': lambda n: n.update(gateway='192.0.2.1'),
-                   'second vlan': lambda n: n.update(vlans=[1, 10]),
-                   'trunk': lambda n: n['switchports'].update(eth0={'mode': 'trunk', 'native_vlan': 1, 'allowed': 'all'}),
                    'guest network': lambda n: n.update(guest_network={'addresses': [], 'routes': []}),
                    'firewall': lambda n: n.update(firewall={'default': 'drop', 'stateful': True, 'rules': [], 'nat': []})}
         for label, change in changes.items():
@@ -212,13 +217,14 @@ class GuestStartupTests(unittest.TestCase):
         self.assertEqual((client['interfaces'], client['dhcp_clients'], router['dhcp_server']['router']), ({'eth0': ''}, ['eth0'], '192.0.2.1'))
         changes = {'client on a router': lambda nodes: nodes[0].update(dhcp_clients=['eth0'], interfaces={'eth0': '', 'eth1': '198.51.100.1/24'}),
                    'client with a static gateway': lambda nodes: nodes[1].update(gateway='192.0.2.1'),
-                   'unnumbered port without DHCP': lambda nodes: nodes[1].update(dhcp_clients=[]),
-                   'remote pool': lambda nodes: nodes[0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router=''),
                    'reservation': lambda nodes: nodes[0]['dhcp_server'].update(reservations=[{'mac': '02:00:00:00:00:01', 'address': '192.0.2.110'}]),
                    'extra address on a DHCP port': lambda nodes: nodes[1].update(guest_network={'addresses': ['198.18.0.1/32'], 'routes': []})}
         for label, change in changes.items():
             bad = copy.deepcopy(spec); change(bad['nodes'])
             with self.subTest(label), self.assertRaises(ValueError): validate(bad)
+        relayed = copy.deepcopy(spec)  # a remote pool, served to an « ip helper-address » relay: accepted on guests
+        relayed['nodes'][0]['dhcp_server'].update(network='10.9.0.0/24', start='10.9.0.10', end='10.9.0.20', router='')
+        self.assertEqual(validate(relayed)['nodes'][0]['dhcp_server']['network'], '10.9.0.0/24')
 
     def test_dhcp_wire_format_and_rejections(self):
         from network_labs.appliances.guest_control import _dhcp_command, request
@@ -228,7 +234,7 @@ class GuestStartupTests(unittest.TestCase):
         self.assertEqual(_dhcp_command('dhcp-serve', 'eth0', dict(dhcp_pool(router), dns=['192.0.2.53', '198.51.100.53'], router='')).split()[-3:], ['-', '600', '192.0.2.53,198.51.100.53'])
         self.assertEqual((_dhcp_command('dhcp-client', 'eth1', None), _dhcp_command('dhcp-leases', 'eth0', None)), ('DHCP_CLIENT eth1', 'DHCP_LEASES eth0'))
         pool = dhcp_pool(router)
-        for interface, server in (('eth9', pool), ('eth0', dict(pool, end='192.0.3.200')), ('eth0', dict(pool, lease_seconds=5)),
+        for interface, server in (('eth16', pool), ('eth0', dict(pool, end='192.0.3.200')), ('eth0', dict(pool, lease_seconds=5)),
                                   ('eth0', dict(pool, dns=['1.1.1.1'] * 4)), ('eth0', dict(pool, extra='x')), ('eth0', None)):
             with self.subTest(interface=interface, server=server), self.assertRaises(ValueError): _dhcp_command('dhcp-serve', interface, server)
         with self.assertRaises(ValueError): _dhcp_command('dhcp-client', 'eth0', pool)
@@ -280,3 +286,180 @@ class GuestStartupTests(unittest.TestCase):
         manager = SimpleNamespace(state={'spec': self.dhcp_lab()}, crun=lambda *a, **k: self.fail('crun called for a micro-VM: ' + repr(a)),
                                   directory=None)
         start_servers(manager); start_clients(manager)
+
+
+class SwitchVlanTests(unittest.TestCase):
+    """Access and trunk ports on a switch guest: lab-file rules, wire format, startup order and readback."""
+
+    def lab(self):
+        from network_labs.appliances.microvm import switch_vlan_example
+        return switch_vlan_example('/kernel', '/disk')
+
+    LISTING = ('br0 1 pvid untagged\n'
+               'eth0 10 pvid untagged\neth1 10 pvid untagged\neth2 20 pvid untagged\n'
+               'eth3 1 pvid untagged\neth3 10\neth3 20\n')
+
+    def test_lab_rules(self):
+        spec = self.lab()
+        changes = {
+            'trunk with an undeclared VLAN': lambda nodes: nodes[0]['switchports']['eth3'].update(allowed=[10, 30]),
+            'trunk native VLAN undeclared': lambda nodes: nodes[0]['switchports']['eth3'].update(native_vlan=99),
+            'access VLAN undeclared': lambda nodes: nodes[0]['switchports']['eth0'].update(vlan=30),
+            'too many VLANs': lambda nodes: nodes[0].update(vlans=list(range(1, 40))),
+            'numbered switch port': lambda nodes: nodes[0]['interfaces'].update(eth0='192.0.2.1/24'),
+        }
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec)
+            change(bad['nodes'])
+            with self.subTest(label), self.assertRaises(ValueError):
+                validate(bad)
+        whole = copy.deepcopy(spec)
+        whole['nodes'][0]['switchports']['eth3']['allowed'] = 'all'
+        from network_labs.appliances.guest_startup import vlan_plan
+        self.assertIn(('eth3', 10, 'tagged'), vlan_plan(validate(whole)['nodes'][0]))
+
+    def test_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import _bridge_vlan_command, request
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-add', 'eth3', 10, 'tagged'), 'BRIDGE_VLAN_ADD eth3 10 tagged')
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-add', 'eth0', 20, 'pvid'), 'BRIDGE_VLAN_ADD eth0 20 pvid')
+        self.assertEqual(_bridge_vlan_command('bridge-vlan-delete', 'eth0', 1, None), 'BRIDGE_VLAN_DEL eth0 1')
+        self.assertEqual(_bridge_vlan_command('bridge-vlans', None, None, None), 'BRIDGE_VLANS')
+        bad = [('bridge-vlan-add', 'eth16', 10, 'pvid'), ('bridge-vlan-add', 'eth0', 0, 'pvid'), ('bridge-vlan-add', 'eth0', 4095, 'pvid'),
+               ('bridge-vlan-add', 'eth0', '10', 'pvid'), ('bridge-vlan-add', 'eth0', 10, 'untagged'),
+               ('bridge-vlan-delete', 'eth0', 10, 'pvid'),
+               ('bridge-vlans', 'eth0', None, None), ('bridge-vlan-filtering', None, 1, None)]
+        for operation, interface, vlan, state in bad:
+            with self.subTest(operation=operation, interface=interface, vlan=vlan, state=state), self.assertRaises(ValueError):
+                _bridge_vlan_command(operation, interface, vlan, state)
+        with self.assertRaises(ValueError):
+            request('/missing', 'ping', destination='192.0.2.1', vlan=10)
+
+    def test_startup_enables_filtering_drops_default_vlan_and_adds_untagged_last(self):
+        from network_labs.appliances import guest_startup
+        switch = self.lab()['nodes'][0]
+        calls = []
+        replies = {'bridge-ports': 'eth0\neth1\neth2\neth3\n', 'bridge-vlans': self.LISTING, 'forwarding': '0\n',
+                   'addresses': ''.join(f'{i + 2}: eth{i}: <BROADCAST,UP>\n' for i in range(4)) + '6: br0: <BROADCAST,UP>\n'}
+
+        def fake(socket, operation, **kw):
+            calls.append((operation, kw.get('interface'), kw.get('vlan'), kw.get('state')))
+            return replies.get(operation, '')
+        with patch.object(guest_startup, 'query', side_effect=fake):
+            apply('/socket', switch)
+        names = [c[0] for c in calls]
+        self.assertLess(names.index('bridge-add'), names.index('bridge-vlan-filtering'))
+        self.assertEqual([c[1:3] for c in calls if c[0] == 'bridge-vlan-delete'], [(f'eth{i}', 1) for i in range(4)])
+        adds = [c[1:] for c in calls if c[0] == 'bridge-vlan-add']
+        self.assertEqual(sorted(adds), sorted(guest_startup.vlan_plan(switch)))
+        first_pvid = next(i for i, add in enumerate(adds) if add[2] == 'pvid')
+        self.assertTrue(all(add[2] == 'pvid' for add in adds[first_pvid:]))
+
+    def test_plain_switch_never_touches_vlans_and_a_kernel_without_filtering_is_named(self):
+        from network_labs.appliances import guest_startup
+        from network_labs.appliances.microvm import switch_example
+        plain = switch_example('/kernel', '/disk')['nodes'][0]
+        replies = {'bridge-ports': 'eth0\neth1\neth2\n', 'forwarding': '0\n',
+                   'addresses': ''.join(f'{i + 2}: eth{i}: <BROADCAST,UP>\n' for i in range(3)) + '5: br0: <BROADCAST,UP>\n'}
+        with patch.object(guest_startup, 'query', side_effect=lambda socket, operation, **kw: replies.get(operation, '')) as query:
+            apply('/socket', plain)
+        self.assertFalse([c for c in query.call_args_list if c.args[1].startswith('bridge-vlan')])
+
+        def no_filtering(socket, operation, **kw):
+            if operation == 'bridge-vlan-filtering':
+                raise ValueError('Guest bridge-vlan-filtering failed: no bridge vlan filtering in this guest kernel')
+            return ''
+        with patch.object(guest_startup, 'query', side_effect=no_filtering), self.assertRaisesRegex(ValueError, 'tools/guest_kernel'):
+            apply('/socket', self.lab()['nodes'][0])
+
+    def test_readback_compares_port_membership_exactly(self):
+        from network_labs.appliances import guest_startup
+        switch = self.lab()['nodes'][0]
+        with patch.object(guest_startup, 'query', return_value=self.LISTING):
+            self.assertEqual(guest_startup.observed_vlans('/socket', switch), guest_startup.vlan_plan(switch))
+        for wrong in (self.LISTING.replace('eth3 20\n', ''), self.LISTING + 'eth0 20\n', self.LISTING.replace('eth2 20', 'eth2 10')):
+            with patch.object(guest_startup, 'query', return_value=wrong):
+                self.assertNotEqual(guest_startup.observed_vlans('/socket', switch), guest_startup.vlan_plan(switch))
+        with patch.object(guest_startup, 'query', return_value=self.LISTING + 'eth1 30 pvid\n'):
+            with self.assertRaisesRegex(ValueError, 'Unmanaged'):
+                guest_startup.observed_vlans('/socket', switch)
+
+
+class RouterOnAStickTests(unittest.TestCase):
+    """802.1Q subinterfaces on a router guest: lab-file rules, wire format, startup order and readback."""
+
+    ADDRESSES = ('1: lo: <LOOPBACK,UP,LOWER_UP>\n    inet 127.0.0.1/8 scope host lo\n'
+                 '2: eth0: <BROADCAST,UP,LOWER_UP>\n'
+                 '3: eth0.10@eth0: <BROADCAST,UP,LOWER_UP>\n    inet 192.0.2.1/24 scope global eth0.10\n'
+                 '4: eth0.20@eth0: <BROADCAST,UP,LOWER_UP>\n    inet 198.51.100.1/24 scope global eth0.20\n')
+    ROUTES = ('192.0.2.0/24 dev eth0.10 scope link src 192.0.2.1\n'
+              '198.51.100.0/24 dev eth0.20 scope link src 198.51.100.1\n')
+
+    def router(self):
+        from network_labs.appliances.microvm import router_on_a_stick_example
+        return router_on_a_stick_example('/kernel', '/disk')['nodes'][1]
+
+    def test_lab_rules(self):
+        from network_labs.appliances.microvm import router_on_a_stick_example
+        spec = router_on_a_stick_example('/kernel', '/disk')
+        changes = {
+            'a single interface': lambda r: r['subinterfaces'].clear(),
+            'subinterface without address': lambda r: r['subinterfaces']['eth0.20'].update(address=''),
+            'subinterface on an undeclared port': lambda r: r['subinterfaces'].update(
+                {'eth1.30': {'parent': 'eth1', 'vlan': 30, 'address': '203.0.113.1/24'}}),
+            'overlapping subinterface subnets': lambda r: r['subinterfaces']['eth0.20'].update(address='192.0.2.129/25'),
+            'subinterface on a host': lambda r: r.update(role='host'),
+        }
+        for label, change in changes.items():
+            bad = copy.deepcopy(spec)
+            change(bad['nodes'][1])
+            with self.subTest(label), self.assertRaises(ValueError):
+                validate(bad)
+
+    def test_wire_format_and_rejections(self):
+        from network_labs.appliances.guest_control import guest_interface, request
+        # br0: a switch guest's bridge, which holds its management SVI address and route (interface vlan N).
+        # br0.N: a routing switch's SVIs (the bridge's VLAN interfaces).
+        self.assertTrue(all(guest_interface(name) for name in ('eth0', 'eth3', 'eth0.1', 'eth2.4094', 'br0', 'br0.10', 'br0.1')))
+        refused = ('eth16', 'eth010', 'eth4x', 'eth0.0', 'eth0.4095', 'eth0.010', 'eth0.', 'br0.0', 'br0.4095', 'br0.', 'br1', 'br1.10',
+                   'eth0.10;id', None)
+        self.assertFalse(any(guest_interface(name) for name in refused))
+        for operation, kwargs in (('vlan-add', {'interface': 'eth0.10', 'vlan': 10}), ('vlan-add', {'interface': 'eth0', 'vlan': 0}),
+                                  ('vlan-delete', {'interface': 'eth0'}), ('vlan-delete', {'interface': 'eth0.10', 'vlan': 10}),
+                                  ('link', {'interface': 'eth0.4095', 'state': 'up'})):
+            with self.subTest(operation=operation, kwargs=kwargs), self.assertRaises(ValueError):
+                request('/missing', operation, **kwargs)
+
+    def test_startup_raises_the_parent_then_each_subinterface(self):
+        from network_labs.appliances import guest_startup
+        router = self.router()
+        calls = []
+
+        def fake(socket, operation, **kw):
+            calls.append((operation, kw.get('interface'), kw.get('vlan'), kw.get('cidr'), kw.get('state')))
+            return {'forwarding': '1\n'}.get(operation, '')
+        empty = {'addresses': [], 'routes': []}
+        with patch.object(guest_startup, 'query', side_effect=fake), patch.object(guest_startup, 'observe', return_value=empty):
+            apply('/socket', router)
+        steps = [c for c in calls if c[0] in ('link', 'vlan-add', 'address-add')]
+        self.assertEqual(steps, [('link', 'eth0', None, None, 'up'),
+                                 ('vlan-add', 'eth0', 10, None, None), ('address-add', 'eth0.10', None, '192.0.2.1/24', None),
+                                 ('link', 'eth0.10', None, None, 'up'),
+                                 ('vlan-add', 'eth0', 20, None, None), ('address-add', 'eth0.20', None, '198.51.100.1/24', None),
+                                 ('link', 'eth0.20', None, None, 'up')])
+        self.assertLess(calls.index(steps[-1]), [c[0] for c in calls].index('forward'))
+
+    def test_readback_accepts_declared_subinterfaces_and_nothing_extra(self):
+        from network_labs.appliances import guest_startup
+        router = self.router()
+        proxy = ''.join(f'{port} 1\n' for port, address in router['interfaces'].items() if address)  # IOS's default proxy ARP
+        with patch.object(guest_startup, 'query', side_effect=[self.ADDRESSES, self.ROUTES, '1\n', proxy, self.ROUTES]):
+            self.assertEqual(guest_startup.observe('/socket', router), {'addresses': [], 'routes': []})
+        extra = self.ADDRESSES + '    inet 192.0.2.2/24 scope global secondary eth0.20\n'
+        with patch.object(guest_startup, 'query', side_effect=[extra, self.ROUTES, '1\n']), self.assertRaises(ValueError):
+            guest_startup.observe('/socket', router)
+        undeclared = self.ADDRESSES + '5: eth0.30@eth0: <BROADCAST,UP>\n'
+        with patch.object(guest_startup, 'query', return_value=undeclared), self.assertRaisesRegex(ValueError, 'undeclared'):
+            guest_startup.observe('/socket', router)
+        down = self.ADDRESSES.replace('3: eth0.10@eth0: <BROADCAST,UP,LOWER_UP>', '3: eth0.10@eth0: <BROADCAST>')
+        with patch.object(guest_startup, 'query', return_value=down), self.assertRaisesRegex(ValueError, 'up'):
+            guest_startup.observe('/socket', router)

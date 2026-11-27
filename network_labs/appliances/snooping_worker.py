@@ -1,6 +1,9 @@
 """Owned passive DHCP observer. Kernel filtering continues if observation fails."""
 import ctypes
-import fcntl
+try:
+    import fcntl  # Linux only: used inside running labs, never by a Windows or macOS workbench
+except ImportError:
+    fcntl = None
 import json
 import os
 from pathlib import Path

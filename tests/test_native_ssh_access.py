@@ -1,5 +1,4 @@
 """Opt-in Dropbear key-auth command policy over real SSH connections."""
-import json
 import os
 from pathlib import Path
 import shutil

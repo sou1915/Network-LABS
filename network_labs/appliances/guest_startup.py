@@ -6,12 +6,33 @@ import time
 from .guest_control import request
 
 
+def guest_interfaces(node):
+    """Every guest interface with its declared primary address: ports ('' when unnumbered), then subinterfaces."""
+    return {**node['interfaces'], **{name: sub['address'] for name, sub in node.get('subinterfaces', {}).items()}}
+
+
 def _port_networks(node, profile):
     """Every IPv4 network configured on each declared port, primary first."""
     extras = {'eth0': profile['addresses'], **profile.get('port_addresses', {})}
     # A DHCP client port has no declared primary; its leased address is never part of the profile.
     return {port: [ipaddress.IPv4Interface(a).network for a in [*([primary] if primary else []), *extras.get(port, [])]]
-            for port, primary in node['interfaces'].items()}
+            for port, primary in guest_interfaces(node).items()}
+
+
+def shut_interfaces(node):
+    """The ports administratively down, and the subinterfaces riding them: no link, no route through them."""
+    down = set(node.get('shutdown') or [])
+    return down | {name for name, sub in (node.get('subinterfaces') or {}).items() if sub['parent'] in down}
+
+
+def expected_profile(node):
+    """What the guest reads back: the declared profile without the routes through a shut port (Linux drops them)."""
+    profile = copy.deepcopy(node.get('guest_network') or {'addresses': [], 'routes': []})
+    down = shut_interfaces(node)
+    if down:
+        profile['routes'] = [r for r in profile['routes'] if route_port(node, node.get('guest_network') or profile,
+                                                                         r['gateway']) not in down]
+    return profile
 
 
 def route_port(node, profile, gateway):
@@ -39,7 +60,7 @@ def validate_profile(node):
     for port, values in by_port.items():
         if not node['interfaces'][port]:
             if values:
-                raise ValueError('A DHCP client port takes no extra static addresses.')
+                raise ValueError('An unnumbered port (DHCP client or subinterface parent) takes no extra static addresses.')
             continue
         primary = str(ipaddress.IPv4Interface(node['interfaces'][port]))
         normalized = [str(ipaddress.IPv4Interface(a)) for a in values if isinstance(a, str) and '/' in a]
@@ -90,8 +111,9 @@ def forwarding(socket):
 
 
 def check_forwarding(socket, node):
+    from .svi import routing
     state = forwarding(socket)
-    if node.get('role') in ('router', 'firewall'):
+    if node.get('role') in ('router', 'firewall') or routing(node):  # a Layer 3 switch with « ip routing » too
         if state is not True:
             raise ValueError('Router or firewall guest is not forwarding IPv4; rebuild its image with the current agent.' if state is None
                              else 'Router or firewall guest is not forwarding IPv4.')
@@ -99,10 +121,13 @@ def check_forwarding(socket, node):
         raise ValueError('Host guest forwards IPv4 although its role is host; declare a router instead.')
 
 
-def dhcp_pool(node):
-    server = node['dhcp_server']
+def dhcp_pool(node, server=None):
+    """The agent's pool request for SERVER (node['dhcp_server'] by default; or one of node['dhcp_extra'])."""
+    from .dhcp import pool_network, with_pool  # the port's network, or the remote LAN of a relayed pool
+    server = server or node['dhcp_server']
     return {'start': server['start'], 'end': server['end'], 'router': server['router'], 'dns': server['dns'],
-            'lease_seconds': server['lease_seconds'], 'netmask': ipaddress.IPv4Interface(node['interfaces'][server['interface']]).network.prefixlen}
+            'lease_seconds': server['lease_seconds'], 'netmask': pool_network(with_pool(node, server)).prefixlen,
+            **({'relayed': True} if 'network' in server else {})}  # a remote LAN's pool: no ARP check (see the agent)
 
 
 def leases(socket, interface):
@@ -117,35 +142,129 @@ def leases(socket, interface):
     return rows
 
 
+def vlan_plan(node):
+    """The bridge VLAN entries a switch guest must hold, as {(port, vid, 'pvid' | 'tagged')}; None for one untagged VLAN 1.
+
+    An access port is untagged in its VLAN. A trunk carries every allowed VLAN tagged, and its
+    native VLAN untagged. A plain switch (only VLAN 1, all access) keeps the bridge without
+    VLAN filtering, so it also runs on a guest kernel without 802.1Q.
+    """
+    ports = node['switchports']
+    if node['vlans'] == [1] and all(port == {'mode': 'access', 'vlan': 1} for port in ports.values()):
+        return None
+    plan = set()
+    for name, port in ports.items():
+        if port['mode'] == 'access':
+            plan.add((name, port['vlan'], 'pvid'))
+            continue
+        allowed = node['vlans'] if port['allowed'] == 'all' else port['allowed']
+        plan.add((name, port['native_vlan'], 'pvid'))
+        plan.update((name, vid, 'tagged') for vid in allowed if vid != port['native_vlan'])
+    return plan
+
+
+def observed_vlans(socket, node):
+    """The guest bridge's VLAN entries on the declared ports, in vlan_plan() form."""
+    from .etherchannel import bridged_ports
+    found = set()
+    for line in query(socket, 'bridge-vlans').splitlines():
+        fields = line.split()
+        if len(fields) < 2 or fields[0] not in bridged_ports(node):
+            continue  # br0's own entries, bond members and other devices are not bridge ports.
+        pvid, untagged = 'pvid' in fields[2:], 'untagged' in fields[2:]
+        if pvid != untagged:
+            raise ValueError('Unmanaged bridge VLAN entry: ' + line)
+        found.add((fields[0], int(fields[1]), 'pvid' if pvid else 'tagged'))
+    return found
+
+
 def check_switch(socket, node):
     """A switch guest bridges exactly its declared ports, all up, holds no IPv4 and does not route."""
+    from .etherchannel import bridged_ports, bundles
     ports = sorted(query(socket, 'bridge-ports').split())
-    if ports != sorted(node['interfaces']):
+    if ports != sorted(bridged_ports(node)):
         raise ValueError('Switch guest bridges ' + (', '.join(ports) or 'no port') + ' instead of its declared ports.')
-    up = set(); interface = None
+    from .svi import management, routed
+    devices = {svi['device'] for svi in routed(node)} - {'br0'}  # a routing switch's SVIs: br0.N
+    up = set()
+    interface = None
+    held = []
     for line in query(socket, 'addresses').splitlines():
         header = re.match(r'^\d+: ([^:@]+)[^:]*: <([^>]*)>', line)
         if header:
             interface = header[1]
-            if interface not in ('lo', 'br0') and interface not in node['interfaces']:
+            if interface not in ('lo', 'br0') and interface not in node['interfaces'] and interface not in devices \
+                    and interface not in bundles(node):
                 raise ValueError('Guest has an undeclared interface.')
-            if 'UP' in header[2].split(','): up.add(interface)
+            if 'UP' in header[2].split(','):
+                up.add(interface)
+        elif line.split()[:1] == ['inet'] and (interface == 'br0' or interface in devices):
+            held.append((interface, str(ipaddress.IPv4Interface(line.split()[1]))))
         elif line.split()[:1] == ['inet'] and interface != 'lo':
             raise ValueError(f'Switch guest holds an IPv4 address on {interface}; switch ports stay unnumbered.')
-    if not {'br0', *node['interfaces']} <= up:
-        raise ValueError('Switch guest bridge and all declared ports must be up.')
+    svi = management(node)
+    wanted = [('br0', svi['address'])] if svi else [(s['device'], s['address']) for s in routed(node)]
+    if sorted(held) != sorted(wanted):
+        raise ValueError('Switch guest bridge holds ' + (', '.join(a for _, a in held) or 'no address')
+                         + ' instead of its SVIs (' + (', '.join(a for _, a in wanted) or 'none') + ').')
+    if not devices <= up:
+        raise ValueError('Switch guest SVI interfaces must be up.')
+    from .svi import static_routes
+    wanted_routes = static_routes(node)
+    if wanted_routes:
+        listed = [line.split() for line in query(socket, 'routes').splitlines()]
+        for network, gateway, device, _ in wanted_routes:
+            shown = 'default' if network.prefixlen == 0 else str(network)
+            if not any(fields[:5] == [shown, 'via', str(gateway), 'dev', device] for fields in listed):
+                raise ValueError(f'Switch guest lacks its route to {network} via {gateway}.')
+    if svi and svi['gateway'] and not any(line.split()[:5] == ['default', 'via', svi['gateway'], 'dev', 'br0']
+                                          for line in query(socket, 'routes').splitlines()):
+        raise ValueError('Switch guest lacks its ip default-gateway route.')
+    down = set(node.get('shutdown') or [])
+    from .port_guard import arguments, parse
+    disabled = {p for p, s in parse(query(socket, 'port-guard-show')).items() if s['state'] == 'err-disabled'} if arguments(node) else set()
+    if not {'br0', *(set(node['interfaces']) - down - disabled), *bundles(node)} <= up or down & up:
+        raise ValueError('Switch guest bridge and its ports must be up, its shut ports down.')
+    plan = vlan_plan(node)
+    if plan is not None and observed_vlans(socket, node) != plan:
+        raise ValueError('Switch guest VLAN membership differs from its declared switchports.')
+    policy = node.get('spanning_tree') or {}
+    stp = policy.get('mode') == 'stp'
+    listing = stp_listing(socket)
+    bridge = listing.get('bridge', {})
+    if bridge.get('stp_state', '0') != ('1' if stp else '0'):
+        raise ValueError('Switch guest spanning tree differs from the declared one.')
+    if stp:
+        held = [bridge.get(key) for key in ('priority', 'hello_time', 'max_age', 'forward_delay')]
+        wanted = [str(policy['priority'])] + [str(policy[key] * 100) for key in ('hello_time', 'max_age', 'forward_delay')]
+        for port in bridged_ports(node):
+            settings = (policy.get('ports') or {}).get(port, {})
+            held += [listing.get(port, {}).get('path_cost'), listing.get(port, {}).get('priority')]
+            wanted += [str(settings.get('cost', 100)), str(settings.get('priority', 128) // 16)]
+        if held != wanted:
+            raise ValueError('Switch guest spanning tree priority, timers or port costs differ from the declared ones.')
     check_forwarding(socket, node)
 
 
 def observe(socket, node):
     """Fail closed on unrepresentable state; never save shell output as commands."""
     text = query(socket, 'addresses')
-    by_port = {port: [] for port in node['interfaces']}
-    interface = None; active = set()
+    declared = guest_interfaces(node)
+    by_port = {port: [] for port in declared}
+    interface = None
+    active = set()
+    from .hsrp import virtual_addresses
+    from .vrrp import virtual_addresses as vrrp_addresses
+    standby = virtual_addresses(node)
+    for port, values in vrrp_addresses(node).items():  # VRRP's virtual addresses, as HSRP's
+        standby.setdefault(port, set()).update(values)
     for line in text.splitlines():
-        header = re.match(r'^\d+: ([^:]+): <([^>]*)>', line)
+        header = re.match(r'^\d+: ([^:@]+)(?:@[^:]+)?: <([^>]*)>', line)  # a subinterface reads "eth0.10@eth0
         if header:
             interface = header[1]
+            if standby and re.fullmatch(r'(?:hsrp|vrrp)\d+-\d+', interface):
+                interface = None  # the active HSRP router's or the VRRP master's virtual MAC device (the agent's): never saved
+                continue
             if interface != 'lo' and interface not in by_port:
                 raise ValueError('Guest has an undeclared interface.')
             if 'UP' in header[2].split(','): active.add(interface)
@@ -153,25 +272,47 @@ def observe(socket, node):
         if fields and fields[0] == 'inet' and interface in by_port:
             by_port[interface].append(str(ipaddress.IPv4Interface(fields[1])))
     dynamic = set(node.get('dhcp_clients', []))
-    for port, primary_address in node['interfaces'].items():
-        if port in dynamic:
-            if port not in active:
-                raise ValueError('Save requires all declared guest interfaces up.')
+    down = shut_interfaces(node)
+    for port, primary_address in declared.items():
+        if (port in active) == (port in down):
+            raise ValueError(f'Guest interface {port} must be ' + ('down (shutdown).' if port in down else 'up.'))
+        if port in dynamic or not primary_address:
             continue
         primary_address = str(ipaddress.IPv4Interface(primary_address))
-        if port not in active or primary_address not in by_port[port]:
-            raise ValueError('Save requires all declared guest interfaces up with primary IPv4 addresses.')
+        if primary_address not in by_port[port]:
+            raise ValueError('Save requires all declared guest interfaces with their primary IPv4 addresses.')
     # Leased addresses come from the DHCP server on every boot; they are never saved as static ones.
-    extras = {port: [] if port in dynamic else [a for a in values if a != str(ipaddress.IPv4Interface(node['interfaces'][port]))]
-              for port, values in by_port.items()}
+    def unexpected(port, values):
+        primary = str(ipaddress.IPv4Interface(declared[port])) if declared[port] else None
+        return [] if port in dynamic else [a for a in values if a != primary]
+    extras = {port: unexpected(port, values) for port, values in by_port.items()}
+    from .ios_nat import public_addresses
+    for port, values in public_addresses(node).items():  # held for IOS static NAT and pools: checked, never saved
+        missing = sorted(set(values) - set(extras[port]))
+        if missing:
+            raise ValueError(f'Guest {port} lacks the NAT address(es) {", ".join(missing)}.')
+        extras[port] = [a for a in extras[port] if a not in values]
+    for port, values in standby.items():  # a guest kernel without macvlan holds the virtual address on the port itself
+        if port in extras:
+            extras[port] = [a for a in extras[port] if a not in values]
+    for name in node.get('subinterfaces', {}):
+        if extras.pop(name):
+            raise ValueError(f'Extra addresses on subinterface {name} cannot be saved; only its declared address is.')
+    from .ios_routes import port_routes
+    through_ports = {(str(n), p) for n, p in port_routes(node)}
     routes = []; devices = {}
     connected = {(port, str(ipaddress.IPv4Interface(a).network), str(ipaddress.IPv4Interface(a).ip)) for port, values in by_port.items() for a in values}
     default_seen = False
     for line in query(socket, 'routes').splitlines():
         fields = line.split()
-        if not fields: continue
+        if not fields:
+            continue
+        if (node.get('ospf') or node.get('bgp') or _runs_rip(node) or _runs_eigrp(node)) and learned(fields):
+            continue  # Routes learned by OSPF or BGP come back from the neighbours on every boot; they are never saved.
         network = str(ipaddress.IPv4Network('0.0.0.0/0' if fields[0] == 'default' else fields[0]))
         if 'via' not in fields:
+            if (network, fields[2]) in through_ports:
+                continue  # « ip route NET MASK PORT »: kept as IOS lines, checked by check_port_routing
             if len(fields) != 7 or fields[1] != 'dev' or fields[3:6] != ['scope', 'link', 'src'] or (fields[2], network, fields[6]) not in connected:
                 raise ValueError('Unmanaged guest route cannot be saved: ' + line)
             continue
@@ -181,11 +322,14 @@ def observe(socket, node):
         if network == '0.0.0.0/0' and fields[4] in dynamic:
             continue  # Installed by the DHCP client from the lease's router option.
         if network == '0.0.0.0/0' and node.get('gateway'):
-            if gateway != node['gateway'] or fields[4] != 'eth0': raise ValueError('Guest primary gateway differs.')
+            if gateway != node['gateway'] or fields[4] != 'eth0':
+                raise ValueError('Guest primary gateway differs.')
             default_seen = True
         else:
-            routes.append({'network': network, 'gateway': gateway}); devices[network] = fields[4]
-    if node.get('gateway') and not default_seen: raise ValueError('Guest primary gateway missing.')
+            routes.append({'network': network, 'gateway': gateway})
+            devices[network] = fields[4]
+    if node.get('gateway') and not default_seen and 'eth0' not in down:
+        raise ValueError('Guest primary gateway missing.')
     candidate = copy.deepcopy(node)
     candidate['guest_network'] = {'addresses': extras.pop('eth0'), 'routes': routes, 'port_addresses': extras}
     validate_profile(candidate)
@@ -194,12 +338,472 @@ def observe(socket, node):
         if route_port(candidate, candidate['guest_network'], route['gateway']) != devices[route['network']]:
             raise ValueError('Unsupported guest static route device for ' + route['network'])
     check_forwarding(socket, node)
+    if node.get('role') == 'router':
+        check_port_routing(socket, node)
     if node.get('role') == 'firewall':
         from .guest_firewall import check
         check(socket, node)
-    if node.get('dhcp_server'):
-        leases(socket, node['dhcp_server']['interface'])  # Fails closed if the declared server is not running.
+    elif node.get('acl_ports'):
+        from .acl import policy
+        from .guest_firewall import check
+        check(socket, {'firewall': policy(node)})
+    from .dhcp import pools
+    for pool in pools(node):
+        leases(socket, pool['interface'])  # Fails closed if a declared server is not running.
+    if node.get('ospf'):
+        check_ospf(socket, node)
+    if node.get('bgp'):
+        check_bgp(socket, node)
     return candidate['guest_network']
+
+
+BIRD_METRIC = '32'  # BIRD 2's kernel protocol installs its routes with metric 32 (its default; config() keeps it)
+FRR_METRIC = '20'  # FRR's zebra installs BGP and EIGRP routes with metric 20
+
+
+def learned(fields):
+    """A route BIRD installed. BusyBox's 'ip route' never prints the protocol, so BIRD's routes are told apart by
+    their metric; static routes the agent adds and connected routes carry none. iproute2 also prints 'proto bird'."""
+    pairs = {fields[i]: fields[i + 1] for i in range(len(fields) - 1)}
+    return pairs.get('proto') in ('bird', '12', 'bgp', '186', 'eigrp', '192') or pairs.get('metric') in (BIRD_METRIC, FRR_METRIC)
+
+
+def check_ospf(socket, node):
+    """The guest's BIRD runs the configuration the lab declares, byte for byte."""
+    from .ospf import config
+    try:
+        running = query(socket, 'ospf-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: OSPF is not running in the guest ({error}).') from error
+    if running != config(node):
+        raise ValueError(f'{node["name"]}: the guest OSPF configuration differs from the lab.')
+
+
+def start_ospf(socket, node, timeout=5):
+    """Start BIRD from the typed process, then wait for its control socket to answer."""
+    from .ospf import guest_process
+    query(socket, 'ospf-start', ospf=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'ospf-show', state='neighbors')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    check_ospf(socket, node)
+
+
+def relay_command(relay):
+    """The command line the guest's relay runs for RELAY (what DHCP_RELAY_SHOW reads back)."""
+    return f'network-labs-agent --dhcp-relay {relay["server"]} ' + ','.join(relay['clients'])
+
+
+def start_relay(socket, node, timeout=3):
+    """Start the guest's DHCP relay for the router's « ip helper-address » ports, then read it back."""
+    from .ios_relay import process
+    wanted = process(node)
+    query(socket, 'dhcp-relay-start', relay=wanted)
+    deadline = time.monotonic() + timeout
+    while True:  # the relay writes its pid file just after the request returns
+        try:
+            running = query(socket, 'dhcp-relay-show')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    if running != relay_command(wanted):
+        raise ValueError(f'{node["name"]}: the guest DHCP relay differs from its helper addresses ({running}).')
+
+
+def _runs_rip(node):
+    from .rip import process
+    return process(node) is not None
+
+
+def check_rip(socket, node):
+    """The guest's BIRD runs the RIP configuration the lab declares (rendered by the agent from the same fields)."""
+    from .rip import guest_process
+    wanted = query(socket, 'rip-render', rip=guest_process(node))
+    try:
+        running = query(socket, 'rip-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: RIP is not running in the guest ({error}).') from error
+    if running != wanted:
+        raise ValueError(f'{node["name"]}: the guest RIP configuration differs from the lab.')
+
+
+def start_rip(socket, node, timeout=8):
+    """Start BIRD's RIP from the typed process, then wait for birdc to answer."""
+    from .rip import guest_process
+    query(socket, 'rip-start', rip=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'rip-show', state='routes')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+    check_rip(socket, node)
+
+
+def check_eigrp(socket, node):
+    """The guest's eigrpd runs the EIGRP configuration the lab declares (rendered by the agent from the same fields)."""
+    from .eigrp import process
+    wanted = query(socket, 'eigrp-render', eigrp=process(node))
+    try:
+        running = query(socket, 'eigrp-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: EIGRP is not running in the guest ({error}).') from error
+    if running != wanted:
+        raise ValueError(f'{node["name"]}: the guest EIGRP configuration differs from the lab.')
+
+
+def start_eigrp(socket, node, timeout=8):
+    """Start zebra and eigrpd from the typed process, then wait for vtysh to answer."""
+    from .eigrp import process
+    query(socket, 'eigrp-start', eigrp=process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'eigrp-show', state='neighbors')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.2)
+    check_eigrp(socket, node)
+
+
+def _runs_eigrp(node):
+    from .eigrp import process
+    return process(node) is not None
+
+
+LIVE_SWITCH = ('vlans', 'switchports', 'shutdown', 'cli_config', 'svis', 'spanning_tree')
+
+
+def _stp(socket, node):
+    """The switch bridge's spanning tree as declared: classic STP with its timers, priority and port costs, or off."""
+    policy = node.get('spanning_tree') or {}
+    if policy.get('mode') != 'stp':
+        query(socket, 'bridge-stp-off')
+        return
+    query(socket, 'bridge-stp', stp={k: policy[k] for k in ('priority', 'hello_time', 'max_age', 'forward_delay')})
+    from .etherchannel import bridged_ports
+    for port in bridged_ports(node):
+        settings = (policy.get('ports') or {}).get(port, {})
+        query(socket, 'bridge-stp-port', interface=port, stp={'cost': settings.get('cost', 100), 'priority': settings.get('priority', 128)})
+
+
+def stp_listing(socket):
+    """{'bridge': {key: value}, 'eth0': {key: value}, …} read from the guest bridge (BRIDGE_STP_SHOW)."""
+    return parse_stp(query(socket, 'bridge-stp-show'))
+
+
+def parse_stp(text):
+    found = {}
+    for line in text.splitlines():
+        words = line.split(None, 2)
+        if len(words) == 3:
+            found.setdefault(words[0], {})[words[1]] = words[2]
+    return found
+
+
+def _svi(socket, node, plan, add):
+    """Put a switch's management SVI on its guest bridge (address, ip default-gateway route, and with VLAN filtering
+    the bridge's own membership of the SVI's VLAN), or take it off."""
+    from .svi import management
+    svi = management(node)
+    if svi is None:
+        return
+    moved = plan is not None and svi['vlan'] != 1  # the bridge's own untagged VLAN: 1 by default
+    if add:
+        if moved:
+            query(socket, 'bridge-vlan-add', interface='br0', vlan=svi['vlan'], state='pvid')
+            query(socket, 'bridge-vlan-delete', interface='br0', vlan=1)
+        query(socket, 'address-add', interface='br0', cidr=svi['address'])
+        if svi['gateway']:
+            query(socket, 'route-add', network='0.0.0.0/0', gateway=svi['gateway'], interface='br0')
+        return
+    if svi['gateway']:
+        query(socket, 'route-delete', network='0.0.0.0/0', gateway=svi['gateway'], interface='br0')
+    query(socket, 'address-delete', interface='br0', cidr=svi['address'])
+    if moved:
+        query(socket, 'bridge-vlan-add', interface='br0', vlan=1, state='pvid')
+        query(socket, 'bridge-vlan-delete', interface='br0', vlan=svi['vlan'])
+
+
+def _routed(socket, node, plan, add):
+    """A routing switch's SVIs (svi.routed) on its guest: the bridge's VLAN interface br0.N, tagged in VLAN N on the
+    bridge itself (VLAN 1's default untagged entry gives way), its address, up; or all of that taken off."""
+    from .svi import routed
+    for svi in routed(node):
+        device, vid = svi['device'], svi['vlan']
+        if add:
+            if device != 'br0':
+                if vid == 1:
+                    query(socket, 'bridge-vlan-delete', interface='br0', vlan=1)
+                query(socket, 'bridge-vlan-add', interface='br0', vlan=vid, state='tagged')
+                query(socket, 'vlan-add', interface='br0', vlan=vid)
+                query(socket, 'link', interface=device, state='up')
+            query(socket, 'address-add', interface=device, cidr=svi['address'])
+            continue
+        if device == 'br0':
+            query(socket, 'address-delete', interface=device, cidr=svi['address'])
+            continue
+        query(socket, 'vlan-delete', interface=device)
+        query(socket, 'bridge-vlan-delete', interface='br0', vlan=vid)
+        if vid == 1:
+            query(socket, 'bridge-vlan-add', interface='br0', vlan=1, state='pvid')
+
+
+def change_switch(socket, old, new):
+    """Bring a running switch guest from OLD's VLANs, access/trunk ports, shut ports and management SVI to NEW's:
+    only what differs."""
+    from .svi import management, routed, routing, static_routes
+    before, after = vlan_plan(old), vlan_plan(new)
+    svi_changed = management(old) != management(new) or before != after
+    routed_changed = routed(old) != routed(new) or before != after
+    routes_changed = routed_changed or static_routes(old) != static_routes(new)
+    if routing(old) and not routing(new):
+        query(socket, 'forward', state='off')  # « no ip routing »: the switch stops routing first
+    if routes_changed:  # a routing switch's « ip route » lines, while their SVIs still exist
+        for network, gateway, device, _ in static_routes(old):
+            query(socket, 'route-delete', network=str(network), gateway=str(gateway), interface=device)
+    if routed_changed:
+        _routed(socket, old, before, add=False)
+    if svi_changed:
+        _svi(socket, old, before, add=False)
+    if before != after:
+        if before is None:
+            try:
+                query(socket, 'bridge-vlan-filtering')
+            except ValueError as error:
+                raise ValueError(str(error) + ' (VLANs need the Network LABS guest kernel, tools/guest_kernel)') from error
+            before = {(port, 1, 'pvid') for port in old['interfaces']}  # every port's default entry once filtering is on
+        wanted = after if after is not None else {(port, 1, 'pvid') for port in new['interfaces']}
+        for port, vid, _ in sorted(before - wanted):
+            if not any(p == port and v == vid for p, v, _ in wanted):
+                query(socket, 'bridge-vlan-delete', interface=port, vlan=vid)
+        # Untagged (pvid) entries last: each one replaces the port's default VLAN.
+        for port, vid, mode in sorted(wanted - before, key=lambda entry: (entry[2] == 'pvid', entry)):
+            query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
+    from .port_guard import arguments
+    guarded_before, guarded_after = arguments(old), arguments(new)
+    recovered = [p for p in (old.get('shutdown') or []) if p not in (new.get('shutdown') or []) and p in new['interfaces']]
+    for port in recovered:  # « shutdown » then « no shutdown »: an err-disabled port comes back, as on IOS
+        if guarded_after or guarded_before:
+            query(socket, 'port-guard-clear', interface=port)
+    for port in sorted(set(new.get('shutdown') or []) ^ set(old.get('shutdown') or [])):
+        if port in new['interfaces']:  # a shut interface vlan only takes the SVI off the bridge (below)
+            query(socket, 'link', interface=port, state='down' if port in (new.get('shutdown') or []) else 'up')
+    if svi_changed:
+        _svi(socket, new, after, add=True)
+    if routed_changed:
+        _routed(socket, new, after, add=True)
+    if routes_changed:
+        for network, gateway, device, _ in static_routes(new):
+            query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
+    if routing(new) and not routing(old):
+        query(socket, 'forward', state='on')  # « ip routing »
+    if guarded_after != guarded_before or (recovered and guarded_after):
+        query(socket, 'port-guard-start', guard=guarded_after) if guarded_after else query(socket, 'port-guard-stop')
+    if (old.get('spanning_tree') or {}) != (new.get('spanning_tree') or {}):
+        _stp(socket, new)  # spanning-tree vlan 1 priority …, or a loop closed by a new cable after a restart
+    from .guest_services import change as change_services
+    change_services(socket, old, new)  # « ntp server », « ip dns server »… typed on the switch
+    check_switch(socket, new)
+
+
+LIVE_ROUTING = ('interfaces', 'shutdown', 'gateway', 'guest_network', 'ospf', 'acls', 'acl_ports', 'bgp', 'cli_config', 'services',
+                'resolvers',
+                'dhcp_server', 'dhcp_extra')
+
+
+def _wait_server(socket, port):
+    """The daemon writes its pid file just after the request returns: wait for it before reading back."""
+    started = time.monotonic() + 5
+    while True:
+        try:
+            return leases(socket, port)
+        except ValueError:
+            if time.monotonic() >= started:
+                raise
+            time.sleep(.1)
+
+
+def _dhcp_servers(socket, old, new):
+    """« ip dhcp pool » typed on a running router: a removed or changed pool's udhcpd stops, a new or changed one starts.
+    A pool also restarts when its port's address changes (udhcpd takes its server identifier from it as it starts)."""
+    from .dhcp import pools
+    from .lan import addresses
+    def served(node):
+        held = addresses(node)
+        return {p['interface']: (dhcp_pool(node, p), held.get(p['interface'])) for p in pools(node)}
+    before, after = served(old), served(new)
+    for port in sorted(before):
+        if after.get(port) != before[port]:
+            query(socket, 'dhcp-stop', interface=port)
+    for port in sorted(after):
+        if before.get(port) != after[port]:
+            query(socket, 'dhcp-serve', interface=port, dhcp=after[port][0])
+            _wait_server(socket, port)
+
+
+def _route(socket, node, operation, network, gateway):
+    profile = node.get('guest_network') or {'addresses': [], 'routes': []}
+    port = route_port(node, profile, gateway)
+    # eth0 keeps the original request, as at boot.
+    query(socket, operation, network=network, gateway=gateway, **({} if port == 'eth0' else {'interface': port}))
+
+
+def _port(node, gateway):
+    """The interface a next hop is reached through (None when no interface holds its network)."""
+    try:
+        return route_port(node, node.get('guest_network') or {'addresses': [], 'routes': []}, gateway)
+    except ValueError:
+        return None
+
+
+def _port_routing(socket, old, new):
+    """Proxy ARP on a router's ports and its routes through a port (ios_routes), from OLD's to NEW's."""
+    from .ios_routes import port_routes, proxy_arp
+    before, after = proxy_arp(old), proxy_arp(new)
+    for port, on in sorted(after.items()):
+        if before.get(port) != on:
+            query(socket, 'proxy-arp', interface=port, state='on' if on else 'off')
+    down = shut_interfaces(new)
+    held = lambda node: {(str(n), p) for n, p in port_routes(node) if p not in shut_interfaces(node)}
+    for network, port in sorted(held(old) - held(new)):
+        query(socket, 'dev-route-delete', interface=port, network=network)
+    for network, port in sorted(held(new) - held(old)):
+        if port not in down:
+            query(socket, 'dev-route-add', interface=port, network=network)
+
+
+def check_port_routing(socket, node):
+    """The guest's proxy ARP and routes through a port are the router's."""
+    from .ios_routes import port_routes, proxy_arp
+    observed = dict(line.split() for line in query(socket, 'proxy-arps').splitlines() if len(line.split()) == 2)
+    for port, on in proxy_arp(node).items():
+        if observed.get(port) != ('1' if on else '0'):
+            raise ValueError(f'{node["name"]}: proxy ARP on {port} differs from the router\'s ip proxy-arp.')
+    listed = query(socket, 'routes').splitlines()
+    for network, port in port_routes(node):
+        if port in shut_interfaces(node):
+            continue
+        shown = 'default' if network.prefixlen == 0 else str(network)
+        if not any(l.split()[:3] == [shown, 'dev', port] for l in listed):
+            raise ValueError(f'{node["name"]}: the route {network} through {port} is missing in the guest.')
+
+
+def change_routing(socket, old, new):
+    """Bring a running guest from OLD's port addresses, static routes, gateway, OSPF, BGP and access lists to NEW's:
+    only what differs changes."""
+    from .vendor_config import routes
+    before, after = set(routes(old)), set(routes(new))
+    readdressed = sorted(p for p in new['interfaces'] if old['interfaces'].get(p) != new['interfaces'][p])
+    # The routing daemons bind to addresses: a new address on a port restarts them with the new configuration.
+    ospf_changed = old.get('ospf') != new.get('ospf') or bool(readdressed and new.get('ospf'))
+    bgp_changed = old.get('bgp') != new.get('bgp') or bool(readdressed and new.get('bgp'))
+    from .rip import process as rip_process
+    rip_changed = rip_process(old) != rip_process(new)
+    if rip_changed and rip_process(old):
+        query(socket, 'rip-stop')  # BIRD withdraws the routes RIP installed as it stops
+    from .eigrp import process as eigrp_process
+    eigrp_changed = eigrp_process(old) != eigrp_process(new) or bool(readdressed and eigrp_process(new))
+    if eigrp_changed and eigrp_process(old):
+        query(socket, 'eigrp-stop')  # zebra withdraws EIGRP's routes as eigrpd stops
+    if ospf_changed and old.get('ospf'):
+        query(socket, 'ospf-stop')  # BIRD withdraws the routes it installed as it stops
+    if bgp_changed and old.get('bgp'):
+        query(socket, 'bgp-stop')  # zebra withdraws BGP's routes when bgpd stops
+    old_down, new_down = shut_interfaces(old), shut_interfaces(new)
+    for network, gateway in sorted(before - after):
+        if _port(old, gateway) not in old_down:  # a route through a shut port is not in the guest
+            _route(socket, old, 'route-delete', network, gateway)
+    for port in sorted(set(new.get('shutdown') or []) - set(old.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='down')  # Linux drops the routes through it
+    for port in readdressed:  # after the routes through the old address are gone, before those through the new one
+        if old['interfaces'].get(port):
+            query(socket, 'address-delete', interface=port, cidr=old['interfaces'][port])
+        if new['interfaces'][port]:
+            query(socket, 'address-add', interface=port, cidr=new['interfaces'][port])
+    from .ios_nat import public_addresses
+    held = lambda node: {(port, a) for port, values in public_addresses(node).items() for a in values}
+    for port, address in sorted(held(old) - held(new)):  # static NAT and pool addresses follow the IOS lines
+        query(socket, 'address-delete', interface=port, cidr=address)
+    for port, address in sorted(held(new) - held(old)):
+        query(socket, 'address-add', interface=port, cidr=address)
+    for port in sorted(set(old.get('shutdown') or []) - set(new.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='up')  # « no shutdown »: the port and its routes come back
+    _port_routing(socket, old, new)
+    for network, gateway in sorted(after):
+        port = _port(new, gateway)
+        if port not in new_down and ((network, gateway) not in before or port in old_down):
+            _route(socket, new, 'route-add', network, gateway)
+    if ospf_changed and new.get('ospf'):
+        start_ospf(socket, new)
+    if bgp_changed and new.get('bgp'):
+        start_bgp(socket, new)
+    if rip_changed and rip_process(new):
+        start_rip(socket, new)
+    if eigrp_changed and eigrp_process(new):
+        start_eigrp(socket, new)
+    from .ios_relay import process as relay_process
+    if relay_process(old) != relay_process(new):  # « ip helper-address » typed or removed
+        if relay_process(old):
+            query(socket, 'dhcp-relay-stop')
+        if relay_process(new):
+            start_relay(socket, new)
+    from .hsrp import arguments as hsrp_groups
+    if hsrp_groups(old) != hsrp_groups(new):  # a standby line typed or removed: the speaker takes its groups back as they were
+        query(socket, 'hsrp-start', hsrp=hsrp_groups(new)) if hsrp_groups(new) else query(socket, 'hsrp-stop')
+    from .vrrp import arguments as vrrp_groups
+    if vrrp_groups(old) != vrrp_groups(new):  # a vrrp line typed or removed: the same hand-over
+        query(socket, 'vrrp-start', vrrp=vrrp_groups(new)) if vrrp_groups(new) else query(socket, 'vrrp-stop')
+    _dhcp_servers(socket, old, new)  # « ip dhcp pool » blocks: one udhcpd per pool
+    from .guest_services import change as change_services
+    change_services(socket, old, new)  # DNS, NTP, Syslog and web services, IOS « ip dns server », « ntp … »
+    from .acl import policy
+    if old.get('role') == 'router' and policy(old) != policy(new):  # access lists or IOS NAT changed
+        from .guest_firewall import apply as apply_firewall
+        # No list left: an open chain (accept, no rule but the invalid-state drop every guest chain starts with).
+        apply_firewall(socket, {'firewall': policy(new)})
+    if observe(socket, new) != expected_profile(new):
+        raise ValueError('Guest routing readback differs from the declared routes.')
+
+
+def check_bgp(socket, node):
+    """The guest's FRR runs the BGP configuration the lab declares, byte for byte."""
+    from .bgp import config
+    try:
+        running = query(socket, 'bgp-show', state='config')
+    except ValueError as error:
+        raise ValueError(f'{node["name"]}: BGP is not running in the guest ({error}).') from error
+    if running != config(node):
+        raise ValueError(f'{node["name"]}: the guest BGP configuration differs from the lab.')
+
+
+def start_bgp(socket, node, timeout=8):
+    """Start zebra and bgpd from the typed process, then wait for vtysh to answer."""
+    from .bgp import guest_process
+    query(socket, 'bgp-start', bgp=guest_process(node))
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            query(socket, 'bgp-show', state='summary')
+            break
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.2)
+    check_bgp(socket, node)
 
 
 def apply(socket, node, timeout=40, alive=None):
@@ -212,12 +816,59 @@ def apply(socket, node, timeout=40, alive=None):
             query(socket, 'ready')
             break
         except (OSError, ValueError):
-            if time.monotonic() >= deadline: raise
+            if time.monotonic() >= deadline:
+                raise
             time.sleep(.1)
     if node.get('role') == 'switch':
-        for port in node['interfaces']:
-            query(socket, 'link', interface=port, state='up')
+        from .etherchannel import bridged_ports, bundles
+        stp = (node.get('spanning_tree') or {}).get('mode') == 'stp'
+        shut = set(node.get('shutdown') or [])
+        for bond, channel in sorted(bundles(node).items()):  # EtherChannels first: their bonds take the members' place
+            try:
+                query(socket, 'bond-add', interface=bond)
+            except ValueError as error:
+                raise ValueError(str(error) + ' (EtherChannel needs the Network LABS guest kernel, tools/guest_kernel)') from error
+            for member in channel['members']:
+                query(socket, 'link', interface=member, state='down')
+                query(socket, 'bond-slave', interface=bond, state=member)
+        bridged = bridged_ports(node)
+        for port in bridged:
+            # A shut port is still in the bridge (its VLANs are kept), with its link down, as « shutdown » on a Catalyst.
+            # With STP, every link stays down until the tree runs: a loop never forwards unprotected.
+            query(socket, 'link', interface=port, state='down' if stp or port in shut else 'up')
             query(socket, 'bridge-add', interface=port)
+        if stp:
+            _stp(socket, node)
+            for port in bridged:
+                if port not in shut:
+                    query(socket, 'link', interface=port, state='up')
+        for channel in bundles(node).values():
+            for member in channel['members']:
+                if member not in shut:
+                    query(socket, 'link', interface=member, state='up')
+        plan = vlan_plan(node)
+        if plan is not None:
+            try:
+                query(socket, 'bridge-vlan-filtering')
+            except ValueError as error:
+                raise ValueError(str(error) + ' (VLANs need the Network LABS guest kernel, tools/guest_kernel)') from error
+            for port in bridged:
+                query(socket, 'bridge-vlan-delete', interface=port, vlan=1)  # Ports join VLAN 1 untagged by default.
+            # Untagged (pvid) entries last: each one replaces the port's default VLAN.
+            for port, vid, mode in sorted(plan, key=lambda entry: (entry[2] == 'pvid', entry)):
+                query(socket, 'bridge-vlan-add', interface=port, vlan=vid, state=mode)
+        _svi(socket, node, plan, add=True)  # interface vlan N: the management address on the bridge
+        _routed(socket, node, plan, add=True)  # or, with ip routing, every SVI as a router interface
+        from .port_guard import arguments
+        if arguments(node):  # port security, BPDU guard: the agent's guard watches those ports
+            query(socket, 'port-guard-start', guard=arguments(node))
+        from .svi import routing, static_routes
+        for network, gateway, device, _ in static_routes(node):
+            query(socket, 'route-add', network=str(network), gateway=str(gateway), interface=device)
+        if routing(node):
+            query(socket, 'forward', state='on')
+        from .guest_services import start as start_services
+        start_services(socket, node)  # « ntp server », « ip dns server »… on the switch's management address
         check_switch(socket, node)
         return
     for port, address in node['interfaces'].items():
@@ -225,36 +876,70 @@ def apply(socket, node, timeout=40, alive=None):
             query(socket, 'address-add', interface=port, cidr=address)
         if port != 'eth0' or not address:
             query(socket, 'link', interface=port, state='up')
+    for name, sub in node.get('subinterfaces', {}).items():
+        # Router-on-a-stick: each 802.1Q subinterface rides its (already up) parent port.
+        query(socket, 'vlan-add', interface=sub['parent'], vlan=sub['vlan'])
+        query(socket, 'address-add', interface=name, cidr=sub['address'])
+        query(socket, 'link', interface=name, state='up')
     profile = node.get('guest_network', {'addresses': [], 'routes': []})
     for address in profile['addresses']:
         query(socket, 'address-add', cidr=address)
     for port, values in profile.get('port_addresses', {}).items():
         for address in values:
             query(socket, 'address-add', interface=port, cidr=address)
+    from .ios_nat import public_addresses
+    for port, values in public_addresses(node).items():  # the router answers ARP for its static NAT and pool addresses
+        for address in values:
+            query(socket, 'address-add', interface=port, cidr=address)
+    down = shut_interfaces(node)
+    for port in sorted(set(node.get('shutdown') or [])):
+        query(socket, 'link', interface=port, state='down')  # « shutdown »: the port stays down, its routes absent
     for route in profile['routes']:
         port = route_port(node, profile, route['gateway'])
+        if port in down:
+            continue
         # eth0 keeps the original request so guest images built before multi-port routes still restore.
         query(socket, 'route-add', **route, **({} if port == 'eth0' else {'interface': port}))
+    _port_routing(socket, {'role': node.get('role'), 'interfaces': {}}, node)  # proxy ARP and « ip route NET MASK PORT »
     if node.get('role') == 'firewall':
         # Filter first: forwarding is never switched on before the declared policy is in place.
         from .guest_firewall import apply as apply_firewall
         apply_firewall(socket, node)
+    from .acl import policy
+    if node.get('role') == 'router' and (policy(node)['rules'] or policy(node)['nat']):
+        # A router's access lists and IOS NAT run in its firewall chains, installed before forwarding starts.
+        from .guest_firewall import apply as apply_firewall
+        apply_firewall(socket, {'firewall': policy(node)})
     if node.get('role') in ('router', 'firewall'):
         query(socket, 'forward', state='on')
-    if node.get('dhcp_server'):
-        port = node['dhcp_server']['interface']
-        query(socket, 'dhcp-serve', interface=port, dhcp=dhcp_pool(node))
-        # The daemon writes its pid file just after the request returns: wait for it before reading back.
-        started = time.monotonic() + 5
-        while True:
-            try: leases(socket, port); break
-            except ValueError:
-                if time.monotonic() >= started: raise
-                time.sleep(.1)
+    from .dhcp import pools
+    for pool in pools(node):  # one udhcpd per pool, each on its own port or subinterface
+        query(socket, 'dhcp-serve', interface=pool['interface'], dhcp=dhcp_pool(node, pool))
+        _wait_server(socket, pool['interface'])
+    if node.get('ospf'):
+        start_ospf(socket, node)
+    if node.get('bgp'):
+        start_bgp(socket, node)
+    from .rip import process as rip_process
+    if rip_process(node):
+        start_rip(socket, node)
+    if _runs_eigrp(node):
+        start_eigrp(socket, node)
+    from .ios_relay import process as relay_process
+    if relay_process(node):  # « ip helper-address »: relays even before the server's guest boots
+        start_relay(socket, node)
+    from .hsrp import arguments as hsrp_groups
+    if hsrp_groups(node):  # « standby »: the agent speaks HSRP on those ports and holds the address once active
+        query(socket, 'hsrp-start', hsrp=hsrp_groups(node))
+    from .vrrp import arguments as vrrp_groups
+    if vrrp_groups(node):  # « vrrp »: the agent speaks VRRP on those ports and holds the address once master
+        query(socket, 'vrrp-start', vrrp=vrrp_groups(node))
+    from .guest_services import start as start_services
+    start_services(socket, node)  # a server's DNS, HTTP, NTP and Syslog; a router's « ip dns server », « ntp master »…
     for port in node.get('dhcp_clients', []):
         # Started, not awaited: the server may be a guest that boots later in this lab.
         query(socket, 'dhcp-client', interface=port)
-    if observe(socket, node) != profile:
+    if observe(socket, node) != expected_profile(node):
         raise ValueError('Guest startup readback differs from saved configuration.')
 
 

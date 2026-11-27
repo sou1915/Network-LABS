@@ -46,8 +46,8 @@ def validate_lan(node):
         raise ValueError('switchports/subinterfaces must be objects; at most 32 subinterfaces.')
     if (vlans or ports) and role != 'switch':
         raise ValueError('VLAN table and switchports belong to switch nodes.')
-    if subs and (role not in ('router', 'firewall') or node['runtime'] != 'oci'):
-        raise ValueError('802.1Q subinterfaces require an OCI router/firewall.')
+    if subs and role not in ('router', 'firewall'):
+        raise ValueError('802.1Q subinterfaces require a router/firewall.')
     if role == 'switch':
         if set(ports) - bridge_ports:
             raise ValueError('Unknown switchport.')
@@ -209,12 +209,13 @@ def validate_lan(node):
     validate_https(node)
     from .dhcpv6_pd import validate_node as validate_pd
     validate_pd(node)
-    # A Firecracker switch keeps its default untagged switchports; spec.py rejects any other port mode there.
-    vm_switch_ports = node['runtime'] == 'firecracker' and role == 'switch'
-    # A Firecracker guest runs BusyBox DHCP itself; spec.py keeps it to the subset the guest agent supports.
-    vm_dhcp = node['runtime'] == 'firecracker'
-    if node['runtime'] != 'oci' and any((ports and not vm_switch_ports, subs, clients and not vm_dhcp, server and not vm_dhcp, shutdown, aliases, routes, dialect != 'linux')):
-        raise ValueError('Native LAN configuration extensions require OCI; Firecracker remains single-NIC/static.')
+    # A Firecracker guest supports switchports (switches), subinterfaces and DHCP itself; spec.py keeps each to
+    # the subset the guest agent supports. The remaining extensions stay container-only.
+    guest = node['runtime'] == 'firecracker'
+    # A guest's port can be shut down (link down, as « shutdown »), a switch's bridge ports too.
+    guest_only_refused = (ports and not (guest and role == 'switch'), aliases, routes, dialect != 'linux')
+    if node['runtime'] != 'oci' and (any(guest_only_refused) or ((subs or clients or server) and not guest)):
+        raise ValueError('These LAN configuration fields are not available on Firecracker guests; use a container node.')
 
 
 def memberships(node, port):

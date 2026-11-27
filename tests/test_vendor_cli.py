@@ -1,3 +1,4 @@
+from network_labs import demo_labs
 import unittest
 from network_labs.engine import Lab,Node
 from network_labs.vendor_cli import console_session
@@ -67,15 +68,16 @@ class NativeConsoleTests(unittest.TestCase):
   self.assertEqual(lab.nodes['D1'].firewall_rules,before)
 
  def test_fortios_native_policy_changes_the_shared_path(self):
-  from network_labs.__main__ import App
-  lab=App.service_demo();c=console_session(lab,'FW1')
+  lab=demo_labs.service_demo()
+  c=console_session(lab,'FW1')
   self.assertFalse(lab.probe('PC1','camera.lan','tcp',554)[0])
   self.run_lines(c,'config firewall policy\nedit 30\nset srcintf any\nset dstintf any\nset srcaddr all\nset dstaddr all\nset action accept\nset schedule always\nset service ALL\nnext\nend')
   self.assertTrue(lab.probe('PC1','camera.lan','tcp',554)[0])
 
  def test_fortios_dns_service_matches_both_tcp_and_udp(self):
-  from network_labs.__main__ import App
-  lab=App.service_demo();lab.nodes['FW1'].firewall_rules=[];c=console_session(lab,'FW1')
+  lab=demo_labs.service_demo()
+  lab.nodes['FW1'].firewall_rules=[]
+  c=console_session(lab,'FW1')
   self.run_lines(c,'config firewall policy\nedit 1\nset srcintf any\nset dstintf any\nset srcaddr all\nset dstaddr all\nset action accept\nset schedule always\nset service DNS\nnext\nend')
   for protocol in ('tcp','udp'):self.assertTrue(lab.probe('PC1','192.168.10.2',protocol,53)[0])
   self.assertEqual(Lab.loads(lab.dumps()).nodes['FW1'].firewall_rules[0]['protocol'],'tcpudp')

@@ -1,13 +1,196 @@
 """Bounded, typed guest operations over Firecracker's local vsock socket."""
 import ipaddress
+import re
 import socket
 import time
 
+MAX_GUEST_PORTS = 16  # eth0..eth15: the agent's limit, within Firecracker's interrupts for network devices
+GUEST_PORTS = tuple(f'eth{i}' for i in range(MAX_GUEST_PORTS))
+GUEST_BONDS = tuple(f'bond{i}' for i in range(1, 9))  # EtherChannels: IOS Port-channel 1 .. 8
 OPERATIONS = {'ready': 'READY', 'addresses': 'ADDRESSES', 'routes': 'ROUTES', 'ping': 'PING', 'link': 'LINK', 'address-add': 'ADDR_ADD', 'address-delete': 'ADDR_DEL', 'route-add': 'ROUTE_ADD', 'route-delete': 'ROUTE_DEL', 'forwarding': 'FORWARDING', 'forward': 'FORWARD', 'kernel': 'KERNEL',
               'bridge-ports': 'BRIDGE_PORTS', 'bridge-add': 'BRIDGE_ADD',
               'firewall-list': 'FW_LIST', 'firewall-flush': 'FW_FLUSH', 'firewall-policy': 'FW_POLICY', 'firewall-state': 'FW_STATE', 'firewall-rule': 'FW_RULE',
               'firewall-nat-list': 'FW_NAT_LIST', 'firewall-sessions': 'FW_SESSIONS',
-              'dhcp-serve': 'DHCP_SERVE', 'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES', 'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT'}
+              'dhcp-serve': 'DHCP_SERVE',
+              'vlan-add': 'VLAN_ADD', 'vlan-delete': 'VLAN_DEL',
+              'bridge-vlans': 'BRIDGE_VLANS', 'bridge-vlan-filtering': 'BRIDGE_VLAN_FILTERING',
+              'bridge-vlan-add': 'BRIDGE_VLAN_ADD', 'bridge-vlan-delete': 'BRIDGE_VLAN_DEL',
+              'dhcp-client': 'DHCP_CLIENT', 'dhcp-leases': 'DHCP_LEASES', 'dhcp-stop': 'DHCP_STOP',
+              'firewall-nat-flush': 'FW_NAT_FLUSH', 'firewall-nat-rule': 'FW_NAT',
+              'ospf-render': 'OSPF_RENDER', 'ospf-start': 'OSPF_START', 'ospf-stop': 'OSPF_STOP', 'ospf-show': 'OSPF_SHOW',
+              'bgp-render': 'BGP_RENDER', 'bgp-start': 'BGP_START', 'bgp-stop': 'BGP_STOP', 'bgp-show': 'BGP_SHOW',
+              'rip-render': 'RIP_RENDER', 'rip-start': 'RIP_START', 'rip-stop': 'RIP_STOP', 'rip-show': 'RIP_SHOW',
+              'trace': 'TRACE', 'dhcp-relay-start': 'DHCP_RELAY_START', 'dhcp-relay-stop': 'DHCP_RELAY_STOP',
+              'dhcp-relay-show': 'DHCP_RELAY_SHOW', 'neighbors': 'NEIGHBORS', 'bridge-fdb': 'BRIDGE_FDB',
+              'eigrp-render': 'EIGRP_RENDER', 'eigrp-start': 'EIGRP_START', 'eigrp-stop': 'EIGRP_STOP', 'eigrp-show': 'EIGRP_SHOW',
+              'proxy-arp': 'PROXY_ARP', 'proxy-arps': 'PROXY_ARPS', 'dev-route-add': 'DEV_ROUTE_ADD',
+              'dev-route-delete': 'DEV_ROUTE_DEL', 'bridge-stp': 'BRIDGE_STP', 'bridge-stp-port': 'BRIDGE_STP_PORT',
+              'bridge-stp-off': 'BRIDGE_STP_OFF', 'bridge-stp-show': 'BRIDGE_STP_SHOW'}
+OPERATIONS.update({'port-guard-start': 'PORT_GUARD_START', 'port-guard-stop': 'PORT_GUARD_STOP',
+                   'port-guard-clear': 'PORT_GUARD_CLEAR', 'port-guard-show': 'PORT_GUARD_SHOW'})  # port security, BPDU guard
+OPERATIONS.update({'hsrp-start': 'HSRP_START', 'hsrp-stop': 'HSRP_STOP', 'hsrp-show': 'HSRP_SHOW'})  # IOS « standby »
+OPERATIONS.update({'vrrp-start': 'VRRP_START', 'vrrp-stop': 'VRRP_STOP', 'vrrp-show': 'VRRP_SHOW'})  # IOS « vrrp »
+# One HSRP group: IFACE/GROUP/VERSION/VIRTUAL-ADDRESS/PRIORITY/PREEMPT/HELLO/HOLD/AUTHENTICATION (hex); the agent checks it again.
+HSRP_GROUP = (r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,4}/[12]/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/\d{1,3}'
+              r'/(?:[0-9a-f]{2}){1,8}')
+HSRP_GROUPS = 16
+VRRP_GROUP = r'eth(?:1[0-5]|[0-9])(?:\.[1-9]\d{0,3})?/\d{1,3}/\d{1,3}(?:\.\d{1,3}){3}/\d{1,3}/[yn]/\d{1,3}/(?:-|(?:[0-9a-f]{2}){1,8})'
+VRRP_GROUPS = 16
+OPERATIONS.update({'bond-add': 'BOND_ADD', 'bond-delete': 'BOND_DEL', 'bond-slave': 'BOND_SLAVE', 'bond-release': 'BOND_RELEASE',
+                   'bond-show': 'BOND_SHOW'})  # EtherChannel bonds
+# Server services (guest_services): the agent's --services daemon (DNS, NTP, Syslog collector, NTP client), its web
+# server, and the clients toward them. Each takes its arguments as a list (service=[...]); the agent checks them again.
+SERVICE_OPERATIONS = {'services-start': 'SERVICES_START', 'services-stop': 'SERVICES_STOP', 'services-show': 'SERVICES_SHOW',
+                      'syslog-read': 'SYSLOG_READ', 'syslog-send': 'SYSLOG_SEND', 'resolve': 'RESOLVE', 'ntp-query': 'NTP_QUERY',
+                      'http-start': 'HTTP_START', 'http-stop': 'HTTP_STOP', 'http-pages': 'HTTP_PAGES', 'http-page': 'HTTP_PAGE',
+                      'http-page-add': 'HTTP_PAGE_ADD', 'http-page-delete': 'HTTP_PAGE_DEL', 'http-get': 'HTTP_GET',
+                      'file-put': 'FILE_PUT', 'file-delete': 'FILE_DEL', 'tftp-files': 'TFTP_FILES', 'tftp-read': 'TFTP_READ',
+                      'tftp-put': 'TFTP_PUT', 'tftp-get': 'TFTP_GET'}
+OPERATIONS.update(SERVICE_OPERATIONS)
+DNS_NAME = r'[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*'  # at most 90 long
+SERVICE_TOKEN = re.compile(rf'dns|syslog|tftp|ntp:(?:1[0-5]|[1-9])|sync:\d{{1,3}}(?:\.\d{{1,3}}){{3}}'
+                           rf'|a:{DNS_NAME}=\d{{1,3}}(?:\.\d{{1,3}}){{3}}|cname:{DNS_NAME}={DNS_NAME}')
+WEB_PAGE = re.compile(r'[a-z0-9_-]{1,35}\.(?:html|htm|txt|css)')
+WEB_PATH = re.compile(r'/[A-Za-z0-9/._-]{0,99}')
+TFTP_FILE = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}')
+PAGE_CHUNK = 1000  # bytes per request: hex-encoded, within the agent's request line
+
+
+def _ipv4(value, what):
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except (ipaddress.AddressValueError, TypeError, ValueError):
+        raise ValueError(f'Guest {what}: an IPv4 address.') from None
+
+
+def service_command(operation, values):
+    """The agent request line for one service operation, its arguments checked."""
+    values = list(values or [])
+    command = SERVICE_OPERATIONS[operation]
+    if operation in ('file-put', 'file-delete'):  # a file staged for TFTP: « out » (to send) or « tftp » (the server's)
+        if len(values) != (3 if operation == 'file-put' else 2) or values[0] not in ('out', 'tftp') or not isinstance(values[1], str) \
+                or not TFTP_FILE.fullmatch(values[1]) or (operation == 'file-put' and (not isinstance(values[2],
+                        bytes) or len(values[2]) > PAGE_CHUNK)):
+            raise ValueError(f'Guest {operation}: out|tftp, a file name, and at most {PAGE_CHUNK} bytes.')
+        return f'{command} {values[0]} {values[1]}' + (f' {values[2].hex()}' if operation == 'file-put' else '')
+    if operation in ('tftp-read', 'tftp-put', 'tftp-get'):
+        expected = 1 if operation == 'tftp-read' else 2
+        if len(values) != expected or not isinstance(values[-1], str) or not TFTP_FILE.fullmatch(values[-1]):
+            raise ValueError(f'Guest {operation}: ' + ('a file name.' if expected == 1 else 'a TFTP server and a file name.'))
+        return f'{command} {values[0]}' if expected == 1 else f'{command} {_ipv4(values[0], "TFTP server")} {values[1]}'
+    if operation in ('services-stop', 'services-show', 'syslog-read', 'http-start', 'http-stop', 'http-pages', 'tftp-files'):
+        if values:
+            raise ValueError(f'Guest {operation} takes no argument.')
+        return command
+    if operation == 'services-start':
+        if not 1 <= len(values) <= 70 or not all(isinstance(v, str) and SERVICE_TOKEN.fullmatch(v) for v in values):
+            raise ValueError('Guest services-start: dns, syslog, tftp, ntp:N, sync:A.B.C.D, a:NAME=A.B.C.D, cname:NAME=NAME.')
+        for value in values:
+            if value.startswith(('sync:', 'a:')):
+                _ipv4(value.rsplit('=', 1)[-1].split(':', 1)[-1], 'service address')
+            if value.startswith(('a:', 'cname:')) and any(len(part) > 90 for part in value.split(':', 1)[1].split('=')):
+                raise ValueError('Guest services-start: a DNS name is at most 90 characters.')
+        line = command + ' ' + ' '.join(values)
+        if len(line) > 3900:
+            raise ValueError('Guest services-start: too many records.')
+        return line
+    if operation == 'resolve':
+        if len(values) != 2 or not isinstance(values[1], str) or len(values[1]) > 90 \
+                or not (re.fullmatch(DNS_NAME, values[1]) or re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', values[1])):
+            raise ValueError('Guest resolve: a DNS server and a name.')
+        return f'{command} {_ipv4(values[0], "DNS server")} {values[1]}'
+    if operation == 'ntp-query':
+        if len(values) != 1:
+            raise ValueError('Guest ntp-query: one server.')
+        return f'{command} {_ipv4(values[0], "NTP server")}'
+    if operation == 'syslog-send':
+        if len(values) != 2 or not isinstance(values[1], str):
+            raise ValueError('Guest syslog-send: a collector and a message.')
+        data = values[1].encode('utf-8', errors='replace')
+        if not data.startswith(b'<') or not 4 <= len(data) <= 1024:
+            raise ValueError('Guest syslog-send: <PRI>message, at most 1024 bytes.')
+        return f'{command} {_ipv4(values[0], "syslog collector")} {data.hex()}'
+    if operation == 'http-get':
+        if len(values) != 3 or type(values[1]) is not int or not 1 <= values[1] <= 65535 or not isinstance(values[2], str) \
+                or not WEB_PATH.fullmatch(values[2]) or '..' in values[2]:
+            raise ValueError('Guest http-get: a server, a port and a path.')
+        return f'{command} {_ipv4(values[0], "web server")} {values[1]} {values[2]}'
+    if operation in ('http-page', 'http-page-add'):
+        if len(values) != 2 or not isinstance(values[0], str) or not WEB_PAGE.fullmatch(values[0]) or not isinstance(values[1], bytes) \
+                or len(values[1]) > PAGE_CHUNK:
+            raise ValueError(f'Guest {operation}: a page name (index.html) and at most {PAGE_CHUNK} bytes.')
+        return f'{command} {values[0]} {values[1].hex()}'
+    if len(values) != 1 or not isinstance(values[0], str) or not WEB_PAGE.fullmatch(values[0]):  # http-page-delete
+        raise ValueError('Guest http-page-delete: a page name.')
+    return f'{command} {values[0]}'
+
+
+EIGRP_SHOW = ('config', 'neighbors', 'topology')
+RIP_SHOW = ('config', 'routes')
+
+
+def rip_fields(rip):
+    """'ROUTER_ID VERSION PORT:a|p,...' for one RIP process; the guest checks it again."""
+    if not isinstance(rip, dict) or set(rip) != {'router_id', 'version', 'interfaces'}:
+        raise ValueError('Guest RIP requires router_id, version and interfaces.')
+    if rip['version'] not in (1, 2) or not isinstance(rip['interfaces'], list) or not 1 <= len(rip['interfaces']) <= MAX_GUEST_PORTS:
+        raise ValueError(f'Guest RIP: version 1 or 2, on 1..{MAX_GUEST_PORTS} ports.')
+    items = []
+    for port in rip['interfaces']:
+        if not isinstance(port, dict) or set(port) != {'port', 'passive'} or port['port'] not in GUEST_PORTS:
+            raise ValueError('Guest RIP port: eth0..eth15 and passive.')
+        items.append(f"{port['port']}:{'p' if port['passive'] else 'a'}")
+    if len(set(items)) != len(items):
+        raise ValueError('Guest RIP: each port once.')
+    return f"{ipaddress.IPv4Address(rip['router_id'])} {rip['version']} {','.join(items)}"
+OSPF_SHOW = ('neighbors', 'interfaces', 'routes', 'config')
+BGP_SHOW = ('summary', 'routes', 'config')
+
+
+def bgp_fields(bgp):
+    """'ASN ROUTER_ID ADDRESS:REMOTE_AS,... PREFIX,...|-' for one eBGP process; the guest checks it again."""
+    if not isinstance(bgp, dict) or set(bgp) != {'asn', 'router_id', 'neighbors', 'networks'}:
+        raise ValueError('Guest BGP requires asn, router_id, neighbors and networks.')
+    asn = bgp['asn']
+    if type(asn) is not int or not 1 <= asn <= 4294967295:
+        raise ValueError('Guest BGP AS number: 1..4294967295.')
+    peers = bgp['neighbors']
+    if not isinstance(peers, list) or not 1 <= len(peers) <= 4:
+        raise ValueError('Guest BGP: 1..4 neighbours.')
+    items = []
+    for peer in peers:
+        remote = peer.get('remote_as') if isinstance(peer, dict) else None
+        if type(remote) is not int or not 1 <= remote <= 4294967295 or remote == asn:
+            raise ValueError('Guest BGP neighbour: another AS, 1..4294967295.')
+        items.append(f"{ipaddress.IPv4Address(peer['address'])}:{remote}")
+    networks = bgp['networks']
+    if not isinstance(networks, list) or len(networks) > 8:
+        raise ValueError('Guest BGP: at most 8 networks.')
+    announced = ','.join(str(ipaddress.IPv4Network(n, strict=True)) for n in networks) or '-'
+    return f"{asn} {ipaddress.IPv4Address(bgp['router_id'])} {','.join(items)} {announced}"
+
+
+def ospf_fields(ospf):
+    """'ROUTER_ID HELLO DEAD PORT:COST:STUB:TYPE:PRIORITY,...' for one area-0 OSPF process; the guest checks it again."""
+    if not isinstance(ospf, dict) or set(ospf) != {'router_id', 'hello', 'dead', 'interfaces'}:
+        raise ValueError('Guest OSPF requires router_id, hello, dead and interfaces.')
+    hello, dead, ports = ospf['hello'], ospf['dead'], ospf['interfaces']
+    if type(hello) is not int or type(dead) is not int or not 1 <= hello <= 60 or not 2 <= dead <= 240 or dead <= hello:
+        raise ValueError('Guest OSPF timers: hello 1..60, dead 2..240 and above hello.')
+    if not isinstance(ports, list) or not 1 <= len(ports) <= MAX_GUEST_PORTS:
+        raise ValueError(f'Guest OSPF runs on 1..{MAX_GUEST_PORTS} ports.')
+    items = []
+    for port in ports:
+        if not isinstance(port, dict) or set(port) != {'port', 'cost', 'passive', 'type', 'priority'}:
+            raise ValueError('Guest OSPF port requires port, cost, passive, type and priority.')
+        if port['port'] not in GUEST_PORTS or port['type'] not in ('point-to-point', 'broadcast'):
+            raise ValueError('Guest OSPF port: eth0..eth15, point-to-point or broadcast.')
+        if type(port['cost']) is not int or not 1 <= port['cost'] <= 65535 or type(port['passive']) is not bool:
+            raise ValueError('Guest OSPF port: cost 1..65535 and passive true or false.')
+        if type(port['priority']) is not int or not 0 <= port['priority'] <= 255:
+            raise ValueError('Guest OSPF port priority: 0..255.')
+        items.append(f"{port['port']}:{port['cost']}:{'y' if port['passive'] else 'n'}:{port['type'][0]}:{port['priority']}")
+    return f"{ipaddress.IPv4Address(ospf['router_id'])} {hello} {dead} {','.join(items)}"
 
 
 def _firewall_command(operation, state, rule):
@@ -31,8 +214,8 @@ def _firewall_command(operation, state, rule):
         raise ValueError('Guest firewall rule: action accept/drop and protocol any/tcp/udp/icmp.')
     fields = [rule['action']]
     for key in ('in', 'out'):
-        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
-            raise ValueError('Guest firewall interface must be eth0..eth3.')
+        if key in rule and rule[key] not in GUEST_PORTS:
+            raise ValueError('Guest firewall interface must be eth0..eth15.')
         fields.append(rule.get(key, '-'))
     fields.append(protocol)
     for key in ('source', 'destination'):
@@ -58,8 +241,8 @@ def _nat_fields(state, rule):
         raise ValueError('Guest SNAT and DNAT need to; masquerade chooses its own address.')
     fields = [kind]
     for key in ('in', 'out'):
-        if key in rule and rule[key] not in ('eth0', 'eth1', 'eth2', 'eth3'):
-            raise ValueError('Guest NAT interface must be eth0..eth3.')
+        if key in rule and rule[key] not in GUEST_PORTS:
+            raise ValueError('Guest NAT interface must be eth0..eth15.')
         fields.append(rule.get(key, '-'))
     fields.append(protocol)
     for key in ('source', 'destination'):
@@ -70,21 +253,40 @@ def _nat_fields(state, rule):
     if 'to_port' in rule and (kind != 'dnat' or 'dport' not in rule):
         raise ValueError('Guest NAT to_port requires dnat with dport.')
     fields.append(str(rule['dport']) if 'dport' in rule else '-')
-    fields.append(str(ipaddress.IPv4Address(rule['to'])) if 'to' in rule else '-')
+    fields.append(nat_to(rule['to'], kind) if 'to' in rule else '-')
     fields.append(str(rule['to_port']) if 'to_port' in rule else '-')
     return ' '.join(fields)
 
 
+def relay_fields(relay):
+    """« SERVER PORT[,PORT…] » for DHCP_RELAY_START: the helper address and the ports it relays for."""
+    if not isinstance(relay, dict) or set(relay) != {'server', 'clients'} or not isinstance(relay['clients'], list) \
+            or not 1 <= len(relay['clients']) <= MAX_GUEST_PORTS or not all(guest_interface(p) for p in relay['clients']):
+        raise ValueError('Guest DHCP relay: a server address and its client ports.')
+    return f'{ipaddress.IPv4Address(relay["server"])} ' + ','.join(relay['clients'])
+
+
+def nat_to(value, kind):
+    """A NAT target address; source NAT also takes an ascending range A-B (an IOS pool without overload)."""
+    first, dash, last = str(value).partition('-')
+    if not dash:
+        return str(ipaddress.IPv4Address(first))
+    if kind != 'snat' or ipaddress.IPv4Address(last) <= ipaddress.IPv4Address(first):
+        raise ValueError('Guest NAT range: source NAT only, A-B ascending.')
+    return f'{ipaddress.IPv4Address(first)}-{ipaddress.IPv4Address(last)}'
+
+
 def _dhcp_command(operation, interface, server):
-    if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
-        raise ValueError('Guest DHCP requires interface eth0..eth3.')
+    sub = isinstance(interface, str) and re.fullmatch(r'eth(?:1[0-5]|[0-9])\.([1-9]\d{0,3})', interface)
+    if interface not in GUEST_PORTS and not (operation != 'dhcp-client' and sub and int(sub[1]) <= 4094):
+        raise ValueError('Guest DHCP requires interface eth0..eth15 (a server also eth0.1 .. eth15.4094).')
     command = OPERATIONS[operation] + ' ' + interface
     if operation != 'dhcp-serve':
         if server is not None:
             raise ValueError(f'Guest {operation} accepts only an interface.')
         return command
-    if not isinstance(server, dict) or set(server) != {'start', 'end', 'netmask', 'router', 'lease_seconds', 'dns'}:
-        raise ValueError('Guest dhcp-serve requires start, end, netmask, router, lease_seconds and dns.')
+    if not isinstance(server, dict) or set(server) - {'relayed'} != {'start', 'end', 'netmask', 'router', 'lease_seconds', 'dns'}:
+        raise ValueError('Guest dhcp-serve requires start, end, netmask, router, lease_seconds and dns (and may say relayed).')
     start, end = ipaddress.IPv4Address(server['start']), ipaddress.IPv4Address(server['end'])
     if not start <= end or int(end) - int(start) >= 256:
         raise ValueError('Guest DHCP pool: 1..256 addresses.')
@@ -95,12 +297,226 @@ def _dhcp_command(operation, interface, server):
     router = str(ipaddress.IPv4Address(server['router'])) if server['router'] else '-'
     dns = ','.join(str(ipaddress.IPv4Address(a)) for a in server['dns']) or '-'
     netmask = str(ipaddress.IPv4Network('0.0.0.0/' + str(server['netmask'])).netmask)
-    return ' '.join([command, str(start), str(end), netmask, router, str(server['lease_seconds']), dns])
+    return ' '.join([command, str(start), str(end), netmask, router, str(server['lease_seconds']), dns]
+                    + (['relayed'] if server.get('relayed') else []))
 
 
-def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None, timeout=6):
+def guest_interface(name):
+    """A guest port eth0..eth15, one of its 802.1Q subinterfaces eth0.1 .. eth15.4094, a switch's bridge br0, or one of
+    the bridge's VLAN interfaces br0.1 .. br0.4094 (a routing switch's SVIs)."""
+    if name == 'br0':
+        return True
+    if name in GUEST_BONDS:
+        return True  # an EtherChannel's bond: its link goes up or down
+    match = re.fullmatch(r'(?:eth(?:1[0-5]|[0-9])|br0)(?:\.([1-9][0-9]{0,3}))?', name) if isinstance(name, str) else None
+    return bool(match) and (match[1] is None or int(match[1]) <= 4094)
+
+
+def _bridge_vlan_command(operation, interface, vlan, state):
+    command = OPERATIONS[operation]
+    if operation in ('bridge-vlans', 'bridge-vlan-filtering'):
+        if interface is not None or vlan is not None or state is not None:
+            raise ValueError(f'Guest {operation} accepts no arguments.')
+        return command
+    if interface not in (*GUEST_PORTS, *GUEST_BONDS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+        raise ValueError('Guest bridge VLAN change requires interface eth0..eth15 (or br0, the bridge itself) and a VLAN 1..4094.')
+    if operation == 'bridge-vlan-add':
+        if state not in ('pvid', 'tagged'):
+            raise ValueError('Guest bridge-vlan-add requires state pvid (untagged, ingress default) or tagged.')
+        return f'{command} {interface} {vlan} {state}'
+    if state is not None:
+        raise ValueError('Guest bridge-vlan-delete accepts no state.')
+    return f'{command} {interface} {vlan}'
+
+
+def request(path, operation, *, destination=None, interface=None, state=None, cidr=None, network=None, gateway=None, rule=None, dhcp=None,
+            vlan=None, ospf=None, bgp=None, rip=None, ttl=None, relay=None, eigrp=None, stp=None, guard=None, hsrp=None, service=None,
+            vrrp=None, timeout=6):
     if operation not in OPERATIONS:
         raise ValueError('Unsupported guest operation.')
+    if operation in SERVICE_OPERATIONS:  # server services and their clients: arguments in « service » only
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard,
+                  hsrp, vrrp)
+        if any(v is not None for v in others):
+            raise ValueError('Guest service operations accept only their service arguments.')
+        return _exchange(path, operation, service_command(operation, service), timeout)
+    if service is not None:
+        raise ValueError('Only service operations accept service arguments.')
+    if operation.startswith('hsrp-'):  # the agent's HSRP speaker: one argument per group
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard)
+        if any(v is not None for v in others):
+            raise ValueError('Guest HSRP operations accept only groups.')
+        if operation == 'hsrp-start':
+            if not isinstance(hsrp, list) or not 1 <= len(hsrp) <= HSRP_GROUPS \
+                    or not all(isinstance(g, str) and re.fullmatch(HSRP_GROUP, g) for g in hsrp):
+                raise ValueError(f'Guest hsrp-start requires 1..{HSRP_GROUPS} groups.')
+            return _exchange(path, operation, 'HSRP_START ' + ' '.join(hsrp), timeout)
+        if hsrp is not None:
+            raise ValueError(f'Guest {operation} takes no group.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if hsrp is not None:
+        raise ValueError('Only hsrp-start accepts groups.')
+    if operation.startswith('vrrp-'):  # the agent's VRRP speaker: one argument per group
+        others = (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp, guard)
+        if any(v is not None for v in others):
+            raise ValueError('Guest VRRP operations accept only groups.')
+        if operation == 'vrrp-start':
+            if not isinstance(vrrp, list) or not 1 <= len(vrrp) <= VRRP_GROUPS \
+                    or not all(isinstance(g, str) and re.fullmatch(VRRP_GROUP, g) for g in vrrp):
+                raise ValueError(f'Guest vrrp-start requires 1..{VRRP_GROUPS} groups.')
+            return _exchange(path, operation, 'VRRP_START ' + ' '.join(vrrp), timeout)
+        if vrrp is not None:
+            raise ValueError(f'Guest {operation} takes no group.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if vrrp is not None:
+        raise ValueError('Only vrrp-start accepts groups.')
+    if operation.startswith('port-guard-'):  # the agent's port guard: its policies, one argument per port
+        others = (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)
+        if any(v is not None for v in others):
+            raise ValueError('Guest port guard operations accept only policies or a port.')
+        if operation == 'port-guard-start':
+            pattern = r'eth(?:1[0-5]|[0-9])/\d{1,2}/[srpn]/[yn]/[yn]/\d{1,4}/(?:-|[0-9a-f]{12}(?:\+[0-9a-f]{12})*)'
+            if interface is not None or not isinstance(guard, list) or not 1 <= len(guard) <= MAX_GUEST_PORTS \
+                    or not all(isinstance(g, str) and re.fullmatch(pattern, g) for g in guard):
+                raise ValueError('Guest port-guard-start requires one policy per guarded port.')
+            return _exchange(path, operation, 'PORT_GUARD_START ' + ' '.join(guard), timeout)
+        if guard is not None:
+            raise ValueError(f'Guest {operation} takes no policy.')
+        if operation == 'port-guard-clear':
+            if interface not in GUEST_PORTS:
+                raise ValueError('Guest port-guard-clear requires a port eth0..eth15.')
+            return _exchange(path, operation, f'PORT_GUARD_CLEAR {interface}', timeout)
+        if interface is not None:
+            raise ValueError(f'Guest {operation} takes no port.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if guard is not None:
+        raise ValueError('Only port-guard-start accepts policies.')
+    if operation.startswith('bond-'):  # an EtherChannel: a bond and its member ports
+        if any(v is not None for v in (destination, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp, stp)):
+            raise ValueError('Guest bond operations accept only a bond and, for its members, a port.')
+        if operation == 'bond-show':
+            if interface is not None or state is not None:
+                raise ValueError('Guest bond-show accepts no arguments.')
+            return _exchange(path, operation, OPERATIONS[operation], timeout)
+        if interface not in GUEST_BONDS:
+            raise ValueError('Guest bond operations require a bond bond1..bond8.')
+        if operation in ('bond-slave', 'bond-release'):
+            if state not in GUEST_PORTS:
+                raise ValueError(f'Guest {operation} requires a member port eth0..eth15.')
+            return _exchange(path, operation, f'{OPERATIONS[operation]} {interface} {state}', timeout)
+        if state is not None:
+            raise ValueError(f'Guest {operation} takes the bond only.')
+        return _exchange(path, operation, f'{OPERATIONS[operation]} {interface}', timeout)
+    if operation.startswith('bridge-stp'):  # the switch bridge's spanning tree, from typed numbers
+        if any(v is not None for v in (destination, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl, relay, eigrp)):
+            raise ValueError('Guest spanning tree operations accept only their numbers (and a port).')
+        if operation == 'bridge-stp':
+            numbers = [stp[k] for k in ('priority', 'hello_time', 'max_age', 'forward_delay')] if isinstance(stp, dict) else []
+            if interface is not None or len(numbers) != 4 or any(type(n) is not int for n in numbers):
+                raise ValueError('Guest bridge-stp requires priority, hello_time, max_age and forward_delay.')
+            return _exchange(path, operation, 'BRIDGE_STP ' + ' '.join(map(str, numbers)), timeout)
+        if operation == 'bridge-stp-port':
+            numbers = [stp[k] for k in ('cost', 'priority')] if isinstance(stp, dict) else []
+            if interface not in (*GUEST_PORTS, *GUEST_BONDS) or len(numbers) != 2 or any(type(n) is not int for n in numbers):
+                raise ValueError('Guest bridge-stp-port requires a port, its cost and its priority.')
+            return _exchange(path, operation, f'BRIDGE_STP_PORT {interface} ' + ' '.join(map(str, numbers)), timeout)
+        if interface is not None or stp is not None:
+            raise ValueError(f'Guest {operation} takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation], timeout)
+    if stp is not None:
+        raise ValueError('Only spanning tree operations accept STP numbers.')
+    if operation.startswith('eigrp-'):  # FRR's eigrpd, from the typed process
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip, ttl,
+                                               relay)):
+            raise ValueError('Guest EIGRP operations accept only the process (render, start) or what to show.')
+        if operation in ('eigrp-render', 'eigrp-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the EIGRP process.')
+            from .eigrp import fields
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + fields(eigrp), timeout)
+        if eigrp is not None or (operation == 'eigrp-stop') != (state is None) or (state is not None and state not in EIGRP_SHOW):
+            raise ValueError('Guest eigrp-show requires config, neighbors or topology; eigrp-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if eigrp is not None:
+        raise ValueError('Only eigrp-render and eigrp-start accept an EIGRP process.')
+    if operation in ('proxy-arp', 'dev-route-add', 'dev-route-delete'):  # a port's proxy ARP, a route through a port
+        if not guest_interface(interface) or interface == 'br0' or any(v is not None for v in (destination, cidr, gateway, rule, dhcp,
+                                                                                               vlan)):
+            raise ValueError(f'Guest {operation} requires a port eth0..eth15 (or a subinterface).')
+        if operation == 'proxy-arp':
+            if state not in ('on', 'off') or network is not None:
+                raise ValueError('Guest proxy-arp requires state on or off.')
+            return _exchange(path, operation, f'PROXY_ARP {interface} {state}', timeout)
+        if state is not None:
+            raise ValueError(f'Guest {operation} accepts a port and a network.')
+        return _exchange(path, operation, f'{OPERATIONS[operation]} {interface} {ipaddress.IPv4Network(network)}', timeout)
+    if operation.startswith('dhcp-relay-'):  # IOS « ip helper-address »: the agent's own relay
+        if any(value is not None for value in (destination, interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip,
+                                               ttl)) \
+                or (relay is None) != (operation != 'dhcp-relay-start'):
+            raise ValueError('Guest dhcp-relay-start takes only the relay; stop and show take nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + (' ' + relay_fields(relay) if relay else ''), timeout)
+    if relay is not None:
+        raise ValueError('Only dhcp-relay-start accepts a relay.')
+    if operation == 'trace':  # one traceroute hop: a UDP probe at TTL
+        if any(value is not None for value in (interface, state, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp, rip)) \
+                or type(ttl) is not int or not 1 <= ttl <= 30:
+            raise ValueError('Guest trace requires a destination and a TTL 1..30.')
+        return _exchange(path, operation, f'TRACE {ttl} {ipaddress.IPv4Address(destination)}', timeout)
+    if ttl is not None:
+        raise ValueError('Only trace accepts a TTL.')
+    if operation.startswith('rip-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf, bgp)):
+            raise ValueError('Guest RIP operations accept only the process (render, start) or what to show.')
+        if operation in ('rip-render', 'rip-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the RIP process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + rip_fields(rip), timeout)
+        if rip is not None or (operation == 'rip-stop') != (state is None) or (state is not None and state not in RIP_SHOW):
+            raise ValueError('Guest rip-show requires config or routes; rip-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if rip is not None:
+        raise ValueError('Only rip-render and rip-start accept a RIP process.')
+    if operation.startswith('bgp-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan, ospf)):
+            raise ValueError('Guest BGP operations accept only the process (render, start) or what to show.')
+        if operation in ('bgp-render', 'bgp-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the BGP process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + bgp_fields(bgp), timeout)
+        if bgp is not None or (operation == 'bgp-stop') != (state is None) or (state is not None and state not in BGP_SHOW):
+            raise ValueError('Guest bgp-show requires one of ' + ', '.join(BGP_SHOW) + '; bgp-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if bgp is not None:
+        raise ValueError('Only bgp-render and bgp-start accept a BGP process.')
+    if operation.startswith('ospf-'):
+        if any(value is not None for value in (destination, interface, cidr, network, gateway, rule, dhcp, vlan)):
+            raise ValueError('Guest OSPF operations accept only the process (render, start) or what to show.')
+        if operation in ('ospf-render', 'ospf-start'):
+            if state is not None:
+                raise ValueError(f'Guest {operation} accepts only the OSPF process.')
+            return _exchange(path, operation, OPERATIONS[operation] + ' ' + ospf_fields(ospf), timeout)
+        if ospf is not None or (operation == 'ospf-stop') != (state is None) or (state is not None and state not in OSPF_SHOW):
+            raise ValueError('Guest ospf-show requires one of ' + ', '.join(OSPF_SHOW) + '; ospf-stop takes nothing.')
+        return _exchange(path, operation, OPERATIONS[operation] + ('' if state is None else ' ' + state), timeout)
+    if ospf is not None:
+        raise ValueError('Only ospf-render and ospf-start accept an OSPF process.')
+    if operation in ('vlan-add', 'vlan-delete'):
+        if any(value is not None for value in (destination, state, cidr, network, gateway, rule, dhcp)):
+            raise ValueError('Guest VLAN interface operations accept only an interface and, to add one, a VLAN.')
+        if operation == 'vlan-add':
+            if interface not in (*GUEST_PORTS, 'br0') or type(vlan) is not int or not 1 <= vlan <= 4094:
+                raise ValueError('Guest vlan-add requires a parent port eth0..eth15 (or the bridge br0) and a VLAN 1..4094.')
+            return _exchange(path, operation, f'VLAN_ADD {interface} {vlan}', timeout)
+        if not guest_interface(interface) or '.' not in interface or vlan is not None:
+            raise ValueError('Guest vlan-delete requires a subinterface such as eth0.10 and no VLAN.')
+        return _exchange(path, operation, f'VLAN_DEL {interface}', timeout)
+    if operation.startswith('bridge-vlan'):
+        if any(value is not None for value in (destination, cidr, network, gateway, rule, dhcp)):
+            raise ValueError('Guest bridge VLAN operations accept only an interface, a VLAN and a state.')
+        return _exchange(path, operation, _bridge_vlan_command(operation, interface, vlan, state), timeout)
+    if vlan is not None:
+        raise ValueError('Only bridge VLAN operations accept a VLAN.')
     if operation.startswith('dhcp-'):
         if any(value is not None for value in (destination, state, cidr, network, gateway, rule)):
             raise ValueError('Guest DHCP operations accept only an interface and, for dhcp-serve, the pool.')
@@ -119,12 +535,12 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
     elif destination is not None:
         raise ValueError('Only ping accepts a destination.')
     if operation == 'link':
-        if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state not in ('up', 'down'):
-            raise ValueError('Guest link requires interface eth0..eth3 and state up or down.')
+        if not guest_interface(interface) or state not in ('up', 'down'):
+            raise ValueError('Guest link requires interface eth0..eth15 (or a subinterface) and state up or down.')
         command += ' ' + interface + ' ' + state
     elif operation == 'bridge-add':
-        if interface not in ('eth0', 'eth1', 'eth2', 'eth3') or state is not None:
-            raise ValueError('Guest bridge-add requires interface eth0..eth3 and no state.')
+        if interface not in (*GUEST_PORTS, *GUEST_BONDS) or state is not None:
+            raise ValueError('Guest bridge-add requires interface eth0..eth15 or a bond, and no state.')
         command += ' ' + interface
     elif operation == 'forward':
         if interface is not None or state not in ('on', 'off'):
@@ -136,8 +552,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if not isinstance(cidr, str) or '/' not in cidr:
             raise ValueError('Guest address requires explicit IPv4/prefix.')
         if interface is not None:
-            if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
-                raise ValueError('Guest address interface must be eth0..eth3.')
+            if not guest_interface(interface):
+                raise ValueError('Guest address interface must be eth0..eth15 or a subinterface.')
             command = ('IF_ADD' if operation == 'address-add' else 'IF_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Interface(cidr))
     elif cidr is not None:
@@ -146,8 +562,8 @@ def request(path, operation, *, destination=None, interface=None, state=None, ci
         if not isinstance(network, str) or '/' not in network:
             raise ValueError('Guest route requires an explicit IPv4 network/prefix.')
         if interface is not None:
-            if interface not in ('eth0', 'eth1', 'eth2', 'eth3'):
-                raise ValueError('Guest route interface must be eth0..eth3.')
+            if not guest_interface(interface):
+                raise ValueError('Guest route interface must be eth0..eth15 or a subinterface.')
             command = ('IF_ROUTE_ADD' if operation == 'route-add' else 'IF_ROUTE_DEL') + ' ' + interface
         command += ' ' + str(ipaddress.IPv4Network(network, strict=True)) + ' ' + str(ipaddress.IPv4Address(gateway))
     elif network is not None or gateway is not None:

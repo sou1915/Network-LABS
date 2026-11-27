@@ -7,13 +7,29 @@ import sys
 
 from .catalog import capabilities
 from .runtime import Manager, RuntimeFailure, plan, static_busybox_rootfs
-from .spec import example, load
+from .spec import example, identifier, load
 
 
 def main(arguments=None):
     parser = argparse.ArgumentParser(description='Network LABS native experimental appliances')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor', help='Read-only host dependency report; not a boot test.')
+    terminal = commands.add_parser('node-console', help='Interactive terminal for one running micro-VM: its vendor prompt, show, '
+                                                        'ping and live configuration (routers), or ping / ip addr / ip route (hosts).')
+    terminal.add_argument('lab')
+    terminal.add_argument('node')
+    consoles = commands.add_parser('console-server', help='Serve the node terminals of a running lab to the workbench of one '
+                                                          'user (root; started with the lab).')
+    consoles.add_argument('lab')
+    consoles.add_argument('uid', type=int)
+    first = commands.add_parser('setup', help='First launch: check KVM and tools, fetch the pinned Firecracker and kernel, '
+                                              'build one guest disk (agent, iptables, BIRD) and remember the paths. No root.')
+    first.add_argument('--download', action='store_true',
+                       help='Download the pinned Firecracker release and guest kernel (SHA-256 checked).')
+    first.add_argument('--kernel', type=Path, help='Use this guest kernel instead of the pinned one.')
+    first.add_argument('--rebuild', action='store_true', help='Build the guest disk again even if it is up to date.')
+    first.add_argument('--dir', type=Path, help='Where to keep downloads and the disk (default ~/.local/share/network-labs).')
+    first.add_argument('--json', action='store_true')
     labs = commands.add_parser('labs', help='List recorded native lab names, phases and nodes; no liveness checks.')
     labs.add_argument('--json', action='store_true')
     manifests = commands.add_parser('manifests', help='List native JSON manifests in the current directory; no lab changes.')
@@ -30,6 +46,14 @@ def main(arguments=None):
     vm_sample.add_argument('--router-quad',action='store_true',help='Five guests: a router guest using all four ports, one endpoint guest on each.')
     vm_sample.add_argument('--firewall-nat',action='store_true',help='Three guests: the firewall guest also masquerades the inside and publishes VM2 on its outside address.')
     vm_sample.add_argument('--dhcp',action='store_true',help='Three guests: a router guest serving DHCP to one host guest, a static host behind it.')
+    vm_sample.add_argument('--bgp', action='store_true',
+                           help='Five guests: three router guests in three ASes (Cisco, Juniper, Huawei models) peering in eBGP with FRR.')
+    vm_sample.add_argument('--ospf', action='store_true',
+                           help='Five guests: three router guests (Cisco, Juniper, Huawei models) running OSPF with BIRD, two hosts.')
+    vm_sample.add_argument('--router-on-a-stick', action='store_true',
+                           help='Four guests: a VLAN switch trunked to a router guest that routes VLAN 10 to VLAN 20 on subinterfaces.')
+    vm_sample.add_argument('--switch-vlans', action='store_true',
+                           help='Six guests: two VLAN switch guests joined by a trunk, four hosts in VLANs 10 and 20.')
     vm_sample.add_argument('--switch',action='store_true',help='Four guests: an untagged learning-bridge switch guest joining three endpoint guests.')
     guest = commands.add_parser('microvm-rootfs', help='Build a minimal guest ext4 image without root or mounts.')
     guest.add_argument('--busybox', type=Path, required=True)
@@ -37,25 +61,28 @@ def main(arguments=None):
     guest.add_argument('--size-mib', type=int, default=64)
     guest.add_argument('--with-agent', action='store_true', help='Compile a static vsock guest agent; requires gcc and static libc.')
     guest.add_argument('--with-firewall', action='store_true', help='Add legacy iptables for firewall guests; requires the iptables package and --with-agent.')
+    guest.add_argument('--with-routing', action='store_true',
+                       help='Add BIRD 2 for OSPF on router guests; requires the bird2 package and --with-agent.')
     vm_leases = commands.add_parser('microvm-dhcp-leases', help="List a guest DHCP server's current leases via its private Firecracker socket.")
     vm_leases.add_argument('--socket', type=Path, required=True)
-    vm_leases.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], required=True)
+    vm_leases.add_argument('--interface', choices=[f'eth{i}' for i in range(16)], required=True)
     control = commands.add_parser('microvm-diagnostic', help='Query fixed guest diagnostics via a private Firecracker socket.')
     control.add_argument('--socket', type=Path, required=True)
     control.add_argument('operation', choices=['ready', 'addresses', 'routes', 'ping', 'forwarding', 'kernel'])
     control.add_argument('--destination', help='IPv4 address required for ping.')
-    link = commands.add_parser('microvm-link', help='Set live guest eth0..eth3 up/down via vsock; not saved to the manifest.')
+    link = commands.add_parser('microvm-link', help='Set live guest eth0..eth15 up/down via vsock; not saved to the manifest.')
     link.add_argument('--socket', type=Path, required=True)
-    link.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], default='eth0')
+    link.add_argument('--interface', choices=[f'eth{i}' for i in range(16)], default='eth0')
     link.add_argument('state', choices=['up', 'down'])
     address = commands.add_parser('microvm-address', help='Add/delete a live IPv4 address on a guest interface; not persisted.')
     address.add_argument('--socket', type=Path, required=True)
     address.add_argument('--cidr', required=True)
-    address.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'])
+    address.add_argument('--interface', choices=[f'eth{i}' for i in range(16)])
     address.add_argument('action', choices=['add', 'delete'])
     route = commands.add_parser('microvm-route', help='Add/delete a live IPv4 route through a guest port (default eth0); not persisted.')
     route.add_argument('--socket', type=Path, required=True)
-    route.add_argument('--interface', choices=['eth0', 'eth1', 'eth2', 'eth3'], help='Other ports need a guest image built with the current agent.')
+    route.add_argument('--interface', choices=[f'eth{i}' for i in range(16)],
+                       help='Other ports need a guest image built with the current agent.')
     route.add_argument('--network', required=True)
     route.add_argument('--gateway', required=True)
     route.add_argument('action', choices=['add', 'delete'])
@@ -355,6 +382,20 @@ def main(arguments=None):
     execute.add_argument('argv', nargs=argparse.REMAINDER)
     args = parser.parse_args(arguments)
     try:
+        if args.command == 'console-server':
+            from .console_server import main as serve_consoles
+            identifier(args.lab)
+            return serve_consoles([args.lab, args.uid])
+        if args.command == 'node-console':
+            from .guest_console import run
+            identifier(args.lab)
+            identifier(args.node)
+            return run(args.lab, args.node)
+        if args.command == 'setup':
+            from .setup import prepare, report
+            result = prepare(download=args.download, kernel=args.kernel, rebuild=args.rebuild, folder=args.dir)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else report(result))
+            return 0 if result['ready'] else 1
         if args.command == 'doctor':
             result = capabilities()
         elif args.command == 'labs':
@@ -388,20 +429,29 @@ def main(arguments=None):
             result = request(args.socket, args.operation, destination=args.destination)
         elif args.command == 'microvm-rootfs':
             from .guest_image import build
-            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall)
+            result = build(args.busybox, args.output, size_mib=args.size_mib, with_agent=args.with_agent, with_firewall=args.with_firewall,
+                           with_routing=args.with_routing)
         elif args.command == 'microvm-example':
-            from .microvm import example as microvm_example
-            if args.multinic + args.router + args.router_chain + args.firewall + args.switch + args.router_quad + args.firewall_nat + args.dhcp > 1:
-                raise ValueError('Choose one of --multinic, --router, --router-chain, --router-quad, --firewall, --firewall-nat, --dhcp or --switch.')
-            if args.multinic or args.router or args.router_chain or args.firewall or args.switch or args.router_quad or args.firewall_nat or args.dhcp:
-                from .microvm import multinic_example, router_example, router_chain_example, firewall_example, switch_example, quad_router_example, firewall_nat_example, dhcp_example
-                result=(dhcp_example if args.dhcp else firewall_nat_example if args.firewall_nat else quad_router_example if args.router_quad else switch_example if args.switch else firewall_example if args.firewall else router_chain_example if args.router_chain else router_example if args.router else multinic_example)(args.kernel,args.disk)
+            from . import microvm
+            # One reference lab per flag; without a flag, the two-host pair.
+            choices = {'multinic': microvm.multinic_example, 'router': microvm.router_example,
+                       'router_chain': microvm.router_chain_example, 'router_quad': microvm.quad_router_example,
+                       'firewall': microvm.firewall_example, 'firewall_nat': microvm.firewall_nat_example,
+                       'dhcp': microvm.dhcp_example, 'switch': microvm.switch_example, 'switch_vlans': microvm.switch_vlan_example,
+                       'router_on_a_stick': microvm.router_on_a_stick_example, 'ospf': microvm.ospf_example,
+                       'bgp': microvm.bgp_example}
+            chosen = [flag for flag in choices if getattr(args, flag)]
+            if len(chosen) > 1:
+                raise ValueError('Choose one of ' + ', '.join('--' + flag.replace('_', '-') for flag in choices) + '.')
+            if chosen:
+                result = choices[chosen[0]](args.kernel, args.disk)
                 for node in result['nodes']:
-                    node['memory_mib']=args.memory_mib; node['vcpus']=args.vcpus
+                    node['memory_mib'] = args.memory_mib
+                    node['vcpus'] = args.vcpus
                 from .spec import validate
-                result=validate(result)
+                result = validate(result)
             else:
-                result=microvm_example(args.kernel,args.disk,memory_mib=args.memory_mib,vcpus=args.vcpus)
+                result = microvm.example(args.kernel, args.disk, memory_mib=args.memory_mib, vcpus=args.vcpus)
         elif args.command == 'example':
             pinned_shell = args.radius_ssh_shell and args.radius_accounting and args.radius_accounting_outbox and args.radius_accounting_journal
             if args.ssh_host_key_file is not None and (not (args.management or args.radius_ssh) or args.ssh_authorized_key is None or not args.ssh_action or args.radius_dns or ((args.radius_shell or args.radius_ssh_shell or args.radius_accounting) and not pinned_shell)):

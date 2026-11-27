@@ -28,8 +28,10 @@ PUBLIC_FIELDS=tuple(dict.fromkeys(field for section in SECTIONS.values() for fie
 
 def sections(node):
     if node['runtime']=='firecracker':
-        # A firewall guest holds the same policy object as a container firewall, enforced inside the guest.
-        offered=['vmresources']+(['firewall'] if node['role']=='firewall' else [])
+        # The sections a guest supports itself; each still goes through the same lab validation as containers.
+        by_role={'host':['dhcpserver'],'router':['subinterfaces','dhcpserver'],'firewall':['firewall','subinterfaces','dhcpserver'],
+                 'switch':['switching']}
+        offered=['vmresources']+by_role[node['role']]
         return [{'id':key,'label':SECTIONS[key]['label'],'fields':list(SECTIONS[key]['fields'])} for key in offered]
     if node['runtime']!='oci' or node.get('startup'):return []
     return [{'id':key,'label':section['label'],'fields':list(section['fields'])} for key,section in SECTIONS.items() if key!='vmresources' and node['role'] in section['roles'] and not (key=='dot1x' and not node.get('dot1x')) and not (key in ('snooping','arpinspection','sourceguard','multicast') and node.get('switch_backend')!='linux') and not (key=='lldp' and node.get('port_channels')) and not (key=='aggregation' and node.get('switch_backend')!='linux') and not (key=='firewall' and node.get('firewall_ipv6')) and not (key=='ipv6' and node['role']=='firewall' and not node.get('firewall_ipv6'))]

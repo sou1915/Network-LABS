@@ -1,7 +1,6 @@
 """Strict pre-provisioned host trust combined with the real RADIUS denial suite."""
 import json
 from pathlib import Path
-import unittest
 import test_native_ssh_radius as reference
 from network_labs.appliances.runtime import run
 from test_native_integration import unexpected_host_link_changes

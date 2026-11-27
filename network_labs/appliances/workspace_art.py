@@ -1,48 +1,163 @@
 """Original generic device artwork and declared access-VLAN presentation."""
 import ipaddress
+from pathlib import Path
+import tkinter as tk
 from .soft_widgets import rounded_box
 
 
-def draw_device(c,role,x,y,scale=1,tags=(),variant='blue'):
-    def rect(a,b,d,e,**kw):return c.create_rectangle(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
-    def line(*points,**kw):return c.create_line(*[v*scale+(x if i%2==0 else y) for i,v in enumerate(points)],tags=tags,**kw)
+def _mix(a, b, t):
+    """Colour between a and b ('#rrggbb'), t in 0..1."""
+    pa, pb = [int(a[i:i + 2], 16) for i in (1, 3, 5)], [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return '#' + ''.join(f'{round(u + (v - u) * t):02x}' for u, v in zip(pa, pb))
+
+
+# Chassis palettes per role: top face, front panel top/bottom, side, outline, emblem.
+_CHASSIS = {
+    'router': ('#3f6f8f', '#1e4560', '#0f2738', '#0b1d2a', '#091620', '#2f9be0'),
+    'switch': ('#dfe7ee', '#c9d5df', '#9fb0bf', '#7d8e9c', '#5b6c7a', '#2f8fd8'),
+    'firewall': ('#5b4a4a', '#3b2f31', '#221a1c', '#1a1314', '#120c0d', '#e4572e'),
+}
+
+
+DEVICE_ART = Path(__file__).resolve().parent / 'assets' / 'devices'
+ART_SCALES = (0.5, 0.65, 0.8, 1.0, 1.2, 1.45, 1.75)  # sizes rendered by tools/render_device_art.py
+
+
+def device_image(c, role, variant, scale):
+    """The pre-rendered, antialiased drawing nearest to SCALE, cached on the canvas; None when unavailable."""
+    name = f'host-{variant}' if role == 'host' else role
+    size = min(ART_SCALES, key=lambda value: abs(value - scale))
+    path = DEVICE_ART / f'{name}@{round(size * 100)}.png'
+    cache = c.__dict__.setdefault('_device_images', {})
+    if path not in cache:
+        try:
+            cache[path] = tk.PhotoImage(master=c, file=str(path))
+        except (tk.TclError, OSError):
+            cache[path] = None
+    return cache[path]
+
+
+def draw_device(c,role,x,y,scale=1,tags=(),variant='blue',zoom=1):
+    """Draw a device: the antialiased PNG for its role when present (ZOOM picks the size, since canvas
+    scaling moves images without resizing them), else the vector drawing below."""
+    image = device_image(c, role, variant, scale * zoom)
+    if image is not None:
+        return c.create_image(x, y, image=image, tags=tags)
+    return draw_device_vector(c, role, x, y, scale, tags, variant)
+
+
+def draw_device_vector(c,role,x,y,scale=1,tags=(),variant='blue'):
+    """Unbranded device drawings: 3D chassis with front panel, ports, LEDs and a role emblem; monitors and towers."""
+    def pt(points):
+        return [v*scale+(x if i%2==0 else y) for i,v in enumerate(points)]
+
+    def rect(a,b,d,e,**kw):
+        return c.create_rectangle(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
+
+    def line(*points,**kw):
+        return c.create_line(*pt(points),tags=tags,**kw)
+
+    def poly(*points,**kw):
+        return c.create_polygon(*pt(points),tags=tags,**kw)
+
+    def oval(a,b,d,e,**kw):
+        return c.create_oval(x+a*scale,y+b*scale,x+d*scale,y+e*scale,tags=tags,**kw)
+
+    def gradient(a,b,d,e,top,bottom,steps=10):
+        height=(e-b)/steps
+        for i in range(steps):
+            rect(a,b+i*height,d,b+(i+1)*height+.6,fill=_mix(top,bottom,i/(steps-1)),outline='')
+
+    width=max(1,round(scale))
     if role=='host':
-        rect(-32,-27,32,14,fill='#172331',outline='#0b1520',width=2)
-        for row in range(32):
-            shade=f'#{195+row:02x}{18+row:02x}{27+row:02x}' if variant=='red' else f'#{8+row:02x}{104+row*2:02x}{222+row:02x}'
-            rect(-29,-24+row,29,-23+row,fill=shade,outline='')
+        oval(-30,20,30,30,fill='#d5dde5',outline='')                      # shadow on the desk
+        poly(-8,13,8,13,11,24,-11,24,fill='#3a4b5c',outline='')            # stand neck
+        poly(-21,23,21,23,24,27,-24,27,fill='#2b3a49',outline='')          # base
+        line(-21,23,21,23,fill='#5d7083',width=width)
+        rect(-34,-30,34,15,fill='#1b2836',outline='#0b1520',width=width)  # bezel
+        rect(-34,-30,34,-28,fill='#2e3e4f',outline='')
+        top,bottom=(('#e8573a','#9c1f27') if variant=='red' else ('#2ea8ff','#0b4fbf'))
+        gradient(-30,-26,30,10,top,bottom,steps=12)
+        poly(-30,-26,-4,-26,-30,0,fill=_mix(top,'#ffffff',.25),outline='')  # screen glare
         if variant=='red':
-            c.create_oval(x-10*scale,y-17*scale,x+10*scale,y+3*scale,outline='#ffffff',width=max(1,2*scale),tags=tags)
-            line(-4,-10,1,-7,-4,-4,fill='white',width=max(1,2*scale));line(3,-3,8,-3,fill='white',width=max(1,2*scale))
+            oval(-10,-17,10,3,outline='#ffffff',width=max(1,2*scale))
+            line(-4,-10,1,-7,-4,-4,fill='white',width=max(1,2*scale))
+            line(3,-3,8,-3,fill='white',width=max(1,2*scale))
         else:
             for a,b,d,e in [(-12,-16,-1,-7),(2,-18,13,-7),(-12,-4,-1,5),(2,-4,13,7)]:
-                rect(a,b,d,e,fill='#69c6ff',outline='')
-        rect(-5,15,5,23,fill='#344454',outline='');rect(-20,23,20,26,fill='#243547',outline='')
-        rect(-29,10,29,12,fill='#8d9eac',outline='')
+                rect(a,b,d,e,fill='#bfe6ff',outline='')
+        rect(-34,10,34,15,fill='#c3ccd5',outline='')                     # chin
+        oval(-1.5,11.5,1.5,13.5,fill='#31cf47',outline='')                # power LED
     elif role=='server':
-        c.create_polygon(x-16*scale,y-29*scale,x+11*scale,y-34*scale,x+21*scale,y-28*scale,x-6*scale,y-22*scale,fill='#586975',outline='#263847',tags=tags)
+        oval(-22,25,26,33,fill='#d5dde5',outline='')
+        poly(-16,-29,11,-34,21,-28,-6,-22,fill='#6f818d',outline='#263847')            # top
+        poly(12,-29,21,-28,21,24,12,29,fill='#142532',outline='#132331')               # side
         rect(-16,-29,12,29,fill='#263846',outline='#132331')
-        c.create_polygon(x+12*scale,y-29*scale,x+21*scale,y-28*scale,x+21*scale,y+24*scale,x+12*scale,y+29*scale,fill='#142532',outline='#132331',tags=tags)
-        for row in range(4):rect(-12,-23+row*9,8,-17+row*9,fill='#344c5c',outline='#526b79')
-        for row in range(3):line(-11,16+row*3,7,16+row*3,fill='#647984')
-        rect(-11,11,-8,13,fill='#31cf47',outline='')
+        gradient(-15,-28,11,28,'#34495a','#1d2c39',steps=8)
+        for row in range(4):                                                            # drive bays
+            rect(-12,-23+row*9,8,-17+row*9,fill='#3c5567',outline='#5f7b8c')
+            rect(-10,-21+row*9,-6,-19+row*9,fill='#9fb4c2',outline='')
+            oval(4,-21+row*9,6,-19+row*9,fill='#31cf47' if row != 2 else '#f1b434',outline='')
+        for row in range(4):
+            line(-11,14+row*3,7,14+row*3,fill='#647984')
+        oval(-11,25,-7,28,fill='#31cf47',outline='')
     else:
-        # A three-dimensional, unbranded rack chassis; not a firmware/model claim.
-        c.create_polygon(x-51*scale,y-14*scale,x-40*scale,y-25*scale,x+45*scale,y-25*scale,x+54*scale,y-14*scale,fill='#314855',outline='#263848',tags=tags)
-        rect(-51,-14,54,15,fill='#183441' if role=='router' else '#c8d3dc' if role=='switch' else '#f1f0eb',outline='#263848')
-        rect(-49,12,52,16,fill='#152331',outline='')
-        line(-37,-20,34,-20,fill='#778c99',width=1)
-        if role=='firewall':
-            rect(-45,-9,-21,-5,fill='#e62328',outline='')
-            rect(-45,-4,-21,-1,fill='#a3abb2',outline='')
-        count=12 if role=='switch' else 4 if role=='firewall' else 6
-        start=-12 if role=='firewall' else -42;spacing=7 if role=='switch' else 12
-        for index in range(count):
-            px=start+index*spacing
-            rect(px,-7,px+5,2,fill='#14202a',outline='#6b7d88')
-            rect(px+1,3,px+4,4,fill='#54b97c',outline='')
-        for px in (45,49):rect(px,-6,px+1,-4,fill='#2bb67c',outline='')
-        line(-44,8,37,8,fill='#889aa5',width=1)
+        top,front_top,front_bottom,side,edge,accent=_CHASSIS.get(role,_CHASSIS['router'])
+        oval(-52,10,58,24,fill='#d5dde5',outline='')                                   # shadow
+        poly(-51,-14,-40,-25,45,-25,54,-14,fill=top,outline=edge)                       # top face
+        line(-38,-22,43,-22,fill=_mix(top,'#ffffff',.35))
+        poly(54,-14,58,-18,58,11,54,15,fill=side,outline=edge)                          # right side
+        gradient(-51,-14,54,15,front_top,front_bottom,steps=9)                          # front panel
+        rect(-51,-14,54,15,fill='',outline=edge,width=width)
+        line(-51,-13,54,-13,fill=_mix(front_top,'#ffffff',.3))
+        rect(-49,12,52,15,fill=_mix(front_bottom,'#000000',.35),outline='')            # base rail
+        # Role emblem in a round badge on the left of the panel.
+        badge=accent if role=='switch' else _mix(front_bottom,'#000000',.3)
+        oval(-47,-11,-29,7,fill=badge,outline=_mix(accent,'#000000',.25) if role=='switch' else accent,width=width)
+        if role=='router':
+            for dx,dy in ((0,-5),(0,5),(-5,0),(5,0)):
+                line(-38,-2,-38+dx,-2+dy,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+        elif role=='switch':
+            line(-44,-5,-32,-5,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+            line(-32,1,-44,1,fill='white',width=max(1,1.6*scale),arrow='last',arrowshape=(3*scale,3.5*scale,1.5*scale))
+        else:
+            for row in range(3):                                                        # brick wall
+                offset=0 if row%2==0 else 3
+                for col in range(3):
+                    bx=-45+offset+col*5
+                    if bx+4<=-31:
+                        rect(bx,-8+row*4,bx+4,-5+row*4,fill=accent,outline='')
+        # Ports: two rows on switches, one row with link LEDs elsewhere.
+        if role=='switch':
+            for row in range(2):
+                for index in range(10):
+                    px=-24+index*6
+                    rect(px,-10+row*9,px+4.5,-4+row*9,fill='#121c25',outline='#3f505d')
+                    rect(px+.8,-11.4+row*9,px+2.2,-10.4+row*9,fill='#3ddc84' if (index+row)%3 else '#f1b434',outline='')
+            for index in range(2):                                                      # uplinks
+                px=37+index*6
+                rect(px,-8,px+5,0,fill='#2b3946',outline='#9fb0bf')
+        else:
+            count=4 if role=='firewall' else 6
+            for index in range(count):
+                px=-22+index*9
+                rect(px,-8,px+6,1,fill='#0d151c',outline=_mix(front_top,'#ffffff',.35))
+                rect(px+1,-7,px+5,-5,fill='#26323c',outline='')
+                rect(px+1,3,px+3,5,fill='#3ddc84' if index%4 != 3 else '#f1b434',outline='')
+            line(30,-10,30,10,fill=_mix(front_top,'#ffffff',.2))
+        # Status LEDs and a vent grille on the right.
+        for i,colour in enumerate(('#3ddc84','#2f9be0','#3ddc84')):
+            oval(46,-10+i*5,49,-7+i*5,fill=colour,outline='')
+        for i in range(4):
+            line(34+i*2.4,-9,34+i*2.4,8,fill=_mix(front_bottom,'#000000',.4) if role!='switch' else '#8798a6')
+
+
+def port_offset(node,port):
+    """Horizontal offset where a port's cable leaves a chassis: ports spread over its front panel."""
+    ports=list(node['interfaces'])
+    count=min(len(ports),8)
+    step=min(18,90/max(1,count-1)) if count>1 else 0
+    return (ports.index(port)%8-(count-1)/2)*step
 
 
 def access_vlans(graph,spec):
@@ -57,6 +172,28 @@ def access_vlans(graph,spec):
     return {name:next(iter(vids)) for name,vids in members.items() if len(vids)==1}
 
 
+def vlan_groups(graph,members):
+    """[(vid, hosts)]: one group per VLAN and per island of cabled switches (VLAN 1 at two sites is two LANs)."""
+    nodes={n['name']:n for n in graph['nodes']}
+    island={}
+    def root(name):
+        while island.get(name,name)!=name:
+            name=island[name]
+        return name
+    for a,b in graph['links']:
+        if nodes[a[0]]['role']==nodes[b[0]]['role']=='switch':
+            island[root(a[0])]=root(b[0])
+    switch_of={}
+    for a,b in graph['links']:
+        for host,sw in ((a,b),(b,a)):
+            if host[0] in members and nodes[sw[0]]['role']=='switch':
+                switch_of[host[0]]=root(sw[0])
+    groups={}
+    for name,vid in members.items():
+        groups.setdefault((vid,switch_of.get(name)),[]).append(name)
+    return [(vid,names) for (vid,_),names in sorted(groups.items(),key=lambda item:(item[0][0],str(item[0][1])))]
+
+
 def firewall_hosts(graph):
     nodes={n['name']:n for n in graph['nodes']};result={}
     for a,b in graph['links']:
@@ -65,28 +202,221 @@ def firewall_hosts(graph):
     return result
 
 
+def tree_layout(graph,groups=None,spacing=125):
+    """Positions for a multi-site network: routers and firewalls on top (one row for a chain, a core above its
+    branches otherwise), each site's switches under its router and the site's hosts under their switch."""
+    nodes={n['name']:n for n in graph['nodes']}
+    near={name:[] for name in nodes}
+    for a,b in graph['links']:
+        near[a[0]].append(b[0])
+        near[b[0]].append(a[0])
+    top=[n for n in nodes if nodes[n]['role'] in ('router','firewall')]
+    links={n:[m for m in near[n] if m in top] for n in top}
+    rows,order={},[]
+    if top and all(len(v)<=2 for v in links.values()):
+        order=[next((n for n in top if len(links[n])<=1),top[0])]
+        while len(order)<len(top):
+            following=[m for m in links[order[-1]] if m not in order] or [n for n in top if n not in order]
+            order.append(following[0])
+        rows={n:0 for n in order}
+    elif top:
+        root=max(top,key=lambda n:len(links[n]))
+        order=[root]
+        rows={root:0}
+        for here in order:
+            for other in links[here]:
+                if other not in rows:
+                    rows[other]=rows[here]+1
+                    order.append(other)
+        order+=[n for n in top if n not in rows]
+        rows.update({n:1 for n in top if n not in rows})
+    # Each switch belongs to the first router, firewall or switch it is cabled to; each host to its switch or router.
+    owner={}
+    queue=list(order) if top else [n for n in nodes if nodes[n]['role']=='switch'][:1]
+    for here in queue:
+        for other in near[here]:
+            if other not in owner and other not in top and other not in queue:
+                owner[other]=here
+                queue.append(other)
+    groups=groups or {}
+    leaves={n:[k for k,p in owner.items() if p==n] for n in nodes}
+    # Hosts of one VLAN stay side by side under their switch. VLANs are ordered by where their hosts sit
+    # (switch blocks are placed left to right, sub-switches first),
+    # so a VLAN spread over two switches ends one block and starts the next instead of interleaving.
+    blocks=[]
+    def visit(name):
+        for kid in leaves[name]:
+            if nodes[kid]['role']=='switch':
+                visit(kid)
+        blocks.append(name)
+    for name in (order or queue[:1]):
+        visit(name)
+    where={}
+    for host,parent in owner.items():
+        if host in groups:
+            where.setdefault(groups[host],[]).append(blocks.index(parent) if parent in blocks else 0)
+    rank={vid:sum(v)/len(v) for vid,v in where.items()}
+    for name in leaves:
+        leaves[name].sort(key=lambda k:(nodes[k]['role']!='switch',rank.get(groups.get(k),0),groups.get(k,0)))
+    def units(name):
+        own=max(1,sum(units(k) for k in leaves[name]))
+        if name in top:
+            return max(own,1.7)  # a router keeps room for its transit captions
+        # A host cabled straight to a router or firewall: room for its cable's subnet caption beside its neighbour's.
+        return 1.6 if nodes[name]['role']=='host' and owner.get(name) in top else own
+    depth=max(rows.values(),default=-1)+1
+    switch_y=100+depth*130 if top else 250
+    host_y=switch_y+140
+    positions={}
+    def place(name,left):
+        """Lay out NAME's switches and hosts from LEFT; returns the right edge and the centre of its direct hosts."""
+        here,hosts=left,[]
+        for kid in leaves[name]:
+            span=units(kid)*spacing
+            if nodes[kid]['role']=='switch':
+                _,centre=place(kid,here)
+                positions[kid]=(centre if centre is not None else here+span/2,switch_y)
+            else:
+                positions[kid]=(here+span/2,host_y)
+                hosts.append(here+span/2)
+            here+=span
+        return here,(sum(hosts)/len(hosts) if hosts else None)
+    cursor=0
+    if not top:
+        start=queue[0]
+        end,centre=place(start,0)
+        positions[start]=(centre if centre is not None else end/2,switch_y-150)
+    for name in order if depth<=1 else []:
+        start=cursor
+        end,_=place(name,cursor)
+        cursor=max(end,start+units(name)*spacing)
+        positions[name]=((start+cursor)/2,100+rows[name]*130)
+    if top and depth>1:
+        # The core's own LAN sits in the middle, under the core, between two halves of the branches.
+        core=order[0]
+        branches=[n for n in order if rows[n]!=0]
+        def branch(name):
+            nonlocal cursor
+            start=cursor
+            end,_=place(name,cursor)
+            cursor=max(end,start+units(name)*spacing)
+            positions[name]=((start+cursor)/2,100+rows[name]*130)
+        for name in branches[:len(branches)//2]:
+            branch(name)
+        if leaves[core]:
+            cursor,_=place(core,cursor)
+        for name in branches[len(branches)//2:]:
+            branch(name)
+        positions[core]=(cursor/2,100)
+    shift=70-min((x for x,y in positions.values()),default=70)
+    return {n:(x+shift,y+25) for n,(x,y) in positions.items()}  # +25: titles clear the zoom bar when zoomed out
+
+
+def auto_layout(graph,members,width):
+    """Positions for devices the project does not place: each cabled group laid out as a tree (routers and firewalls
+    on top, switches under them, hosts under their switch or router), the groups side by side; devices without a cable
+    wait in a row below, never on top of another one."""
+    names=[n['name'] for n in graph['nodes']]
+    near={n:set() for n in names}
+    for a,b in graph['links']:
+        near[a[0]].add(b[0])
+        near[b[0]].add(a[0])
+    seen,components=set(),[]
+    for name in names:
+        if name in seen or not near[name]:
+            continue
+        group,stack=[],[name]
+        seen.add(name)
+        while stack:
+            here=stack.pop()
+            group.append(here)
+            for other in sorted(near[here]-seen):
+                seen.add(other)
+                stack.append(other)
+        components.append(group)
+    positions,cursor,bottom={},70,0
+    for group in components:
+        members_here=set(group)
+        sub=dict(graph,nodes=[n for n in graph['nodes'] if n['name'] in members_here],
+                 links=[l for l in graph['links'] if l[0][0] in members_here])
+        laid=tree_layout(sub,{k:v for k,v in members.items() if k in members_here},spacing=140) if len(group)>1 else {}
+        missing=[n for n in group if n not in laid]  # what the tree does not reach (two hosts cabled together…)
+        low=max((y for x,y in laid.values()),default=-15)
+        for i,name in enumerate(missing):
+            laid[name]=(70+i*150,low+140)
+        left=min(x for x,y in laid.values())
+        for name,(x,y) in laid.items():
+            positions[name]=(x-left+cursor,y)
+        cursor=max(x for x,y in positions.values())+190
+        bottom=max(bottom,max(y for x,y in laid.values()))
+    loose=[n for n in names if not near[n]]
+    if loose:
+        top=bottom+180 if components else 125
+        per_row=max(4,int((max(width,cursor)-60)//150))
+        for i,name in enumerate(loose):
+            positions[name]=(90+(i%per_row)*150,top+(i//per_row)*160)
+    return positions
+
+
+def layout_bounds(graph,positions):
+    """The drawing's extent around the devices' anchors: chassis titles above, host captions below."""
+    roles={n['name']:n['role'] for n in graph['nodes']}
+    boxes=[(x-80,y-(40 if roles.get(name)=='host' else 75),x+80,y+(95 if roles.get(name)=='host' else 60))
+           for name,(x,y) in positions.items()]
+    if not boxes:
+        return None
+    return min(b[0] for b in boxes),min(b[1] for b in boxes),max(b[2] for b in boxes),max(b[3] for b in boxes)
+
+
 def place_nodes(graph,members,width):
-    positions={};dmz=firewall_hosts(graph)
-    routers=[n for n in graph['nodes'] if n['role']=='router'];firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
-    switches=[n for n in graph['nodes'] if n['role']=='switch'];upper=bool(routers or firewalls)
-    for i,n in enumerate(routers):positions[n['name']]=((i+1)*width*.8/(len(routers)+1),72)
-    for i,n in enumerate(firewalls):positions[n['name']]=(width*(.52+(i+1)*.16/len(firewalls)),90)
-    for i,name in enumerate(dmz):positions[name]=(width-48,100+i*125)
-    for i,n in enumerate(switches):positions[n['name']]=((i+1)*width*.86/(len(switches)+1),194 if upper else 100)
+    positions={}
+    dmz=firewall_hosts(graph)
+    routers=[n for n in graph['nodes'] if n['role']=='router']
+    firewalls=[n for n in graph['nodes'] if n['role']=='firewall']
+    switches=[n for n in graph['nodes'] if n['role']=='switch']
+    upper=bool(routers or firewalls)
+    # Routers and firewalls sit low enough that their titles clear the zoom bar over the canvas corner.
+    for i,n in enumerate(routers):
+        positions[n['name']]=((i+1)*width*.8/(len(routers)+1),100)
+    # Three or more routers in a row: every other one sits lower, so each transit link keeps room for its caption.
+    if len(routers)>=3 and width*.9/(len(routers)+1)<230:
+        for i,n in enumerate(routers):
+            positions[n['name']]=(width*.05+(i+1)*width*.9/(len(routers)+1),100+(110 if i%2 else 0))
+    for i,n in enumerate(firewalls):
+        # Beside routers when there are any; otherwise spread across the canvas like routers.
+        x=width*(.52+(i+1)*.16/len(firewalls)) if routers else (i+1)*width/(len(firewalls)+1)
+        positions[n['name']]=(x,100)
+    # Hosts cabled straight to a firewall sit in a row under it, centred on it and kept inside the canvas.
+    by_firewall={}
+    for host,firewall in dmz.items():
+        by_firewall.setdefault(firewall,[]).append(host)
+    for firewall,names in by_firewall.items():
+        fx,fy=positions[firewall]
+        spacing=min(170,max(110,width*.8/len(names)))
+        start=min(max(70,fx-spacing*(len(names)-1)/2),max(70,width-70-spacing*(len(names)-1)))
+        for i,name in enumerate(names):
+            positions[name]=(start+i*spacing,fy+190)
+    # Under routers and firewalls, switches leave room for the uplink captions and port labels in between.
+    for i,n in enumerate(switches):
+        positions[n['name']]=((i+1)*width*.86/(len(switches)+1),222 if upper else 100)
     hosts=[n for n in graph['nodes'] if n['role']=='host' and n['name'] not in dmz]
     vids=sorted(set(members.values()));columns=max(1,int(width//115))
+    # Other hosts go below the firewall rows when there are any.
+    base=(362 if upper else 270)+(140 if dmz else 0)
     if vids:
         groups=[(vid,[n for n in hosts if members.get(n['name'])==vid]) for vid in vids]
         other=[n for n in hosts if n['name'] not in members]
-        if other:groups.append((None,other))
+        if other:
+            groups.append((None,other))
         cell=width/len(groups)
         for g,(_,nodes) in enumerate(groups):
             per_row=max(1,int(cell//95))
             for i,n in enumerate(nodes):
                 row=i//per_row;count=min(per_row,len(nodes)-row*per_row)
-                positions[n['name']]=(g*cell+(i%per_row+.5)*cell/count,(334 if upper else 270)+row*130)
+                positions[n['name']]=(g*cell+(i%per_row+.5)*cell/count,base+row*130)
     else:
-        for i,n in enumerate(hosts):positions[n['name']]=((i%columns+.5)*width/min(columns,len(hosts)),(334 if upper else 270)+(i//columns)*130)
+        for i,n in enumerate(hosts):
+            positions[n['name']]=((i%columns+.5)*width/min(columns,len(hosts)),base+(i//columns)*130)
     return positions
 
 
@@ -104,7 +434,8 @@ def networks(graph,names,spec,vid):
 
 def link_caption(a,b,config):
     def tagged(endpoint):
-        n=config.get(endpoint[0],{});p=endpoint[1]
+        n=config.get(endpoint[0],{})
+        p=endpoint[1]
         return n.get('switchports',{}).get(p,{}).get('mode')=='trunk' or any(s.get('parent')==p for s in n.get('subinterfaces',{}).values())
     if all(tagged(end) for end in (a,b)):return 'Trunk · 802.1Q'
     addresses=[config.get(end[0],{}).get('interfaces',{}).get(end[1],'') for end in (a,b)]
@@ -114,7 +445,7 @@ def link_caption(a,b,config):
     return ''
 
 
-def draw_port_labels(canvas,labels,obstacles,font,color):
+def draw_port_labels(canvas,labels,obstacles,font,color,background='#ffffff',border='#e0e9f2'):
     """Prefer nearby free positions; reserve badges separately from wire geometry."""
     occupied=[box for box in obstacles if box]
     offsets=[(0,0),(18,0),(-18,0),(0,12),(18,12),(-18,12),(0,-12),(32,0),(-32,0),(0,24),(32,12),(-32,12),(0,-24),(0,36)]
@@ -122,14 +453,17 @@ def draw_port_labels(canvas,labels,obstacles,font,color):
         x1,y1,x2,y2=box
         return sum(max(0,min(x2+2,b[2])-max(x1-2,b[0]))*max(0,min(y2+2,b[3])-max(y1-2,b[1])) for b in occupied)
     for label in labels:
-        x,y=label['x'],label['y'];tags=('port-label',label['tag'])
+        x,y=label['x'],label['y']
+        tags=('port-label',label['tag'])
         item=canvas.create_text(x,y,text=label['text'],anchor=label['anchor'],fill=color,font=font,tags=tags)
         best=None
         for dx,dy in offsets:
-            canvas.coords(item,x+dx,y+dy);box=canvas.bbox(item)
+            canvas.coords(item,x+dx,y+dy)
+            box=canvas.bbox(item)
             score=overlap(box)
             if best is None or score<best[0]:best=(score,dx,dy,box)
             if score==0:break
         _,dx,dy,box=best;canvas.coords(item,x+dx,y+dy)
-        bg=rounded_box(canvas,box[0]-3,box[1]-2,box[2]+3,box[3]+2,r=4,fill='#ffffff',outline='#e0e9f2',tags=('port-label-bg',label['tag']))
+        bg=rounded_box(canvas,box[0]-3,box[1]-2,box[2]+3,box[3]+2,r=4,fill=background,outline=border,
+                       tags=('port-label-bg',label['tag']))
         canvas.tag_raise(item,bg);occupied.append((box[0]-2,box[1]-1,box[2]+2,box[3]+1))

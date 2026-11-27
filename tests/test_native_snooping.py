@@ -7,7 +7,7 @@ import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from network_labs.appliances.examples import dhcp_snooping_lab, campus
 from network_labs.appliances.ios import compile_config

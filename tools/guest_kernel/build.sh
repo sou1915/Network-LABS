@@ -9,7 +9,11 @@
 # Firecracker's config is written for the Amazon Linux tree its CI kernel comes from.
 #
 # Usage: tools/guest_kernel/build.sh OUTPUT_DIR
-# Needs: git curl make gcc flex bison bc libelf-dev libssl-dev
+# Needs: git curl make gcc flex bison bc libelf-dev libssl-dev (and xz-utils for the source archive)
+#
+# NETWORK_LABS_KERNEL_SOURCE=1 also writes the corresponding source next to the kernel, as a release must ship it
+# (GPL 2.0): the exact tree (git archive of the pinned commit), Firecracker's base config, the fragment and this script.
+# The build is reproducible for one compiler: fixed build user, host and timestamp (the commit's date).
 set -euo pipefail
 
 KERNEL_VERSION=5.10.223
@@ -29,10 +33,17 @@ git -C linux fetch -q --depth 1 "$KERNEL_REPOSITORY" "$KERNEL_COMMIT"
 git -C linux checkout -q FETCH_HEAD
 [ "$(git -C linux rev-parse HEAD)" = "$KERNEL_COMMIT" ] || { echo "kernel source is not commit $KERNEL_COMMIT" >&2; exit 1; }
 echo "GUEST_KERNEL_SOURCE ${KERNEL_TAG} ${KERNEL_COMMIT}"
+export KBUILD_BUILD_USER=network-labs KBUILD_BUILD_HOST=network-labs
+KBUILD_BUILD_TIMESTAMP="$(git -C linux log -1 --format=%cd --date=rfc2822)"; export KBUILD_BUILD_TIMESTAMP
+if [ "${NETWORK_LABS_KERNEL_SOURCE:-0}" = 1 ]; then
+    git -C linux archive --format=tar --prefix="linux-${KERNEL_VERSION}-amzn2/" HEAD | xz -6 -T0 > "$output/linux-${KERNEL_VERSION}-amzn2-source.tar.xz"
+    install -m 0644 "$here/network-labs.fragment" "$here/build.sh" "$output/"
+fi
 
 curl -fsSL --retry 3 -o base.config \
     "https://raw.githubusercontent.com/firecracker-microvm/firecracker/${FIRECRACKER_TAG}/resources/guest_configs/microvm-kernel-ci-x86_64-5.10.config"
 echo "${CONFIG_SHA256}  base.config" | sha256sum -c -
+if [ "${NETWORK_LABS_KERNEL_SOURCE:-0}" = 1 ]; then install -m 0644 base.config "$output/firecracker-${FIRECRACKER_TAG}-base.config"; fi
 
 cd linux
 cat ../base.config "$here/network-labs.fragment" > .config

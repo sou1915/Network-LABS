@@ -1,0 +1,44 @@
+name: Guest kernel release
+# Pushing a tag guest-kernel-* builds the pinned guest kernel (tools/guest_kernel/build.sh), boots it on KVM with the
+# VLAN, switch and router guests, and publishes it as a release with its corresponding source (GPL 2.0). setup
+# downloads the kernel from that release and checks the SHA-256 pinned in network_labs/appliances/setup.py.
+on:
+  push:
+    tags: ['guest-kernel-*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kernel build tools
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh git curl make gcc flex bison bc libelf-dev libssl-dev xz-utils
+      - name: Build the guest kernel and its source archive
+        run: NETWORK_LABS_KERNEL_SOURCE=1 bash tools/guest_kernel/build.sh /tmp/guest-kernel
+      - name: Check the kernel's options
+        run: |
+          cd /tmp/guest-kernel && sha256sum -c ./*.sha256 && ls -la
+          for option in VLAN_8021Q BRIDGE_VLAN_FILTERING BONDING MACVLAN; do grep -qx "CONFIG_$option=y" vmlinux-*-network-labs.config; done
+      - name: Require real KVM
+        run: test -c /dev/kvm
+      - name: Install guest and fabric tools
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh busybox-static e2fsprogs gcc libc6-dev iproute2 tcpdump util-linux coreutils iptables bird2 frr
+      - name: Fetch pinned official Firecracker
+        run: |
+          curl -fL --retry 3 https://github.com/firecracker-microvm/firecracker/releases/download/v1.10.1/firecracker-v1.10.1-x86_64.tgz -o /tmp/firecracker.tgz
+          echo '36112969952b0e34fadcfca769d48a55dc22cbba99af17e02bd0e24fc35adc77  /tmp/firecracker.tgz' | sha256sum -c -
+          tar -xzf /tmp/firecracker.tgz -C /tmp
+          sudo install /tmp/release-v1.10.1-x86_64/firecracker-v1.10.1-x86_64 /usr/local/bin/firecracker
+          sudo install /tmp/release-v1.10.1-x86_64/jailer-v1.10.1-x86_64 /usr/local/bin/jailer
+      - name: Boot it with VLAN switches, routers and hosts
+        run: |
+          kernel="$(ls /tmp/guest-kernel/vmlinux-*-network-labs)"
+          sudo env NETWORK_LABS_MICROVM_TESTS=1 NETWORK_LABS_GUEST_VLAN=1 NETWORK_LABS_EXPECT_KERNEL=vlan=1,bridge=1,iptables=1,conntrack=1 NETWORK_LABS_MICROVM_KERNEL="$kernel" python3 -m unittest tests.test_native_microvm_kernel tests.test_native_microvm_switch_vlans tests.test_native_microvm_router_on_a_stick tests.test_native_microvm_hsrp tests.test_native_microvm -v
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" /tmp/guest-kernel/* --repo "$GITHUB_REPOSITORY" \
+            --title "Guest kernel ${GITHUB_REF_NAME#guest-kernel-}" --notes-file tools/guest_kernel/RELEASE_NOTES.md

@@ -1,12 +1,10 @@
 """Real Telnet PTY sessions use the shared Start gate, cgroup cleanup and Stop journal."""
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 from network_labs.appliances.examples import radius_lab
@@ -69,7 +67,8 @@ class NativeTelnetShellTests(unittest.TestCase):
                 fields = dict(line.split(':', 1) for line in normal.splitlines() if ':' in line)
                 self.assertEqual(fields['NoNewPrivs'].strip(), '1'); self.assertEqual(int(fields['CapEff'].strip(), 16), 0)
                 self.assertRegex(normal, r'aaa-[0-9a-f]{32}'); clean()
-                expired = connection(script='/bin/busybox sleep 37 &\nwait\n'); clean()
+                connection(script='/bin/busybox sleep 37 &\nwait\n')
+                clean()
                 disconnected = connection(script='/bin/busybox sleep 37 &\nprintf "BACKGROUND-%s\\n" READY\nwait\n', marker='BACKGROUND-READY')
                 self.assertIn('BACKGROUND-READY', disconnected); clean()
                 # Lose only accounting responses: Access-Accept still succeeds, but no shell may launch.
