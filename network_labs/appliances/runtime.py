@@ -960,7 +960,7 @@ class Manager:
         return self._configure_network(name, validate(candidate), 'Linux kernel common spanning tree (IEEE 802.1D)')
 
     def _configure_network(self, name, candidate, source):
-        from .lan import configure
+        from .lan import configure as configure_lan
         state = self.read()
         index = next(i for i, n in enumerate(state['spec']['nodes']) if n['name'] == name)
         previous = copy.deepcopy(state['spec'])
@@ -970,8 +970,7 @@ class Manager:
             adapter.preflight_change(self, candidate['nodes'][index], previous['nodes'][index])
         if (selected or previous['nodes'][index].get('lldp') is not None) and candidate['nodes'][index] == previous['nodes'][index]:
             return {'configured': name, 'revision': state.get('revision', 0), 'source': source, 'unchanged': True}
-        if selected:
-            configure = selected[0].apply_change
+        configure = selected[0].apply_change if selected else configure_lan
         if previous['nodes'][index].get('dhcp_pools') is not None or candidate['nodes'][index].get('dhcp_pools') is not None:
             raise ValueError('DHCP pool server live network edits require a service adapter; recreate the lab.')
         if previous['nodes'][index].get('switch_backend') == 'ovs' or candidate['nodes'][index].get('switch_backend') == 'ovs':
@@ -998,7 +997,7 @@ class Manager:
         return result
 
     def configure_firewall(self, name, policy):
-        from .firewall import apply
+        from .firewall import apply as apply_host
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab must be running before configuration.')
@@ -1006,6 +1005,7 @@ class Manager:
         if index is None or state['spec']['nodes'][index].get('firewall') is None:
             raise ValueError('An existing managed firewall node is required.')
         guest = state['spec']['nodes'][index]['runtime'] == 'firecracker'
+        apply = apply_host
         if guest:
             # Inside the guest the chain is rebuilt while closed: forwarding drops until the new policy is read back.
             from .guest_firewall import apply as apply_guest
@@ -1040,7 +1040,7 @@ class Manager:
     def configure_routing(self, name, declared):
         """Live change of a running micro-VM's port addresses, routes, gateway, OSPF, BGP and ACLs to DECLARED.
         Anything else still needs a restart. The change is journalled, read back, and rolled back if it fails."""
-        from .guest_startup import LIVE_ROUTING, LIVE_SWITCH, change_routing, change_switch
+        from . import guest_startup
         state = self.read()
         if state['phase'] != 'running':
             raise RuntimeFailure('Lab must be running before configuration.')
@@ -1048,8 +1048,9 @@ class Manager:
         if index is None or state['spec']['nodes'][index]['runtime'] != 'firecracker':
             raise ValueError('Live changes apply to a running micro-VM.')
         switch = state['spec']['nodes'][index]['role'] == 'switch'
-        if switch:  # VLANs, access and trunk ports, shut ports: live too
-            LIVE_ROUTING, change_routing = LIVE_SWITCH, change_switch
+        # A switch: VLANs, access and trunk ports, shut ports are live too.
+        LIVE_ROUTING, change_routing = ((guest_startup.LIVE_SWITCH, guest_startup.change_switch) if switch else
+                                        (guest_startup.LIVE_ROUTING, guest_startup.change_routing))
         previous = state['spec']['nodes'][index]
         candidate = copy.deepcopy(state['spec'])
         candidate['nodes'][index] = copy.deepcopy(declared)

@@ -80,6 +80,15 @@ class ServerTest(unittest.TestCase):
             client.sendall(b'x' * 5000)
             self.assertFalse(json.loads(client.recv(4096))['ok'])
 
+    def test_the_socket_appears_only_once_it_accepts(self):
+        server = console_server.Server('lab-3', os.getuid(), root=self.folder.name, console=FakeConsole, alive=lambda: False)
+        listener = server.bind()
+        self.addCleanup(listener.close)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(server.path))  # listening already: no refused connection in between
+        self.assertEqual(sorted(p.name for p in server.path.parent.iterdir() if 'lab-3' in p.name), [server.path.name])
+        self.assertEqual(stat.S_IMODE(server.path.stat().st_mode), 0o600)
+
     def test_the_server_leaves_with_the_lab(self):
         self.running = False
         deadline = time.monotonic() + 10

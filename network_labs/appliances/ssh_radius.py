@@ -11,7 +11,9 @@ import uuid
 
 PORT = 813
 _PROCESSES = {}
-from .ssh_radius_client import CLIENT
+from . import ssh_radius_client
+
+CLIENT = ssh_radius_client.CLIENT  # the client program's path, as callers import it from here
 
 
 def managed_secret(spec, node):

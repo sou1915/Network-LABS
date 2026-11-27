@@ -328,14 +328,14 @@ def hosts_lab():
     return validate(spec)
 
 
-def drive(app, script, names):
+def drive(app, script, names, seconds=150):
     """Runs a flows script against the workbench's portal, pumping the portal like the Tk loop does; returns its RESULT."""
     portal = WebPortal(app, api=NativeDeviceAPI(app), native=True)
     try:
         urls = {name: portal.url(name, 'dashboard') for name in names}
         with tempfile.TemporaryDirectory() as folder:
             job = subprocess.Popen(['node', '-e', script, json.dumps(urls)], cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            deadline = time.time() + 150
+            deadline = time.time() + seconds
             while job.poll() is None and time.time() < deadline:
                 portal.poll()
                 time.sleep(.02)

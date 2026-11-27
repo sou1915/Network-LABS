@@ -1179,7 +1179,7 @@ ack,source=t.recvfrom(1024); assert source==peer and ack==struct.pack("!HH",4,1)
                     for version in ('1', '2c'):
                         extra = ('-v', version, '-c', 'network-labs-notify')
                         if version == '1':
-                            result = manager.ns(2, 'snmptrap', '-m', '', *extra, '192.0.2.10', '.1.3.6.1.4.1.8072.2.3',
+                            manager.ns(2, 'snmptrap', '-m', '', *extra, '192.0.2.10', '.1.3.6.1.4.1.8072.2.3',
                                                 '192.0.2.20', '6', '1', '0', HEARTBEAT_RATE, 'i', '30', HEARTBEAT_NAME, 's', 'FALLBACK-V1', timeout=4)
                         else: self.assertNotEqual(send('FALLBACK-V2C', extra=extra).returncode, 0)
                     self.assertNotIn('FALLBACK-V1', logs()); self.assertNotIn('FALLBACK-V2C', logs())

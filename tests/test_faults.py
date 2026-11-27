@@ -7,7 +7,9 @@ from network_labs.appliances import faults, missions
 from network_labs.appliances.spec import validate
 
 
-from test_missions import setUpModule, tearDownModule  # noqa: F401  (progress kept out of ~/.config)
+import test_missions
+
+setUpModule, tearDownModule = test_missions.setUpModule, test_missions.tearDownModule  # progress kept out of ~/.config
 
 
 class FaultTest(unittest.TestCase):

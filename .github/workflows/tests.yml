@@ -126,6 +126,35 @@ jobs:
         env:
           NETWORK_LABS_GUEST_BUSYBOX: /bin/busybox
         run: python3 -m unittest tests.test_guest_image tests.test_guest_control tests.test_guest_startup tests.test_microvm_foundation -v
+  lint-and-fuzz:
+    # pyflakes over the whole tree, then the guest agent under libFuzzer with ASan and UBSan (tests/fuzz).
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: |
+          python3 -m venv /tmp/lint && /tmp/lint/bin/pip install --quiet pyflakes==4.1.0
+          /tmp/lint/bin/pyflakes network_labs tests tools
+      - name: Install clang and its fuzzer runtime
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh clang libclang-rt-18-dev
+      - name: Fuzz the guest agent for two minutes
+        run: sudo env NETWORK_LABS_FUZZ_SECONDS=120 python3 -m unittest tests.test_agent_fuzz -v
+  device-pages:
+    # Every device model's page in Chromium: no script error, typed text shown as text; and the products' own forms.
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the desktop and Playwright
+        run: |
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash tools/ci_apt_install.sh python3-tk xvfb
+          npm install --global playwright@1.63.0
+          npx --yes playwright@1.63.0 install --with-deps chromium
+      - name: Open every page
+        run: NODE_PATH="$(npm root --global)" xvfb-run -a python3 -m unittest tests.test_page_smoke tests.test_product_pages tests.test_workbench_polish -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04

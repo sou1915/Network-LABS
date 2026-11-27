@@ -44,18 +44,22 @@ class Server:
         self.path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         if self.path.is_symlink() or (self.path.exists() and not self.path.is_socket()):
             raise ValueError(f'{self.path} is not a console socket.')
-        self.path.unlink(missing_ok=True)
+        # Bound and listening under a temporary name, then renamed: the socket appears only once it accepts, so a
+        # terminal that finds it can connect at once.
+        staging = self.path.with_name('.' + self.path.name + '.new')
+        staging.unlink(missing_ok=True)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         old = os.umask(0o177)
         try:
-            listener.bind(str(self.path))
+            listener.bind(str(staging))
         finally:
             os.umask(old)
         if os.geteuid() == 0:
-            os.chown(self.path, self.uid, -1)
-        os.chmod(self.path, 0o600)
+            os.chown(staging, self.uid, -1)
+        os.chmod(staging, 0o600)
         listener.listen(8)
         listener.settimeout(1)
+        os.replace(staging, self.path)
         return listener
 
     def serve(self):
