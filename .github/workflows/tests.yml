@@ -154,7 +154,7 @@ jobs:
           npm install --global playwright@1.63.0
           npx --yes playwright@1.63.0 install --with-deps chromium
       - name: Open every page
-        run: NODE_PATH="$(npm root --global)" xvfb-run -a python3 -m unittest tests.test_page_smoke tests.test_product_pages tests.test_workbench_polish -v
+        run: NODE_PATH="$(npm root --global)" PYTHONPATH=tests xvfb-run -a python3 -m unittest tests.test_page_smoke tests.test_product_pages tests.test_workbench_polish -v
   lan-core-acceptance:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'lan-readiness-retry'
     runs-on: ubuntu-24.04

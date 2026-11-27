@@ -25,5 +25,14 @@ if [[ -f /etc/apt/apt-mirrors.txt && ! -L /etc/apt/apt-mirrors.txt ]]; then
 fi
 native_apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20
                     -o Acquire::https::Timeout=20 -o APT::Update::Error-Mode=any)
-apt-get "${native_apt_options[@]}" update
+if ! apt-get "${native_apt_options[@]}" update; then
+    # A third-party source of the runner image (Microsoft's, for example, answered 403 once) must not stop an
+    # install of Ubuntu packages: set aside every source that is not Ubuntu's own archive and try again.
+    mkdir -p /etc/apt/sources.list.d.disabled
+    for source in /etc/apt/sources.list.d/*; do
+        [[ -f "$source" && ! -L "$source" ]] || continue
+        grep -q 'ubuntu\.com/ubuntu' "$source" || mv "$source" /etc/apt/sources.list.d.disabled/
+    done
+    apt-get "${native_apt_options[@]}" update
+fi
 apt-get "${native_apt_options[@]}" install -y --no-install-recommends "$@"

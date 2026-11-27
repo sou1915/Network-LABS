@@ -1,4 +1,5 @@
 """Live routing changes on running micro-VMs: only what differs changes, other edits are refused, failures roll back."""
+import contextlib
 import copy
 import os
 from pathlib import Path
@@ -129,6 +130,10 @@ class ConfigureRoutingTest(unittest.TestCase):
         self.manager.state = {'phase': 'running', 'spec': self.lab, 'revision': 0}
         self.manager.save()
 
+    def locked(self):
+        """Manager.locked() needs root and a root-owned state folder; what is tested here runs inside it, as any user."""
+        return contextlib.nullcontext()
+
     def fixed(self):
         node = copy.deepcopy(self.lab['nodes'][0])
         node['guest_network'] = {'addresses': [], 'routes': [{'network': '198.51.100.0/24', 'gateway': '203.0.113.2'}]}
@@ -136,7 +141,7 @@ class ConfigureRoutingTest(unittest.TestCase):
 
     def test_the_running_lab_takes_the_new_routes(self):
         with mock.patch('network_labs.appliances.guest_startup.change_routing') as change:
-            with self.manager.locked():
+            with self.locked():
                 self.manager.state = None
                 result = self.manager.configure_routing('R1', self.fixed())
         self.assertEqual(result['revision'], 1)
@@ -147,7 +152,7 @@ class ConfigureRoutingTest(unittest.TestCase):
     def test_other_changes_are_refused_and_failures_roll_back(self):
         moved = self.fixed()
         moved['memory_mib'] = 192  # the machine itself still needs a restart
-        with self.manager.locked():
+        with self.locked():
             self.manager.state = None
             with self.assertRaisesRegex(ValueError, 'restart'):
                 self.manager.configure_routing('R1', moved)
@@ -157,7 +162,7 @@ class ConfigureRoutingTest(unittest.TestCase):
             if len(attempts) == 1:
                 raise ValueError('guest refused')
         with mock.patch('network_labs.appliances.guest_startup.change_routing', change):
-            with self.manager.locked():
+            with self.locked():
                 self.manager.state = None
                 with self.assertRaisesRegex(runtime.RuntimeFailure, 'rolled back'):
                     self.manager.configure_routing('R1', self.fixed())

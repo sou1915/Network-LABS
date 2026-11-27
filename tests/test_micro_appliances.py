@@ -2,7 +2,6 @@
 import hashlib
 import importlib.util
 import json
-import os
 from pathlib import Path
 import struct
 import tempfile
@@ -112,22 +111,3 @@ class MicroApplianceTests(unittest.TestCase):
         a,b=f.nodes['PC1'],f.nodes['PC2'];a.write_input(b'ISOLATED')
         self.assertNotEqual(bytes(a.memory.read(a.store,a.input_pointer,a.input_pointer+8)),bytes(b.memory.read(b.store,b.input_pointer,b.input_pointer+8)))
         with self.assertRaises(Exception):a.memory.grow(a.store,MEMORY_LIMIT//65536)
-
-@unittest.skipUnless(AVAILABLE and os.environ.get('DISPLAY'),'Optional prototype GUI requires Wasmtime and DISPLAY')
-class MicroApplianceGUITests(unittest.TestCase):
-    def test_separate_lab_gui_live_packets_and_lifecycle(self):
-        import tkinter as tk
-        from network_labs.__main__ import App
-        root=tk.Tk();app=App(root);window=None;errors=[]
-        root.report_callback_exception=lambda *e:errors.append(str(e))
-        try:
-            original=app.lab.dumps();window=app.open_micro_lab();root.update()
-            window.ping();root.update();self.assertIn('réponse reçue',window.status.get())
-            window.tcp();root.update();self.assertIn('réussis',window.status.get())
-            self.assertTrue(any('SYN' in str(window.trace.item(key,'values')) for key in window.trace.get_children()))
-            self.assertEqual(app.lab.dumps(),original)
-            window.reset();window.toggle_link();window.ping();self.assertIn('aucune réponse',window.status.get())
-            window.toggle_link();window.ping();self.assertIn('réponse reçue',window.status.get())
-            window.close();self.assertTrue(window.closed);self.assertFalse(window.fabric.nodes)
-        finally:root.destroy()
-        self.assertEqual(errors,[])

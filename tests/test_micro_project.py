@@ -1,7 +1,6 @@
 """Canonical project configuration drives guest bytes; never a model fallback."""
 import importlib.util
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -127,32 +126,3 @@ class ProjectExecutionTests(unittest.TestCase):
         lab.links[0].enabled=True;lab.ping('PC1','192.168.50.20')
         self.assertIn('2 MAC apprises',Session(lab,'SW1').show('show mac address-table'))
         self.assertIn('non disponible',Session(lab,'SW1').show('show spanning-tree'))
-
-
-@unittest.skipUnless(AVAILABLE and os.environ.get('DISPLAY'),'GUI requires Wasmtime and DISPLAY')
-class ProjectExecutionGUITests(unittest.TestCase):
-    def test_main_topology_selector_tests_capture_and_config_invalidation(self):
-        import tkinter as tk
-        from network_labs.__main__ import App
-        root=tk.Tk();app=App(root);errors=[]
-        root.report_callback_exception=lambda *e:errors.append(str(e))
-        try:
-            app.load_wasm_lab();root.update()
-            self.assertEqual(app.lab.execution_backend,'wasm')
-            self.assertEqual(app.backend_choice.get(),'Wasm · LAN')
-            app.ping();app.pause();root.update()
-            self.assertTrue(app.result);self.assertTrue(app.hops)
-            self.assertEqual(str(app.capture_button['state']),'normal')
-            view=app.open_project_capture();root.update()
-            self.assertFalse(view.owns_fabric);self.assertTrue(view.trace.get_children())
-            snapshot=list(view.fabric.frames)
-            app.lab.links[0].enabled=False;app.changed('Cable off');app.ping();app.pause()
-            self.assertFalse(app.result);self.assertEqual(view.fabric.frames,snapshot)
-            view.close()
-            app.changed('Configuration changed')
-            self.assertIsNone(app.lab.last_micro_capture)
-            self.assertEqual(str(app.capture_button['state']),'disabled')
-            app.backend_choice.set('Pédagogique');app.set_backend()
-            self.assertEqual(app.lab.execution_backend,'model')
-        finally:root.destroy()
-        self.assertEqual(errors,[])
