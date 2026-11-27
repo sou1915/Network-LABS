@@ -66,6 +66,35 @@ class BridgeTests(unittest.TestCase):
             with self.subTest(fault=fault),self.assertRaises(ValueError):bridge.validate_topology({**graph,**fault})
 
 
+@unittest.skipUnless(os.environ.get('DISPLAY'), 'GUI requires X display')
+class LogBesideDevicePanelTest(unittest.TestCase):
+    def test_the_results_log_never_covers_the_device_controls(self):
+        """The log opens under the topology only: the device panel keeps its full height and its buttons."""
+        import time
+        import tkinter as tk
+        from network_labs.__main__ import App
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        root.geometry('1280x720+0+0')
+        window = App(root).open_native_lab()
+        window.load_spec(example('/tmp/rootfs'))
+
+        def settle():
+            for _ in range(40):
+                root.update()
+                time.sleep(.02)
+        settle()
+        window.choose_node('PC1')
+        for shown in (False, True):
+            window.toggle_log(shown)
+            settle()
+            button = window.verify_button
+            self.assertTrue(button.winfo_viewable(), shown)
+            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), window.window.winfo_rooty() + window.window.winfo_height())
+        self.assertTrue(window.lower.winfo_ismapped())
+        self.assertLessEqual(window.lower.winfo_rootx() + window.lower.winfo_width(), window.device_panel.winfo_rootx())
+
+
 @unittest.skipUnless(os.environ.get('DISPLAY'),'GUI requires X display')
 class WorkbenchGUITests(unittest.TestCase):
     def setUp(self):
@@ -406,7 +435,8 @@ class WorkbenchGUITests(unittest.TestCase):
         self.assertEqual(window.canvas.itemcget(window.node_shapes['PC1'],'outline'),BLUE)
         window.device_tabs.select(window.device_tabs.tabs()[0])
         for kind,stamp in [('<ButtonPress-1>',1000),('<ButtonRelease-1>',1010),('<ButtonPress-1>',1100),('<ButtonRelease-1>',1110)]:
-            window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp);self.root.update()
+            window.canvas.event_generate(kind,x=round(x),y=round(y),time=stamp)
+            self.root.update()
         self.assertEqual(window.device_tabs.select(),str(window.config_panel))
         self.assertEqual(window.nodes.selection(),('PC1',));self.assertEqual(window.manifest(),original)
 

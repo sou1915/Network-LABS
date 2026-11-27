@@ -134,7 +134,7 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             line=tk.Frame(item,bg=BLUE if label=='Topologie' else BG,height=2)
             line.pack(fill='x')
             self.nav_items[label]=(button,line)
-        body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
+        body=self.body=ttk.Panedwindow(self.window,orient='horizontal');body.grid(row=3,column=0,sticky='nsew',padx=4)
         library_card=SoftPanel(body,BG,SIDEBAR)
         library_card.configure(width=218)
         body.add(library_card,weight=0)
@@ -239,9 +239,11 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.runtime_label=tk.Label(legend,textvariable=self.runtime_hint,bg=PANEL,fg=MUTED,font=(self.font,8))
         self.runtime_label.pack(side='left',padx=5)
         self.label(legend,'VLAN / adresses : configuration',MUTED,8).pack(side='right')
-        device=self.device_panel=tk.Frame(workspace,bg=PANEL,width=430)
+        # The device panel takes the full height on the right: the results log opens under the topology only, never over
+        # the device's controls.
+        device=self.device_panel=tk.Frame(body,bg=PANEL,width=430)
         device.pack_propagate(False)
-        workspace.add(device,weight=0)
+        body.add(device,weight=0)
         self.device_tabs=ttk.Notebook(device,style='Native.TNotebook')
         self.device_tabs.pack(fill='both',expand=True)
         details_card=SoftPanel(self.device_tabs,BG)
@@ -346,9 +348,12 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
                 self.lower.sashpos(0,int(self.content.winfo_width()*.55))
             # The device panel holds a section rail and a form: give it about 30% of the width (420-560 px)
             # so port names, addresses and action buttons are not cut off.
-            width=self.workspace.winfo_width()
+            width=self.body.winfo_width()
             if width>900:
-                self.workspace.sashpos(len(self.workspace.panes())-2,width-max(420,min(560,int(width*.3))))
+                index=len(self.body.panes())-2
+                target=width-max(420,min(560,int(width*.3)))
+                if abs(self.body.sashpos(index)-target)>2:  # moving it resizes the content pane, which lays out again
+                    self.body.sashpos(index,target)
             # Node positions depend on the canvas width: lay the topology out again for the fitted canvas, and
             # put the view back at the origin unless the user has zoomed or panned it.
             if getattr(self,'graph',None) and not self.pending:
@@ -1758,7 +1763,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             private_json(self.path,spec)
             self.project_title.set(spec['name']+' · '+self.path.name)
             return True
-        except (OSError,ValueError,TypeError,KeyError) as error:self.error(error);return False
+        except (OSError,ValueError,TypeError,KeyError) as error:
+            self.error(error)
+            return False
 
     def busy(self,enabled):
         for button in self.buttons:
@@ -1767,7 +1774,8 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         self.select_node()
 
     def open_capture(self):
-        if self.pending:return False
+        if self.pending:
+            return False
         try:
             selected=self.nodes.selection()
             node=next((n for n in self.graph['nodes'] if selected and n['name']==selected[0]),None)
@@ -1895,10 +1903,14 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
             self.apply_response(response,pending['request'])
         except (OSError,ValueError,TypeError,KeyError) as error:
             self.last_response={'ok':False,'uncertain':True,'error':str(error)}
-            self.note.set('Résultat non confirmé : '+str(error));self.observation.set('État précédent non confirmé ; actualiser.')
-            self.draw(self.graph);self.show_output(self.last_response)
+            self.note.set('Résultat non confirmé : '+str(error))
+            self.observation.set('État précédent non confirmé ; actualiser.')
+            self.draw(self.graph)
+            self.show_output(self.last_response)
         finally:
-            pending['directory'].cleanup();self.pending=None;self.busy(False)
+            pending['directory'].cleanup()
+            self.pending=None
+            self.busy(False)
 
     def apply_response(self,response,request):
         if not response['ok']:
@@ -1912,7 +1924,9 @@ class ApplianceWindow(MissionsPanel,QuickEditing,DeviceOverview,StudioChrome):
         if response.get('lab')!=request['lab'] or response.get('action')!=request['action'] or response['topology']['name']!=request['lab']:
             raise ValueError('Le résultat ne correspond pas au lab demandé.')
         self.last_response=response
-        action=request['action'];data=response['data'];graph=response['topology']
+        action=request['action']
+        data=response['data']
+        graph=response['topology']
         if action=='inspect':
             from .web_observations import revision
             self.web_inspection_revision=revision(self.manifest())

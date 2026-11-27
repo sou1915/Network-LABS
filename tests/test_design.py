@@ -69,7 +69,8 @@ root.geometry('1400x880')
 window = ApplianceWindow(SimpleNamespace(root=root, pause=lambda: None), embedded=True)
 window.load_spec(example('/tmp/rootfs'))
 root.update()
-report = {'panes': len(window.content.panes()), 'library_hidden': len(window.content.master.panes()) == 1,
+report = {'panes': len(window.content.panes()),  # the library is gone: the topology and log column, then the device panel
+          'library_hidden': [str(p) for p in window.content.master.panes()] == [str(window.content), str(window.device_panel)],
           'tiles': len(window.canvas.find_withtag('glow')) > 0}
 names = [n['name'] for n in window.graph['nodes']]
 window.draw(window.graph, {name: {'status': 'running'} for name in names})

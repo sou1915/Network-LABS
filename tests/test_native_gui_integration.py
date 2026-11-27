@@ -197,7 +197,10 @@ try:
         assert 'PING 192.168.20.33' in window.output.get('1.0','end')
         assert window.output_tab.master is window.dock
         root.update()
-        assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()-190
+        # The device controls stay visible: the results log opens beside the device panel, never over it.
+        assert window.verify_button.winfo_viewable()
+        assert window.verify_button.winfo_rooty()+window.verify_button.winfo_height()<=window.window.winfo_rooty()+window.window.winfo_height()
+        assert not window.lower.winfo_ismapped() or window.lower.winfo_rootx()+window.lower.winfo_width()<=window.device_panel.winfo_rootx()
         window.choose_node('FW1');window.device_tabs.select(window.config_panel)
         window.tabs.select(window.topology_tab);root.update();time.sleep(.1);root.update()
         assert window.config_apply.winfo_ismapped()
