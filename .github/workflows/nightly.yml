@@ -79,7 +79,16 @@ jobs:
           name="$(python3 -c 'import json; print(json.load(open("lab.json"))["name"])')"
           sudo "$lab" start lab.json
           trap 'sudo "$lab" stop "$name"' EXIT
-          socket="/run/network-labs/$name/VM2/guest.vsock"
-          for attempt in $(seq 1 40); do sudo "$lab" microvm-diagnostic --socket "$socket" ready > /dev/null 2>&1 && break; sleep 1; done
-          sudo "$lab" microvm-diagnostic --socket "$socket" ping --destination 198.51.100.20 | tee ping.json
+          for node in VM2 R1 VM3; do  # every guest answers, as the real-KVM tests wait for them
+            for attempt in $(seq 1 60); do
+              sudo "$lab" microvm-diagnostic --socket "/run/network-labs/$name/$node/guest.vsock" ready > /dev/null 2>&1 && break
+              sleep 1
+            done
+          done
+          for attempt in $(seq 1 15); do  # one echo a try, until ARP on both LANs has settled
+            sudo "$lab" microvm-diagnostic --socket "/run/network-labs/$name/VM2/guest.vsock" ping --destination 198.51.100.20 > ping.json
+            python3 -c 'import json, sys; sys.exit(json.load(open("ping.json"))["exit_code"])' && break
+            sleep 1
+          done
+          cat ping.json
           python3 -c 'import json; r = json.load(open("ping.json")); assert r["exit_code"] == 0, r'
