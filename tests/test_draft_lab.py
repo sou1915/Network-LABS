@@ -71,6 +71,20 @@ class DraftLabTest(unittest.TestCase):
         self.type('SW1', 'en', 'conf t', 'int fa0/1', 'no shutdown', 'end')
         self.assertIn('4 packets received', self.type('PC1', 'ping 10.0.0.2')[-1])
 
+    def test_show_interfaces_trunk_abbreviates_ports_as_ios_does(self):
+        from network_labs.appliances.microvm import switch_vlan_example
+        lab = switch_vlan_example('/k', '/d')
+        for node in lab['nodes']:
+            if node['role'] == 'switch':
+                node['model'] = 'cisco-9200l'
+        self.box['spec'] = validate(lab)
+        trunk = self.type('SW1', 'en', 'show interfaces trunk')[-1]
+        self.assertEqual(trunk.splitlines(), ['Port        Mode             Encapsulation  Status        Native vlan',
+                                              'Gi1/0/4     on               802.1q         trunking      1',
+                                              '',
+                                              'Port        Vlans allowed on trunk',
+                                              'Gi1/0/4     10,20'])
+
 
 if __name__ == '__main__':
     unittest.main()

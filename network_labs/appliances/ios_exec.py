@@ -233,15 +233,17 @@ def _short(name):
 
 
 def trunks(console):
+    """« show interfaces trunk » as a Catalyst prints it: ports abbreviated (Gi1/0/4), IOS's column widths."""
+    from .vendor_config import ios_short
     node = console.node()
     if node['role'] != 'switch':
         return ''
-    rows = [(port, sp) for port, sp in (node.get('switchports') or {}).items() if sp.get('mode') == 'trunk']
-    lines = [f'{"Port":<13}{"Mode":<13}{"Encapsulation":<15}{"Status":<13}Native vlan']
-    lines += [f'{_label(node, port):<13}{"on":<13}{"802.1q":<15}{"trunking":<13}{sp["native_vlan"]}' for port, sp in rows]
-    lines += ['', f'{"Port":<13}Vlans allowed on trunk']
-    lines += [f'{_label(node, port):<13}' + ('1-4094' if sp['allowed'] == 'all' else ','.join(map(str, sp['allowed'])))
-              for port, sp in rows]
+    rows = [(ios_short(_label(node, port)), sp) for port, sp in (node.get('switchports') or {}).items()
+            if sp.get('mode') == 'trunk']
+    lines = [f'{"Port":<12}{"Mode":<17}{"Encapsulation":<15}{"Status":<14}Native vlan']
+    lines += [f'{port:<12}{"on":<17}{"802.1q":<15}{"trunking":<14}{sp["native_vlan"]}' for port, sp in rows]
+    lines += ['', f'{"Port":<12}Vlans allowed on trunk']
+    lines += [f'{port:<12}' + ('1-4094' if sp['allowed'] == 'all' else ','.join(map(str, sp['allowed']))) for port, sp in rows]
     return '\n'.join(lines)
 
 
