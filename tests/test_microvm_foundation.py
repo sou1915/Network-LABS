@@ -11,6 +11,28 @@ from network_labs.appliances.runtime import firecracker_config,plan
 from network_labs.appliances.__main__ import main
 
 
+class JailHomeTests(unittest.TestCase):
+    """The jailer makes device files in each chroot: the jails go where the filesystem takes them."""
+
+    def test_jails_leave_a_nodev_state_folder(self):
+        import os
+        import tempfile
+        from network_labs.appliances import runtime
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as config, \
+                patch.object(runtime, 'STATE_ROOT', Path(state)), patch.object(runtime, 'CONFIG_ROOT', Path(config)):
+            manager = runtime.Manager('lab1')
+            manager.directory.mkdir()
+            flags = os.statvfs(manager.directory)
+            plain = type('Flags', (), {'f_flag': flags.f_flag & ~os.ST_NODEV})()
+            nodev = type('Flags', (), {'f_flag': flags.f_flag | os.ST_NODEV})()  # /run on Ubuntu
+            with patch.object(runtime.os, 'statvfs', return_value=plain):
+                self.assertEqual(manager.jail_home(), manager.directory)  # beside the lab's state, as before
+            with patch.object(runtime.os, 'statvfs', return_value=nodev):
+                home = manager.jail_home()
+            self.assertEqual(home, Path(config) / '.jails' / 'lab1')
+            self.assertTrue(home.is_dir())
+
+
 class MicroVMFoundationTests(unittest.TestCase):
     def test_independent_vm_resources_and_disks_reach_firecracker(self):
         spec=example('/assets/kernel','/assets/base.ext4',vcpus=2,memory_mib=192)

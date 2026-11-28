@@ -1,0 +1,39 @@
+name: Release
+# Publishes the version pyproject.toml names, from main: the tag vX.Y.Z, a GitHub release with the text of
+# docs/RELEASE_NOTES_X.Y.md, and the Python package (wheel and source). Actions › Release › Run workflow, on main.
+# It refuses while the guest kernel is not pinned in setup.py: without it a fresh install has no VLAN labs.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: The version, its notes and the guest kernel
+        id: version
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          notes="docs/RELEASE_NOTES_${version%.*}.md"
+          test -f "$notes" || { echo "No release notes for $version: $notes" >&2; exit 1; }
+          python3 -c 'import sys; sys.path.insert(0, "."); from network_labs.appliances.setup import GUEST_KERNEL
+          assert GUEST_KERNEL["sha256"], "Publish the guest kernel (Guest kernel release) and pin its SHA-256 in setup.py first."'
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then echo "v$version exists already." >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+      - name: Build the package
+        run: |
+          python3 -m venv /tmp/build
+          /tmp/build/bin/pip install build
+          /tmp/build/bin/python -m build --outdir dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES: ${{ steps.version.outputs.notes }}
+        run: |
+          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Network LABS $VERSION" --notes-file "$NOTES"

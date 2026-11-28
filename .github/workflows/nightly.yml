@@ -1,0 +1,94 @@
+name: Nightly
+# Every night, what push and pull request runs leave out:
+# - real-vms: the real-KVM suite (every micro-VM test under Firecracker), which tests.yml runs only when asked;
+# - fresh-install: the README's steps on a clean runner, as a student follows them on Ubuntu, then a real lab on what
+#   setup prepared.
+# A failure here mails the repository's owner, so that a broken guest feature is seen the next morning, not days later.
+# A pull request that changes what a fresh install goes through runs fresh-install too.
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly.yml
+      - README.md
+      - network_labs/appliances/setup.py
+      - network_labs/appliances/guest_image.py
+      - network_labs/appliances/runtime.py
+permissions:
+  actions: write
+  contents: read
+jobs:
+  real-vms:
+    # tests.yml's microvm-kvm suite, started on main and followed to its end: its result is this job's.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Start the real-KVM suite on main and wait for it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run tests.yml --repo "$GITHUB_REPOSITORY" --ref main -f suite=microvm-kvm
+          run=""
+          for attempt in $(seq 1 30); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --event workflow_dispatch --branch main --limit 5 \
+                   --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$since\")] | last | .databaseId // empty")"
+            [ -n "$run" ] && break
+            sleep 10
+          done
+          [ -n "$run" ] || { echo "The real-KVM run did not start." >&2; exit 1; }
+          echo "Real-KVM run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 120 > /dev/null
+  fresh-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Network-LABS
+      - name: Require real KVM
+        run: test -c /dev/kvm
+      - name: The packages the README names
+        run: |
+          packages="$(python3 -c 'import sys; sys.path.insert(0, "Network-LABS"); from network_labs.appliances.setup import PACKAGES; print(PACKAGES)')"
+          grep -qF "sudo apt install -y $packages" Network-LABS/README.md  # the README and setup name the same packages
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" bash Network-LABS/tools/ci_apt_install.sh python3-venv python3-tk $packages
+      - name: The package in a virtual environment, as the README installs it
+        run: |
+          python3 -m venv --system-site-packages ~/.venv-network-labs
+          ~/.venv-network-labs/bin/pip install ./Network-LABS
+      - name: setup --download, then the sudo commands it prints, as a student copies them
+        run: |
+          lab=~/.venv-network-labs/bin/network-labs-lab
+          $lab setup --download --json > setup.json || true
+          python3 -c 'import json; [print(s["fix"][s["fix"].index("sudo "):]) for s in json.load(open("setup.json"))["steps"]
+                      if not s["ok"] and "sudo " in s["fix"]]' > fixes.sh
+          cat fixes.sh
+          bash -e fixes.sh
+          $lab setup --download --json > setup.json || true
+          python3 -c 'import json; r = json.load(open("setup.json")); [print(s["ok"], s["id"], s["detail"]) for s in r["steps"]]
+          assert r["ready"], "setup is not ready after its own fixes"'
+      - name: A real lab on the kernel and disk setup prepared (VM2, router R1, VM3)
+        run: |
+          lab=~/.venv-network-labs/bin/network-labs-lab
+          read -r kernel disk < <(python3 -c 'import json; r = json.load(open("setup.json")); print(r["kernel"], r["disk"])')
+          $lab microvm-example --router --kernel "$kernel" --disk "$disk" > lab.json
+          name="$(python3 -c 'import json; print(json.load(open("lab.json"))["name"])')"
+          sudo "$lab" start lab.json
+          trap 'sudo "$lab" stop "$name"' EXIT
+          for node in VM2 R1 VM3; do  # every guest answers, as the real-KVM tests wait for them
+            for attempt in $(seq 1 60); do
+              sudo "$lab" microvm-diagnostic --socket "/run/network-labs/$name/$node/guest.vsock" ready > /dev/null 2>&1 && break
+              sleep 1
+            done
+          done
+          for attempt in $(seq 1 15); do  # one echo a try, until ARP on both LANs has settled
+            sudo "$lab" microvm-diagnostic --socket "/run/network-labs/$name/VM2/guest.vsock" ping --destination 198.51.100.20 > ping.json
+            python3 -c 'import json, sys; sys.exit(json.load(open("ping.json"))["exit_code"])' && break
+            sleep 1
+          done
+          cat ping.json
+          python3 -c 'import json; r = json.load(open("ping.json")); assert r["exit_code"] == 0, r'

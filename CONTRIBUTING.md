@@ -36,7 +36,14 @@ Tests that need more than Python skip themselves; to run them:
 | WebAssembly prototype (`test_micro_*`) | Wasmtime | `pip install -r experiments/micro_appliances/requirements.txt` |
 
 The CI (`.github/workflows/tests.yml`) runs all of these, the micro-VM ones on KVM when asked
-(`workflow_dispatch`, suite `microvm-kvm`).
+(`workflow_dispatch`, suite `microvm-kvm`) and every night (`.github/workflows/nightly.yml`, which also follows the
+README's install steps on a clean runner and starts a real lab on what setup prepared).
+
+## Releases
+
+`.github/workflows/release.yml` (Actions › Release › Run workflow, on `main`) publishes the version `pyproject.toml`
+names, with the text of `docs/RELEASE_NOTES_X.Y.md` and the Python package. It refuses until the guest kernel is
+published (`guest-kernel-release.yml`) and its SHA-256 pinned in `network_labs/appliances/setup.py`.
 
 ## Before a commit
 
