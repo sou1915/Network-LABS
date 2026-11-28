@@ -306,7 +306,8 @@ Licence: GPL-3.0-or-later (`LICENSE`); bundled third-party files and the tradema
 - Unit tests: `python3 -m unittest discover -s tests` (privileged and KVM cases skip
   without root, containers or `/dev/kvm`).
 - CI: `.github/workflows/tests.yml` runs about 60 jobs on push and pull request;
-  `microvm-kvm` runs only when dispatched manually with `suite: microvm-kvm`.
+  `microvm-kvm` runs when dispatched with `suite: microvm-kvm`, and every night from `nightly.yml`, which also
+  installs the project as the README says on a clean runner and starts a real lab on what setup prepared.
 - `lint-and-fuzz`: pyflakes over the whole tree (clean), then the guest agent under libFuzzer with ASan and UBSan for
   two minutes (`tests/fuzz`: HSRP and port-guard frames, Syslog, TFTP and the host's typed fields, with the keepalived,
   dnsmasq and chrony configurations written from them: no field may add a line of its own). A ten-minute run on four

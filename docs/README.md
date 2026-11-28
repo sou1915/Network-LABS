@@ -10,6 +10,7 @@ documents ci-dessous datent de lui. Chaque document dit en tête de quel moteur 
 |---|---|
 | [README](../README.md) | installer, lancer, utiliser l'atelier comme Packet Tracer |
 | [STATUS.md](STATUS.md) | ce qui marche aujourd'hui, fonction par fonction, et ce qui manque (à jour) |
+| [RELEASE_NOTES_1.0.md](RELEASE_NOTES_1.0.md) | la version 1.0 : ce qu'elle permet, comment l'installer, ses limites |
 | [RELEASE_1.md](RELEASE_1.md) | le périmètre de la première version et ses règles |
 | [PROJECT_VISION.md](PROJECT_VISION.md) | où va le projet |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | langues, style, tests, vérifications, licence des contributions |

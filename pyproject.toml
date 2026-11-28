@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "network-labs"
-version = "0.1.0"
+version = "1.0.0"
 description = "Teaching network lab for Linux: every device is a real Firecracker micro-VM with its vendor's CLI and web pages."
 readme = "README.md"
 license = "GPL-3.0-or-later"
