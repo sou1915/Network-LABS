@@ -554,6 +554,7 @@ class Manager:
             raise RuntimeFailure('Lab state already exists. Inspect status or stop it before restarting.')
         self.preflight(spec)
         self.directory.mkdir(mode=0o700)
+        shutil.rmtree(CONFIG_ROOT / '.jails' / self.name, ignore_errors=True)  # what a lab that crashed may have left
         self.state = {'spec': spec, 'startup_spec': copy.deepcopy(spec), 'revision': 0,
                       'phase': 'starting', 'namespaces': [], 'mounts': [],
                       'containers': [], 'vms': [], 'host_links': [], 'firewall_fingerprints': {}}
@@ -740,6 +741,17 @@ class Manager:
         for command in node['startup']:
             self.crun('exec', node['name'], *command, log=bundle / 'console.log')
 
+    def jail_home(self):
+        """Where this lab's VM jails are built: in its state folder when that filesystem takes device files, else in
+        CONFIG_ROOT/.jails/LAB. The jailer makes /dev/kvm and /dev/net/tun in each chroot, and /run, where labs keep their
+        state, is mounted nodev on Ubuntu: Firecracker could not open them (« Couldn't open /dev/net/tun: Permission
+        denied »). The kernel copies live beside the jails, since each chroot hard-links its own."""
+        if not os.statvfs(self.directory).f_flag & os.ST_NODEV:
+            return self.directory
+        home = CONFIG_ROOT / '.jails' / self.name
+        home.mkdir(parents=True, mode=0o700, exist_ok=True)
+        return home
+
     def start_vm(self, node, index):
         spec = self.state['spec']
         bundle = self.directory / node['name']; bundle.mkdir(mode=0o700)
@@ -752,10 +764,13 @@ class Manager:
         else:
             firecracker = Path(shutil.which('firecracker')).resolve()
             uid = self.state['vm_uid_base'] + index
-            root = bundle / 'jail' / firecracker.name / f'vm{index}' / 'root'
+            home = self.jail_home()
+            jail = home / node['name'] / 'jail'  # bundle / 'jail' when the state folder takes device files
+            root = jail / firecracker.name / f'vm{index}' / 'root'
             root.mkdir(parents=True, mode=0o700)
             # One read-only kernel copy per lab, hard-linked into each chroot; the user's asset is never chowned.
-            assets = self.directory / 'vm-kernels'; assets.mkdir(mode=0o700, exist_ok=True)
+            assets = home / 'vm-kernels'
+            assets.mkdir(mode=0o700, exist_ok=True)
             kernel = assets / str(sorted({n['kernel'] for n in spec['nodes'] if n['runtime'] == 'firecracker'}).index(node['kernel']))
             if not kernel.exists():
                 shutil.copyfile(Path(node['kernel']).resolve(), kernel); kernel.chmod(0o444)
@@ -771,7 +786,7 @@ class Manager:
             cgroup = Path('/sys/fs/cgroup/cgroup.controllers').is_file()
             if cgroup:
                 record['cgroup'] = str(vm_cgroup(spec, index))
-            command = jailer_command(spec, node, index, jailer, firecracker, bundle / 'jail', uid, cgroup=cgroup)
+            command = jailer_command(spec, node, index, jailer, firecracker, jail, uid, cgroup=cgroup)
         with (bundle / 'console.log').open('ab') as log:
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         record.update(pid=process.pid, starttime=process_identity(process.pid))
@@ -1237,4 +1252,5 @@ class Manager:
                 os.rmdir(Path('/sys/fs/cgroup/network-labs') / prefix(state['spec']))
             except OSError:
                 pass
+        shutil.rmtree(CONFIG_ROOT / '.jails' / self.name, ignore_errors=True)  # the jails built off a nodev state folder
         shutil.rmtree(self.directory)
