@@ -74,8 +74,8 @@ python3 -m network_labs.appliances setup --download
 
 Le même travail se lance depuis l'atelier : onglet Scénarios, bouton
 « 🛠 Préparer cet ordinateur ». Il faut Linux avec `/dev/kvm` (virtualisation
-activée dans le BIOS). Les scénarios VLAN demandent en plus le noyau Network LABS
-(`tools/guest_kernel/build.sh`).
+activée dans le BIOS). Le noyau téléchargé est celui de Network LABS (VLAN 802.1Q, EtherChannel, HSRP et VRRP),
+publié avec ses sources : les scénarios VLAN marchent sans rien construire.
 
 ### Utilisation, comme dans Packet Tracer
 
