@@ -92,3 +92,27 @@ jobs:
           done
           cat ping.json
           python3 -c 'import json; r = json.load(open("ping.json")); assert r["exit_code"] == 0, r'
+      - name: A VLAN lab on the same kernel (VM1 reaches VM4 in VLAN 10 across the trunk, not VM3 in VLAN 20)
+        run: |
+          lab=~/.venv-network-labs/bin/network-labs-lab
+          read -r kernel disk < <(python3 -c 'import json; r = json.load(open("setup.json")); print(r["kernel"], r["disk"])')
+          $lab microvm-example --switch-vlans --kernel "$kernel" --disk "$disk" > vlans.json
+          name="$(python3 -c 'import json; print(json.load(open("vlans.json"))["name"])')"
+          sudo "$lab" start vlans.json
+          trap 'sudo "$lab" stop "$name"' EXIT
+          for node in VM1 VM3 VM4; do
+            for attempt in $(seq 1 60); do
+              sudo "$lab" microvm-diagnostic --socket "/run/network-labs/$name/$node/guest.vsock" ready > /dev/null 2>&1 && break
+              sleep 1
+            done
+          done
+          socket="/run/network-labs/$name/VM1/guest.vsock"
+          for attempt in $(seq 1 15); do
+            sudo "$lab" microvm-diagnostic --socket "$socket" ping --destination 192.0.2.14 > same.json
+            python3 -c 'import json, sys; sys.exit(json.load(open("same.json"))["exit_code"])' && break
+            sleep 1
+          done
+          sudo "$lab" microvm-diagnostic --socket "$socket" ping --destination 192.0.2.13 > other.json || true
+          cat same.json other.json
+          python3 -c 'import json; r = json.load(open("same.json")); assert r["exit_code"] == 0, r'
+          python3 -c 'import json; r = json.load(open("other.json")); assert r["exit_code"] != 0, ("VLAN 20 answered VLAN 10", r)'

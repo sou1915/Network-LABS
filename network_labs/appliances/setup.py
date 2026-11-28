@@ -24,11 +24,12 @@ KERNEL = {'name': 'vmlinux-5.10.223',
           'url': 'https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/x86_64/vmlinux-5.10.223',
           'sha256': '22847375721aceea63d934c28f2dfce4670b6f52ec904fae19f5145a970c1e65'}
 # The Network LABS guest kernel (Firecracker's CI kernel plus 802.1Q, bonding and macvlan), published with its source by
-# .github/workflows/guest-kernel-release.yml when a guest-kernel-* tag is pushed. Once its SHA-256 is pinned here, setup
-# downloads it instead of Firecracker's kernel, and VLAN labs work without building anything.
+# .github/workflows/guest-kernel-release.yml (release guest-kernel-5.10.223-nl1, booted on KVM with VLAN switches, routers
+# and hosts before it was published). setup downloads it instead of Firecracker's kernel: VLAN labs work without
+# building anything. A new build gets a new release tag and its own SHA-256 here.
 GUEST_KERNEL = {'name': 'vmlinux-5.10.223-network-labs',
                 'url': 'https://github.com/sou1915/Network-LABS/releases/download/guest-kernel-5.10.223-nl1/vmlinux-5.10.223-network-labs',
-                'sha256': None}
+                'sha256': '32547911df87852c5570310649b450cc7adb9fd139764a1073eaf8b4653b94b2'}
 IMAGE = 'guest-full.ext4'
 IMAGE_MIB = 128
 IMAGE_LABEL = 'Disque des micro-VM (agent, iptables, BIRD, FRR, keepalived, dnsmasq, chrony)'
