@@ -4,16 +4,24 @@ name: Nightly
 # - fresh-install: the README's steps on a clean runner, as a student follows them on Ubuntu, then a real lab on what
 #   setup prepared.
 # A failure here mails the repository's owner, so that a broken guest feature is seen the next morning, not days later.
+# A pull request that changes what a fresh install goes through runs fresh-install too.
 on:
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly.yml
+      - README.md
+      - network_labs/appliances/setup.py
+      - network_labs/appliances/guest_image.py
 permissions:
   actions: write
   contents: read
 jobs:
   real-vms:
     # tests.yml's microvm-kvm suite, started on main and followed to its end: its result is this job's.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
